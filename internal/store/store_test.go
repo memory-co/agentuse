@@ -33,7 +33,7 @@ func TestSQLiteReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.CreateRun(ctx, models.Run{ID: "r1", SessionID: "s1", Platform: "shop", Status: models.RunQueued}); err != nil {
+	if err := st.CreateRun(ctx, models.Run{ID: "r1", SessionID: "s1", Platform: "shop", Status: models.RunQueued, AgentID: "ag_1"}); err != nil {
 		t.Fatal(err)
 	}
 	st.Close()

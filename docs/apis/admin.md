@@ -18,7 +18,7 @@ Authorization: Bearer <admin_key>
 按最近更新倒序:
 
 ```json
-{"sessions": [{"id": "s_…", "platform": "shop", "thread": "issue:MUL-42", "agent_session_id": "thread_9c1", "branch": "agent/claude/MUL-42", "created_at": "…", "updated_at": "…"}]}
+{"sessions": [{"id": "s_…", "platform": "shop", "thread": "issue:MUL-42", "agent_id": "ag_…", "agent_session_id": "thread_9c1", "branch": "agent/alice-claude/MUL-42", "created_at": "…", "updated_at": "…"}]}
 ```
 
 ## GET /v1/admin/runs
@@ -27,6 +27,7 @@ Authorization: Bearer <admin_key>
 |---|---|
 | `platform` | 只看这个平台 |
 | `session` | 只看这个会话 |
+| `agent` | 只看这个 agent(`ag_…`) |
 | `status` | `queued` / `claimed` / `succeeded` / `failed` |
 | `limit` | 最多几条,默认 100 |
 

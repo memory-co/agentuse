@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/memory-co/agentuse/internal/models"
 )
@@ -26,32 +27,54 @@ func Home() string {
 // Hub 是 hub 实例的配置(hub.json)。
 type Hub struct {
 	Listen       string            `json:"listen"`        // 默认 127.0.0.1:7700
+	PublicURL    string            `json:"public_url"`    // 用户电脑访问 hub 的地址,写进接入命令;空 = 按请求推断
 	Store        string            `json:"store"`         // sqlite(默认)/ memory
 	DB           string            `json:"db"`            // sqlite 文件,默认 <home>/hub.db
 	TokenKey     string            `json:"token_key"`     // 签运行令牌的密钥
 	AdminKey     string            `json:"admin_key"`     // 管理接口的 Bearer 密钥;空 = 关闭
-	DaemonKeys   map[string]string `json:"daemon_keys"`   // daemon id → 密钥,daemon 领取运行时用
 	LeaseSeconds int               `json:"lease_seconds"` // 运行租约,默认 120
 	MaxAttempts  int               `json:"max_attempts"`  // 租约过期后最多重领几次(含第一次),默认 3
 	Platforms    []models.Platform `json:"platforms"`
 }
 
-// Daemon 是用户电脑上 daemon 的配置(daemon.json)。
+// Daemon 是用户电脑上 daemon 的配置(daemon.json)。由 agentuse connect 写,一般不用手改。
 type Daemon struct {
-	HubURL     string               `json:"hub_url"`    // 如 https://hub.alice.dev
-	ID         string               `json:"id"`         // 如 alice-mbp
-	Key        string               `json:"key"`        // 与 hub.json 的 daemon_keys[id] 一致
-	Workspaces map[string]Workspace `json:"workspaces"` // platform id → 现场
-	Driver     string               `json:"driver"`     // claude(默认)
-	Transport  string               `json:"transport"`  // ws(默认,出站 WebSocket)/ poll(HTTP 轮询)
+	Hubs      []HubConn `json:"hubs"`                // 这台电脑在各个 hub 上的设备身份,每个一条循环
+	Worktrees string    `json:"worktrees,omitempty"` // worktree 根目录,默认 <home>/worktrees
+	Transport string    `json:"transport,omitempty"` // ws(默认,出站 WebSocket)/ poll(HTTP 轮询)
 }
 
-// Workspace 是某个平台的运行落到哪个仓库。
-type Workspace struct {
-	Repo     string `json:"repo"`     // 如 ~/work/shop-api
-	BaseRef  string `json:"base_ref"` // worktree 从哪个分支切,默认 main
-	Worktree string `json:"worktree"` // worktree 根目录,默认 <home>/worktrees
+// HubConn 是这台电脑在一个 hub 上的一个设备身份(一个平台的一个主人一个)。
+type HubConn struct {
+	URL       string `json:"url"` // 如 https://agentuse.shop.example.com
+	Platform  string `json:"platform"`
+	DeviceID  string `json:"device_id"`
+	DeviceKey string `json:"device_key"`
 }
+
+// On 交回这台电脑在某个 hub 上的全部设备身份。
+func (d *Daemon) On(url string) []HubConn {
+	var out []HubConn
+	for _, h := range d.Hubs {
+		if sameURL(h.URL, url) {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// Upsert 按设备 id 加入或替换一条接入。
+func (d *Daemon) Upsert(c HubConn) {
+	for i, h := range d.Hubs {
+		if h.DeviceID == c.DeviceID {
+			d.Hubs[i] = c
+			return
+		}
+	}
+	d.Hubs = append(d.Hubs, c)
+}
+
+func sameURL(a, b string) bool { return strings.TrimRight(a, "/") == strings.TrimRight(b, "/") }
 
 // LoadHub 读 hub.json 并补默认值。
 func LoadHub(path string) (Hub, error) {
@@ -74,19 +97,37 @@ func LoadHub(path string) (Hub, error) {
 	return c, nil
 }
 
-// LoadDaemon 读 daemon.json 并补默认值。
+// LoadDaemon 读 daemon.json。
 func LoadDaemon(path string) (Daemon, error) {
 	var c Daemon
 	if err := readJSON(path, &c); err != nil {
 		return c, err
 	}
-	if c.HubURL == "" || c.ID == "" || c.Key == "" {
-		return c, errors.New("config: daemon.json needs hub_url, id and key")
+	if len(c.Hubs) == 0 {
+		return c, errors.New("config: daemon.json has no hubs; run `agentuse connect` first")
 	}
-	if c.Driver == "" {
-		c.Driver = "claude"
+	for _, h := range c.Hubs {
+		if h.URL == "" || h.DeviceID == "" || h.DeviceKey == "" {
+			return c, errors.New("config: every hub in daemon.json needs url, device_id and device_key")
+		}
 	}
 	return c, nil
+}
+
+// SaveDaemon 写 daemon.json(0600,里面有设备密钥)。
+func SaveDaemon(path string, c Daemon) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func readJSON(path string, v any) error {

@@ -4,7 +4,7 @@ agentuse 是 [AgentHub 设想](https://twwy.net/blog/agenthub-comment-box-for-ag
 
 **定位**:agentuse 是平台侧的中间件,hub 像平台自己管的 Redis 实例;平台用户一条命令把自己的电脑接进来。见 [designs/README.md §2](designs/README.md#2-定位平台侧管理的实例)。
 
-**接入**:[onboarding.md](onboarding.md) 一步步走到第一个 @claude(按现有实现写;一条命令接入实施后会按 [designs/connect.md](designs/connect.md) 重写)。
+**接入**:[onboarding.md](onboarding.md) 一步步走到第一个 `@alice-claude`:运维起 hub → 平台替用户建 agent → 用户在自己仓库里跑 `agentuse connect` → `agentuse daemon start`。安装脚本、开机自启等还没做,见 [designs/connect.md](designs/connect.md) 和 [designs/roadmap.md](designs/roadmap.md)。
 
 三个目录各管一件事:
 

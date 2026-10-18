@@ -10,6 +10,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/memory-co/agentuse/internal/models"
 	"github.com/memory-co/agentuse/internal/store"
 )
 
@@ -28,17 +29,14 @@ type Message struct {
 	Claimed *Claimed `json:"claimed,omitempty"`
 }
 
-func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
-	id, ok := s.daemonID(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
+func (s *Server) connect(w http.ResponseWriter, r *http.Request, d models.Device) {
+	id := d.ID
 	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}
 	defer c.CloseNow()
+	defer s.hub.Attach(id)()
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -70,24 +68,31 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 		claimed, err := s.waitForRun(ctx, c, id)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
-				log.Printf("daemon %s: %v", id, err)
+				log.Printf("device %s: %v", id, err)
 			}
 			return
 		}
 		if err := wsjson.Write(ctx, c, Message{Type: "run", Claimed: &claimed}); err != nil {
-			log.Printf("daemon %s: push %s: %v (lease will expire)", id, claimed.Run.ID, err)
+			log.Printf("device %s: push %s: %v (lease will expire)", id, claimed.Run.ID, err)
 			return
 		}
 	}
 }
 
-// waitForRun 一直等到替 daemon 领到一条运行;空闲期间每 PingInterval 发一次 ping。
-func (s *Server) waitForRun(ctx context.Context, c *websocket.Conn, daemonID string) (Claimed, error) {
+// errRevoked 表示设备在连着的时候被吊销了。
+var errRevoked = errors.New("device revoked")
+
+// waitForRun 一直等到替设备领到一条运行;空闲期间每 PingInterval 发一次 ping。
+func (s *Server) waitForRun(ctx context.Context, c *websocket.Conn, deviceID string) (Claimed, error) {
 	t := time.NewTicker(PingInterval)
 	defer t.Stop()
 	for {
 		changed := s.hub.Changed() // 先取通道再领,避免错过两者之间的变动
-		claimed, err := s.hub.Claim(ctx, daemonID)
+		if s.hub.Revoked(ctx, deviceID) {
+			c.Close(websocket.StatusPolicyViolation, "device revoked")
+			return Claimed{}, errRevoked
+		}
+		claimed, err := s.hub.Claim(ctx, deviceID)
 		if err == nil {
 			return claimed, nil
 		}

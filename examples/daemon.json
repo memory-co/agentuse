@@ -1,11 +1,11 @@
 {
-  "hub_url": "http://127.0.0.1:7700",
-  "id": "alice-mbp",
-  "key": "change-me-daemon-key",
-  "driver": "claude",
-  "transport": "ws",
-  "workspaces": {
-    "shop": { "repo": "~/work/shop-api", "base_ref": "main" },
-    "blog": {}
-  }
+  "hubs": [
+    {
+      "url": "https://agentuse.shop.example.com",
+      "platform": "shop",
+      "device_id": "dv_written_by_agentuse_connect",
+      "device_key": "dk_written_by_agentuse_connect"
+    }
+  ],
+  "transport": "ws"
 }

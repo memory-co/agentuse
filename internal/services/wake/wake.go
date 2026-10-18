@@ -1,4 +1,4 @@
-// Package wake 是唤醒判定:这条评论是不是在叫 agent,叫醒者有没有资格。
+// Package wake 是唤醒判定:这条评论 @ 了哪些 agent,叫醒者有没有资格叫醒每一个。
 package wake
 
 import (
@@ -13,18 +13,19 @@ type Reason string
 
 const (
 	Woken       Reason = "woken"
-	SelfComment Reason = "self_comment" // agent 自己发的评论,防自触发
-	NoMention   Reason = "no_mention"
-	RoleDenied  Reason = "role_denied"
+	SelfComment Reason = "self_comment" // 某个 agent 自己发的评论,防自触发 / 互相触发
+	NoMention   Reason = "no_mention"   // 没有 @ 到这个平台上的任何 agent
+	NotOwner    Reason = "not_owner"    // agent 只让主人叫醒(wake=owner),叫醒者不是主人
+	RoleDenied  Reason = "role_denied"  // wake=members,但叫醒者的角色不在平台的 wake_roles 里
 )
 
-// Decide 判断 comment 是否唤醒 policy 描述的 agent。
-func Decide(p models.Policy, c models.Comment) (bool, Reason) {
-	if p.AgentUserID != "" && c.Author.ID == p.AgentUserID {
-		return false, SelfComment
+// Decide 判断 comment 能否唤醒被 @ 到的 agent a。调用方已经确认评论 @ 了它、作者不是任何 agent。
+func Decide(p models.Policy, a models.Agent, c models.Comment) (bool, Reason) {
+	if c.Author.ID == a.Owner {
+		return true, Woken
 	}
-	if !Mentions(c.Text, p.AgentName) {
-		return false, NoMention
+	if a.Wake != models.WakeMembers {
+		return false, NotOwner
 	}
 	if !models.Has(p.WakeRoles, c.Author.Role) {
 		return false, RoleDenied
@@ -32,11 +33,19 @@ func Decide(p models.Policy, c models.Comment) (bool, Reason) {
 	return true, Woken
 }
 
-// Mentions 报告 text 里是否有独立的 @name(@claude 算,@claudette 和 a@claude 不算)。
-func Mentions(text, name string) bool {
-	if name == "" {
-		return false
+var mentionRe = regexp.MustCompile(`(^|[^\w@])@([a-z0-9][a-z0-9_-]*)`)
+
+// Handles 交回 text 里独立 @ 到的名字,小写、去重、按出现顺序。
+// @alice-claude 算;a@claude.dev(邮箱)不算;末尾的 - 和 _ 不算进名字。
+func Handles(text string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range mentionRe.FindAllStringSubmatch(strings.ToLower(text), -1) {
+		h := strings.TrimRight(m[2], "-_")
+		if h != "" && !seen[h] {
+			seen[h] = true
+			out = append(out, h)
+		}
 	}
-	re := regexp.MustCompile(`(^|[^\w@])@` + regexp.QuoteMeta(strings.ToLower(name)) + `\b`)
-	return re.MatchString(strings.ToLower(text))
+	return out
 }

@@ -23,7 +23,7 @@ Authorization: Bearer $AGENTUSE_TOKEN
 需要动作 `reply`。
 
 ```json
-{"text": "已修复,见分支 agent/claude/MUL-42"}
+{"text": "已修复,见分支 agent/alice-claude/MUL-42"}
 ```
 
 **200** `{}`:平台已经收下回调。
