@@ -14,7 +14,7 @@
 
 ## 状态
 
-骨架:评论 → 唤醒 → 排队 → 领取 → 回复 / 改状态 → 回调平台,全链路可跑、有端到端测试。存储是内存的,daemon 走 HTTP 轮询;后续见 [roadmap](docs/designs/roadmap.md)。
+评论 → 唤醒 → 排队 → 领取 → 回复 / 改状态 → 回调平台,全链路可跑、有端到端测试。会话表和运行队列存在 SQLite(`~/.agentuse/hub.db`);daemon 用出站 WebSocket 接 hub 推送的运行,跑的时候每 15 秒心跳续租,掉线的运行到期自动回收重排;同一线程的运行严格串行。还没做的见 [roadmap](docs/designs/roadmap.md)。
 
 ## 用起来
 
@@ -36,6 +36,12 @@ agentuse daemon start
 hub := sdk.New(os.Getenv("AGENTUSE_URL"), "shop", os.Getenv("AGENTUSE_SECRET"))
 hub.Notify(ctx, sdk.Comment{ID: c.ID, Thread: "issue:MUL-42", Author: sdk.Author{ID: u.ID, Name: u.Name, Role: "member"}, Text: c.Body})
 http.Handle("/agentuse/callback", hub.Handler(func(ctx context.Context, ev sdk.Event) error { /* 写评论 / 改状态 */ return nil }))
+```
+
+实例主人查看:
+
+```bash
+AGENTUSE_URL=https://hub.alice.dev AGENTUSE_ADMIN_KEY=… agentuse admin runs -status claimed
 ```
 
 agent 在运行里:
@@ -62,7 +68,7 @@ internal/
 ├── models/          数据结构
 ├── hub/             hub 业务 + HTTP 接口
 ├── services/        wake(唤醒判定)/ token(运行令牌)/ callback(回调平台)
-├── store/           会话表与运行队列(接口 + 内存实现)
+├── store/           会话表与运行队列(接口 + SQLite / 内存实现,共用一套行为测试)
 └── daemon/          领取循环、worktree 现场、CLI 驱动、提示词
 pkg/
 ├── signature/       平台 ⇄ hub 签名

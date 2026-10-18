@@ -19,7 +19,7 @@ type Sender interface {
 	Send(ctx context.Context, p models.Platform, ev models.Event) error
 }
 
-// HTTPSender 是默认实现:POST JSON 到 Platform.CallbackURL,用 Platform.Secret 签名。
+// HTTPSender 是默认实现:POST JSON 到 Platform.CallbackURL,用 Platform.OutboundSecret() 签名。
 type HTTPSender struct {
 	Client *http.Client
 }
@@ -38,7 +38,7 @@ func (s *HTTPSender) Send(ctx context.Context, p models.Platform, ev models.Even
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	signature.SetHeaders(req.Header, p.Secret, body, time.Now())
+	signature.SetHeaders(req.Header, p.OutboundSecret(), body, time.Now())
 	resp, err := s.Client.Do(req)
 	if err != nil {
 		return err

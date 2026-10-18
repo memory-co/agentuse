@@ -64,10 +64,20 @@ type Policy struct {
 
 // Platform 是接入 hub 的一个平台。
 type Platform struct {
-	ID          string `json:"id"`           // 如 shop-issues
-	Secret      string `json:"secret"`       // 平台与 hub 约定的密钥,双向签名都用它
-	CallbackURL string `json:"callback_url"` // 平台挂 hub.handler 的地址,如 https://x/agenthub/callback
-	Policy      Policy `json:"policy"`
+	ID     string `json:"id"`     // 如 shop-issues
+	Secret string `json:"secret"` // 平台签 notify 用的密钥
+	// CallbackSecret 是 hub 签回调用的密钥;空 = 沿用 Secret。拆开后平台泄露一把不至于两个方向都失守。
+	CallbackSecret string `json:"callback_secret,omitempty"`
+	CallbackURL    string `json:"callback_url"` // 平台挂 hub.handler 的地址,如 https://x/agenthub/callback
+	Policy         Policy `json:"policy"`
+}
+
+// OutboundSecret 是 hub 回调这个平台时签名用的密钥。
+func (p Platform) OutboundSecret() string {
+	if p.CallbackSecret != "" {
+		return p.CallbackSecret
+	}
+	return p.Secret
 }
 
 // Session 是线程键到 agent 会话的映射。同一线程后续评论续接同一会话。
@@ -102,7 +112,9 @@ type Run struct {
 	Actions       []Action      `json:"actions"`
 	WorkspaceMode WorkspaceMode `json:"workspace_mode"`
 	Status        RunStatus     `json:"status"`
+	Attempts      int           `json:"attempts"` // 被领取过几次;租约过期回到队列后再领取会 +1
 	DaemonID      string        `json:"daemon_id,omitempty"`
+	LeaseUntil    *time.Time    `json:"lease_until,omitempty"` // claimed 时的租约,daemon 心跳续期,过期即回收
 	Error         string        `json:"error,omitempty"`
 	CreatedAt     time.Time     `json:"created_at"`
 	ClaimedAt     *time.Time    `json:"claimed_at,omitempty"`

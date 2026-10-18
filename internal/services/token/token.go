@@ -30,6 +30,7 @@ var (
 // Claims 是令牌携带的范围。
 type Claims struct {
 	RunID     string          `json:"run"`
+	Attempt   int             `json:"attempt"` // 第几次领取;运行被回收重领后,旧令牌作废
 	Platform  string          `json:"platform"`
 	Thread    string          `json:"thread"`
 	Actions   []models.Action `json:"actions"`
@@ -54,6 +55,7 @@ func (i *Issuer) Issue(run models.Run, ttl time.Duration) (string, error) {
 	}
 	payload, err := json.Marshal(Claims{
 		RunID:     run.ID,
+		Attempt:   run.Attempts,
 		Platform:  run.Platform,
 		Thread:    run.Thread,
 		Actions:   run.Actions,

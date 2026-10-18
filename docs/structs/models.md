@@ -7,7 +7,8 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | string | 平台 id,出现在 notify 路径里,如 `shop` |
-| `secret` | string | 平台与 hub 约定的密钥;进出两个方向的签名都用它 |
+| `secret` | string | 平台与 hub 约定的密钥;验 notify 用 |
+| `callback_secret` | string | 可选:hub 签回调用的密钥;空 = 沿用 `secret` |
 | `callback_url` | string | 平台挂回调的地址,如 `https://shop.example.com/agentuse/callback` |
 | `policy` | [Policy](#policy) | 策略 |
 
@@ -68,8 +69,10 @@ notify 的请求体是 Comment 加一个可选的 `context: Comment[]`(同一线
 | `actions` | Action[] | 建运行时从策略拷过来,之后改策略不影响已排队的运行 |
 | `workspace_mode` | string | 同上 |
 | `status` | `queued` \| `claimed` \| `succeeded` \| `failed` | |
-| `daemon_id` | string | 领取它的 daemon |
-| `error` | string | 失败原因 |
+| `attempts` | int | 被领取过几次;每次领取 +1,租约过期回收后再领取继续加 |
+| `daemon_id` | string | 当前持有它的 daemon(回收后清空) |
+| `lease_until` | RFC 3339 | claimed 时的租约到期时间;心跳续期,过期即回收 |
+| `error` | string | 失败原因;租约用完是 `lease expired` |
 | `created_at` / `claimed_at` / `finished_at` | RFC 3339 | |
 
 ## RunToken
@@ -79,6 +82,7 @@ notify 的请求体是 Comment 加一个可选的 `context: Comment[]`(同一线
 | 字段 | 说明 |
 |---|---|
 | `run` | 运行 id |
+| `attempt` | 第几次领取;和运行当前的 `attempts` 不一致就拒绝写回 |
 | `platform` / `thread` | 范围 |
 | `actions` | 允许的动作 |
 | `exp` | 过期时间(unix 秒),最长签发后 24 小时 |

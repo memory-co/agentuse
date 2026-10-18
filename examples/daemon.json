@@ -3,6 +3,7 @@
   "id": "alice-mbp",
   "key": "change-me-daemon-key",
   "driver": "claude",
+  "transport": "ws",
   "workspaces": {
     "shop": { "repo": "~/work/shop-api", "base_ref": "main" },
     "blog": {}

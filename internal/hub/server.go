@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,14 +21,20 @@ const HeaderDaemon = "X-AgentUse-Daemon"
 
 const maxBody = 1 << 20
 
-// Server 是 hub 的 HTTP 接口,端点见 docs/apis/。
-type Server struct {
-	hub        *Hub
-	daemonKeys map[string]string
+// ServerConfig 是 HTTP 接口的认证配置。
+type ServerConfig struct {
+	DaemonKeys map[string]string // daemon id → 密钥
+	AdminKey   string            // 管理接口的 Bearer 密钥;空 = 关闭管理接口
 }
 
-func NewServer(h *Hub, daemonKeys map[string]string) *Server {
-	return &Server{hub: h, daemonKeys: daemonKeys}
+// Server 是 hub 的 HTTP 接口,端点见 docs/apis/。
+type Server struct {
+	hub *Hub
+	cfg ServerConfig
+}
+
+func NewServer(h *Hub, cfg ServerConfig) *Server {
+	return &Server{hub: h, cfg: cfg}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -38,13 +45,19 @@ func (s *Server) Handler() http.Handler {
 	// 平台 → hub
 	mux.HandleFunc("POST /v1/platforms/{platform}/notify", s.notify)
 	// daemon → hub
+	mux.HandleFunc("GET /v1/daemon/connect", s.connect)
 	mux.HandleFunc("POST /v1/daemon/claim", s.claim)
+	mux.HandleFunc("POST /v1/runs/{run}/heartbeat", s.heartbeat)
 	mux.HandleFunc("POST /v1/runs/{run}/complete", s.complete)
 	// agent → hub(运行令牌)
 	mux.HandleFunc("GET /v1/run", s.runInfo)
 	mux.HandleFunc("POST /v1/run/reply", s.write(models.EventReply))
 	mux.HandleFunc("POST /v1/run/status", s.write(models.EventStatus))
 	mux.HandleFunc("POST /v1/run/activity", s.write(models.EventActivity))
+	// 实例主人(管理密钥)
+	mux.HandleFunc("GET /v1/admin/sessions", s.admin(s.listSessions))
+	mux.HandleFunc("GET /v1/admin/runs", s.admin(s.listRuns))
+	mux.HandleFunc("GET /v1/admin/runs/{run}", s.admin(s.getRun))
 	return mux
 }
 
@@ -82,7 +95,7 @@ func (s *Server) notify(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) daemonID(r *http.Request) (string, bool) {
 	id := r.Header.Get(HeaderDaemon)
-	key, ok := s.daemonKeys[id]
+	key, ok := s.cfg.DaemonKeys[id]
 	if id == "" || !ok {
 		return "", false
 	}
@@ -108,6 +121,23 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, c)
 }
 
+func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.daemonID(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var body struct {
+		Attempt int `json:"attempt"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxBody)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_body")
+		return
+	}
+	run, err := s.hub.Heartbeat(r.Context(), r.PathValue("run"), id, body.Attempt)
+	writeRunResult(w, run, err)
+}
+
 func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.daemonID(r)
 	if !ok {
@@ -121,6 +151,10 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	}
 	c.DaemonID = id
 	run, err := s.hub.Complete(r.Context(), r.PathValue("run"), c)
+	writeRunResult(w, run, err)
+}
+
+func writeRunResult(w http.ResponseWriter, run models.Run, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
@@ -131,6 +165,51 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusOK, run)
 	}
+}
+
+func (s *Server) admin(fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		got := bearer(r)
+		if s.cfg.AdminKey == "" || got == "" || subtle.ConstantTimeCompare([]byte(got), []byte(s.cfg.AdminKey)) != 1 {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		fn(w, r)
+	}
+}
+
+func queryLimit(r *http.Request) int {
+	n, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	return n
+}
+
+func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
+	out, err := s.hub.Sessions(r.Context(), r.URL.Query().Get("platform"), queryLimit(r))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
+}
+
+func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	out, err := s.hub.Runs(r.Context(), store.RunFilter{
+		Platform:  q.Get("platform"),
+		SessionID: q.Get("session"),
+		Status:    models.RunStatus(q.Get("status")),
+		Limit:     queryLimit(r),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"runs": out})
+}
+
+func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
+	run, err := s.hub.Run(r.Context(), r.PathValue("run"))
+	writeRunResult(w, run, err)
 }
 
 func (s *Server) claims(w http.ResponseWriter, r *http.Request) (token.Claims, bool) {

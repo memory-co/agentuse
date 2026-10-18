@@ -3,6 +3,7 @@
 //	实例主人:agentuse hub start
 //	用户电脑:agentuse daemon start
 //	agent 自己(带 AGENTUSE_TOKEN):agentuse reply / status / activity / run
+//	实例主人查看:agentuse admin sessions / runs / run <id>
 package cli
 
 import (
@@ -14,9 +15,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -41,6 +44,7 @@ const usage = `agentuse —— 让任意平台的评论区 @ 到用户自己电�
   agentuse status <状态>                                    (agent 用)改线程对象的状态
   agentuse activity <thought|action|elicitation|response|error> <文本>   (agent 用)报进度
   agentuse run                                              (agent 用)看这次运行的令牌范围
+  agentuse admin sessions|runs|run <id> [-platform -status -session -limit]   (实例主人)查看会话 / 运行
   agentuse version
 `
 
@@ -64,6 +68,8 @@ func Main(args []string) int {
 		err = activity(args[1:])
 	case "run":
 		err = runInfo()
+	case "admin":
+		err = admin(args[1:])
 	case "version":
 		fmt.Println(Version)
 	case "help", "-h", "--help":
@@ -100,22 +106,46 @@ func hubStart(args []string) error {
 	if err != nil {
 		return err
 	}
-	h := hub.New(cfg.Platforms, store.NewMemory(), token.NewIssuer([]byte(cfg.TokenKey)), callback.NewHTTPSender())
-	srv := &http.Server{Addr: cfg.Listen, Handler: hub.NewServer(h, cfg.DaemonKeys).Handler(), ReadHeaderTimeout: 10 * time.Second}
+	st, err := openStore(cfg)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	h := hub.New(cfg.Platforms, st, token.NewIssuer([]byte(cfg.TokenKey)), callback.NewHTTPSender(), hub.Options{
+		LeaseTTL:    time.Duration(cfg.LeaseSeconds) * time.Second,
+		MaxAttempts: cfg.MaxAttempts,
+	})
+	handler := hub.NewServer(h, hub.ServerConfig{DaemonKeys: cfg.DaemonKeys, AdminKey: cfg.AdminKey}).Handler()
+	srv := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 
 	ctx, stop := signalContext()
 	defer stop()
+	go h.RunReaper(ctx, 10*time.Second)
 	go func() {
 		<-ctx.Done()
 		shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shut)
 	}()
-	fmt.Fprintf(os.Stderr, "agentuse hub listening on %s (%d platforms)\n", cfg.Listen, len(cfg.Platforms))
+	fmt.Fprintf(os.Stderr, "agentuse hub listening on %s (%d platforms, store %s)\n", cfg.Listen, len(cfg.Platforms), cfg.Store)
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+func openStore(cfg config.Hub) (store.Store, error) {
+	switch cfg.Store {
+	case "memory":
+		return store.NewMemory(), nil
+	case "sqlite":
+		if err := os.MkdirAll(filepath.Dir(cfg.DB), 0o700); err != nil {
+			return nil, err
+		}
+		return store.OpenSQLite(cfg.DB)
+	default:
+		return nil, fmt.Errorf("unknown store %q (sqlite / memory)", cfg.Store)
+	}
 }
 
 func daemonStart(args []string) error {
@@ -134,10 +164,73 @@ func daemonStart(args []string) error {
 	}
 	ctx, stop := signalContext()
 	defer stop()
-	fmt.Fprintf(os.Stderr, "agentuse daemon %s → %s\n", cfg.ID, cfg.HubURL)
+	fmt.Fprintf(os.Stderr, "agentuse daemon %s → %s (%s)\n", cfg.ID, cfg.HubURL, transportName(cfg.Transport))
 	if err := d.Run(ctx); !errors.Is(err, context.Canceled) {
 		return err
 	}
+	return nil
+}
+
+func transportName(t string) string {
+	if t == "" {
+		return "ws"
+	}
+	return t
+}
+
+// admin 是实例主人的只读查询:AGENTUSE_URL + AGENTUSE_ADMIN_KEY(或 -hub / -key)。
+func admin(args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: agentuse admin sessions|runs|run <id>")
+	}
+	fs := flag.NewFlagSet("admin "+args[0], flag.ContinueOnError)
+	base := fs.String("hub", os.Getenv("AGENTUSE_URL"), "hub 地址")
+	key := fs.String("key", os.Getenv("AGENTUSE_ADMIN_KEY"), "管理密钥(hub.json 的 admin_key)")
+	platform := fs.String("platform", "", "只看这个平台")
+	status := fs.String("status", "", "只看这个状态(runs)")
+	session := fs.String("session", "", "只看这个会话(runs)")
+	limit := fs.Int("limit", 0, "最多几条(默认 100)")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *base == "" || *key == "" {
+		return errors.New("need -hub and -key (or AGENTUSE_URL / AGENTUSE_ADMIN_KEY)")
+	}
+	q := url.Values{}
+	for k, v := range map[string]string{"platform": *platform, "status": *status, "session": *session} {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
+	if *limit > 0 {
+		q.Set("limit", strconv.Itoa(*limit))
+	}
+	var path string
+	switch args[0] {
+	case "sessions":
+		path = "/v1/admin/sessions"
+	case "runs":
+		path = "/v1/admin/runs"
+	case "run":
+		if fs.NArg() != 1 {
+			return errors.New("usage: agentuse admin run <id>")
+		}
+		path = "/v1/admin/runs/" + url.PathEscape(fs.Arg(0))
+	default:
+		return fmt.Errorf("unknown admin command %q", args[0])
+	}
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out json.RawMessage
+	if err := call(*base, *key, http.MethodGet, path, nil, &out); err != nil {
+		return err
+	}
+	var pretty bytes.Buffer
+	if json.Indent(&pretty, out, "", "  ") != nil {
+		pretty.Write(out)
+	}
+	fmt.Println(pretty.String())
 	return nil
 }
 
@@ -185,6 +278,10 @@ func agentCall(method, path string, in, out any) error {
 	if base == "" || tok == "" {
 		return errors.New("AGENTUSE_URL / AGENTUSE_TOKEN not set (only available inside a run)")
 	}
+	return call(base, tok, method, path, in, out)
+}
+
+func call(base, tok, method, path string, in, out any) error {
 	var body io.Reader = http.NoBody
 	if in != nil {
 		b, err := json.Marshal(in)

@@ -1,6 +1,6 @@
 # agentuse —— 总设计
 
-> **状态:骨架已实施。** hub 的 notify → 唤醒 → 会话 → 排队 → 领取 → 令牌 → 写回全链路可跑(内存存储);daemon 走 HTTP 轮询,WebSocket 与持久化存储留待后续。
+> **状态:已实施。** notify → 唤醒 → 会话 → 排队 → 领取 → 令牌 → 写回全链路可跑;会话表与运行队列在 SQLite;daemon 走出站 WebSocket(可退回 HTTP 轮询),运行有租约,掉线自动回收;同一线程的运行串行。还没做的见 [roadmap.md](roadmap.md)。
 >
 > 分篇:[hub.md](hub.md)(hub 实例:会话表、运行队列、策略)、[identity.md](identity.md)(身份三段式:进来验平台签名、中间用运行令牌、出去验 hub 签名)、[wake-and-trust.md](wake-and-trust.md)(谁能唤醒 vs 谁的话只是材料)、[daemon.md](daemon.md)(用户电脑上的 daemon:连接、驱动 CLI、现场)、[roadmap.md](roadmap.md)(还没做的事)。
 
@@ -53,11 +53,11 @@
 
 1. bob 在 MUL-42 评论「@claude 退款金额算错了」,平台存库后 `POST /v1/platforms/shop/notify`,用平台密钥签名。
 2. hub 验签 → 唤醒判定(提到了 @claude、bob 是 member、不是 agent 自己)→ 找线程 `issue:MUL-42` 的会话,没有就建 `s_…`,分支 `agent/claude/MUL-42` → 排一条运行 `r_…`(queued),把线程里其它评论按策略标成可信 / 不可信材料。
-3. alice 电脑上的 daemon 领到 `r_…`(claimed),同时拿到只给这次运行的令牌 `aut_…`。
+3. alice 电脑上的 daemon 早就连着 hub 的 WebSocket 等着;hub 替它领下 `r_…`(claimed,第 1 次,租约 2 分钟)推过去,附上只给这次运行的令牌 `aut_…`。
 4. daemon 在 `~/work/shop-api` 上为会话准备 worktree,把令牌注入 `AGENTUSE_TOKEN`,用 `claude -p` 启动(会话已有 agent session id 则 `--resume`)。
-5. agent 改代码、推分支,然后 `agentuse reply "…"`、`agentuse status in_review`。
-6. hub 校验令牌(线程对得上、动作在范围内、运行还在进行),用 hub 签名回调平台;平台写评论、改状态。
-7. agent 退出,daemon `complete`,并把 agent 的 session id 回填到会话,下一条评论续接同一会话。
+5. agent 改代码、推分支,然后 `agentuse reply "…"`、`agentuse status in_review`。这期间 daemon 每 15 秒心跳续租;daemon 崩了或断网,租约到期后运行回到队列,别的 daemon 重领,旧令牌作废。
+6. hub 校验令牌(线程对得上、动作在范围内、运行还在进行且是这一次领取),用 hub 签名回调平台;平台写评论、改状态。
+7. agent 退出,daemon `complete`,并把 agent 的 session id 回填到会话,下一条评论续接同一会话。同一线程排着的下一条运行此时才能被领取。
 
 ## 5. 成本与可替换性
 
@@ -74,13 +74,13 @@ internal/
 ├── cli/                 命令行:hub start / daemon start / reply / status / activity / run
 ├── config/              hub.json、daemon.json
 ├── models/              数据结构(对应 docs/structs)
-├── hub/                 hub 业务(hub.go)+ HTTP 接口(server.go)
+├── hub/                 hub 业务(hub.go)+ HTTP 接口(server.go)+ daemon 推送连接(connect.go)
 ├── services/
 │   ├── wake/            唤醒判定
 │   ├── token/           运行令牌
 │   └── callback/        hub → 平台回调
-├── store/               会话表与运行队列(接口 + 内存实现)
-└── daemon/              领取循环、worktree 现场、驱动、提示词
+├── store/               会话表与运行队列(接口 + SQLite / 内存实现;storetest 是共用的行为测试)
+└── daemon/              领取循环(WebSocket / 轮询)、心跳、worktree 现场、驱动、提示词
 pkg/
 ├── signature/           平台 ⇄ hub 的 HMAC 签名(公开,其它语言照此实现)
 └── sdk/                 平台侧 Go SDK:Notify + Handler

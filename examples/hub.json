@@ -1,6 +1,10 @@
 {
   "listen": "127.0.0.1:7700",
+  "store": "sqlite",
   "token_key": "change-me-to-a-long-random-string",
+  "admin_key": "change-me-admin-key",
+  "lease_seconds": 120,
+  "max_attempts": 3,
   "daemon_keys": {
     "alice-mbp": "change-me-daemon-key"
   },
