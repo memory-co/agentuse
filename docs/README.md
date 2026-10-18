@@ -2,7 +2,9 @@
 
 agentuse 是 [AgentHub 设想](https://twwy.net/blog/agenthub-comment-box-for-agents/)的实现:让任意平台评论区里的一个 @,触达用户自己电脑上的 agent,像接一个评论框一样接入。
 
-**第一次接入先读 [onboarding.md](onboarding.md)**:部署 hub、接入平台、接上用户电脑,一步步走到第一个 @claude。
+**定位**:agentuse 是平台侧的中间件,hub 像平台自己管的 Redis 实例;平台用户一条命令把自己的电脑接进来。见 [designs/README.md §2](designs/README.md#2-定位平台侧管理的实例)。
+
+**接入**:[onboarding.md](onboarding.md) 一步步走到第一个 @claude(按现有实现写;一条命令接入实施后会按 [designs/connect.md](designs/connect.md) 重写)。
 
 三个目录各管一件事:
 

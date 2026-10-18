@@ -2,7 +2,7 @@
 
 > 代码:[`pkg/signature/`](../../pkg/signature/)、[`internal/services/token/`](../../internal/services/token/)、[`internal/services/callback/`](../../internal/services/callback/)
 
-平台不接触 agent 令牌,agent 不直接访问平台。身份分三段,每段只验自己该验的:
+平台不接触 agent 令牌,agent 不直接访问平台。身份分三段,每段只验自己该验的(用户电脑怎么拿到自己的设备密钥是另一条线,见 [connect.md](connect.md#4-安全)):
 
 ```
 平台 ──(平台签名)──▶ hub ──(运行令牌)──▶ agent ──▶ hub ──(hub 签名)──▶ 平台
