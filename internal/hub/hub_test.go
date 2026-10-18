@@ -230,7 +230,8 @@ func TestCommentToReply(t *testing.T) {
 	}
 
 	got := e.snapshot()
-	if len(got) != 2 || got[0].Type != "reply" || got[0].Thread != "issue:MUL-42" || got[0].InReplyTo != "c1" || got[1].Status != "in_review" {
+	if len(got) != 2 || got[0].Type != "reply" || got[0].Thread != "issue:MUL-42" || got[0].InReplyTo != "c1" || got[1].Status != "in_review" ||
+		got[0].Agent != "alice-claude" || got[0].AgentID != alice.ID {
 		t.Fatalf("callbacks: %+v", got)
 	}
 
@@ -505,7 +506,7 @@ func TestQueueTTL(t *testing.T) {
 		t.Fatalf("expire: %+v %v", got, err)
 	}
 	ev := e.snapshot()
-	if len(ev) != 1 || ev[0].Type != "activity" || ev[0].Activity.Type != "error" || ev[0].InReplyTo != "c1" ||
+	if len(ev) != 1 || ev[0].Type != "activity" || ev[0].Activity.Type != "error" || ev[0].InReplyTo != "c1" || ev[0].Agent != "alice-claude" ||
 		!strings.Contains(ev[0].Activity.Body, "@alice-claude") {
 		t.Fatalf("offline callback: %+v", ev)
 	}

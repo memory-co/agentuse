@@ -164,6 +164,8 @@ type Event struct {
 	Platform  string    `json:"platform"`
 	Thread    string    `json:"thread"`
 	RunID     string    `json:"run_id"`
+	AgentID   string    `json:"agent_id"`              // 哪个 agent 的运行
+	Agent     string    `json:"agent"`                 // 它的 handle;平台据此选用哪个应用用户写回复
 	InReplyTo string    `json:"in_reply_to,omitempty"` // 叫醒评论的 id
 	Text      string    `json:"text,omitempty"`        // reply
 	Status    string    `json:"status,omitempty"`      // status,如 in_review

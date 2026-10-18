@@ -17,21 +17,24 @@ daemon **主动连出** hub,所以用户电脑在 NAT 后面也没关系,平台�
 
 **心跳和交回总是走 HTTP**(`/v1/runs/{run}/heartbeat`、`/complete`):它们幂等、可重试,不依赖推送连接还在。推送连接只负责「有活马上推」;如果推出去的一瞬间连接断了,那条运行靠租约过期回收。
 
-daemon 用 `X-AgentUse-Daemon: <id>` + `Authorization: Bearer <key>` 认证。现在 id 与 key 在 hub.json 的 `daemon_keys` 里手工登记;改成平台侧实例之后,它们换成**设备 id + 设备密钥**,由用户跑安装命令时自动登记,不再有人手写([connect.md](connect.md))。领取时 hub 只给这台设备上绑定的 agent 的运行([accounts.md §4](accounts.md#4-运行只派给主人的设备))。
+daemon 用 `X-AgentUse-Device: <设备 id>` + `Authorization: Bearer <设备密钥>` 认证。设备 id 和密钥由用户跑 `agentuse connect` 兑换接入码时自动登记、写进 daemon.json,不用人手写([connect.md](connect.md))。领取时 hub 只给这台设备上绑定的 agent 的运行([accounts.md §4](accounts.md#4-运行只派给主人的设备))。
+
+daemon.json 的 `hubs` 里每一条(一个 hub 上的一台设备)起一个独立的循环,并行跑;同一台电脑接了两个平台,就是两条循环、两条连接。
 
 ## 2. 现场
 
 每个会话一个 git worktree:
 
 - 位置:`<worktree 根>/<platform>/<session id>`,根默认 `~/.agentuse/worktrees`;
-- 仓库:现在是 daemon.json 里 `workspaces[platform].repo`,如 `~/work/shop-api`;改成平台侧实例之后,是 agent 接入时绑定的那个目录(用户跑安装命令的目录),记在 hub 的 agent 上,daemon.json 不用手写;
-- 分支:会话的 `branch`(`agent/claude/MUL-42`),第一次从 `base_ref`(默认 `main`)切出;
+- 位置的根可以用 daemon.json 的 `worktrees` 改;
+- 仓库:agent 接入时绑定的目录(`agent.workdir`,用户跑 `agentuse connect` 的那个仓库的根),记在 hub 的 agent 上,随领到的运行一起下发(`claimed.agent`),daemon.json 里不配;
+- 分支:会话的 `branch`(`agent/alice-claude/MUL-42`),第一次从 `agent.base_ref`(默认 `main`)切出;
 - 同一会话的后续运行复用同一个 worktree,现场接着上次;
-- 没配仓库的平台(如博客问答)给一个空目录。
+- agent 没有工作目录时给一个空目录。
 
 ## 3. 驱动 CLI
 
-`Driver` 接口把交互式 agent CLI 变成可被程序调用的。现在只有 Claude Code:
+`Driver` 接口把交互式 agent CLI 变成可被程序调用的。用哪个驱动看领到的 `agent.driver`;现在只有 Claude Code:
 
 ```
 claude -p <提示词> --output-format stream-json --verbose \
@@ -40,7 +43,7 @@ claude -p <提示词> --output-format stream-json --verbose \
 
 - 环境变量注入 `AGENTUSE_URL`、`AGENTUSE_TOKEN`;
 - 从 stream-json 里读 `session_id`,complete 时交回 hub 回填到会话;
-- 提示词的写法见 [wake-and-trust.md §4](wake-and-trust.md#4-提示词里怎么摆)。
+- 提示词的写法见 [wake-and-trust.md §5](wake-and-trust.md#5-提示词里怎么摆)。
 
 Codex(app-server)等其它驱动按同一接口加。
 
@@ -53,6 +56,6 @@ for {
 }
 ```
 
-- 一次只跑一条运行。要并行就在同一台或多台机器上多起几个 daemon(不同 id);同一线程的运行由 hub 保证串行。
+- 每条循环一次只跑一条运行:同一台设备上绑了几个 agent,它们的运行排队一条条来。同一会话的运行由 hub 保证串行。
 - 心跳收到 409(运行被回收给了别人,或已经结束)→ 立刻停掉 agent,结果不交。
 - 交回失败(网络)→ 不重试,等租约过期 hub 回收重排;重排后的运行会 `--resume` 同一个 agent 会话、复用同一个 worktree,现场接着上次。

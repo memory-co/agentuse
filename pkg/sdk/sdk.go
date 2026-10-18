@@ -149,6 +149,8 @@ type Event struct {
 	Platform  string    `json:"platform"`
 	Thread    string    `json:"thread"`
 	RunID     string    `json:"run_id"`
+	AgentID   string    `json:"agent_id"`
+	Agent     string    `json:"agent"` // agent 的 handle:回复以它对应的应用用户的名义写
 	InReplyTo string    `json:"in_reply_to,omitempty"`
 	Text      string    `json:"text,omitempty"`
 	Status    string    `json:"status,omitempty"`

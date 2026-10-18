@@ -347,12 +347,13 @@ func (h *Hub) notifyFailure(ctx context.Context, p models.Platform, r models.Run
 	if h.sender == nil {
 		return
 	}
-	name := r.AgentID
+	name, handle := r.AgentID, ""
 	if a, err := h.store.GetAgent(ctx, r.AgentID); err == nil {
-		name = "@" + a.Handle
+		name, handle = "@"+a.Handle, a.Handle
 	}
 	ev := models.Event{
 		Type: models.EventActivity, Platform: r.Platform, Thread: r.Thread, RunID: r.ID, InReplyTo: r.Trigger.ID,
+		AgentID: r.AgentID, Agent: handle,
 		Activity:  &models.Activity{Type: models.ActivityError, Body: name + why},
 		CreatedAt: h.now(),
 	}
@@ -437,6 +438,10 @@ func (h *Hub) Write(ctx context.Context, claims token.Claims, ev models.Event) e
 	}
 	// 范围以令牌和运行为准,不信请求体里自带的。
 	ev.Platform, ev.Thread, ev.RunID, ev.InReplyTo, ev.CreatedAt = run.Platform, run.Thread, run.ID, run.Trigger.ID, h.now()
+	ev.AgentID, ev.Agent = run.AgentID, ""
+	if a, err := h.store.GetAgent(ctx, run.AgentID); err == nil {
+		ev.Agent = a.Handle
+	}
 	return h.sender.Send(ctx, p, ev)
 }
 

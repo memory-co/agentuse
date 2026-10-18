@@ -46,7 +46,7 @@ const usage = `agentuse —— 让任意平台的评论区 @ 到用户自己电�
   agentuse status <状态>                                    (agent 用)改线程对象的状态
   agentuse activity <thought|action|elicitation|response|error> <文本>   (agent 用)报进度
   agentuse run                                              (agent 用)看这次运行的令牌范围
-  agentuse admin sessions|runs|run <id> [-platform -status -session -limit]   (实例主人)查看会话 / 运行
+  agentuse admin sessions|runs|run <id> [-platform -status -session -agent -limit]   (实例主人)查看会话 / 运行
   agentuse version
 `
 
@@ -209,6 +209,7 @@ func admin(args []string) error {
 	platform := fs.String("platform", "", "只看这个平台")
 	status := fs.String("status", "", "只看这个状态(runs)")
 	session := fs.String("session", "", "只看这个会话(runs)")
+	agent := fs.String("agent", "", "只看这个 agent 的(runs,ag_…)")
 	limit := fs.Int("limit", 0, "最多几条(默认 100)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
@@ -217,7 +218,7 @@ func admin(args []string) error {
 		return errors.New("need -hub and -key (or AGENTUSE_URL / AGENTUSE_ADMIN_KEY)")
 	}
 	q := url.Values{}
-	for k, v := range map[string]string{"platform": *platform, "status": *status, "session": *session} {
+	for k, v := range map[string]string{"platform": *platform, "status": *status, "session": *session, "agent": *agent} {
 		if v != "" {
 			q.Set(k, v)
 		}

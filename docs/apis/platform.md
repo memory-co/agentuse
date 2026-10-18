@@ -186,25 +186,25 @@ hub 从 `text` 里找出所有独立的 `@handle`,逐个在这个平台的 agent
 hub → 平台,用平台的 `callback_secret` 签名(没配则用 `secret`)。正文是 [Event](../structs/models.md#event):
 
 ```json
-{"type": "reply", "platform": "shop", "thread": "issue:MUL-42", "run_id": "r_…", "in_reply_to": "c_1001",
+{"type": "reply", "platform": "shop", "thread": "issue:MUL-42", "run_id": "r_…", "agent_id": "ag_…", "agent": "alice-claude", "in_reply_to": "c_1001",
  "text": "已修复,见分支 agent/alice-claude/MUL-42", "created_at": "…"}
 ```
 
 ```json
-{"type": "status", "platform": "shop", "thread": "issue:MUL-42", "run_id": "r_…", "status": "in_review", "created_at": "…"}
+{"type": "status", "platform": "shop", "thread": "issue:MUL-42", "run_id": "r_…", "agent_id": "ag_…", "agent": "alice-claude", "status": "in_review", "created_at": "…"}
 ```
 
 ```json
-{"type": "activity", "platform": "shop", "thread": "issue:MUL-42", "run_id": "r_…", "activity": {"type": "action", "body": "正在运行测试"}, "created_at": "…"}
+{"type": "activity", "platform": "shop", "thread": "issue:MUL-42", "run_id": "r_…", "agent_id": "ag_…", "agent": "alice-claude", "activity": {"type": "action", "body": "正在运行测试"}, "created_at": "…"}
 ```
 
 运行排队超过 `queue_ttl_seconds` 还没被领(设备一直不在线)时,hub 把它判失败,并主动回调一条 `error` 进度,平台可以把它显示在叫醒评论下面:
 
 ```json
-{"type": "activity", "platform": "shop", "thread": "issue:MUL-42", "run_id": "r_…", "in_reply_to": "c_1001",
+{"type": "activity", "platform": "shop", "thread": "issue:MUL-42", "run_id": "r_…", "agent_id": "ag_…", "agent": "alice-claude", "in_reply_to": "c_1001",
  "activity": {"type": "error", "body": "@alice-claude的电脑一直不在线,这条没有处理。等它上线后再 @ 一次。"}, "created_at": "…"}
 ```
 
 平台返回 2xx 即成功;非 2xx 时 hub 把失败(502 `callback_failed`)交还给 agent,由 agent 决定重试(排队超时那条回调失败只记日志)。
 
-回调事件里没有 agent id:平台要知道是哪个 agent 回的,按 `run_id` 记下 notify 响应里 `agents[].run_id` 对应的 `handle` 即可。
+每个回调事件都带 `agent_id` 和 `agent`(handle):平台据此选用哪个应用用户写回复。

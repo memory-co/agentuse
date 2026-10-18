@@ -1,8 +1,8 @@
 # agentuse —— 总设计
 
-> **状态:定位已改,代码待跟进。** 2026-10-18 定位从「用户自己的实例」改为「**平台侧管理的实例**」(像平台自己的 Redis),并补上账号与 agent 归属、一条命令接入。唤醒、会话、运行队列、租约、WebSocket 推送、运行令牌、回调这些已实施的部分不变;账号、归属、接入码、安装脚本还没写,计划见 [roadmap.md](roadmap.md)。在代码跟上之前,[onboarding.md](../onboarding.md) 描述的是现有实现的接入方式。
+> **状态:** 2026-10-18 定位从「用户自己的实例」改为「**平台侧管理的实例**」(像平台自己的 Redis)。账号与 agent 归属(用户、agent、设备,运行只派给主人的电脑)、接入码与 `agentuse connect` **已实施**;安装脚本、开机自启、环境变量配置、Docker 还没做,计划见 [roadmap.md](roadmap.md)。[onboarding.md](../onboarding.md) 按现在的实现写。
 >
-> 分篇:[accounts.md](accounts.md)(**新**:用户、agent、设备三个对象,运行只派给 agent 主人的电脑)、[connect.md](connect.md)(**新**:用户一条命令接入:接入码、安装脚本、自动登记)、[hub.md](hub.md)(hub 实例:会话表、运行队列、租约、推送、存储)、[identity.md](identity.md)(身份三段式)、[wake-and-trust.md](wake-and-trust.md)(谁能唤醒谁的 agent、谁的话只是材料)、[daemon.md](daemon.md)(用户电脑上的 daemon:连接、驱动 CLI、现场)、[roadmap.md](roadmap.md)(实施计划)。
+> 分篇:[accounts.md](accounts.md)(**新**:用户、agent、设备三个对象,运行只派给 agent 主人的电脑)、[connect.md](connect.md)(**新**:用户一条命令接入:接入码、安装脚本、自动登记;部分实施)、[hub.md](hub.md)(hub 实例:会话表、运行队列、租约、推送、存储)、[identity.md](identity.md)(身份三段式)、[wake-and-trust.md](wake-and-trust.md)(谁能唤醒谁的 agent、谁的话只是材料)、[daemon.md](daemon.md)(用户电脑上的 daemon:连接、驱动 CLI、现场)、[roadmap.md](roadmap.md)(实施计划)。
 
 ---
 
@@ -98,18 +98,18 @@ alice 的电脑不在线时,运行留在队列里等它上线;notify 的响应�
 ```
 cmd/agentuse/            单一二进制入口
 internal/
-├── cli/                 命令行:hub start / daemon start / reply / status / activity / run
+├── cli/                 命令行:hub start / connect / daemon start / agents / disconnect / reply / status / activity / run / admin
 ├── config/              hub.json、daemon.json
-├── models/              数据结构(对应 docs/structs)
-├── hub/                 hub 业务(hub.go)+ HTTP 接口(server.go)+ daemon 推送连接(connect.go)
+├── models/              数据结构(对应 docs/structs;accounts.go 是用户 / agent / 设备 / 接入码)
+├── hub/                 hub 业务(hub.go、accounts.go)+ HTTP 接口(server.go)+ daemon 推送连接(connect.go)
 ├── services/
 │   ├── wake/            唤醒判定
 │   ├── token/           运行令牌
 │   └── callback/        hub → 平台回调
-├── store/               会话表与运行队列(接口 + SQLite / 内存实现;storetest 是共用的行为测试)
+├── store/               用户、agent、设备、接入码、会话表与运行队列(接口 + SQLite / 内存实现;storetest 是共用的行为测试)
 └── daemon/              领取循环(WebSocket / 轮询)、心跳、worktree 现场、驱动、提示词
 pkg/
 ├── signature/           平台 ⇄ hub 的 HMAC 签名(公开,其它语言照此实现)
-└── sdk/                 平台侧 Go SDK:Notify + Handler
+└── sdk/                 平台侧 Go SDK:管理 agent + Notify + Handler
 docs/                    designs / structs / apis
 ```

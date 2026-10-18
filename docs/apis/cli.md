@@ -12,11 +12,11 @@ agentuse hub start [-config ~/.agentuse/hub.json]
 
 ```bash
 agentuse admin sessions [-platform shop] [-limit 20]
-agentuse admin runs     [-platform shop] [-session s_…] [-status claimed] [-limit 20]
+agentuse admin runs     [-platform shop] [-session s_…] [-agent ag_…] [-status claimed] [-limit 20]
 agentuse admin run <run id>
 ```
 
-只读查看会话和运行,输出 JSON(按 agent 过滤目前只有 HTTP 接口的 `?agent=`,命令行还没有对应参数)。读 `AGENTUSE_URL` / `AGENTUSE_ADMIN_KEY`,或用 `-hub` / `-key`。见 [admin.md](admin.md)。
+只读查看会话和运行,输出 JSON。读 `AGENTUSE_URL` / `AGENTUSE_ADMIN_KEY`,或用 `-hub` / `-key`。见 [admin.md](admin.md)。
 
 ## 用户电脑
 
