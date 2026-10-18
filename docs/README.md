@@ -2,6 +2,8 @@
 
 agentuse 是 [AgentHub 设想](https://twwy.net/blog/agenthub-comment-box-for-agents/)的实现:让任意平台评论区里的一个 @,触达用户自己电脑上的 agent,像接一个评论框一样接入。
 
+**第一次接入先读 [onboarding.md](onboarding.md)**:部署 hub、接入平台、接上用户电脑,一步步走到第一个 @claude。
+
 三个目录各管一件事:
 
 | 目录 | 回答什么 | 入口 |

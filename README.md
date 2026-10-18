@@ -18,6 +18,8 @@
 
 ## 用起来
 
+完整的接入步骤(部署 hub、平台接入、用户电脑接 daemon、验证与排错)见 [`docs/onboarding.md`](docs/onboarding.md)。最短路径:
+
 ```bash
 go install github.com/memory-co/agentuse/cmd/agentuse@latest
 

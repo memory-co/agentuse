@@ -71,13 +71,10 @@ func newEnv(t *testing.T, opts hub.Options, callbackSecret string) *env {
 	t.Cleanup(srv.Close)
 	e.hubURL = srv.URL
 
+	// 平台用 secret 签 notify,用 callback secret 验 hub 的回调(没拆就是同一把)。
 	e.sdk = sdk.New(srv.URL, "shop", platformSecret)
-	// 平台验 hub 回调用的是 callback secret(没拆就是同一把)。
-	verifier := sdk.New(srv.URL, "shop", platformSecret)
-	if callbackSecret != "" {
-		verifier.Secret = callbackSecret
-	}
-	platform.Config.Handler = verifier.Handler(func(_ context.Context, ev sdk.Event) error {
+	e.sdk.CallbackSecret = callbackSecret
+	platform.Config.Handler = e.sdk.Handler(func(_ context.Context, ev sdk.Event) error {
 		e.mu.Lock()
 		e.events = append(e.events, ev)
 		e.mu.Unlock()
