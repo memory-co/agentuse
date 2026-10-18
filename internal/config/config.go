@@ -25,10 +25,15 @@ func Home() string {
 
 // Hub 是 hub 实例的配置(hub.json)。
 type Hub struct {
-	Listen     string            `json:"listen"`      // 默认 127.0.0.1:7700
-	TokenKey   string            `json:"token_key"`   // 签运行令牌的密钥
-	DaemonKeys map[string]string `json:"daemon_keys"` // daemon id → 密钥,daemon 领取运行时用
-	Platforms  []models.Platform `json:"platforms"`
+	Listen       string            `json:"listen"`        // 默认 127.0.0.1:7700
+	Store        string            `json:"store"`         // sqlite(默认)/ memory
+	DB           string            `json:"db"`            // sqlite 文件,默认 <home>/hub.db
+	TokenKey     string            `json:"token_key"`     // 签运行令牌的密钥
+	AdminKey     string            `json:"admin_key"`     // 管理接口的 Bearer 密钥;空 = 关闭
+	DaemonKeys   map[string]string `json:"daemon_keys"`   // daemon id → 密钥,daemon 领取运行时用
+	LeaseSeconds int               `json:"lease_seconds"` // 运行租约,默认 120
+	MaxAttempts  int               `json:"max_attempts"`  // 租约过期后最多重领几次(含第一次),默认 3
+	Platforms    []models.Platform `json:"platforms"`
 }
 
 // Daemon 是用户电脑上 daemon 的配置(daemon.json)。
@@ -37,7 +42,8 @@ type Daemon struct {
 	ID         string               `json:"id"`         // 如 alice-mbp
 	Key        string               `json:"key"`        // 与 hub.json 的 daemon_keys[id] 一致
 	Workspaces map[string]Workspace `json:"workspaces"` // platform id → 现场
-	Driver     string               `json:"driver"`     // claude(默认)/ codex
+	Driver     string               `json:"driver"`     // claude(默认)
+	Transport  string               `json:"transport"`  // ws(默认,出站 WebSocket)/ poll(HTTP 轮询)
 }
 
 // Workspace 是某个平台的运行落到哪个仓库。
@@ -55,6 +61,12 @@ func LoadHub(path string) (Hub, error) {
 	}
 	if c.Listen == "" {
 		c.Listen = "127.0.0.1:7700"
+	}
+	if c.Store == "" {
+		c.Store = "sqlite"
+	}
+	if c.DB == "" {
+		c.DB = filepath.Join(Home(), "hub.db")
 	}
 	if c.TokenKey == "" {
 		return c, errors.New("config: hub.json needs token_key")

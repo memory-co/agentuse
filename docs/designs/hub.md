@@ -11,7 +11,7 @@ hub 只保存三样东西:
 | 东西 | 是什么 | 结构 |
 |---|---|---|
 | 会话表 | 线程键 → agent 会话 | [Session](../structs/models.md#session) |
-| 运行队列 | 每次唤醒一条运行,queued → claimed → succeeded / failed | [Run](../structs/models.md#run) |
+| 运行队列 | 每次唤醒一条运行,queued → claimed → succeeded / failed;claimed 带租约 | [Run](../structs/models.md#run) |
 | 策略 | 按平台:谁能唤醒、谁的话可信、agent 能做什么、现场权限 | [Policy](../structs/models.md#policy) |
 
 **不存评论。** 平台 notify 时可以把线程里最近的评论一起带上(`context`),hub 只把它们挂在这次运行上交给 daemon,不另存一份。
@@ -25,15 +25,37 @@ hub 只保存三样东西:
 ## 3. 运行队列
 
 ```
-queued ──claim──▶ claimed ──complete──▶ succeeded
-                     │                     
-                     └────complete(err)──▶ failed
+           ┌──────────── 租约过期且 attempts < max_attempts ────────────┐
+           ▼                                                          │
+queued ──claim──▶ claimed ──complete──▶ succeeded                     │
+                     │  ▲ heartbeat 续租                               │
+                     │  └──────┘                                       │
+                     ├──complete(err)──▶ failed                        │
+                     └──租约过期且 attempts = max_attempts──▶ failed ──┘(否则回到 queued)
 ```
 
-- 一次 notify 唤醒 = 一条运行。同一线程连着 @ 两次就是两条运行,按先后被领取;同一会话的运行目前不加锁,daemon 一次只跑一条,所以单 daemon 下天然串行。多 daemon 下的会话锁见 [roadmap.md](roadmap.md)。
-- 只有 claimed 状态的运行能写回;complete 之后令牌即使没过期也写不了(409)。
-- 只有领取它的那个 daemon 能 complete 它。
+- **一次 notify 唤醒 = 一条运行**,按入队顺序领取。
+- **同一线程严格串行**:领取时跳过「所属会话已有 claimed 运行」的那些。同一线程连着 @ 两次,第二条要等第一条交回才会被领;多个 daemon 同时在线也一样。不同线程互不影响。
+- **租约**:领取时设 `lease_until = now + lease_seconds`(默认 120 秒),daemon 每 15 秒 `heartbeat` 续一次。hub 每 10 秒回收一次过期的:`attempts < max_attempts`(默认 3)的回到 queued,否则判 failed(`error: lease expired`)。
+- **一次领取一个身份**:每次领取 `attempts + 1`,运行令牌里带着这次的 attempt。被回收重领之后,上一次的令牌、心跳、交回都是 409——掉线的 daemon 回来也写不进别人正在跑的运行。
+- 只有 claimed 状态、且是这一次领取的令牌能写回;complete 之后令牌即使没过期也写不了(409)。
+- 只有领取它的那个 daemon 能 heartbeat / complete 它。
 
-## 4. 存储
+## 4. 推送
 
-`store.Store` 是接口,现在只有内存实现(重启即丢)。持久化(SQLite)按同一接口加,见 [roadmap.md](roadmap.md)。
+daemon 连着 `/v1/daemon/connect`(WebSocket)空闲等待时,hub 不轮询数据库:新入队、会话空出来、回收这三件事都会触发一个变更信号,等着的连接醒来各自尝试领取。领到就推给它,没领到接着等;空闲期间每 15 秒 ping 一次,ping 不通就当连接断了。见 [daemon.md](daemon.md#1-连接)。
+
+## 5. 存储
+
+`store.Store` 是接口,两个实现跑同一套行为测试([`internal/store/storetest`](../../internal/store/storetest/storetest.go)):
+
+| 实现 | 用途 | 说明 |
+|---|---|---|
+| SQLite(默认) | 实例 | 一个文件 `~/.agentuse/hub.db`,纯 Go 驱动(modernc.org/sqlite),不需要 cgo。单连接 + `BEGIN IMMEDIATE`,领取的「挑一条再改」在一个事务里完成 |
+| Memory | 开发、测试 | 重启即丢 |
+
+hub.json 里 `"store": "sqlite" | "memory"`、`"db": "<路径>"` 选择。表结构见 [structs/filesystem.md](../structs/filesystem.md#hubdb)。
+
+## 6. 管理接口
+
+实例主人用 `admin_key` 查看会话和运行(只读):`GET /v1/admin/sessions`、`/v1/admin/runs`、`/v1/admin/runs/{id}`,或 `agentuse admin …`。见 [apis/admin.md](../apis/admin.md)。没配 `admin_key` 时管理接口关闭。

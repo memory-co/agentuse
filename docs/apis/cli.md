@@ -8,7 +8,15 @@
 agentuse hub start [-config ~/.agentuse/hub.json]
 ```
 
-按 [hub.json](../structs/filesystem.md#hubjson) 起 hub。Ctrl-C 优雅退出。
+按 [hub.json](../structs/filesystem.md#hubjson) 起 hub(默认 SQLite 存在 `~/.agentuse/hub.db`),同时每 10 秒回收一次租约过期的运行。Ctrl-C 优雅退出。
+
+```bash
+agentuse admin sessions [-platform shop] [-limit 20]
+agentuse admin runs     [-platform shop] [-session s_…] [-status claimed] [-limit 20]
+agentuse admin run <run id>
+```
+
+只读查看会话和运行,输出 JSON。读 `AGENTUSE_URL` / `AGENTUSE_ADMIN_KEY`,或用 `-hub` / `-key`。见 [admin.md](admin.md)。
 
 ## 用户电脑
 
@@ -16,7 +24,7 @@ agentuse hub start [-config ~/.agentuse/hub.json]
 agentuse daemon start [-config ~/.agentuse/daemon.json]
 ```
 
-按 [daemon.json](../structs/filesystem.md#daemonjson) 连 hub,领取运行,驱动 agent。
+按 [daemon.json](../structs/filesystem.md#daemonjson) 连 hub(默认出站 WebSocket,`transport: poll` 改轮询),领取运行,驱动 agent,跑的时候每 15 秒心跳。连不上 hub 时每 5 秒重试。
 
 ## agent(运行里)
 

@@ -8,8 +8,14 @@ daemon 是用户电脑上的常驻进程,负责博客里与平台无关六件事
 
 daemon **主动连出** hub,所以用户电脑在 NAT 后面也没关系,平台和 hub 都不需要能访问用户电脑。
 
-- 现在:HTTP 轮询。`POST /v1/daemon/claim`,有运行返回 200,队列空返回 204,空了等 5 秒再问。
-- 下一步:出站 WebSocket,15 秒心跳,hub 有运行时直接推。消息形状和轮询一致(见 [apis/daemon.md](../apis/daemon.md)),换传输不改语义。
+两种传输,daemon.json 的 `transport` 选:
+
+| transport | 怎么领 | 适合 |
+|---|---|---|
+| `ws`(默认) | 一条出站 WebSocket `GET /v1/daemon/connect`。空闲时发 `ready`,hub 有运行就替它领好推过来;空闲期间 hub 每 15 秒 ping。连接断了退避 5 秒重连 | 正常使用,评论一来马上开工 |
+| `poll` | `POST /v1/daemon/claim`,有运行 200,队列空 204,空了等 5 秒再问 | 中间有不支持 WebSocket 的代理 |
+
+**心跳和交回总是走 HTTP**(`/v1/runs/{run}/heartbeat`、`/complete`):它们幂等、可重试,不依赖推送连接还在。推送连接只负责「有活马上推」;如果推出去的一瞬间连接断了,那条运行靠租约过期回收。
 
 daemon 用 `X-AgentUse-Daemon: <id>` + `Authorization: Bearer <key>` 认证,id 与 key 在 hub.json 的 `daemon_keys` 里登记。
 
@@ -42,9 +48,11 @@ Codex(app-server)等其它驱动按同一接口加。
 
 ```
 for {
-  claim → 204? 等 Interval
-        → 200: 准备 worktree → 驱动 agent → complete(成功 / 失败 + agent_session_id)
+  next(ws 等推送 / poll 轮询)
+  → 准备 worktree → 驱动 agent(同时每 15 秒 heartbeat)→ complete(attempt + 成功 / 失败 + agent_session_id)
 }
 ```
 
-一次只跑一条运行。并发与会话锁见 [roadmap.md](roadmap.md)。
+- 一次只跑一条运行。要并行就在同一台或多台机器上多起几个 daemon(不同 id);同一线程的运行由 hub 保证串行。
+- 心跳收到 409(运行被回收给了别人,或已经结束)→ 立刻停掉 agent,结果不交。
+- 交回失败(网络)→ 不重试,等租约过期 hub 回收重排;重排后的运行会 `--resume` 同一个 agent 会话、复用同一个 worktree,现场接着上次。

@@ -17,10 +17,11 @@ import (
 // ErrNoRun 表示队列里没有可领取的运行。
 var ErrNoRun = errors.New("daemon: no run")
 
-// Client 是 daemon 到 hub 的连接。
-//
-// 现在是出站 HTTP 轮询;博客设想的出站 WebSocket(15 秒心跳)是下一步,
-// 消息形状已在 docs/apis/daemon.md 定好,换传输不改语义。
+// ErrLost 表示这次领取已经不归这个 daemon 了(租约过期被回收,或运行已结束)。
+var ErrLost = errors.New("daemon: run no longer held")
+
+// Client 是 daemon 到 hub 的 HTTP 调用:领取(轮询模式)、心跳、交回。
+// 推送模式下领取走 WebSocket(ws.go),心跳和交回仍走这里。
 type Client struct {
 	URL  string
 	ID   string
@@ -46,13 +47,27 @@ func (c *Client) Claim(ctx context.Context) (hub.Claimed, error) {
 	return out, json.NewDecoder(resp.Body).Decode(&out)
 }
 
-// Complete 交回运行结果。
+// Heartbeat 续租。运行已不归自己时返回 ErrLost。
+func (c *Client) Heartbeat(ctx context.Context, runID string, attempt int) error {
+	resp, err := c.do(ctx, "/v1/runs/"+runID+"/heartbeat", map[string]int{"attempt": attempt})
+	if err != nil {
+		return err
+	}
+	return resp.Body.Close()
+}
+
+// Complete 交回运行结果。运行已不归自己时返回 ErrLost。
 func (c *Client) Complete(ctx context.Context, runID string, done hub.Completion) error {
 	resp, err := c.do(ctx, "/v1/runs/"+runID+"/complete", done)
 	if err != nil {
 		return err
 	}
 	return resp.Body.Close()
+}
+
+func (c *Client) header(h http.Header) {
+	h.Set("Authorization", "Bearer "+c.Key)
+	h.Set(hub.HeaderDaemon, c.ID)
 }
 
 func (c *Client) do(ctx context.Context, path string, v any) (*http.Response, error) {
@@ -69,11 +84,14 @@ func (c *Client) do(ctx context.Context, path string, v any) (*http.Response, er
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.Key)
-	req.Header.Set(hub.HeaderDaemon, c.ID)
+	c.header(req.Header)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, err
+	}
+	if resp.StatusCode == http.StatusConflict {
+		resp.Body.Close()
+		return nil, ErrLost
 	}
 	if resp.StatusCode/100 != 2 {
 		defer resp.Body.Close()

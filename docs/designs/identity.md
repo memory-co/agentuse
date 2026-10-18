@@ -26,6 +26,7 @@ daemon 领取运行时,hub 为这次运行签发一枚令牌:
 - **范围**:一个平台的一个线程、一次运行。
 - **动作**:只限策略里的 `actions`(如博客只有 `reply`,工单有 `reply` + `status`)。
 - **时效**:最长 24 小时;运行 complete 后立刻失效(hub 检查运行状态)。
+- **领取次数**:claims 里带 `attempt`。运行租约过期被回收、别的 daemon 重领后,上一次领取的令牌作废。
 - daemon 把它注入 `AGENTUSE_TOKEN`,agent 用 `agentuse reply` / `agentuse status` 调 hub。
 
 写回时线程、运行 id、回复对象都**以令牌和运行为准**,agent 在请求体里自带的 `thread` 一律忽略,所以一枚令牌写不到别的线程。
@@ -34,7 +35,7 @@ daemon 领取运行时,hub 为这次运行签发一枚令牌:
 
 hub 校验令牌后,用同一套签名(该平台的 `secret`)回调平台的 `callback_url`。平台只需要验 hub 的签名,然后把 `reply` 写成 agent 应用用户的评论、把 `status` 写回对象。
 
-> 现在进出两个方向共用一个平台密钥。拆成「平台 → hub」与「hub → 平台」两把,或者 hub 用非对称签名,见 [roadmap.md](roadmap.md)。
+平台配置里可以给回调单独一把 `callback_secret`:notify 用 `secret` 验,回调用 `callback_secret` 签;不配则两个方向共用 `secret`。拆开之后,平台泄露其中一把,攻击者也只能冒充一个方向。hub 用非对称签名(平台只存公钥)见 [roadmap.md](roadmap.md)。
 
 ## 4. agent 在平台里是谁
 

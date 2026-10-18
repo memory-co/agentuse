@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"sync"
 	"time"
 
 	"github.com/memory-co/agentuse/internal/models"
@@ -21,21 +23,60 @@ var (
 	ErrRunState        = errors.New("hub: run is not in a state that allows this")
 )
 
+// Options 是运行生命周期的参数。
+type Options struct {
+	LeaseTTL    time.Duration // 一次领取 / 心跳续多久,默认 2 分钟;daemon 每 15 秒心跳一次
+	MaxAttempts int           // 租约过期后最多重新排队几次(含第一次),默认 3
+}
+
+func (o Options) withDefaults() Options {
+	if o.LeaseTTL <= 0 {
+		o.LeaseTTL = 2 * time.Minute
+	}
+	if o.MaxAttempts <= 0 {
+		o.MaxAttempts = 3
+	}
+	return o
+}
+
 // Hub 把平台、会话表、队列和 daemon 接起来。
 type Hub struct {
 	platforms map[string]models.Platform
 	store     store.Store
 	tokens    *token.Issuer
 	sender    callback.Sender
+	opts      Options
 	now       func() time.Time
+
+	mu      sync.Mutex
+	changed chan struct{} // 队列可能有新的可领运行时关闭并换一个新的
 }
 
-func New(platforms []models.Platform, st store.Store, tokens *token.Issuer, sender callback.Sender) *Hub {
+func New(platforms []models.Platform, st store.Store, tokens *token.Issuer, sender callback.Sender, opts Options) *Hub {
 	m := make(map[string]models.Platform, len(platforms))
 	for _, p := range platforms {
 		m[p.ID] = p
 	}
-	return &Hub{platforms: m, store: st, tokens: tokens, sender: sender, now: func() time.Time { return time.Now().UTC() }}
+	return &Hub{
+		platforms: m, store: st, tokens: tokens, sender: sender, opts: opts.withDefaults(),
+		now:     func() time.Time { return time.Now().UTC() },
+		changed: make(chan struct{}),
+	}
+}
+
+// Changed 交回一个通道:队列里可能出现新的可领运行时(新入队、会话空出来、回收)它会被关闭。
+// 推送连接用它代替轮询。
+func (h *Hub) Changed() <-chan struct{} {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.changed
+}
+
+func (h *Hub) signal() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	close(h.changed)
+	h.changed = make(chan struct{})
 }
 
 // Platform 找一个已配置的平台。
@@ -102,9 +143,10 @@ func (h *Hub) Notify(ctx context.Context, platformID string, n Notification) (No
 		Status:        models.RunQueued,
 		CreatedAt:     now,
 	}
-	if err := h.store.PutRun(ctx, run); err != nil {
+	if err := h.store.CreateRun(ctx, run); err != nil {
 		return NotifyResult{}, err
 	}
+	h.signal()
 	return NotifyResult{Woken: true, Reason: reason, SessionID: sess.ID, RunID: run.ID}, nil
 }
 
@@ -130,7 +172,8 @@ type Claimed struct {
 
 // Claim 让 daemon 领取下一条排队的运行;队列空时返回 store.ErrNotFound。
 func (h *Hub) Claim(ctx context.Context, daemonID string) (Claimed, error) {
-	run, err := h.store.ClaimRun(ctx, daemonID)
+	now := h.now()
+	run, err := h.store.ClaimRun(ctx, store.Claim{DaemonID: daemonID, Now: now, LeaseUntil: now.Add(h.opts.LeaseTTL)})
 	if err != nil {
 		return Claimed{}, err
 	}
@@ -145,9 +188,16 @@ func (h *Hub) Claim(ctx context.Context, daemonID string) (Claimed, error) {
 	return Claimed{Run: run, Session: sess, Token: tok}, nil
 }
 
+// Heartbeat 续租:daemon 还在跑这次运行。
+func (h *Hub) Heartbeat(ctx context.Context, runID, daemonID string, attempt int) (models.Run, error) {
+	run, err := h.store.ExtendLease(ctx, runID, daemonID, attempt, h.now().Add(h.opts.LeaseTTL))
+	return run, stateErr(err)
+}
+
 // Completion 是 daemon 交回的运行结果。
 type Completion struct {
 	DaemonID       string `json:"-"`
+	Attempt        int    `json:"attempt"` // 领取时 run.attempts 的值
 	Succeeded      bool   `json:"succeeded"`
 	Error          string `json:"error,omitempty"`
 	AgentSessionID string `json:"agent_session_id,omitempty"` // 回填到会话,下次续接
@@ -155,22 +205,16 @@ type Completion struct {
 
 // Complete 结束一次运行。
 func (h *Hub) Complete(ctx context.Context, runID string, c Completion) (models.Run, error) {
-	run, err := h.store.GetRun(ctx, runID)
-	if err != nil {
-		return run, err
-	}
-	if run.Status != models.RunClaimed || run.DaemonID != c.DaemonID {
-		return run, ErrRunState
+	status := models.RunFailed
+	if c.Succeeded {
+		status = models.RunSucceeded
 	}
 	now := h.now()
-	run.FinishedAt, run.Error = &now, c.Error
-	run.Status = models.RunFailed
-	if c.Succeeded {
-		run.Status = models.RunSucceeded
+	run, err := h.store.FinishRun(ctx, runID, c.DaemonID, c.Attempt, status, c.Error, now)
+	if err != nil {
+		return run, stateErr(err)
 	}
-	if err := h.store.PutRun(ctx, run); err != nil {
-		return run, err
-	}
+	h.signal() // 会话空出来了,同线程排着的下一条可以领了
 	if c.AgentSessionID != "" {
 		sess, err := h.store.GetSession(ctx, run.SessionID)
 		if err == nil {
@@ -182,6 +226,55 @@ func (h *Hub) Complete(ctx context.Context, runID string, c Completion) (models.
 		}
 	}
 	return run, nil
+}
+
+// Reap 回收租约过期的运行,交回被回收的那些。
+func (h *Hub) Reap(ctx context.Context) ([]models.Run, error) {
+	runs, err := h.store.ReapExpired(ctx, h.now(), h.opts.MaxAttempts)
+	if len(runs) > 0 {
+		h.signal()
+	}
+	return runs, err
+}
+
+// RunReaper 每隔 every 回收一次,直到 ctx 结束。
+func (h *Hub) RunReaper(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			runs, err := h.Reap(ctx)
+			if err != nil {
+				log.Printf("reap: %v", err)
+			}
+			for _, r := range runs {
+				log.Printf("reap %s: lease expired after attempt %d → %s", r.ID, r.Attempts, r.Status)
+			}
+		}
+	}
+}
+
+func stateErr(err error) error {
+	if errors.Is(err, store.ErrConflict) {
+		return ErrRunState
+	}
+	return err
+}
+
+// Sessions / Runs / Run 是给实例主人的只读查询。
+func (h *Hub) Sessions(ctx context.Context, platform string, limit int) ([]models.Session, error) {
+	return h.store.ListSessions(ctx, platform, limit)
+}
+
+func (h *Hub) Runs(ctx context.Context, f store.RunFilter) ([]models.Run, error) {
+	return h.store.ListRuns(ctx, f)
+}
+
+func (h *Hub) Run(ctx context.Context, id string) (models.Run, error) {
+	return h.store.GetRun(ctx, id)
 }
 
 // Write 是 agent 拿运行令牌发来的一次写回:reply / status / activity。
@@ -204,7 +297,7 @@ func (h *Hub) Write(ctx context.Context, claims token.Claims, ev models.Event) e
 	if err != nil {
 		return err
 	}
-	if run.Status != models.RunClaimed {
+	if run.Status != models.RunClaimed || run.Attempts != claims.Attempt {
 		return ErrRunState
 	}
 	p, err := h.Platform(run.Platform)
