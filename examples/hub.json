@@ -1,0 +1,35 @@
+{
+  "listen": "127.0.0.1:7700",
+  "token_key": "change-me-to-a-long-random-string",
+  "daemon_keys": {
+    "alice-mbp": "change-me-daemon-key"
+  },
+  "platforms": [
+    {
+      "id": "shop",
+      "secret": "change-me-shop-secret",
+      "callback_url": "https://shop.example.com/agentuse/callback",
+      "policy": {
+        "agent_name": "claude",
+        "agent_user_id": "u_claude",
+        "wake_roles": ["member"],
+        "trusted_roles": ["member"],
+        "actions": ["reply", "status"],
+        "workspace_mode": "readwrite"
+      }
+    },
+    {
+      "id": "blog",
+      "secret": "change-me-blog-secret",
+      "callback_url": "https://alice.dev/agentuse/callback",
+      "policy": {
+        "agent_name": "claude",
+        "agent_user_id": "claude",
+        "wake_roles": ["owner"],
+        "trusted_roles": ["owner"],
+        "actions": ["reply"],
+        "workspace_mode": "readonly"
+      }
+    }
+  ]
+}
