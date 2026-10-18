@@ -2,6 +2,9 @@
 //
 // 签名串 = timestamp + "." + body,HMAC-SHA256,hex 编码。
 // 放在两个头里:X-AgentUse-Timestamp(unix 秒)与 X-AgentUse-Signature(v1=<hex>)。
+//
+// notify 和回调签的 body 就是请求体。平台管理 agent 的接口签的是 Request(method, uri, body):
+// 把方法和路径也签进去,截获的一条签名请求就不能换个路径(比如换成 DELETE)重放。
 package signature
 
 import (
@@ -62,4 +65,14 @@ func Verify(h http.Header, secret string, body []byte, now time.Time) error {
 		return ErrInvalid
 	}
 	return nil
+}
+
+// Request 是平台管理接口要签的内容:方法 + 空格 + 路径(含查询串)+ 换行 + 请求体。
+func Request(method, uri string, body []byte) []byte {
+	b := make([]byte, 0, len(method)+len(uri)+2+len(body))
+	b = append(b, method...)
+	b = append(b, ' ')
+	b = append(b, uri...)
+	b = append(b, '\n')
+	return append(b, body...)
 }

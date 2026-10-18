@@ -1,11 +1,13 @@
-// Package daemon 跑在用户电脑上:主动连出 hub,领取运行,在 worktree 里回放现场,驱动 agent CLI。
-// 同一个 daemon 可以同时服务多个平台。
+// Package daemon 跑在用户电脑上:主动连出 hub,领取绑在这台设备上的 agent 的运行,
+// 在 agent 目录的 worktree 里回放现场,驱动 agent CLI。
+// daemon.json 里每个 (hub, 平台) 一个 Daemon,各跑各的。
 package daemon
 
 import (
 	"context"
 	"errors"
 	"log"
+	"path/filepath"
 	"time"
 
 	"github.com/memory-co/agentuse/internal/config"
@@ -15,33 +17,33 @@ import (
 // HeartbeatInterval 是跑运行期间续租的间隔;hub 的租约默认 2 分钟,够丢几次心跳。
 const HeartbeatInterval = 15 * time.Second
 
-// Daemon 是领取—执行—交回的循环。
+// Daemon 是一台设备在一个 hub 上的领取—执行—交回循环。
 type Daemon struct {
-	Config    config.Daemon
-	Home      string
+	Hub       config.HubConn
+	Worktrees string // worktree 根目录
 	Client    *Client
 	Source    Source
-	Driver    Driver
+	Driver    Driver        // 非空时所有运行都用它(测试用);空 = 按 agent 的 driver 选
 	Backoff   time.Duration // 连不上 hub 时多久重试
 	Heartbeat time.Duration
 }
 
-func New(cfg config.Daemon, home string) (*Daemon, error) {
-	drv, err := NewDriver(cfg.Driver)
-	if err != nil {
-		return nil, err
-	}
-	client := NewClient(cfg.HubURL, cfg.ID, cfg.Key)
+// New 为 daemon.json 里的一个接入建循环。
+func New(conn config.HubConn, cfg config.Daemon, home string) (*Daemon, error) {
+	client := NewClient(conn.URL, conn.DeviceID, conn.DeviceKey)
 	src, err := NewSource(cfg.Transport, client, 5*time.Second)
 	if err != nil {
 		return nil, err
 	}
+	root := cfg.Worktrees
+	if root == "" {
+		root = filepath.Join(home, "worktrees")
+	}
 	return &Daemon{
-		Config:    cfg,
-		Home:      home,
+		Hub:       conn,
+		Worktrees: root,
 		Client:    client,
 		Source:    src,
-		Driver:    drv,
 		Backoff:   5 * time.Second,
 		Heartbeat: HeartbeatInterval,
 	}, nil
@@ -74,6 +76,9 @@ func (d *Daemon) process(ctx context.Context, c hub.Claimed) {
 
 	done := d.handle(runCtx, c)
 	done.Attempt = c.Run.Attempts
+	if !done.Succeeded {
+		log.Printf("run %s: failed: %s", c.Run.ID, done.Error)
+	}
 	// 交回用父 ctx:运行被 cancel 了也要告诉 hub。
 	err := d.Client.Complete(ctx, c.Run.ID, done)
 	switch {
@@ -106,15 +111,22 @@ func (d *Daemon) keepAlive(ctx context.Context, cancel context.CancelFunc, runID
 }
 
 func (d *Daemon) handle(ctx context.Context, c hub.Claimed) hub.Completion {
-	log.Printf("run %s: %s (%s, attempt %d)", c.Run.ID, c.Run.Thread, c.Session.ID, c.Run.Attempts)
-	dir, err := PrepareWorkspace(ctx, d.Home, d.Config.Workspaces[c.Run.Platform], c.Session)
+	log.Printf("run %s: @%s in %s (%s, attempt %d)", c.Run.ID, c.Agent.Handle, c.Run.Thread, c.Session.ID, c.Run.Attempts)
+	drv := d.Driver
+	if drv == nil {
+		var err error
+		if drv, err = NewDriver(c.Agent.Driver); err != nil {
+			return hub.Completion{Error: err.Error()}
+		}
+	}
+	dir, err := PrepareWorkspace(ctx, d.Worktrees, c.Agent, c.Session)
 	if err != nil {
 		return hub.Completion{Error: err.Error()}
 	}
-	res, err := d.Driver.Run(ctx, Job{
+	res, err := drv.Run(ctx, Job{
 		Prompt:   BuildPrompt(c.Run),
 		Dir:      dir,
-		Env:      []string{"AGENTUSE_URL=" + d.Config.HubURL, "AGENTUSE_TOKEN=" + c.Token},
+		Env:      []string{"AGENTUSE_URL=" + d.Hub.URL, "AGENTUSE_TOKEN=" + c.Token},
 		ResumeID: c.Session.AgentSessionID,
 		Mode:     c.Run.WorkspaceMode,
 	})

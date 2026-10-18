@@ -52,14 +52,22 @@ type Material struct {
 	Trusted bool    `json:"trusted"`
 }
 
-// Policy 是按平台区分的策略:谁能唤醒、他人评论怎么算、agent 能做什么。
+// Policy 是按平台区分的策略,也是这个平台上每个 agent 设置的上限。
 type Policy struct {
-	AgentName     string        `json:"agent_name"`     // 被 @ 的名字,如 claude
-	AgentUserID   string        `json:"agent_user_id"`  // agent 在平台里的应用用户 id,用于忽略自己发的评论
-	WakeRoles     []Role        `json:"wake_roles"`     // 谁能唤醒
+	WakeRoles     []Role        `json:"wake_roles"`     // wake=members 的 agent 谁能叫醒(主人总能叫醒)
 	TrustedRoles  []Role        `json:"trusted_roles"`  // 谁的评论作为带作者标注的材料;其余标为不可信
-	Actions       []Action      `json:"actions"`        // 运行令牌允许的动作
-	WorkspaceMode WorkspaceMode `json:"workspace_mode"` // 现场权限
+	Actions       []Action      `json:"actions"`        // agent 最多能做的动作
+	WorkspaceMode WorkspaceMode `json:"workspace_mode"` // 现场权限上限:readonly 时所有 agent 都只读
+	// QueueTTLSeconds 是运行在队列里等设备上线的最长时间,过期判失败并回调一条 error 进度。默认 86400。
+	QueueTTLSeconds int `json:"queue_ttl_seconds,omitempty"`
+}
+
+// QueueTTL 是 QueueTTLSeconds 补上默认值后的时长。
+func (p Policy) QueueTTL() time.Duration {
+	if p.QueueTTLSeconds <= 0 {
+		return 24 * time.Hour
+	}
+	return time.Duration(p.QueueTTLSeconds) * time.Second
 }
 
 // Platform 是接入 hub 的一个平台。
@@ -80,13 +88,15 @@ func (p Platform) OutboundSecret() string {
 	return p.Secret
 }
 
-// Session 是线程键到 agent 会话的映射。同一线程后续评论续接同一会话。
+// Session 是 (线程, agent) 到 agent 会话的映射。同一线程里再 @ 同一个 agent 续接同一会话;
+// 同一线程里的两个 agent 是两段独立的会话。
 type Session struct {
 	ID             string    `json:"id"` // s_<hex>
 	Platform       string    `json:"platform"`
 	Thread         string    `json:"thread"`
+	AgentID        string    `json:"agent_id"`
 	AgentSessionID string    `json:"agent_session_id"` // agent 自己的会话 id(如 claude 的 session id),第一次运行后由 daemon 回填
-	Branch         string    `json:"branch"`           // 现场分支,如 agent/claude/MUL-42
+	Branch         string    `json:"branch"`           // 现场分支,如 agent/alice-claude/MUL-42
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
@@ -101,19 +111,20 @@ const (
 	RunFailed    RunStatus = "failed"
 )
 
-// Run 是一次唤醒对应的一次运行:排队、被 daemon 领取、结束。
+// Run 是一次唤醒对应的一次运行:排队、被 agent 绑定的设备领取、结束。
 type Run struct {
 	ID            string        `json:"id"` // r_<hex>
 	SessionID     string        `json:"session_id"`
 	Platform      string        `json:"platform"`
+	AgentID       string        `json:"agent_id"`
 	Thread        string        `json:"thread"`
 	Trigger       Comment       `json:"trigger"`           // 叫醒它的那条评论
 	Context       []Material    `json:"context,omitempty"` // 线程里的其它评论,按策略标注可不可信
 	Actions       []Action      `json:"actions"`
 	WorkspaceMode WorkspaceMode `json:"workspace_mode"`
 	Status        RunStatus     `json:"status"`
-	Attempts      int           `json:"attempts"` // 被领取过几次;租约过期回到队列后再领取会 +1
-	DaemonID      string        `json:"daemon_id,omitempty"`
+	Attempts      int           `json:"attempts"`              // 被领取过几次;租约过期回到队列后再领取会 +1
+	DeviceID      string        `json:"device_id,omitempty"`   // 领取它的设备
 	LeaseUntil    *time.Time    `json:"lease_until,omitempty"` // claimed 时的租约,daemon 心跳续期,过期即回收
 	Error         string        `json:"error,omitempty"`
 	CreatedAt     time.Time     `json:"created_at"`

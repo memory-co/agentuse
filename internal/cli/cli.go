@@ -1,9 +1,8 @@
 // Package cli 是 agentuse 命令行。三类使用者:
 //
-//	实例主人:agentuse hub start
-//	用户电脑:agentuse daemon start
+//	实例主人:agentuse hub start;查看 agentuse admin sessions / runs / run <id>
+//	用户电脑:agentuse connect <hub> <接入码>;agentuse daemon start;agentuse agents / disconnect
 //	agent 自己(带 AGENTUSE_TOKEN):agentuse reply / status / activity / run
-//	实例主人查看:agentuse admin sessions / runs / run <id>
 package cli
 
 import (
@@ -39,7 +38,10 @@ const usage = `agentuse —— 让任意平台的评论区 @ 到用户自己电�
 
 用法:
   agentuse hub start    [-config ~/.agentuse/hub.json]      起 hub 实例
+  agentuse connect <hub 地址> <接入码> [-dir .] [-base-ref 当前分支]   把这台电脑接成你的 agent
   agentuse daemon start [-config ~/.agentuse/daemon.json]   起用户电脑上的 daemon
+  agentuse agents                                           看这台电脑上接了哪些 agent
+  agentuse disconnect <agent>                               把一个 agent 从这台电脑上解绑
   agentuse reply  <文本|->                                  (agent 用)回复评论
   agentuse status <状态>                                    (agent 用)改线程对象的状态
   agentuse activity <thought|action|elicitation|response|error> <文本>   (agent 用)报进度
@@ -60,6 +62,12 @@ func Main(args []string) int {
 		err = sub(args[1:], "start", hubStart)
 	case "daemon":
 		err = sub(args[1:], "start", daemonStart)
+	case "connect":
+		err = connect(args[1:])
+	case "disconnect":
+		err = disconnect(args[1:])
+	case "agents":
+		err = agents(args[1:])
 	case "reply":
 		err = reply(args[1:])
 	case "status":
@@ -114,8 +122,9 @@ func hubStart(args []string) error {
 	h := hub.New(cfg.Platforms, st, token.NewIssuer([]byte(cfg.TokenKey)), callback.NewHTTPSender(), hub.Options{
 		LeaseTTL:    time.Duration(cfg.LeaseSeconds) * time.Second,
 		MaxAttempts: cfg.MaxAttempts,
+		PublicURL:   cfg.PublicURL,
 	})
-	handler := hub.NewServer(h, hub.ServerConfig{DaemonKeys: cfg.DaemonKeys, AdminKey: cfg.AdminKey}).Handler()
+	handler := hub.NewServer(h, hub.ServerConfig{AdminKey: cfg.AdminKey}).Handler()
 	srv := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 
 	ctx, stop := signalContext()
@@ -148,9 +157,11 @@ func openStore(cfg config.Hub) (store.Store, error) {
 	}
 }
 
+func daemonConfigPath() string { return filepath.Join(config.Home(), "daemon.json") }
+
 func daemonStart(args []string) error {
 	fs := flag.NewFlagSet("daemon start", flag.ContinueOnError)
-	path := fs.String("config", filepath.Join(config.Home(), "daemon.json"), "daemon 配置文件")
+	path := fs.String("config", daemonConfigPath(), "daemon 配置文件")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -158,17 +169,26 @@ func daemonStart(args []string) error {
 	if err != nil {
 		return err
 	}
-	d, err := daemon.New(cfg, config.Home())
-	if err != nil {
-		return err
-	}
 	ctx, stop := signalContext()
 	defer stop()
-	fmt.Fprintf(os.Stderr, "agentuse daemon %s → %s (%s)\n", cfg.ID, cfg.HubURL, transportName(cfg.Transport))
-	if err := d.Run(ctx); !errors.Is(err, context.Canceled) {
-		return err
+	// daemon.json 里每个 (hub, 平台) 一条循环,并行跑。
+	errs := make(chan error, len(cfg.Hubs))
+	for _, conn := range cfg.Hubs {
+		d, err := daemon.New(conn, cfg, config.Home())
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "agentuse daemon %s → %s [%s] (%s)\n", conn.DeviceID, conn.URL, conn.Platform, transportName(cfg.Transport))
+		go func() { errs <- d.Run(ctx) }()
 	}
-	return nil
+	var first error
+	for range cfg.Hubs {
+		if err := <-errs; err != nil && !errors.Is(err, context.Canceled) && first == nil {
+			first = err
+			stop()
+		}
+	}
+	return first
 }
 
 func transportName(t string) string {
@@ -232,6 +252,21 @@ func admin(args []string) error {
 	}
 	fmt.Println(pretty.String())
 	return nil
+}
+
+// parseMixed 解析 flag 和位置参数混排的命令行(agentuse connect <hub> <码> -dir x)。
+func parseMixed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var pos []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		if fs.NArg() == 0 {
+			return pos, nil
+		}
+		pos = append(pos, fs.Arg(0))
+		args = fs.Args()[1:]
+	}
 }
 
 func reply(args []string) error {
