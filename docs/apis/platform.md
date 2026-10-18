@@ -4,6 +4,7 @@
 
 ```go
 hub := sdk.New(os.Getenv("AGENTUSE_URL"), "shop", os.Getenv("AGENTUSE_SECRET"))
+hub.CallbackSecret = os.Getenv("AGENTUSE_CALLBACK_SECRET") // 平台配了 callback_secret 时;空 = 用 secret 验回调
 
 // 评论存库后
 res, err := hub.Notify(ctx, sdk.Comment{
@@ -66,7 +67,7 @@ X-AgentUse-Signature: <sig>
 
 ## POST {callback_url}
 
-hub → 平台,同一平台密钥签名。正文是 [Event](../structs/models.md#event):
+hub → 平台,用平台的 `callback_secret` 签名(没配则用 `secret`)。正文是 [Event](../structs/models.md#event):
 
 ```json
 {"type": "reply", "platform": "shop", "thread": "issue:MUL-42", "run_id": "r_…", "in_reply_to": "c_1001",

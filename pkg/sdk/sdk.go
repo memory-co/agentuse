@@ -69,8 +69,10 @@ type Event struct {
 type Client struct {
 	URL      string
 	Platform string
-	Secret   string
-	HTTP     *http.Client
+	Secret   string // 签 notify 用,对应 hub.json 里平台的 secret
+	// CallbackSecret 是验 hub 回调用的密钥,对应 hub.json 里平台的 callback_secret;空 = 沿用 Secret。
+	CallbackSecret string
+	HTTP           *http.Client
 }
 
 func New(url, platform, secret string) *Client {
@@ -114,7 +116,11 @@ func (c *Client) Handler(fn func(context.Context, Event) error) http.Handler {
 			http.Error(w, "bad body", http.StatusBadRequest)
 			return
 		}
-		if err := signature.Verify(r.Header, c.Secret, body, time.Now()); err != nil {
+		secret := c.CallbackSecret
+		if secret == "" {
+			secret = c.Secret
+		}
+		if err := signature.Verify(r.Header, secret, body, time.Now()); err != nil {
 			http.Error(w, "bad signature", http.StatusUnauthorized)
 			return
 		}
