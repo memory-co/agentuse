@@ -2,23 +2,24 @@
 
 > 代码:[`internal/hub/`](../../internal/hub/)、[`internal/store/`](../../internal/store/)
 
-## 1. 定位:属于用户的实例
+## 1. 定位:平台侧管理的实例
 
-hub 不是一家公司的公共服务,而是**实例**:用户或团队自建,或买托管的(如 `hub.alice.dev`)。平台在设置页里填两样东西:**地址**和**密钥**。类比 Redis——协议固定,实例可换。
+hub 是**平台自己的实例**,像平台的 Redis:平台运维部署(或买托管版),平台应用只认**地址**和**密钥**;一个 hub 服务这个平台上的所有用户,用户各自把自己的电脑接进来([connect.md](connect.md))。协议固定,实例可换。
 
-hub 只保存三样东西:
+hub 保存这些东西:
 
 | 东西 | 是什么 | 结构 |
 |---|---|---|
 | 会话表 | 线程键 → agent 会话 | [Session](../structs/models.md#session) |
 | 运行队列 | 每次唤醒一条运行,queued → claimed → succeeded / failed;claimed 带租约 | [Run](../structs/models.md#run) |
 | 策略 | 按平台:谁能唤醒、谁的话可信、agent 能做什么、现场权限 | [Policy](../structs/models.md#policy) |
+| 用户 / agent / 设备 | 谁的 agent 叫什么、绑在哪台电脑哪个目录(**设计中**) | [accounts.md](accounts.md) |
 
 **不存评论。** 平台 notify 时可以把线程里最近的评论一起带上(`context`),hub 只把它们挂在这次运行上交给 daemon,不另存一份。
 
 ## 2. 会话映射
 
-- 键是 `(platform, thread)`。线程键的格式由平台决定,hub 不解析,只在算分支名时去掉第一个 `:` 之前的类型前缀。
+- 键是 `(platform, thread)`;有了 agent 归属之后变成 `(platform, thread, agent)`,同一工单里 @ 不同人的 agent 是各自独立的会话([accounts.md §4](accounts.md#4-运行只派给主人的设备))。线程键的格式由平台决定,hub 不解析,只在算分支名时去掉第一个 `:` 之前的类型前缀。
 - 第一次被唤醒时建会话,分支名 `agent/<agent_name>/<线程键安全形式>`,如 `issue:MUL-42` → `agent/claude/MUL-42`。
 - 第一次运行结束时 daemon 回填 `agent_session_id`(Claude Code 的 session id),之后的运行用 `--resume` 续接。
 
@@ -58,4 +59,4 @@ hub.json 里 `"store": "sqlite" | "memory"`、`"db": "<路径>"` 选择。表结
 
 ## 6. 管理接口
 
-实例主人用 `admin_key` 查看会话和运行(只读):`GET /v1/admin/sessions`、`/v1/admin/runs`、`/v1/admin/runs/{id}`,或 `agentuse admin …`。见 [apis/admin.md](../apis/admin.md)。没配 `admin_key` 时管理接口关闭。
+平台运维用 `admin_key` 查看会话和运行(只读):`GET /v1/admin/sessions`、`/v1/admin/runs`、`/v1/admin/runs/{id}`,或 `agentuse admin …`。见 [apis/admin.md](../apis/admin.md)。没配 `admin_key` 时管理接口关闭。

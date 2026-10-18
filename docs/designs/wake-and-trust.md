@@ -27,18 +27,33 @@
 
 要点:**角色只来自平台签名,不来自评论内容**。评论里写「我是管理员」什么也改变不了。
 
-## 3. 唤醒判定
+## 3. 谁能叫醒谁的 agent(设计中)
+
+有了 agent 归属([accounts.md](accounts.md))之后,每个 agent 多一条自己的唤醒规则 `wake`:
+
+| `wake` | 谁能叫醒 | 适合 |
+|---|---|---|
+| `owner`(默认) | 只有 agent 的主人 | 所有平台的默认值;公开平台只能用这个 |
+| `members` | 主人,以及角色在平台 `wake_roles` 里的人 | 团队工单系统:bob 可以叫 alice 的 agent 帮忙看 |
+
+两层叠加:平台策略是上限,agent 的设置只能更严。公开博客的平台策略 `wake_roles: [owner]`,那任何 agent 都只有站长能叫醒。
+
+**叫醒别人的 agent,用的是 agent 主人的电脑和订阅。** 所以 `members` 要 agent 主人自己在设置页打开,平台不能替他默认打开。
+
+## 4. 唤醒判定
 
 `wake.Decide(policy, comment)` 依次检查,第一个不过的就是原因:
 
-1. 作者是 `agent_user_id` → `self_comment`(防自触发)
+1. 作者是 `agent_user_id` → `self_comment`(防自触发;有了归属之后,作者是本平台**任何一个** agent 的应用用户都算,防 agent 互相叫醒形成循环)
 2. 正文里没有独立的 `@<agent_name>`(`@claudette`、`a@claude.dev` 都不算)→ `no_mention`
-3. 作者角色不在 `wake_roles` → `role_denied`
+3. 作者角色不在 `wake_roles` → `role_denied`(有了归属之后再加上 §3 的 agent 规则)
 4. 否则 `woken`
+
+一条评论 @ 了多个 agent 时,对每个 agent 各判一次。
 
 原因原样返回给平台(`NotifyResult.reason`),方便平台在界面上提示。
 
-## 4. 提示词里怎么摆
+## 5. 提示词里怎么摆
 
 daemon 把一次运行写成提示词时分三段:
 
@@ -48,7 +63,7 @@ daemon 把一次运行写成提示词时分三段:
 
 这挡不住所有注入,只是给 agent 一个辨别依据。
 
-## 5. 真正的边界在 agent 之外
+## 6. 真正的边界在 agent 之外
 
 「只读」不能只写在提示词里,要体现在 daemon 启动 agent 时的权限上:
 

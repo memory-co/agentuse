@@ -17,14 +17,14 @@ daemon **主动连出** hub,所以用户电脑在 NAT 后面也没关系,平台�
 
 **心跳和交回总是走 HTTP**(`/v1/runs/{run}/heartbeat`、`/complete`):它们幂等、可重试,不依赖推送连接还在。推送连接只负责「有活马上推」;如果推出去的一瞬间连接断了,那条运行靠租约过期回收。
 
-daemon 用 `X-AgentUse-Daemon: <id>` + `Authorization: Bearer <key>` 认证,id 与 key 在 hub.json 的 `daemon_keys` 里登记。
+daemon 用 `X-AgentUse-Daemon: <id>` + `Authorization: Bearer <key>` 认证。现在 id 与 key 在 hub.json 的 `daemon_keys` 里手工登记;改成平台侧实例之后,它们换成**设备 id + 设备密钥**,由用户跑安装命令时自动登记,不再有人手写([connect.md](connect.md))。领取时 hub 只给这台设备上绑定的 agent 的运行([accounts.md §4](accounts.md#4-运行只派给主人的设备))。
 
 ## 2. 现场
 
 每个会话一个 git worktree:
 
 - 位置:`<worktree 根>/<platform>/<session id>`,根默认 `~/.agentuse/worktrees`;
-- 仓库:daemon.json 里 `workspaces[platform].repo`,如 `~/work/shop-api`;
+- 仓库:现在是 daemon.json 里 `workspaces[platform].repo`,如 `~/work/shop-api`;改成平台侧实例之后,是 agent 接入时绑定的那个目录(用户跑安装命令的目录),记在 hub 的 agent 上,daemon.json 不用手写;
 - 分支:会话的 `branch`(`agent/claude/MUL-42`),第一次从 `base_ref`(默认 `main`)切出;
 - 同一会话的后续运行复用同一个 worktree,现场接着上次;
 - 没配仓库的平台(如博客问答)给一个空目录。
