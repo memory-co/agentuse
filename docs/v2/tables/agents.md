@@ -13,7 +13,7 @@
 | `kind` | TEXT | `builtin` / `custom` |
 | `display_name` | TEXT | 显示名，如 `Claude Code` |
 | `description` | TEXT | 说明，可为空 |
-| `owner` | TEXT | 注册者;内置为空，自定义为注册它的用户 |
+| `owner_id` | TEXT | 注册者 [用户](users.md);内置为空，自定义为注册它的用户 |
 | `created_at` | INTEGER | 注册时间(unix 秒) |
 
 ```sql
@@ -22,7 +22,7 @@ CREATE TABLE agents (
   kind         TEXT NOT NULL,
   display_name TEXT NOT NULL,
   description  TEXT,
-  owner        TEXT,
+  owner_id     TEXT REFERENCES users(id),
   created_at   INTEGER NOT NULL
 );
 ```
