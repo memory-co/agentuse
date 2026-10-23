@@ -6,7 +6,7 @@
 |---|---|---|
 | `id` | TEXT PK | 任务 id,如 `tk_xxx` |
 | `daemon_id` | TEXT | 领到它的 daemon,未派出时为空 |
-| `agent` | TEXT | 用哪个 CLI agent 执行，如 `claude`(Claude Code)、`codex`;必填,daemon 按它选择调用的 CLI |
+| `agent` | TEXT | 用哪个 CLI agent 执行，如 `claude`(Claude Code)、`codex`;必填,只派给在 [daemon_agents](daemon_agents.md) 里声明过它的 daemon |
 | `status` | TEXT | 见下方状态 |
 | `input` | TEXT | 任务内容(JSON),交给 agent 的东西 |
 | `result` | TEXT | 最终结果(JSON),完成或失败时写入 |
