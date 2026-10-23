@@ -1,6 +1,6 @@
 # 对象
 
-字段和 [`internal/models/models.go`](../../internal/models/models.go) 一一对应,JSON 名即字段名。
+字段和 [`internal/models/models.go`](../../../internal/models/models.go) 一一对应,JSON 名即字段名。
 
 ## Platform
 

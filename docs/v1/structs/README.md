@@ -1,6 +1,6 @@
 # Structs
 
-agentuse 的数据结构:对象、字段语义、ID、配置与磁盘布局。**是什么**;机制见 [`../designs/`](../designs/README.md),HTTP 契约见 [`../apis/`](../apis/README.md)。Go 定义在 [`internal/models/`](../../internal/models/)。
+agentuse 的数据结构:对象、字段语义、ID、配置与磁盘布局。**是什么**;机制见 [`../designs/`](../designs/README.md),HTTP 契约见 [`../apis/`](../apis/README.md)。Go 定义在 [`internal/models/`](../../../internal/models/)。
 
 ## 对象清单
 

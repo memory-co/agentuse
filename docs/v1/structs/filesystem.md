@@ -51,7 +51,7 @@ hub 和 daemon 通常不在一台机器上;同一台机器两个都跑也行(本
 | `max_attempts` | `3` | 租约过期后最多领取几次(含第一次),用完判 failed |
 | `platforms` | 空 | 见 [models.md#platform](models.md#platform) |
 
-完整示例:[`examples/hub.json`](../../examples/hub.json)。
+完整示例:[`examples/hub.json`](../../../examples/hub.json)。
 
 ## daemon.json
 
@@ -76,7 +76,7 @@ hub 和 daemon 通常不在一台机器上;同一台机器两个都跑也行(本
 | `transport` | `ws` | `ws`(出站 WebSocket,hub 推)/ `poll`(HTTP 轮询) |
 | `workspaces` | 空 | 平台 id → `{repo, base_ref, worktree}`;没配的平台给空目录 |
 
-完整示例:[`examples/daemon.json`](../../examples/daemon.json)。
+完整示例:[`examples/daemon.json`](../../../examples/daemon.json)。
 
 ## 环境变量
 

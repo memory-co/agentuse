@@ -1,6 +1,6 @@
 # daemon
 
-> 代码:[`internal/daemon/`](../../internal/daemon/)
+> 代码:[`internal/daemon/`](../../../internal/daemon/)
 
 daemon 是用户电脑上的常驻进程,负责博客里与平台无关六件事中的三件:**连接、驱动 CLI、现场**。
 

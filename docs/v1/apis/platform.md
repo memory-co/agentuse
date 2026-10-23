@@ -1,6 +1,6 @@
 # 平台 API
 
-平台只做两件事:评论存库后 **notify**,在回调路由上**接收事件**。Go 平台直接用 [`pkg/sdk`](../../pkg/sdk/sdk.go):
+平台只做两件事:评论存库后 **notify**,在回调路由上**接收事件**。Go 平台直接用 [`pkg/sdk`](../../../pkg/sdk/sdk.go):
 
 ```go
 hub := sdk.New(os.Getenv("AGENTUSE_URL"), "shop", os.Getenv("AGENTUSE_SECRET"))
@@ -37,7 +37,7 @@ X-AgentUse-Timestamp: <unix 秒>
 X-AgentUse-Signature: <sig>
 ```
 
-时间戳与接收方时钟偏差超过 5 分钟即拒绝。实现见 [`pkg/signature`](../../pkg/signature/signature.go),其它语言照此实现即可。
+时间戳与接收方时钟偏差超过 5 分钟即拒绝。实现见 [`pkg/signature`](../../../pkg/signature/signature.go),其它语言照此实现即可。
 
 ## POST /v1/platforms/{platform}/notify
 

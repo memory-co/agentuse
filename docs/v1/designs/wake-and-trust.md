@@ -1,6 +1,6 @@
 # 唤醒与信任
 
-> 代码:[`internal/services/wake/`](../../internal/services/wake/)、[`internal/daemon/prompt.go`](../../internal/daemon/prompt.go)
+> 代码:[`internal/services/wake/`](../../../internal/services/wake/)、[`internal/daemon/prompt.go`](../../../internal/daemon/prompt.go)
 
 ## 1. 风险:评论区连着一个有全部权限的 agent
 

@@ -1,6 +1,6 @@
 # hub 实例
 
-> 代码:[`internal/hub/`](../../internal/hub/)、[`internal/store/`](../../internal/store/)
+> 代码:[`internal/hub/`](../../../internal/hub/)、[`internal/store/`](../../../internal/store/)
 
 ## 1. 定位:平台侧管理的实例
 
@@ -48,7 +48,7 @@ daemon 连着 `/v1/daemon/connect`(WebSocket)空闲等待时,hub 不轮询数据
 
 ## 5. 存储
 
-`store.Store` 是接口,两个实现跑同一套行为测试([`internal/store/storetest`](../../internal/store/storetest/storetest.go)):
+`store.Store` 是接口,两个实现跑同一套行为测试([`internal/store/storetest`](../../../internal/store/storetest/storetest.go)):
 
 | 实现 | 用途 | 说明 |
 |---|---|---|
