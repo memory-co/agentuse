@@ -7,7 +7,7 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `id` | TEXT PK | 用户 id,如 `us_xxx` |
+| `id` | TEXT PK | 用户 id,UUID(v4,小写带连字符),如 `3f2b8c1e-9a4d-4e7b-b5a2-1c6d8e0f4a93`;其他表的 `user_id` / `owner_id` 都存这个值 |
 | `name` | TEXT | 用户名，唯一 |
 | `role` | TEXT | `admin` / `user`,默认 `user` |
 | `created_at` | INTEGER | 创建时间(unix 秒) |
