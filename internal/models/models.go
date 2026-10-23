@@ -1,4 +1,4 @@
-// Package models 是 agentuse 的数据结构。字段语义见 docs/structs/。
+// Package models 是 agentuse 的数据结构。字段语义见 docs/v1/structs/。
 package models
 
 import "time"

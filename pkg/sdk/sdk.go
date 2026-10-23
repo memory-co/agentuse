@@ -4,7 +4,7 @@
 //	hub.Notify(ctx, sdk.Comment{ID: c.ID, Thread: "issue:MUL-42", Author: sdk.Author{...}, Text: c.Body})
 //	http.Handle("/agentuse/callback", hub.Handler(func(ctx context.Context, ev sdk.Event) error { ... }))
 //
-// 签名和验签都由 SDK 负责,平台只处理事件。线协议见 docs/apis/platform.md。
+// 签名和验签都由 SDK 负责,平台只处理事件。线协议见 docs/v1/apis/platform.md。
 package sdk
 
 import (

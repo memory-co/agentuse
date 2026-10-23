@@ -12,15 +12,15 @@ agentuse 是**平台侧的中间件**:平台像起一个 Redis 一样起一个 h
 
 身份三段式:进来验平台签名,中间用线程级运行令牌,出去验 hub 签名。公开评论区里「谁能唤醒」和「谁的话只是材料」分开配置。
 
-设计文档见 [`docs/designs/`](docs/designs/README.md);数据结构 [`docs/structs/`](docs/structs/README.md);HTTP API 与 CLI [`docs/apis/`](docs/apis/README.md)。
+设计文档见 [`docs/v1/designs/`](docs/v1/designs/README.md);数据结构 [`docs/v1/structs/`](docs/v1/structs/README.md);HTTP API 与 CLI [`docs/v1/apis/`](docs/v1/apis/README.md)。
 
 ## 状态
 
-评论 → 唤醒 → 排队 → 领取 → 回复 / 改状态 → 回调平台,全链路可跑、有端到端测试。会话表和运行队列存在 SQLite(`~/.agentuse/hub.db`);daemon 用出站 WebSocket 接 hub 推送的运行,跑的时候每 15 秒心跳续租,掉线的运行到期自动回收重排;同一线程的运行严格串行。**正在改**:按平台侧实例的定位补账号与 agent 归属、一条命令接入,计划见 [roadmap](docs/designs/roadmap.md)。下面「用起来」是现有实现的手工接入方式。
+评论 → 唤醒 → 排队 → 领取 → 回复 / 改状态 → 回调平台,全链路可跑、有端到端测试。会话表和运行队列存在 SQLite(`~/.agentuse/hub.db`);daemon 用出站 WebSocket 接 hub 推送的运行,跑的时候每 15 秒心跳续租,掉线的运行到期自动回收重排;同一线程的运行严格串行。**正在改**:按平台侧实例的定位补账号与 agent 归属、一条命令接入,计划见 [roadmap](docs/v1/designs/roadmap.md)。下面「用起来」是现有实现的手工接入方式。
 
 ## 用起来
 
-完整的接入步骤(部署 hub、平台接入、用户电脑接 daemon、验证与排错)见 [`docs/onboarding.md`](docs/onboarding.md)。最短路径:
+完整的接入步骤(部署 hub、平台接入、用户电脑接 daemon、验证与排错)见 [`docs/v1/onboarding.md`](docs/v1/onboarding.md)。最短路径:
 
 ```bash
 go install github.com/memory-co/agentuse/cmd/agentuse@latest
@@ -77,7 +77,7 @@ internal/
 pkg/
 ├── signature/       平台 ⇄ hub 签名
 └── sdk/             平台侧 Go SDK
-docs/                designs / structs / apis
+docs/                v1(旧版) / v2(重写中)
 examples/            配置示例
 ```
 

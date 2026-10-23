@@ -27,7 +27,7 @@ type ServerConfig struct {
 	AdminKey   string            // 管理接口的 Bearer 密钥;空 = 关闭管理接口
 }
 
-// Server 是 hub 的 HTTP 接口,端点见 docs/apis/。
+// Server 是 hub 的 HTTP 接口,端点见 docs/v1/apis/。
 type Server struct {
 	hub *Hub
 	cfg ServerConfig

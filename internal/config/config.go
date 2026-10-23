@@ -1,4 +1,4 @@
-// Package config 读 hub 和 daemon 的配置文件。默认位置在 ~/.agentuse/,见 docs/structs/filesystem.md。
+// Package config 读 hub 和 daemon 的配置文件。默认位置在 ~/.agentuse/,见 docs/v1/structs/filesystem.md。
 package config
 
 import (
