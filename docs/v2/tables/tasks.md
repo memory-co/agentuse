@@ -12,6 +12,7 @@
 | `lease_until` | INTEGER | 租约到期时间(unix 秒);daemon 没在此前汇报，任务回到 `pending` |
 | `created_at` | INTEGER | 创建时间 |
 | `updated_at` | INTEGER | 最近一次状态变化时间 |
+| `finished_at` | INTEGER | 结束时间(unix 秒),进入 `done` / `failed` 时写入，未结束为空 |
 
 状态:
 
@@ -31,7 +32,8 @@ CREATE TABLE tasks (
   result      TEXT,
   lease_until INTEGER,
   created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL
+  updated_at  INTEGER NOT NULL,
+  finished_at INTEGER
 );
 CREATE INDEX tasks_status ON tasks(status, created_at);
 ```
