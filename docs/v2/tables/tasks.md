@@ -5,6 +5,7 @@
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | TEXT PK | 任务 id,如 `tk_xxx` |
+| `user_id` | TEXT | 创建它的 [用户](users.md);只派给这个用户自己的 daemon |
 | `daemon_id` | TEXT | 领到它的 daemon,未派出时为空 |
 | `agent` | TEXT | 用哪个 CLI agent 执行，取 [agents](agents.md).name,如 `claude`、`codex`;必填,只派给在 [daemon_agents](daemon_agents.md) 里声明过它的 daemon |
 | `status` | TEXT | 见下方状态 |
@@ -27,6 +28,7 @@ pending ──派给 daemon──▶ running ──汇报成功──▶ done
 ```sql
 CREATE TABLE tasks (
   id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id),
   daemon_id   TEXT REFERENCES daemons(id),
   agent       TEXT NOT NULL REFERENCES agents(name),
   status      TEXT NOT NULL DEFAULT 'pending',

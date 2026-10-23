@@ -26,7 +26,7 @@
 ## 流程
 
 1. **连接**:daemon 启动后主动连出 agentuse 的 WebSocket 地址并认证，同时声明本机能用哪些 CLI agent(记在 daemon_agents 表)。用户电脑在 NAT 后面也没关系,服务不需要能访问用户电脑。
-2. **领任务**:daemon 空闲时告诉服务「我可以接活」,服务只挑这台 daemon 声明过的 agent 的任务，通过这条连接推过来。
+2. **领任务**:daemon 空闲时告诉服务「我可以接活」,服务只挑同一用户创建、且 agent 是这台 daemon 声明过的任务，通过这条连接推过来。
 3. **干活**:每个任务都明确指定用哪个 CLI agent,daemon 在本地调用对应的 CLI 执行任务。agent 在服务上全局登记：内置的有 Claude Code、Codex;用户自己手搓的 harness 也能注册，只要按约定从 stdin 读任务、往 stdout 写进度和结果([agents](../tables/agents.md))。
 4. **汇报**:执行过程中回报进度,结束后回报结果(成功 / 失败及输出),服务据此更新任务状态。
 5. 回到第 2 步,等下一个任务。
@@ -43,6 +43,7 @@ agentuse 服务用 **SQLite** 存数据，一个文件、不依赖外部数据�
 
 | 表 | 存什么 |
 |---|---|
+| [users](../tables/users.md) | 用户，分 admin 和普通用户;daemon、自定义 agent、任务都归属到用户 |
 | [agents](../tables/agents.md) | 全局登记的 CLI agent,包括内置的和用户自定义的 harness |
 | [daemons](../tables/daemons.md) | 登记过的 daemon 及其在线状态 |
 | [daemon_agents](../tables/daemon_agents.md) | 每个 daemon 能用哪些 CLI agent |
