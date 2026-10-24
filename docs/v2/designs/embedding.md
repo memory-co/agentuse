@@ -53,6 +53,8 @@ X-Agentuse-User: u_10086
 | 接着回复 | `POST /api/sessions/{id}/messages` |
 | 看进度和结果 | `GET /api/sessions/{id}`,轮询 |
 
+现成的客户端见 [sdk/](../../../sdk/README.md)(Python / Node.js / Go),封装了服务密钥、`X-Agentuse-User` 和上面这些接口。
+
 用户复制的安装命令里是 agentuse-server 的公网地址，用户电脑直接连它，不经过网站后端。
 
 TODO:进度现在只能轮询，以后加增量拉取(`after=<event id>`)和回调(webhook),让网站后端不用一直轮询。
