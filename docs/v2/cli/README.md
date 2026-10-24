@@ -5,12 +5,14 @@
 | 二进制 | 给谁 | 跑在哪 | 干什么 |
 |---|---|---|---|
 | [`agentuse`](agentuse.md) | 普通用户 | 用户自己的电脑 | 注册本机、跑 daemon、看本机状态 |
-| [`agentuse-server`](agentuse-server.md) | 部署 / 运维服务的人 | 服务器 | 起服务、管用户 |
+| [`agentuse-server`](agentuse-server.md) | 部署 / 运维服务的人 | 服务器(`start`);管理命令哪都能跑 | 起服务;通过 HTTP API 管用户 |
 
 为什么拆:
 
-- 用户电脑上只需要 daemon 那部分，不该带着建用户、开服务这些命令，也不该能碰服务端数据库。
-- 两边的配置、数据、权限完全不同(`~/.agentuse/daemon.json` vs SQLite 数据库),放一个二进制里命令容易混。
+- 用户电脑上只需要 daemon 那部分，不该带着建用户、开服务这些命令。
+- 两边的配置和权限完全不同(daemon 密钥 vs 管理员令牌),放一个二进制里命令容易混。
+
+两个 CLI 都只通过 HTTP / WebSocket 和服务打交道;只有 `agentuse-server start` 这个服务进程本身读写数据库。
 
 ## 构建与分发
 
