@@ -2,7 +2,7 @@
 
 > 用户电脑上跑一个 daemon,从 agentuse 服务领活，在本地调用 CLI agent(Claude Code、Codex 或自己写的 harness)干活，再把进度和结果汇报回去。
 
-设计见 [`docs/v2/designs/main.md`](docs/v2/designs/main.md),接入与通信见 [`connect.md`](docs/v2/designs/connect.md),表结构见 [`docs/v2/tables/`](docs/v2/tables/),接口见 [`docs/v2/apis/`](docs/v2/apis/README.md),命令行见 [`docs/v2/cli/`](docs/v2/cli/README.md)。旧版(v1)文档留在 [`docs/v1/`](docs/v1/README.md)。
+设计见 [`docs/v2/designs/main.md`](docs/v2/designs/main.md),接入与通信见 [`connect.md`](docs/v2/designs/connect.md),表结构见 [`docs/v2/tables/`](docs/v2/tables/),接口见 [`docs/v2/apis/`](docs/v2/apis/README.md),命令行见 [`docs/v2/cli/`](docs/v2/cli/README.md)。嵌进自己网站见 [`embedding.md`](docs/v2/designs/embedding.md) 和 [`sdk/`](sdk/README.md)(Python / Node.js / Go)。旧版(v1)文档留在 [`docs/v1/`](docs/v1/README.md)。
 
 ## 快速开始
 
@@ -91,6 +91,7 @@ internal/
 ├── protocol/        daemon ⇄ 服务的注册接口和 WebSocket 消息
 ├── server/          HTTP API、WebSocket 派活、setup.sh、网页(web/)
 └── daemon/          注册、连接、调用本地 CLI agent、汇报
+sdk/                 嵌入用客户端:python / nodejs / golang
 docs/                v2(当前) / v1(旧版)
 ```
 
