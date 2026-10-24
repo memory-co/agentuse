@@ -10,25 +10,25 @@ npm install /path/to/agentuse/sdk/nodejs
 ```js
 import { Client, AgentuseError } from "agentuse";
 
-const agentuse = new Client({ baseUrl: "http://agentuse.internal:8080", token: process.env.AGENTUSE_TOKEN }); // admin 令牌
+const agentuse = new Client({ baseUrl: "http://agentuse.internal:8080", token: process.env.AGENTUSE_TOKEN }); // admin 令牌，全局一个
 
-const u = agentuse.asUser("u_10086"); // 网站自己的 user id
+const uid = "u_10086"; // 网站自己的 user id,每次调用直接传
 
 // 连接我的电脑：把命令给用户复制
-const d = await u.createDaemon("my-laptop");
+const d = await agentuse.createDaemon(uid, "my-laptop");
 console.log(d.setup_command);
 
 // 电脑上线后打开 claude
-await u.setDaemonAgent(d.id, "claude", true);
+await agentuse.setDaemonAgent(uid, d.id, "claude", true);
 
 // 发起任务，等它回完
-const { session } = await u.createSession({ agent: "claude", prompt: "修一下 README 的错别字", cwd: "~/code/x" });
-const detail = await u.waitSession(session.id, { interval: 2000, timeout: 600_000 });
+const { session } = await agentuse.createSession(uid, { agent: "claude", prompt: "修一下 README 的错别字", cwd: "~/code/x" });
+const detail = await agentuse.waitSession(uid, session.id, { interval: 2000, timeout: 600_000 });
 console.log(detail.messages.at(-1).content);
 
 // 接着回复
 try {
-  await u.sendMessage(session.id, { prompt: "再把 CHANGELOG 也改一下" });
+  await agentuse.sendMessage(uid, session.id, { prompt: "再把 CHANGELOG 也改一下" });
 } catch (e) {
   if (e instanceof AgentuseError && e.status === 409) {
     // agent 还没回完

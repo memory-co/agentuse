@@ -73,41 +73,42 @@ export interface SessionEvent {
 
 export interface SessionDetail { session: Session; messages: Message[]; events: SessionEvent[]; }
 
+// 网站的 user id;null 表示 admin 本身。
+export type UserId = string | null;
+
 export interface MessageInput { prompt?: string; input?: any; }
 
 export interface ClientOptions {
   baseUrl: string;
   token: string;
-  user?: string;
   fetch?: typeof fetch;
 }
 
 export declare class Client {
   baseUrl: string;
   token: string;
-  user?: string;
   constructor(opts: ClientOptions);
-  asUser(userId: string): Client;
 
-  me(): Promise<User>;
+  // 除了用户管理，第一个参数都是网站的 user id;传 null 就是 admin 本身。
+  me(user: UserId): Promise<User>;
   listUsers(): Promise<User[]>;
   createUser(user?: { id?: string; name?: string; role?: "admin" | "user" }): Promise<UserToken>;
   resetUserToken(userId: string): Promise<UserToken>;
 
-  listAgents(): Promise<Agent[]>;
-  createAgent(agent: { name: string; display_name?: string; description?: string }): Promise<Agent>;
-  deleteAgent(name: string): Promise<void>;
+  listAgents(user: UserId): Promise<Agent[]>;
+  createAgent(user: UserId, agent: { name: string; display_name?: string; description?: string }): Promise<Agent>;
+  deleteAgent(user: UserId, name: string): Promise<void>;
 
-  listDaemons(): Promise<Daemon[]>;
-  createDaemon(name?: string): Promise<Daemon>;
-  resetDaemon(daemonId: string): Promise<Daemon>;
-  setDaemonAgent(daemonId: string, agent: string, enabled: boolean): Promise<Daemon>;
-  deleteDaemon(daemonId: string): Promise<void>;
+  listDaemons(user: UserId): Promise<Daemon[]>;
+  createDaemon(user: UserId, name?: string): Promise<Daemon>;
+  resetDaemon(user: UserId, daemonId: string): Promise<Daemon>;
+  setDaemonAgent(user: UserId, daemonId: string, agent: string, enabled: boolean): Promise<Daemon>;
+  deleteDaemon(user: UserId, daemonId: string): Promise<void>;
 
-  listSessions(): Promise<Session[]>;
-  createSession(req: MessageInput & { agent: string; cwd?: string }): Promise<{ session: Session; message: Message }>;
-  sendMessage(sessionId: string, req: MessageInput): Promise<Message>;
-  getSession(sessionId: string): Promise<SessionDetail>;
-  deleteSession(sessionId: string): Promise<void>;
-  waitSession(sessionId: string, opts?: { interval?: number; timeout?: number }): Promise<SessionDetail>;
+  listSessions(user: UserId): Promise<Session[]>;
+  createSession(user: UserId, req: MessageInput & { agent: string; cwd?: string }): Promise<{ session: Session; message: Message }>;
+  sendMessage(user: UserId, sessionId: string, req: MessageInput): Promise<Message>;
+  getSession(user: UserId, sessionId: string): Promise<SessionDetail>;
+  deleteSession(user: UserId, sessionId: string): Promise<void>;
+  waitSession(user: UserId, sessionId: string, opts?: { interval?: number; timeout?: number }): Promise<SessionDetail>;
 }

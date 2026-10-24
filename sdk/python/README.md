@@ -9,25 +9,25 @@ pip install "git+https://github.com/memory-co/agentuse#subdirectory=sdk/python"
 ```python
 from agentuse import Client, AgentuseError
 
-agentuse = Client("http://agentuse.internal:8080", token=os.environ["AGENTUSE_TOKEN"])  # admin 令牌
+agentuse = Client("http://agentuse.internal:8080", token=os.environ["AGENTUSE_TOKEN"])  # admin 令牌，全局一个
 
-u = agentuse.as_user("u_10086")          # 网站自己的 user id
+uid = "u_10086"  # 网站自己的 user id,每次调用直接传
 
-# 连接我的电脑:把命令给用户复制
-d = u.create_daemon("my-laptop")
+# 连接我的电脑：把命令给用户复制
+d = agentuse.create_daemon(uid, "my-laptop")
 print(d["setup_command"])
 
 # 电脑上线后打开 claude
-u.set_daemon_agent(d["id"], "claude", True)
+agentuse.set_daemon_agent(uid, d["id"], "claude", True)
 
 # 发起任务，等它回完
-s = u.create_session("claude", prompt="修一下 README 的错别字", cwd="~/code/x")["session"]
-detail = u.wait_session(s["id"], interval=2, timeout=600)
+s = agentuse.create_session(uid, "claude", prompt="修一下 README 的错别字", cwd="~/code/x")["session"]
+detail = agentuse.wait_session(uid, s["id"], interval=2, timeout=600)
 print(detail["messages"][-1]["content"])
 
 # 接着回复
 try:
-    u.send_message(s["id"], prompt="再把 CHANGELOG 也改一下")
+    agentuse.send_message(uid, s["id"], prompt="再把 CHANGELOG 也改一下")
 except AgentuseError as e:
     if e.status == 409:
         ...  # agent 还没回完
