@@ -2,14 +2,21 @@
 
 ## 一句话
 
-仓库顶层加一个 `harness/` 目录，**一个 harness 一个 yaml**,写清楚这个 CLI 的命令入口点位：怎么探测、第一条消息怎么起、之后怎么续接、输出怎么读出进度 / 结果 / 会话 id。daemon 和服务都从这里读，加一个新 harness 只要加一个 yaml,不用再写 Go。
+仓库顶层加一个 `harness/` 目录，**一个 harness 一个子目录**,里面的 `harness.yaml` 写清楚这个 CLI 的命令入口点位：怎么探测、第一条消息怎么起、之后怎么续接、输出怎么读出进度 / 结果 / 会话 id。daemon 和服务都从这里读，加一个新 harness 只要加一个目录，不用再写 Go。以后这个 harness 专属的 hook、plugin、skills 也放进它自己的目录。
 
 ```
 harness/
-├── embed.go        // go:embed *.yaml,和 frontend/embed.go 一样编进二进制
-├── claude.yaml     // Claude Code
-└── codex.yaml      // Codex
+├── embed.go            // go:embed,和 frontend/embed.go 一样把整个目录编进二进制
+├── claude/             // Claude Code
+│   ├── harness.yaml    // 命令入口点位(必须有)
+│   ├── hooks/          // 以后：Claude Code 的 hook,比如插话
+│   ├── plugins/        // 以后：随 agentuse 带的 plugin
+│   └── skills/         // 以后：随 agentuse 带的 skills
+└── codex/
+    └── harness.yaml
 ```
+
+目录名就是 harness 的 `name`。目前只有 `harness.yaml` 是必须的，其余子目录按需加，这份设计只定 `harness.yaml`。
 
 ## 为什么
 
@@ -19,11 +26,11 @@ harness/
 - `internal/daemon/harnesses.go`:默认命令、`--version` 探测、拼参数(`-p` / `--resume` / `exec … resume`)、`runClaude` / `runCodex` 两套解析。
 - [connect](connect.md#本机怎么跑-harness) 里再抄一遍命令表。
 
-三处要一起改，加 Gemini CLI、opencode 之类就得写一套新的 Go 解析。收到 yaml 里以后，一个文件就是这个 harness 的全部事实。
+三处要一起改，加 Gemini CLI、opencode 之类就得写一套新的 Go 解析。收进 `harness/<name>/` 以后，这个目录就是这个 harness 的全部事实。
 
-## yaml 长什么样
+## harness.yaml 长什么样
 
-### claude.yaml
+### claude/harness.yaml
 
 ```yaml
 name: claude
@@ -66,7 +73,7 @@ finish:
   require_result: true
 ```
 
-### codex.yaml
+### codex/harness.yaml
 
 ```yaml
 name: codex
@@ -109,7 +116,7 @@ finish:
 
 | 字段 | 说明 |
 |---|---|
-| `name` | 唯一名字，等于 [harnesses](../tables/harnesses.md).name,也是文件名 |
+| `name` | 唯一名字，等于 [harnesses](../tables/harnesses.md).name,必须和目录名一致 |
 | `display_name` / `description` | 服务启动时写进 harnesses 表,`kind = builtin` |
 | `command` | 默认可执行文件;daemon.json 里配了 `command` 就用配的 |
 | `detect.version` | 探测版本用的参数，不写就不探测 |
@@ -159,11 +166,11 @@ harness 没报会话 id 时沿用续接的那个，这条对所有 harness 都�
 
 ## 谁读它
 
-- **服务**:启动时把每个 yaml 的 `name` / `display_name` / `description` upsert 进 harnesses 表(`kind = builtin`),代替 `internal/store/harnesses.go` 里写死的列表。yaml 删了的内置 harness 不自动删行，避免 agent、会话引用断掉。
+- **服务**:启动时把每个 `harness/*/harness.yaml` 的 `name` / `display_name` / `description` upsert 进 harnesses 表(`kind = builtin`),代替 `internal/store/harnesses.go` 里写死的列表。目录删了的内置 harness 不自动删行，避免 agent、会话引用断掉。
 - **daemon**:探测和运行都按 yaml 来,`runClaude` / `runCodex` 合成一个通用的 jsonl 执行器。daemon.json 的 `harnesses.<name>` 仍然可以改 `command`、加 `args`、`disabled`,写法不变。
-- **文档**:[connect](connect.md#本机怎么跑-harness) 的命令表改成指向 `harness/*.yaml`,不再手抄。
+- **文档**:[connect](connect.md#本机怎么跑-harness) 的命令表改成指向 `harness/<name>/harness.yaml`,不再手抄。
 
-yaml 用 `go:embed` 编进 `agentuse` 和 `agentuse-server`,不需要用户机器上有这个目录;改 yaml 要发新版本才生效，和改代码一样。
+整个 `harness/` 用 `go:embed` 编进 `agentuse` 和 `agentuse-server`,不需要用户机器上有这个目录;改里面的东西要发新版本才生效，和改代码一样。
 
 ## 自定义 harness
 
@@ -171,12 +178,12 @@ yaml 用 `go:embed` 编进 `agentuse` 和 `agentuse-server`,不需要用户机�
 
 ## 以后
 
-- **插话**:会话运行中插话要靠 harness 的 hook,入口点位也写进 yaml(比如预留 `hooks:` 一节),到时候再定。
-- **用户自己的 yaml**:允许 daemon 读 `~/.agentuse/harness/*.yaml`,让手搓的 harness 不用改成 agentuse 的 stdin/stdout 约定。先不做。
+- **hook / plugin / skills**:放在 `harness/<name>/` 下对应的子目录里，daemon 跑这个 harness 时带上(比如插话要靠 Claude Code 的 hook)。怎么带上(写进会话目录、还是通过命令行参数指过去)由 `harness.yaml` 里再加一节来描述，到时候再定。
+- **用户自己的目录**:允许 daemon 读 `~/.agentuse/harness/<name>/harness.yaml`,让手搓的 harness 不用改成 agentuse 的 stdin/stdout 约定。先不做。
 
 ## 实现步骤(定稿后)
 
-1. 加 `harness/` 目录、`claude.yaml`、`codex.yaml`、`embed.go` 和加载 / 校验代码(带测试：两个 yaml 能解析，规则对现有 stream-json / codex JSONL 样例跑出和现在一样的结果)。
+1. 加 `harness/` 目录、`claude/harness.yaml`、`codex/harness.yaml`、`embed.go` 和加载 / 校验代码(带测试：两个 yaml 能解析、`name` 和目录名一致，规则对现有 stream-json / codex JSONL 样例跑出和现在一样的结果)。
 2. 服务用 yaml 写 harnesses 表。
 3. daemon 换成通用执行器，删掉 `runClaude` / `runCodex`。
 4. 更新 connect.md 的命令表。
