@@ -187,6 +187,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		ID          string `json:"id"`
 		Name        string `json:"name"`
 		Harness     string `json:"harness"`
 		Description string `json:"description"`
@@ -195,7 +196,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a, err := s.store.CreateAgent(r.Context(), currentUser(r).ID, req.Name, req.Harness, req.Description)
+	a, err := s.store.CreateAgent(r.Context(), currentUser(r).ID, req.ID, req.Name, req.Harness, req.Description)
 	if err != nil {
 		s.storeErr(w, err)
 		return

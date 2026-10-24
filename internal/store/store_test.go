@@ -25,10 +25,10 @@ func TestClaimAndLease(t *testing.T) {
 	if err != nil || d.Name != "host-a" {
 		t.Fatalf("register: %v %+v", err, d)
 	}
-	if _, err := s.CreateAgent(ctx, u.ID, "坏的", "nope", ""); err == nil {
+	if _, err := s.CreateAgent(ctx, u.ID, "", "坏的", "nope", ""); err == nil {
 		t.Fatal("unknown harness should fail")
 	}
-	ag, _ := s.CreateAgent(ctx, u.ID, "写代码", "claude", "")
+	ag, _ := s.CreateAgent(ctx, u.ID, "", "写代码", "claude", "")
 	if _, _, err := s.CreateSession(ctx, u, "ag_nope", "", "", json.RawMessage(`{}`)); err == nil {
 		t.Fatal("unknown agent should fail")
 	}
@@ -142,15 +142,22 @@ func TestAgents(t *testing.T) {
 	alice, _, _ := s.CreateUser(ctx, "", "alice", RoleUser)
 	bob, _, _ := s.CreateUser(ctx, "", "bob", RoleUser)
 
-	ag, err := s.CreateAgent(ctx, alice.ID, "写代码", "claude", "")
-	if err != nil {
-		t.Fatal(err)
+	ag, err := s.CreateAgent(ctx, alice.ID, "coder", "写代码", "claude", "")
+	if err != nil || ag.ID != "coder" {
+		t.Fatalf("create: %v %+v", err, ag)
 	}
-	if _, err := s.CreateAgent(ctx, alice.ID, "写代码", "codex", ""); err == nil {
+	if _, err := s.CreateAgent(ctx, alice.ID, "", "写代码", "codex", ""); err == nil {
 		t.Fatal("duplicate name should fail")
 	}
-	if _, err := s.CreateAgent(ctx, bob.ID, "写代码", "codex", ""); err != nil {
-		t.Fatalf("same name for another user: %v", err)
+	// id 全局唯一：别人也不能再用
+	if _, err := s.CreateAgent(ctx, bob.ID, "coder", "别的", "codex", ""); err == nil || !strings.Contains(err.Error(), "已被占用") {
+		t.Fatalf("duplicate id across users: %v", err)
+	}
+	if _, err := s.CreateAgent(ctx, bob.ID, "Bad ID", "x", "codex", ""); err == nil {
+		t.Fatal("bad id should fail")
+	}
+	if b, err := s.CreateAgent(ctx, bob.ID, "", "写代码", "codex", ""); err != nil || !strings.HasPrefix(b.ID, "ag_") {
+		t.Fatalf("same name for another user / generated id: %v %+v", err, b)
 	}
 	// bob 看不到、用不了 alice 的 agent
 	if _, err := s.GetAgent(ctx, bob, ag.ID); !errors.Is(err, ErrNotFound) {

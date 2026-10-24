@@ -8,7 +8,7 @@
 {
   "id": "ss_b83a324345de1f46",
   "user_id": "u_10086",
-  "agent_id": "ag_3f9a1c0d2b7e4a51",
+  "agent_id": "code-helper",
   "harness": "claude",
   "daemon_id": "dm_5c1c8602536e55cb",
   "cwd": "~/code/agentuse",
@@ -40,11 +40,11 @@
 用一个 [agent](agents.md) 新建会话，同时发出第一条消息。两种写法:
 
 ```json
-{ "agent_id": "ag_3f9a1c0d2b7e4a51", "prompt": "修一下 README 的错别字", "cwd": "~/code/agentuse" }
+{ "agent_id": "code-helper", "prompt": "修一下 README 的错别字", "cwd": "~/code/agentuse" }
 ```
 
 ```json
-{ "agent_id": "ag_…", "input": { "任意": "JSON" } }
+{ "agent_id": "my-bot", "input": { "任意": "JSON" } }
 ```
 
 - `agent_id` 必填，必须是自己的 agent(admin 可以用任何人的),否则 400。会话属于 agent 的主人,harness 取 agent 此刻的 harness。

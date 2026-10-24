@@ -9,9 +9,9 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `id` | TEXT PK | agent id,如 `ag_xxx` |
+| `id` | TEXT PK | agent id,**全局唯一**,不同用户之间用它 @ 对方的 agent(如 `@code-helper`)。建 agent 时由用户自己起，只能用小写字母、数字、`-` 和 `_`,以字母或数字开头，最长 64 个字符;不传时生成 `ag_xxx`。建好后不能改 |
 | `user_id` | TEXT | 属于哪个 [用户](users.md) |
-| `name` | TEXT | 名字，任意文字，最长 64 个字;同一用户下不能重名 |
+| `name` | TEXT | 显示名，任意文字，最长 64 个字;同一用户下不能重名 |
 | `harness` | TEXT | 现在映射到哪个 harness,取 [harnesses](harnesses.md).name |
 | `description` | TEXT | 说明，可为空 |
 | `created_at` | INTEGER | 创建时间(unix 秒) |

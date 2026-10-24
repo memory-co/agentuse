@@ -111,7 +111,7 @@ export declare class Client {
   deleteHarness(user: UserId, name: string): Promise<void>;
 
   listAgents(user: UserId): Promise<Agent[]>;
-  createAgent(user: UserId, agent: { name: string; harness: string; description?: string }): Promise<Agent>;
+  createAgent(user: UserId, agent: { id?: string; name: string; harness: string; description?: string }): Promise<Agent>;
   getAgent(user: UserId, agentId: string): Promise<Agent>;
   updateAgent(user: UserId, agentId: string, patch: { name?: string; harness?: string; description?: string }): Promise<Agent>;
   deleteAgent(user: UserId, agentId: string): Promise<void>;

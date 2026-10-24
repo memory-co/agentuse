@@ -66,9 +66,9 @@ agentuse harnesses                                      # 本机检测到的 har
 | PUT | `/api/daemons/{id}/harnesses/{harness}` | `{"enabled": true}` 开关 harness |
 | POST | `/api/daemons/{id}/reset` | 重新生成安装命令 |
 | DELETE | `/api/daemons/{id}` | 删除 |
-| GET / POST | `/api/agents` | 列 agent / 建 agent `{"name":"写代码助手","harness":"claude"}` |
+| GET / POST | `/api/agents` | 列 agent / 建 agent `{"id":"code-helper","name":"写代码助手","harness":"claude"}`(id 全局唯一，用来 @) |
 | PATCH / DELETE | `/api/agents/{id}` | 改名字、换 harness `{"harness":"codex"}` / 删除 |
-| GET / POST | `/api/sessions` | 列会话 / 开会话 `{"agent_id":"ag_…","prompt":"…","cwd":"可选"}` |
+| GET / POST | `/api/sessions` | 列会话 / 开会话 `{"agent_id":"code-helper","prompt":"…","cwd":"可选"}` |
 | POST | `/api/sessions/{id}/messages` | 回复 `{"prompt":"…"}`,harness 还没回时 409 |
 | GET / DELETE | `/api/sessions/{id}` | 会话详情(消息和回报) / 删除 |
 | GET / POST | `/api/harnesses` | 列 harness / 注册自定义 harness |

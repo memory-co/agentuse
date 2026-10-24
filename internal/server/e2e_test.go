@@ -80,7 +80,7 @@ func TestEndToEnd(t *testing.T) {
 	}
 	// alice 和 bob 各建一个用它的 agent
 	var aliceAgent, bobAgent store.Agent
-	if code := ca.do("POST", "/api/agents", map[string]string{"name": "回声", "harness": "echo-harness"}, &aliceAgent); code != http.StatusCreated {
+	if code := ca.do("POST", "/api/agents", map[string]string{"id": "alice-echo", "name": "回声", "harness": "echo-harness"}, &aliceAgent); code != http.StatusCreated {
 		t.Fatalf("create agent: %d", code)
 	}
 	cb.do("POST", "/api/agents", map[string]string{"name": "回声", "harness": "echo-harness"}, &bobAgent)

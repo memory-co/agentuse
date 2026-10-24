@@ -84,9 +84,10 @@ class Client:
     def list_agents(self, user):
         return self._request("GET", "/api/agents", user)
 
-    def create_agent(self, user, name, harness, description=None):
+    def create_agent(self, user, name, harness, description=None, id=None):
+        """id 全局唯一，别人用它 @ 这个 agent;不传时服务生成 ag_xxx。"""
         return self._request(
-            "POST", "/api/agents", user, _drop_none(name=name, harness=harness, description=description)
+            "POST", "/api/agents", user, _drop_none(id=id, name=name, harness=harness, description=description)
         )
 
     def get_agent(self, user, agent_id):

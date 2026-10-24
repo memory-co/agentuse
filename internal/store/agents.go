@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -27,6 +28,9 @@ type AgentPatch struct {
 	Description *string
 }
 
+// agent id 全局唯一，别人用它来 @ 这个 agent,建好后不能改。
+var agentIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+
 func cleanAgentName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -38,10 +42,12 @@ func cleanAgentName(name string) (string, error) {
 	return name, nil
 }
 
-func agentWriteErr(err error, name, harness string) error {
+func agentWriteErr(err error, id, name, harness string) error {
 	switch {
 	case err == nil:
 		return nil
+	case strings.Contains(err.Error(), "agents.id"):
+		return fmt.Errorf("agent id %q 已被占用", id)
 	case strings.Contains(err.Error(), "UNIQUE"):
 		return fmt.Errorf("已经有叫 %q 的 agent", name)
 	case strings.Contains(err.Error(), "FOREIGN KEY"):
@@ -50,8 +56,15 @@ func agentWriteErr(err error, name, harness string) error {
 	return err
 }
 
-// CreateAgent 给用户建一个 agent。同一用户下名字不能重复,harness 必须登记过。
-func (s *Store) CreateAgent(ctx context.Context, userID, name, harness, description string) (Agent, error) {
+// CreateAgent 给用户建一个 agent。id 由调用方传入、全局唯一，不传时生成 ag_xxx;
+// 同一用户下名字不能重复,harness 必须登记过。
+func (s *Store) CreateAgent(ctx context.Context, userID, id, name, harness, description string) (Agent, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = randomID("ag_")
+	} else if !agentIDRe.MatchString(id) {
+		return Agent{}, errors.New("agent id 只能用小写字母、数字、- 和 _,最长 64 个字符")
+	}
 	name, err := cleanAgentName(name)
 	if err != nil {
 		return Agent{}, err
@@ -61,12 +74,12 @@ func (s *Store) CreateAgent(ctx context.Context, userID, name, harness, descript
 		return Agent{}, errors.New("harness 必填")
 	}
 	now := s.unix()
-	a := Agent{ID: randomID("ag_"), UserID: userID, Name: name, Harness: harness, Description: description, CreatedAt: now, UpdatedAt: now}
+	a := Agent{ID: id, UserID: userID, Name: name, Harness: harness, Description: description, CreatedAt: now, UpdatedAt: now}
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO agents (id, user_id, name, harness, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.UserID, a.Name, a.Harness, a.Description, now, now)
 	if err != nil {
-		return Agent{}, agentWriteErr(err, name, harness)
+		return Agent{}, agentWriteErr(err, id, name, harness)
 	}
 	return a, nil
 }
@@ -95,7 +108,7 @@ func (s *Store) UpdateAgent(ctx context.Context, u User, id string, p AgentPatch
 		`UPDATE agents SET name = ?, harness = ?, description = ?, updated_at = ? WHERE id = ?`,
 		a.Name, a.Harness, a.Description, a.UpdatedAt, a.ID)
 	if err != nil {
-		return Agent{}, agentWriteErr(err, a.Name, a.Harness)
+		return Agent{}, agentWriteErr(err, a.ID, a.Name, a.Harness)
 	}
 	return a, nil
 }

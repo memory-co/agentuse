@@ -57,6 +57,7 @@ export class Client {
 
   // agents
   listAgents(user) { return this._request("GET", "/api/agents", user); }
+  // { id?, name, harness, description? };id 全局唯一，别人用它 @ 这个 agent,不传时服务生成。
   createAgent(user, agent) { return this._request("POST", "/api/agents", user, agent); }
   getAgent(user, agentId) { return this._request("GET", `/api/agents/${q(agentId)}`, user); }
   // 改名字、换 harness、改说明:{ name?, harness?, description? }。换 harness 只影响之后新建的会话。
