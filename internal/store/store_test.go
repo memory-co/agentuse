@@ -25,10 +25,17 @@ func TestClaimAndLease(t *testing.T) {
 	if err != nil || d.Name != "host-a" {
 		t.Fatalf("register: %v %+v", err, d)
 	}
-	if _, _, err := s.CreateSession(ctx, u.ID, "nope", "", "", json.RawMessage(`{}`)); err == nil {
+	if _, err := s.CreateAgent(ctx, u.ID, "坏的", "nope", ""); err == nil {
 		t.Fatal("unknown harness should fail")
 	}
-	ss, m1, _ := s.CreateSession(ctx, u.ID, "claude", "", "x", json.RawMessage(`{"prompt":"x"}`))
+	ag, _ := s.CreateAgent(ctx, u.ID, "写代码", "claude", "")
+	if _, _, err := s.CreateSession(ctx, u, "ag_nope", "", "", json.RawMessage(`{}`)); err == nil {
+		t.Fatal("unknown agent should fail")
+	}
+	ss, m1, _ := s.CreateSession(ctx, u, ag.ID, "", "x", json.RawMessage(`{"prompt":"x"}`))
+	if ss.AgentID != ag.ID || ss.Harness != "claude" || ss.UserID != u.ID {
+		t.Fatalf("session from agent: %+v", ss)
+	}
 
 	// 没上报 / 没开启都领不到
 	if _, err := s.ClaimSession(ctx, d, 60); !errors.Is(err, ErrNotFound) {
@@ -119,9 +126,72 @@ func TestClaimAndLease(t *testing.T) {
 
 	// 本机不再上报 claude → 不可用，不再派
 	s.DaemonConnected(ctx, d2, nil)
-	s.CreateSession(ctx, u.ID, "claude", "", "", json.RawMessage(`{}`))
+	s.CreateSession(ctx, u, ag.ID, "", "", json.RawMessage(`{}`))
 	if _, err := s.ClaimSession(ctx, d2, 60); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("claim unavailable: %v", err)
+	}
+}
+
+func TestAgents(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	alice, _, _ := s.CreateUser(ctx, "", "alice", RoleUser)
+	bob, _, _ := s.CreateUser(ctx, "", "bob", RoleUser)
+
+	ag, err := s.CreateAgent(ctx, alice.ID, "写代码", "claude", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateAgent(ctx, alice.ID, "写代码", "codex", ""); err == nil {
+		t.Fatal("duplicate name should fail")
+	}
+	if _, err := s.CreateAgent(ctx, bob.ID, "写代码", "codex", ""); err != nil {
+		t.Fatalf("same name for another user: %v", err)
+	}
+	// bob 看不到、用不了 alice 的 agent
+	if _, err := s.GetAgent(ctx, bob, ag.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("bob get: %v", err)
+	}
+	if _, _, err := s.CreateSession(ctx, bob, ag.ID, "", "", json.RawMessage(`{}`)); err == nil {
+		t.Fatal("bob should not use alice's agent")
+	}
+
+	// 换 harness:老会话不变，新会话用新的
+	old, _, _ := s.CreateSession(ctx, alice, ag.ID, "", "", json.RawMessage(`{}`))
+	codex := "codex"
+	if ag, err = s.UpdateAgent(ctx, alice, ag.ID, AgentPatch{Harness: &codex}); err != nil || ag.Harness != "codex" || ag.Name != "写代码" {
+		t.Fatalf("update: %v %+v", err, ag)
+	}
+	nope := "nope"
+	if _, err := s.UpdateAgent(ctx, alice, ag.ID, AgentPatch{Harness: &nope}); err == nil {
+		t.Fatal("unknown harness should fail")
+	}
+	nw, _, _ := s.CreateSession(ctx, alice, ag.ID, "", "", json.RawMessage(`{}`))
+	if old, _ = s.GetSession(ctx, alice, old.ID); old.Harness != "claude" || nw.Harness != "codex" {
+		t.Fatalf("harness after swap: old=%s new=%s", old.Harness, nw.Harness)
+	}
+
+	// 有 agent 用着的 harness 不能删
+	s.CreateCustomHarness(ctx, alice.ID, "mine", "", "")
+	mine := "mine"
+	s.UpdateAgent(ctx, alice, ag.ID, AgentPatch{Harness: &mine})
+	if err := s.DeleteCustomHarness(ctx, alice, "mine"); err == nil {
+		t.Fatal("harness used by agent should not be deletable")
+	}
+
+	// 删 agent:会话还在,agent_id 变空
+	if err := s.DeleteAgent(ctx, bob, ag.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("bob delete: %v", err)
+	}
+	if err := s.DeleteAgent(ctx, alice, ag.ID); err != nil {
+		t.Fatal(err)
+	}
+	if old, err = s.GetSession(ctx, alice, old.ID); err != nil || old.AgentID != "" || old.Harness != "claude" {
+		t.Fatalf("session after agent delete: %v %+v", err, old)
 	}
 }
 

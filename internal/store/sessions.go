@@ -25,6 +25,7 @@ const (
 type Session struct {
 	ID               string `json:"id"`
 	UserID           string `json:"user_id"`
+	AgentID          string `json:"agent_id,omitempty"`
 	Harness          string `json:"harness"`
 	DaemonID         string `json:"daemon_id,omitempty"`
 	Cwd              string `json:"cwd,omitempty"`
@@ -69,8 +70,9 @@ var (
 	ErrSessionOrphaned = errors.New("会话原来的 daemon 已删除，不能继续")
 )
 
-// CreateSession 建会话并写入第一条用户消息，会话为 pending。harness 必须登记过。
-func (s *Store) CreateSession(ctx context.Context, userID, harness, cwd, title string, content json.RawMessage) (Session, Message, error) {
+// CreateSession 用一个 agent 建会话并写入第一条用户消息，会话为 pending。
+// 会话属于 agent 的主人,harness 取 agent 此刻映射的 harness,之后不再跟着 agent 变。
+func (s *Store) CreateSession(ctx context.Context, u User, agentID, cwd, title string, content json.RawMessage) (Session, Message, error) {
 	if !json.Valid(content) {
 		return Session{}, Message{}, errors.New("input 必须是 JSON")
 	}
@@ -79,14 +81,24 @@ func (s *Store) CreateSession(ctx context.Context, userID, harness, cwd, title s
 		return Session{}, Message{}, err
 	}
 	defer tx.Rollback()
-	now := s.unix()
-	ss := Session{ID: randomID("ss_"), UserID: userID, Harness: harness, Cwd: cwd, Title: title, Status: SessionPending, CreatedAt: now, UpdatedAt: now}
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO sessions (id, user_id, harness, cwd, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		ss.ID, userID, harness, nullIfEmpty(cwd), title, ss.Status, now, now)
-	if err != nil && strings.Contains(err.Error(), "FOREIGN KEY") {
-		return Session{}, Message{}, fmt.Errorf("harness %q 没有登记", harness)
+	q := agentCols + ` WHERE id = ?`
+	args := []any{agentID}
+	if !u.IsAdmin() {
+		q += ` AND user_id = ?`
+		args = append(args, u.ID)
 	}
+	a, err := scanAgent(tx.QueryRowContext(ctx, q, args...))
+	if errors.Is(err, ErrNotFound) {
+		return Session{}, Message{}, fmt.Errorf("agent %q 不存在", agentID)
+	}
+	if err != nil {
+		return Session{}, Message{}, err
+	}
+	now := s.unix()
+	ss := Session{ID: randomID("ss_"), UserID: a.UserID, AgentID: a.ID, Harness: a.Harness, Cwd: cwd, Title: title, Status: SessionPending, CreatedAt: now, UpdatedAt: now}
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO sessions (id, user_id, agent_id, harness, cwd, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		ss.ID, ss.UserID, ss.AgentID, ss.Harness, nullIfEmpty(cwd), title, ss.Status, now, now)
 	if err != nil {
 		return Session{}, Message{}, err
 	}
@@ -330,20 +342,20 @@ func (s *Store) failDaemonSessions(ctx context.Context, tx *sql.Tx, daemonID str
 	return nil
 }
 
-const sessionCols = `SELECT id, user_id, harness, daemon_id, cwd, harness_session_id, title, status, lease_until, created_at, updated_at FROM sessions`
+const sessionCols = `SELECT id, user_id, agent_id, harness, daemon_id, cwd, harness_session_id, title, status, lease_until, created_at, updated_at FROM sessions`
 
 func (s *Store) scanSession(row scanner) (Session, error) {
 	var ss Session
-	var daemon, cwd, harness sql.NullString
+	var agent, daemon, cwd, harness sql.NullString
 	var lease sql.NullInt64
-	err := row.Scan(&ss.ID, &ss.UserID, &ss.Harness, &daemon, &cwd, &harness, &ss.Title, &ss.Status, &lease, &ss.CreatedAt, &ss.UpdatedAt)
+	err := row.Scan(&ss.ID, &ss.UserID, &agent, &ss.Harness, &daemon, &cwd, &harness, &ss.Title, &ss.Status, &lease, &ss.CreatedAt, &ss.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, ErrNotFound
 	}
 	if err != nil {
 		return Session{}, err
 	}
-	ss.DaemonID, ss.Cwd, ss.HarnessSessionID = daemon.String, cwd.String, harness.String
+	ss.AgentID, ss.DaemonID, ss.Cwd, ss.HarnessSessionID = agent.String, daemon.String, cwd.String, harness.String
 	ss.LeaseUntil = nullInt(lease)
 	return ss, nil
 }

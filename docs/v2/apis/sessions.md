@@ -8,6 +8,7 @@
 {
   "id": "ss_b83a324345de1f46",
   "user_id": "u_10086",
+  "agent_id": "ag_3f9a1c0d2b7e4a51",
   "harness": "claude",
   "daemon_id": "dm_5c1c8602536e55cb",
   "cwd": "~/code/agentuse",
@@ -20,7 +21,8 @@
 ```
 
 - `status`:`idle` / `pending` / `running`。
-- `daemon_id`、`cwd`、`harness_session_id`、`lease_until` 没有值时不出现。
+- `harness` 是建会话时 agent 映射的 harness,之后 agent 换 harness 它也不变。
+- `agent_id`、`daemon_id`、`cwd`、`harness_session_id`、`lease_until` 没有值时不出现(agent 删除后 `agent_id` 就没了)。
 
 ## message 对象
 
@@ -35,20 +37,20 @@
 
 ## POST /api/sessions
 
-新建会话，同时发出第一条消息。两种写法:
+用一个 [agent](agents.md) 新建会话，同时发出第一条消息。两种写法:
 
 ```json
-{ "harness": "claude", "prompt": "修一下 README 的错别字", "cwd": "~/code/agentuse" }
+{ "agent_id": "ag_3f9a1c0d2b7e4a51", "prompt": "修一下 README 的错别字", "cwd": "~/code/agentuse" }
 ```
 
 ```json
-{ "harness": "my-harness", "input": { "任意": "JSON" } }
+{ "agent_id": "ag_…", "input": { "任意": "JSON" } }
 ```
 
-- `harness` 必填，必须是登记过的 harness,否则 400。
+- `agent_id` 必填，必须是自己的 agent(admin 可以用任何人的),否则 400。会话属于 agent 的主人,harness 取 agent 此刻的 harness。
 - `cwd` 可省略，定下后整个会话都在这里跑。
 - 给 `prompt` 时消息内容是 `{"prompt": …}`;给 `input` 时原样交给 harness,忽略 `prompt`。
-- 返回 201 和 `{"session": …, "message": …}`,会话为 `pending`。只派给创建者自己的、开启了这个 harness 的在线 daemon;没有就一直排队。
+- 返回 201 和 `{"session": …, "message": …}`,会话为 `pending`。只派给 agent 主人自己的、开启了这个 harness 的在线 daemon;没有就一直排队。
 
 ## POST /api/sessions/{id}/messages
 

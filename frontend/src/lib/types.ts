@@ -4,6 +4,8 @@ export interface User { id: string; name: string; role: Role; created_at: number
 
 export interface Harness { name: string; kind: 'builtin' | 'custom'; display_name: string; description: string; owner_id?: string; created_at: number }
 
+export interface Agent { id: string; user_id: string; name: string; harness: string; description: string; created_at: number; updated_at: number }
+
 export interface DaemonHarness { harness: string; version: string; available: boolean; enabled: boolean; updated_at: number }
 export interface Daemon {
   id: string; user_id: string; name: string; status: 'pending' | 'online' | 'offline';
@@ -12,7 +14,7 @@ export interface Daemon {
 
 export type SessionStatus = 'idle' | 'pending' | 'running';
 export interface Session {
-  id: string; user_id: string; harness: string; daemon_id?: string; cwd?: string; harness_session_id?: string;
+  id: string; user_id: string; agent_id?: string; harness: string; daemon_id?: string; cwd?: string; harness_session_id?: string;
   title: string; status: SessionStatus; created_at: number; updated_at: number;
 }
 export interface Message { id: number; session_id: string; role: 'user' | 'assistant'; content: any; created_at: number }

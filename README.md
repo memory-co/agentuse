@@ -34,7 +34,7 @@ curl -fsSL "https://agentuse.example.com/setup.sh" -o setup.sh && TOKEN="st_…"
 
 ### 3. 选择开启哪些 harness
 
-在这台 daemon 下打开要用的 harness 开关(默认都关)。之后在「会话」页选 harness、写 prompt 开一个会话，会派给你自己的、开启了这个 harness 的在线 daemon,进度和回复实时显示，可以接着回复(会话对齐 Claude Code / Codex 自己的 session,在同一台电脑上续接)。
+在这台 daemon 下打开要用的 harness 开关(默认都关)。之后在「Agent」页建一个 agent(起个名字，选它背后用哪个 harness,以后能换),再在「会话」页选 agent、写 prompt 开一个会话，会派给你自己的、开启了这个 harness 的在线 daemon,进度和回复实时显示，可以接着回复(会话对齐 Claude Code / Codex 自己的 session,在同一台电脑上续接)。
 
 ## 命令
 
@@ -66,7 +66,9 @@ agentuse harnesses                                      # 本机检测到的 har
 | PUT | `/api/daemons/{id}/harnesses/{harness}` | `{"enabled": true}` 开关 harness |
 | POST | `/api/daemons/{id}/reset` | 重新生成安装命令 |
 | DELETE | `/api/daemons/{id}` | 删除 |
-| GET / POST | `/api/sessions` | 列会话 / 开会话 `{"harness":"claude","prompt":"…","cwd":"可选"}` |
+| GET / POST | `/api/agents` | 列 agent / 建 agent `{"name":"写代码助手","harness":"claude"}` |
+| PATCH / DELETE | `/api/agents/{id}` | 改名字、换 harness `{"harness":"codex"}` / 删除 |
+| GET / POST | `/api/sessions` | 列会话 / 开会话 `{"agent_id":"ag_…","prompt":"…","cwd":"可选"}` |
 | POST | `/api/sessions/{id}/messages` | 回复 `{"prompt":"…"}`,harness 还没回时 409 |
 | GET / DELETE | `/api/sessions/{id}` | 会话详情(消息和回报) / 删除 |
 | GET / POST | `/api/harnesses` | 列 harness / 注册自定义 harness |

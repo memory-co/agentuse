@@ -139,6 +139,33 @@ func (c *Client) DeleteHarness(ctx context.Context, user, name string) error {
 	return c.do(ctx, user, "DELETE", "/api/harnesses/"+esc(name), nil, nil)
 }
 
+// ---- agents ----
+
+func (c *Client) ListAgents(ctx context.Context, user string) ([]Agent, error) {
+	var as []Agent
+	return as, c.do(ctx, user, "GET", "/api/agents", nil, &as)
+}
+
+func (c *Client) CreateAgent(ctx context.Context, user string, req CreateAgentRequest) (*Agent, error) {
+	var a Agent
+	return &a, c.do(ctx, user, "POST", "/api/agents", req, &a)
+}
+
+func (c *Client) GetAgent(ctx context.Context, user, agentID string) (*Agent, error) {
+	var a Agent
+	return &a, c.do(ctx, user, "GET", "/api/agents/"+esc(agentID), nil, &a)
+}
+
+// UpdateAgent 改名字、换 harness、改说明;nil 字段不变。换 harness 只影响之后新建的会话。
+func (c *Client) UpdateAgent(ctx context.Context, user, agentID string, req UpdateAgentRequest) (*Agent, error) {
+	var a Agent
+	return &a, c.do(ctx, user, "PATCH", "/api/agents/"+esc(agentID), req, &a)
+}
+
+func (c *Client) DeleteAgent(ctx context.Context, user, agentID string) error {
+	return c.do(ctx, user, "DELETE", "/api/agents/"+esc(agentID), nil, nil)
+}
+
 // ---- daemons ----
 
 func (c *Client) ListDaemons(ctx context.Context, user string) ([]Daemon, error) {

@@ -78,6 +78,15 @@ func TestEndToEnd(t *testing.T) {
 	if code := ca.do("POST", "/api/harnesses", map[string]string{"name": "echo-harness"}, nil); code != http.StatusCreated {
 		t.Fatalf("create harness: %d", code)
 	}
+	// alice 和 bob 各建一个用它的 agent
+	var aliceAgent, bobAgent store.Agent
+	if code := ca.do("POST", "/api/agents", map[string]string{"name": "回声", "harness": "echo-harness"}, &aliceAgent); code != http.StatusCreated {
+		t.Fatalf("create agent: %d", code)
+	}
+	cb.do("POST", "/api/agents", map[string]string{"name": "回声", "harness": "echo-harness"}, &bobAgent)
+	if code := cb.do("POST", "/api/sessions", map[string]string{"agent_id": aliceAgent.ID, "prompt": "x"}, nil); code != http.StatusBadRequest {
+		t.Fatalf("bob uses alice's agent: %d", code)
+	}
 
 	// 页面上添加 daemon,拿到安装命令
 	var dv struct {
@@ -129,9 +138,9 @@ func TestEndToEnd(t *testing.T) {
 		Session store.Session `json:"session"`
 		Message store.Message `json:"message"`
 	}
-	ca.do("POST", "/api/sessions", map[string]string{"harness": "echo-harness", "prompt": "hi"}, &created)
+	ca.do("POST", "/api/sessions", map[string]string{"agent_id": aliceAgent.ID, "prompt": "hi"}, &created)
 	ss := created.Session
-	if ss.Status != store.SessionPending || ss.Title != "hi" || created.Message.Role != store.RoleUserMsg {
+	if ss.Status != store.SessionPending || ss.AgentID != aliceAgent.ID || ss.Harness != "echo-harness" || ss.Title != "hi" || created.Message.Role != store.RoleUserMsg {
 		t.Fatalf("session: %+v", created)
 	}
 
@@ -172,7 +181,7 @@ func TestEndToEnd(t *testing.T) {
 	var bobCreated struct {
 		Session store.Session `json:"session"`
 	}
-	cb.do("POST", "/api/sessions", map[string]string{"harness": "echo-harness", "prompt": "bob"}, &bobCreated)
+	cb.do("POST", "/api/sessions", map[string]string{"agent_id": bobAgent.ID, "prompt": "bob"}, &bobCreated)
 	bobSession := bobCreated.Session
 
 	// 开启 harness → 排队的会话被派出，harness 回复

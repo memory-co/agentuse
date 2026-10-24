@@ -66,7 +66,7 @@ func (s *Store) CreateCustomHarness(ctx context.Context, ownerID, name, displayN
 	return a, nil
 }
 
-// DeleteCustomHarness 删除自定义 harness。非 admin 只能删自己的;内置的不能删;还有会话引用时不能删。
+// DeleteCustomHarness 删除自定义 harness。非 admin 只能删自己的;内置的不能删;还有 agent 或会话引用时不能删。
 func (s *Store) DeleteCustomHarness(ctx context.Context, u User, name string) error {
 	q := `DELETE FROM harnesses WHERE name = ? AND kind = 'custom'`
 	args := []any{name}
@@ -77,7 +77,7 @@ func (s *Store) DeleteCustomHarness(ctx context.Context, u User, name string) er
 	res, err := s.db.ExecContext(ctx, q, args...)
 	if err != nil {
 		if strings.Contains(err.Error(), "FOREIGN KEY") {
-			return errors.New("还有会话在用这个 harness,不能删除")
+			return errors.New("还有 agent 或会话在用这个 harness,不能删除")
 		}
 		return err
 	}
