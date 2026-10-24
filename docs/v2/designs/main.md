@@ -63,7 +63,7 @@ agentuse 也能像 Redis 一样当中间件嵌进别的网站：网站后端带�
 
 ## 网页
 
-服务自带一个简单的网页：
+服务自带一个网页(源码在仓库顶层 `frontend/`,React + shadcn/ui,构建产物嵌进 agentuse-server):
 
 - **机器**:添加 daemon、复制安装命令、看在线状态、为每台 daemon 开关 agent。
 - **会话**:选 agent、写 prompt 开一个会话，像聊天一样看 agent 的进度和回复，在下面接着发消息。

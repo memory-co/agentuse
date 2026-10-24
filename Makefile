@@ -1,12 +1,16 @@
-.PHONY: build dist release test vet fmt run
+.PHONY: build web dist release test vet fmt run
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/memory-co/agentuse/internal/cli.Version=$(VERSION)
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 SERVER_PLATFORMS := linux/amd64 linux/arm64
 
-# bin/agentuse(用户电脑)和 bin/agentuse-server(服务端)
-build:
+# 网页:frontend/ 构建到 frontend/dist,编译 agentuse-server 时嵌进去
+web:
+	cd frontend && npm ci && npm run build
+
+# bin/agentuse(用户电脑)和 bin/agentuse-server(服务端，带网页)
+build: web
 	go build -ldflags "$(LDFLAGS)" -o bin/agentuse ./cmd/agentuse
 	go build -ldflags "$(LDFLAGS)" -o bin/agentuse-server ./cmd/agentuse-server
 
@@ -20,7 +24,7 @@ dist:
 	done
 
 # 发布制品:dist/ 下的 agentuse 各平台 + agentuse-server linux 版 + SHA256SUMS
-release: dist
+release: dist web
 	@for p in $(SERVER_PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; \
 		echo "build dist/agentuse-server-$$os-$$arch"; \

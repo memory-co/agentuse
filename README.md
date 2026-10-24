@@ -76,7 +76,7 @@ agentuse agents                                         # 本机检测到的 age
 
 ```bash
 make test     # go test ./...
-make build    # bin/agentuse、bin/agentuse-server
+make build    # bin/agentuse、bin/agentuse-server(先构建网页 frontend/dist 再嵌进去，需要 Node 18+)
 make dist     # dist/agentuse-{linux,darwin}-{amd64,arm64}(只有用户电脑上的 agentuse)
 ```
 
@@ -89,8 +89,9 @@ internal/
 ├── cli/             命令行
 ├── store/           SQLite 存储(表结构见 docs/v2/tables/)
 ├── protocol/        daemon ⇄ 服务的注册接口和 WebSocket 消息
-├── server/          HTTP API、WebSocket 派活、setup.sh、网页(web/)
+├── server/          HTTP API、WebSocket 派活、setup.sh、托管网页
 └── daemon/          注册、连接、调用本地 CLI agent、汇报
+frontend/            网页:React + Vite + shadcn/ui,构建产物 dist/ 嵌进 agentuse-server
 sdk/                 嵌入用客户端:python / nodejs / golang
 docs/                v2(当前) / v1(旧版)
 ```
