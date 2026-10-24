@@ -49,7 +49,7 @@
 { "agent_id": "my-bot", "input": { "任意": "JSON" } }
 ```
 
-- `agent_id` 必填，可以是任何人的 agent(@ 对方的 agent),不存在返回 400。会话属于 agent 的主人、跑在主人的 daemon 上,`created_by` 是调用者;harness 取 agent 此刻的 harness。
+- `agent_id` 必填，可以是任何人的 agent,不存在返回 400。会话属于 agent 的主人、跑在主人的 daemon 上,`created_by` 是调用者;harness 取 agent 此刻的 harness。
 - `cwd` 可省略，定下后整个会话都在这里跑。
 - 给 `prompt` 时消息内容是 `{"prompt": …}`;给 `input` 时原样交给 harness,忽略 `prompt`。
 - 返回 201 和 `{"session": …, "message": …}`,会话为 `pending`。只派给 agent 主人自己的、开启了这个 harness 的在线 daemon;没有就一直排队。

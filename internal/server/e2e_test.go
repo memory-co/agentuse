@@ -227,13 +227,13 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("bob should not see alice session: %d", code)
 	}
 
-	// bob @ alice 的 agent:跑在 alice 的 daemon 上,bob 看得到结果
+	// bob 用 alice 的 agent 开会话:跑在 alice 的 daemon 上,bob 看得到结果
 	var at struct {
 		Session store.Session `json:"session"`
 	}
 	if code := cb.do("POST", "/api/sessions", map[string]string{"agent_id": aliceAgent.ID, "prompt": "from bob"}, &at); code != http.StatusCreated ||
 		at.Session.UserID != aliceAgent.UserID || at.Session.CreatedBy == aliceAgent.UserID {
-		t.Fatalf("bob @ alice's agent: %d %+v", code, at.Session)
+		t.Fatalf("bob uses alice's agent: %d %+v", code, at.Session)
 	}
 	waitFor(t, func() bool {
 		cb.do("GET", "/api/sessions/"+at.Session.ID, nil, &detail)

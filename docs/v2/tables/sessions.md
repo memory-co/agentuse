@@ -2,7 +2,7 @@
 
 会话，对齐各 harness 自己的 session(如 Claude Code 的 session、Codex 的 thread)。一个会话是一段多轮对话：用户发一条消息,harness 回一条，可以一直往下回复。消息记在 [messages](messages.md)。
 
-会话用一个 [agent](agents.md) 开，可以是自己的，也可以是别人的(@ 对方的 agent)。会话属于 agent 的主人、跑在主人的 daemon 上,`created_by` 记是谁发起的;主人和发起人都能看、能接着回复、能删。建的时候把 agent 当时映射的 harness 记进 `harness`,之后不再跟着 agent 变：之后 agent 换了 harness,这个会话也还用原来的(续接只能用原来那个 harness 的会话)。
+会话用一个 [agent](agents.md) 开，由接口传入的 `agent_id` 指定，可以是自己的，也可以是别人的。会话属于 agent 的主人、跑在主人的 daemon 上,`created_by` 记是谁发起的;主人和发起人都能看、能接着回复、能删。建的时候把 agent 当时映射的 harness 记进 `harness`,之后不再跟着 agent 变：之后 agent 换了 harness,这个会话也还用原来的(续接只能用原来那个 harness 的会话)。
 
 派给 daemon 的单位是会话：用户发了消息，会话变成 `pending`,daemon 领走后 `running`,harness 回完回到 `idle`。
 

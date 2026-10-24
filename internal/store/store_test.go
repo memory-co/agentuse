@@ -159,13 +159,10 @@ func TestAgents(t *testing.T) {
 	if b, err := s.CreateAgent(ctx, bob.ID, "", "写代码", "codex", ""); err != nil || !strings.HasPrefix(b.ID, "ag_") {
 		t.Fatalf("same name for another user / generated id: %v %+v", err, b)
 	}
-	// bob 能 @ alice 的 agent:会话属于 alice(跑在她的 daemon 上),created_by 是 bob,两人都看得到
-	if got, err := s.GetAgent(ctx, ag.ID); err != nil || got.UserID != alice.ID {
-		t.Fatalf("bob get: %v %+v", err, got)
-	}
+	// bob 用 alice 的 agent 开会话:会话属于 alice(跑在她的 daemon 上),created_by 是 bob,两人都看得到
 	at, _, err := s.CreateSession(ctx, bob, ag.ID, "", "", json.RawMessage(`{}`))
 	if err != nil || at.UserID != alice.ID || at.CreatedBy != bob.ID {
-		t.Fatalf("bob @ alice's agent: %v %+v", err, at)
+		t.Fatalf("bob uses alice's agent: %v %+v", err, at)
 	}
 	carol, _, _ := s.CreateUser(ctx, "", "carol", RoleUser)
 	for _, u := range []User{alice, bob} {

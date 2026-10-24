@@ -34,4 +34,4 @@ CREATE UNIQUE INDEX users_token ON users(token_hash);
 | [agents](agents.md) | `user_id` | agent 属于谁 |
 | [harnesses](harnesses.md) | `owner_id` | 自定义 harness 由谁注册，内置为空 |
 | [sessions](sessions.md) | `user_id` | 会话属于谁(agent 的主人);只派给这个用户自己的 daemon |
-| [sessions](sessions.md) | `created_by` | 会话是谁发起的(可以 @ 别人的 agent) |
+| [sessions](sessions.md) | `created_by` | 会话是谁发起的(可以用别人的 agent) |

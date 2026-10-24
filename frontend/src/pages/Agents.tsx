@@ -40,7 +40,7 @@ export function Agents({ me }: { me: User }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-base">新建 agent</CardTitle>
-        <CardDescription>给 agent 起个 id 和好懂的名字，背后选一个 harness 来跑。id 全局唯一，别人用 @id 找到它，建好后不能改。以后可以随时换 harness,agent 不变;已有的会话还用原来的 harness,换了之后新建的会话才用新的。</CardDescription>
+        <CardDescription>给 agent 起个 id 和好懂的名字，背后选一个 harness 来跑。id 全局唯一，建好后不能改。以后可以随时换 harness,agent 不变;已有的会话还用原来的 harness,换了之后新建的会话才用新的。</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); add.mutate(); }}>
@@ -59,7 +59,7 @@ export function Agents({ me }: { me: User }) {
           <TableHeader><TableRow><TableHead>id</TableHead><TableHead>名字</TableHead><TableHead>harness</TableHead><TableHead>说明</TableHead>{me.role === 'admin' && <TableHead>用户</TableHead>}<TableHead /></TableRow></TableHeader>
           <TableBody>
             {agents.data.length ? agents.data.map(a => <TableRow key={a.id}>
-              <TableCell className="font-mono text-xs">@{a.id}</TableCell>
+              <TableCell className="font-mono text-xs">{a.id}</TableCell>
               <TableCell className="font-medium">{a.name}</TableCell>
               <TableCell><HarnessSelect className="h-8 w-52" value={a.harness} onChange={harness => swap.mutate({ id: a.id, harness })} harnesses={harnesses.data} /></TableCell>
               <TableCell className="text-muted-foreground">{a.description}</TableCell>

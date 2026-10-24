@@ -205,7 +205,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
-	a, err := s.store.GetAgent(r.Context(), r.PathValue("id"))
+	a, err := s.store.GetAgent(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
