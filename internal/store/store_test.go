@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,7 +19,7 @@ func TestClaimAndLease(t *testing.T) {
 	s.now = func() time.Time { return now }
 	ctx := context.Background()
 
-	u, _, _ := s.CreateUser(ctx, "alice", RoleUser)
+	u, _, _ := s.CreateUser(ctx, "", "alice", RoleUser)
 	d, _ := s.CreateDaemon(ctx, u.ID, "")
 	d, _, err = s.RegisterDaemon(ctx, d.SetupToken, "host-a")
 	if err != nil || d.Name != "host-a" {
@@ -73,5 +74,32 @@ func TestClaimAndLease(t *testing.T) {
 	s.CreateTask(ctx, u.ID, "claude", json.RawMessage(`{}`))
 	if _, err := s.ClaimTask(ctx, d, 60); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("claim unavailable: %v", err)
+	}
+}
+
+func TestCreateUserID(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+
+	u, _, err := s.CreateUser(ctx, "u_10086", "alice", RoleUser)
+	if err != nil || u.ID != "u_10086" {
+		t.Fatalf("custom id: %v %+v", err, u)
+	}
+	if _, _, err := s.CreateUser(ctx, "u_10086", "bob", RoleUser); err == nil || !strings.Contains(err.Error(), "id") {
+		t.Fatalf("duplicate id: %v", err)
+	}
+	if _, _, err := s.CreateUser(ctx, "u_2", "alice", RoleUser); err == nil || !strings.Contains(err.Error(), "用户名") {
+		t.Fatalf("duplicate name: %v", err)
+	}
+	if _, _, err := s.CreateUser(ctx, "has space", "carol", RoleUser); err == nil {
+		t.Fatal("invalid id should fail")
+	}
+	g, _, err := s.CreateUser(ctx, "", "dave", RoleUser)
+	if err != nil || len(g.ID) != 36 {
+		t.Fatalf("generated id: %v %+v", err, g)
 	}
 }

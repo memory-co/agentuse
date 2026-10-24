@@ -103,7 +103,7 @@
     <section id="tab-users" class="hidden">
       <div class="card">
         <h2>新建用户</h2>
-        <div class="row"><input id="userName" placeholder="用户名"><select id="userRole"><option value="user">普通用户</option><option value="admin">管理员</option></select><button class="btn primary" onclick="addUser()">创建</button></div>
+        <div class="row"><input id="userId" placeholder="用户 id(可选，填你们系统的 user id)" style="min-width:260px"><input id="userName" placeholder="用户名"><select id="userRole"><option value="user">普通用户</option><option value="admin">管理员</option></select><button class="btn primary" onclick="addUser()">创建</button></div>
         <div id="userCreated"></div>
       </div>
       <div class="card"><h2>用户</h2><table><thead><tr><th>用户名</th><th>角色</th><th>id</th><th>创建</th></tr></thead><tbody id="users"></tbody></table></div>
@@ -230,8 +230,8 @@ async function loadUsers() {
   $('users').innerHTML = us.map(u => `<tr><td>${esc(u.name)}</td><td>${u.role === 'admin' ? '管理员' : '普通用户'}</td><td class="small muted">${u.id}</td><td class="small muted">${fmt(u.created_at)}</td></tr>`).join('');
 }
 const addUser = guard(async () => {
-  const r = await api('POST', '/api/users', { name: $('userName').value.trim(), role: $('userRole').value });
-  $('userName').value = '';
+  const r = await api('POST', '/api/users', { id: $('userId').value.trim(), name: $('userName').value.trim(), role: $('userRole').value });
+  $('userName').value = ''; $('userId').value = '';
   $('userCreated').innerHTML = `<p class="small">已创建 <b>${esc(r.user.name)}</b>。把下面的登录链接发给 TA(只显示这一次):</p><pre>${esc(r.login_url)}</pre>`;
   await loadUsers();
 });

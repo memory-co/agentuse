@@ -42,7 +42,7 @@ curl -fsSL "https://agentuse.example.com/setup.sh" -o setup.sh && TOKEN="st_…"
 agentuse server [-addr :8080] [-db 路径] [-public-url URL] [-dist 目录]
 agentuse daemon register -server URL -token 安装令牌   # setup.sh 会替你跑
 agentuse daemon run                                     # setup.sh 装成的后台服务跑的就是它
-agentuse user create 用户名 [-role user|admin]
+agentuse user create 用户名 [-id 用户id] [-role user|admin]
 agentuse user token 用户名                              # 重置登录令牌
 ```
 

@@ -7,7 +7,7 @@
 ```json
 {
   "id": "tk_b83a324345de1f46",
-  "user_id": "3f2b8c1e-…",
+  "user_id": "u_10086",
   "daemon_id": "dm_5c1c8602536e55cb",
   "agent": "claude",
   "status": "done",

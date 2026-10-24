@@ -7,7 +7,7 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `id` | TEXT PK | 用户 id,UUID(v4,小写带连字符),如 `3f2b8c1e-9a4d-4e7b-b5a2-1c6d8e0f4a93`;其他表的 `user_id` / `owner_id` 都存这个值 |
+| `id` | TEXT PK | 用户 id,**由调用方在创建时传入**,一般就是接入方自己系统里的 user id,如 `u_10086`;只能用字母、数字和 `. _ - : @`,最长 128 个字符。不传时生成一个 UUID(v4)。其他表的 `user_id` / `owner_id` 都存这个值 |
 | `name` | TEXT | 用户名，唯一 |
 | `role` | TEXT | `admin` / `user`,默认 `user` |
 | `token_hash` | TEXT | 登录令牌(`ut_` 开头)的 SHA-256,不存明文;网页 cookie 和 API 的 `Authorization: Bearer` 都用这个令牌 |
@@ -24,7 +24,7 @@ CREATE TABLE users (
 CREATE UNIQUE INDEX users_token ON users(token_hash);
 ```
 
-服务第一次启动、库里没有用户时，自动建一个管理员 `admin`,把登录链接打印在日志里。之后管理员在页面上建其他用户。令牌丢了用 `agentuse user token <用户名>` 重置。
+服务第一次启动、库里没有用户时，自动建一个管理员 `admin`(id 为 UUID),把登录链接打印在日志里。之后管理员在页面上建其他用户。令牌丢了用 `agentuse user token <用户名>` 重置。
 
 归属关系:
 

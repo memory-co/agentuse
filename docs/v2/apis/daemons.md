@@ -7,7 +7,7 @@
 ```json
 {
   "id": "dm_5c1c8602536e55cb",
-  "user_id": "3f2b8c1e-…",
+  "user_id": "u_10086",
   "name": "my-laptop",
   "status": "online",
   "last_seen_at": 1792800027,
@@ -15,7 +15,7 @@
   "agents": [
     {
       "daemon_id": "dm_5c1c8602536e55cb",
-      "user_id": "3f2b8c1e-…",
+      "user_id": "u_10086",
       "agent": "claude",
       "version": "2.1.310 (Claude Code)",
       "available": true,

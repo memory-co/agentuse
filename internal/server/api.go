@@ -109,6 +109,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		ID   string `json:"id"`
 		Name string `json:"name"`
 		Role string `json:"role"`
 	}
@@ -119,7 +120,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if req.Role == "" {
 		req.Role = store.RoleUser
 	}
-	u, token, err := s.store.CreateUser(r.Context(), req.Name, req.Role)
+	u, token, err := s.store.CreateUser(r.Context(), req.ID, req.Name, req.Role)
 	if err != nil {
 		s.storeErr(w, err)
 		return

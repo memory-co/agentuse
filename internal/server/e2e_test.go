@@ -69,8 +69,8 @@ func TestEndToEnd(t *testing.T) {
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
-	_, aliceTok, _ := st.CreateUser(ctx, "alice", store.RoleUser)
-	_, bobTok, _ := st.CreateUser(ctx, "bob", store.RoleUser)
+	_, aliceTok, _ := st.CreateUser(ctx, "", "alice", store.RoleUser)
+	_, bobTok, _ := st.CreateUser(ctx, "", "bob", store.RoleUser)
 	ca := client{t, ts.URL, aliceTok}
 	cb := client{t, ts.URL, bobTok}
 

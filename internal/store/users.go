@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -12,6 +13,8 @@ const (
 	RoleAdmin = "admin"
 	RoleUser  = "user"
 )
+
+var userIDRe = regexp.MustCompile(`^[A-Za-z0-9._:@-]{1,128}$`)
 
 type User struct {
 	ID        string `json:"id"`
@@ -23,22 +26,32 @@ type User struct {
 func (u User) IsAdmin() bool { return u.Role == RoleAdmin }
 
 // CreateUser 建用户，返回用户和登录令牌(只此一次能拿到明文)。
-func (s *Store) CreateUser(ctx context.Context, name, role string) (User, string, error) {
+// id 由调用方给(接入方自己的 user id);为空时生成一个 UUID。
+func (s *Store) CreateUser(ctx context.Context, id, name, role string) (User, string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return User{}, "", errors.New("用户名不能为空")
 	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = newUUID()
+	} else if !userIDRe.MatchString(id) {
+		return User{}, "", errors.New("用户 id 只能用字母、数字和 . _ - : @,最长 128 个字符")
+	}
 	if role != RoleAdmin && role != RoleUser {
 		return User{}, "", fmt.Errorf("未知角色 %q", role)
 	}
-	u := User{ID: newUUID(), Name: name, Role: role, CreatedAt: s.unix()}
+	u := User{ID: id, Name: name, Role: role, CreatedAt: s.unix()}
 	token := RandomToken("ut_")
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO users (id, name, role, token_hash, created_at) VALUES (?, ?, ?, ?, ?)`,
 		u.ID, u.Name, u.Role, HashSecret(token), u.CreatedAt)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+		if strings.Contains(err.Error(), "users.name") {
 			return User{}, "", fmt.Errorf("用户名 %q 已存在", name)
+		}
+		if strings.Contains(err.Error(), "users.id") {
+			return User{}, "", fmt.Errorf("用户 id %q 已存在", id)
 		}
 		return User{}, "", err
 	}

@@ -30,7 +30,7 @@ const usage = `agentuse —— 让你电脑上的 CLI agent 从 agentuse 服务�
   agentuse server [-addr :8080] [-db 路径] [-public-url URL] [-dist 目录]
   agentuse daemon register -server URL -token 安装令牌
   agentuse daemon run
-  agentuse user create 用户名 [-role user|admin]
+  agentuse user create 用户名 [-id 用户id] [-role user|admin]
   agentuse user token 用户名          # 重置登录令牌
   agentuse version
 `
@@ -115,7 +115,7 @@ func runServer(args []string) error {
 	if n, err := st.CountUsers(ctx); err != nil {
 		return err
 	} else if n == 0 {
-		u, token, err := st.CreateUser(ctx, "admin", store.RoleAdmin)
+		u, token, err := st.CreateUser(ctx, "", "admin", store.RoleAdmin)
 		if err != nil {
 			return err
 		}
@@ -203,6 +203,7 @@ func runUser(args []string) error {
 	fs := flag.NewFlagSet("user "+args[0], flag.ContinueOnError)
 	dbPath := fs.String("db", envOr("AGENTUSE_DB", defaultDB()), "SQLite 数据库文件")
 	role := fs.String("role", store.RoleUser, "角色: user / admin(仅 create)")
+	id := fs.String("id", "", "用户 id,一般填接入方自己的 user id;不填生成 UUID(仅 create)")
 	name := args[1]
 	if err := fs.Parse(args[2:]); err != nil {
 		return err
@@ -215,11 +216,11 @@ func runUser(args []string) error {
 	ctx := context.Background()
 	switch args[0] {
 	case "create":
-		u, token, err := st.CreateUser(ctx, name, *role)
+		u, token, err := st.CreateUser(ctx, *id, name, *role)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("已创建用户 %s(%s),登录令牌: %s\n", u.Name, u.Role, token)
+		fmt.Printf("已创建用户 %s(id %s,%s),登录令牌: %s\n", u.Name, u.ID, u.Role, token)
 	case "token":
 		token, err := st.ResetUserToken(ctx, name)
 		if errors.Is(err, store.ErrNotFound) {
