@@ -66,18 +66,18 @@ class Client:
     def reset_user_token(self, user_id):
         return self._request("POST", f"/api/users/{_q(user_id)}/token")
 
-    # agents
+    # harnesses
 
-    def list_agents(self, user):
-        return self._request("GET", "/api/agents", user)
+    def list_harnesses(self, user):
+        return self._request("GET", "/api/harnesses", user)
 
-    def create_agent(self, user, name, display_name=None, description=None):
+    def create_harness(self, user, name, display_name=None, description=None):
         return self._request(
-            "POST", "/api/agents", user, _drop_none(name=name, display_name=display_name, description=description)
+            "POST", "/api/harnesses", user, _drop_none(name=name, display_name=display_name, description=description)
         )
 
-    def delete_agent(self, user, name):
-        self._request("DELETE", f"/api/agents/{_q(name)}", user)
+    def delete_harness(self, user, name):
+        self._request("DELETE", f"/api/harnesses/{_q(name)}", user)
 
     # daemons
 
@@ -91,9 +91,9 @@ class Client:
     def reset_daemon(self, user, daemon_id):
         return self._request("POST", f"/api/daemons/{_q(daemon_id)}/reset", user)
 
-    def set_daemon_agent(self, user, daemon_id, agent, enabled):
+    def set_daemon_harness(self, user, daemon_id, harness, enabled):
         return self._request(
-            "PUT", f"/api/daemons/{_q(daemon_id)}/agents/{_q(agent)}", user, {"enabled": bool(enabled)}
+            "PUT", f"/api/daemons/{_q(daemon_id)}/harnesses/{_q(harness)}", user, {"enabled": bool(enabled)}
         )
 
     def delete_daemon(self, user, daemon_id):
@@ -104,10 +104,10 @@ class Client:
     def list_sessions(self, user):
         return self._request("GET", "/api/sessions", user)
 
-    def create_session(self, user, agent, prompt=None, input=None, cwd=None):
+    def create_session(self, user, harness, prompt=None, input=None, cwd=None):
         """新建会话并发出第一条消息，返回 {"session": …, "message": …}。"""
         return self._request(
-            "POST", "/api/sessions", user, _drop_none(agent=agent, prompt=prompt, input=input, cwd=cwd)
+            "POST", "/api/sessions", user, _drop_none(harness=harness, prompt=prompt, input=input, cwd=cwd)
         )
 
     def send_message(self, user, session_id, prompt=None, input=None):

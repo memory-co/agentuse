@@ -42,18 +42,18 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 
 | type | 字段 | 说明 |
 |---|---|---|
-| `hello` | `agents`、`running`、`version` | 连上后第一条 |
+| `hello` | `harnesses`、`running`、`version` | 连上后第一条 |
 | `ready` | | 空闲，可以接活 |
 | `heartbeat` | `message_id`(可空) | 每 15 秒一次 |
 | `event` | `message_id`、`kind`、`payload` | 回报进度或结果 |
 
-**hello**:上报本机可用的 agent 和手上还在跑的消息(`message_id`)。服务据此更新 daemon_agents 的 `available`,并把挂在这台 daemon 名下、但不在 `running` 里的会话收回重排。
+**hello**:上报本机可用的 harness 和手上还在跑的消息(`message_id`)。服务据此更新 daemon_harnesses 的 `available`,并把挂在这台 daemon 名下、但不在 `running` 里的会话收回重排。
 
 ```json
 {
   "type": "hello",
   "version": "v0.2.0",
-  "agents": [{ "name": "claude", "version": "2.1.310 (Claude Code)" }, { "name": "my-harness" }],
+  "harnesses": [{ "name": "claude", "version": "2.1.310 (Claude Code)" }, { "name": "my-harness" }],
   "running": [3]
 }
 ```
@@ -80,7 +80,7 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 | `message` | `message` | 派一条用户消息 |
 | `error` | `message_id`(可空)、`error` | 出错 |
 
-**welcome**:`ignored` 是 hello 里报了、但服务上没登记的 agent 名字(被忽略)。
+**welcome**:`ignored` 是 hello 里报了、但服务上没登记的 harness 名字(被忽略)。
 
 ```json
 { "type": "welcome", "daemon_id": "dm_…", "name": "my-laptop", "ignored": ["ghost"] }
@@ -94,7 +94,7 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
   "message": {
     "id": 3,
     "session_id": "ss_…",
-    "agent": "claude",
+    "harness": "claude",
     "cwd": "~/code/x",
     "resume": "9f1c…",
     "input": { "prompt": "…" }
@@ -119,8 +119,8 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 | `server` | 服务地址 |
 | `daemon_id` / `key` | 注册得到的 id 和密钥 |
 | `workdir` | 没给 `cwd` 的会话在哪跑，默认 `~/.agentuse/work`(每个会话一个子目录) |
-| `agents.<name>.command` | 启动命令;内置的默认 `claude` / `codex`,自定义的必填 |
-| `agents.<name>.args` | 追加参数 |
-| `agents.<name>.disabled` | `true` 时不上报 |
+| `harnesses.<name>.command` | 启动命令;内置的默认 `claude` / `codex`,自定义的必填 |
+| `harnesses.<name>.args` | 追加参数 |
+| `harnesses.<name>.disabled` | `true` 时不上报 |
 
-各 agent 怎么被调用见 [designs/connect](../designs/connect.md#本机怎么跑-agent)。改完重启 daemon 生效。
+各 harness 怎么被调用见 [designs/connect](../designs/connect.md#本机怎么跑-harness)。改完重启 daemon 生效。

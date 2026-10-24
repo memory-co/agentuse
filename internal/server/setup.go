@@ -105,7 +105,7 @@ else
   say "注意：没有 systemd/launchd,重启电脑后需要手动运行: $BIN daemon"
 fi
 
-say "完成！回到 agentuse 页面，选择这台电脑上要开启的 agent。"
+say "完成！回到 agentuse 页面，选择这台电脑上要开启的 harness。"
 `
 
 func (s *Server) handleSetupScript(w http.ResponseWriter, r *http.Request) {

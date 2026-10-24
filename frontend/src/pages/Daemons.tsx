@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { Confirm, CopyBlock, Empty, ErrorState, Loading, StatusBadge } from '@/components/Shared';
 import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query';
-import { useAgents } from '@/pages/Agents';
+import { useHarnesses } from '@/pages/Harnesses';
 import type { Daemon, User } from '@/lib/types';
 import { fmtTime } from '@/lib/utils';
 
@@ -25,7 +25,7 @@ export function Daemons({ me }: { me: User }) {
   });
   return <div className="grid gap-4">
     <Card>
-      <CardHeader><CardTitle className="text-base">添加机器</CardTitle><CardDescription>在要跑 agent 的电脑上执行生成的安装命令，就能把它注册成一个 daemon。</CardDescription></CardHeader>
+      <CardHeader><CardTitle className="text-base">添加机器</CardTitle><CardDescription>在要跑 harness 的电脑上执行生成的安装命令，就能把它注册成一个 daemon。</CardDescription></CardHeader>
       <CardContent>
         <form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); add.mutate(); }}>
           <Input className="max-w-xs" placeholder="名字(可选，默认用主机名)" value={name} onChange={e => setName(e.target.value)} />
@@ -40,13 +40,13 @@ export function Daemons({ me }: { me: User }) {
 }
 
 function DaemonCard({ d, me }: { d: Daemon; me: User }) {
-  const agents = useAgents();
-  const displayName = (n: string) => agents.data?.find(a => a.name === n)?.display_name || n;
+  const harnesses = useHarnesses();
+  const displayName = (n: string) => harnesses.data?.find(a => a.name === n)?.display_name || n;
   const del = useMutation({ mutationFn: () => api(`/api/daemons/${d.id}`, { method: 'DELETE' }), onSuccess: refresh });
   const reset = useMutation({ mutationFn: () => api(`/api/daemons/${d.id}/reset`, { method: 'POST' }), onSuccess: refresh });
   const toggle = useMutation({
-    mutationFn: ({ agent, enabled }: { agent: string; enabled: boolean }) =>
-      api(`/api/daemons/${d.id}/agents/${encodeURIComponent(agent)}`, { method: 'PUT', body: { enabled } }),
+    mutationFn: ({ harness, enabled }: { harness: string; enabled: boolean }) =>
+      api(`/api/daemons/${d.id}/harnesses/${encodeURIComponent(harness)}`, { method: 'PUT', body: { enabled } }),
     onSuccess: (_, v) => { toast.success(v.enabled ? '已开启' : '已关闭'); void refresh(); },
   });
   const [label, tone] = STATUS[d.status] || [d.status, 'muted'];
@@ -70,14 +70,14 @@ function DaemonCard({ d, me }: { d: Daemon; me: User }) {
       {d.status === 'pending' ? <div className="grid gap-2">
         <p className="text-sm text-muted-foreground">在要接入的电脑上运行(令牌只能用一次):</p>
         <CopyBlock text={d.setup_command || ''} />
-      </div> : d.agents.length ? <div className="grid gap-3">
-        <p className="text-sm text-muted-foreground">选择这台电脑上开启哪些 agent:</p>
-        {d.agents.map(a => <label key={a.agent} className="flex items-center gap-3 text-sm">
-          <Switch checked={a.enabled} disabled={!a.available || toggle.isPending} onCheckedChange={enabled => toggle.mutate({ agent: a.agent, enabled })} />
-          <span className="font-medium">{displayName(a.agent)}</span>
-          <span className="text-xs text-muted-foreground">{a.agent} {a.version}{!a.available && ' · 本机未检测到'}</span>
+      </div> : d.harnesses.length ? <div className="grid gap-3">
+        <p className="text-sm text-muted-foreground">选择这台电脑上开启哪些 harness:</p>
+        {d.harnesses.map(a => <label key={a.harness} className="flex items-center gap-3 text-sm">
+          <Switch checked={a.enabled} disabled={!a.available || toggle.isPending} onCheckedChange={enabled => toggle.mutate({ harness: a.harness, enabled })} />
+          <span className="font-medium">{displayName(a.harness)}</span>
+          <span className="text-xs text-muted-foreground">{a.harness} {a.version}{!a.available && ' · 本机未检测到'}</span>
         </label>)}
-      </div> : <p className="text-sm text-muted-foreground">这台电脑还没上报可用的 agent(连上后会自动检测 claude、codex 等)。</p>}
+      </div> : <p className="text-sm text-muted-foreground">这台电脑还没上报可用的 harness(连上后会自动检测 claude、codex 等)。</p>}
     </CardContent>
   </Card>;
 }

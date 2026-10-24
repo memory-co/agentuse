@@ -1,4 +1,4 @@
-// Package daemon 是用户电脑上的常驻进程：连上服务、领活、调用本地 CLI agent、汇报。
+// Package daemon 是用户电脑上的常驻进程：连上服务、领活、调用本地 CLI harness、汇报。
 package daemon
 
 import (
@@ -23,15 +23,15 @@ type Config struct {
 	Key      string `json:"key"`
 	// Workdir 是没指定 cwd 的会话的工作目录根，每个会话一个子目录。默认 ~/.agentuse/work。
 	Workdir string `json:"workdir,omitempty"`
-	// Agents 配置本机 agent 的启动命令。内置的(claude / codex)不配也会自动检测;
+	// Harnesses 配置本机 harness 的启动命令。内置的(claude / codex)不配也会自动检测;
 	// 自定义 harness 必须在这里配，名字要和服务上注册的一致。
-	Agents map[string]AgentConfig `json:"agents,omitempty"`
+	Harnesses map[string]HarnessConfig `json:"harnesses,omitempty"`
 }
 
-type AgentConfig struct {
+type HarnessConfig struct {
 	Command string   `json:"command"`        // 可执行文件，如 claude、/usr/local/bin/my-harness
 	Args    []string `json:"args,omitempty"` // 追加参数，如 ["--permission-mode", "acceptEdits"]
-	// Disabled 为 true 时不上报这个 agent。
+	// Disabled 为 true 时不上报这个 harness。
 	Disabled bool `json:"disabled,omitempty"`
 }
 
@@ -64,7 +64,7 @@ func SaveConfig(path string, c Config) error {
 	return os.Rename(tmp, path)
 }
 
-// Register 用安装令牌向服务注册这台电脑，把拿到的密钥写进配置文件(保留已有的 agents 配置)。
+// Register 用安装令牌向服务注册这台电脑，把拿到的密钥写进配置文件(保留已有的 harnesses 配置)。
 func Register(ctx context.Context, server, token, configPath string) (Config, error) {
 	server = strings.TrimRight(server, "/")
 	host, _ := os.Hostname()

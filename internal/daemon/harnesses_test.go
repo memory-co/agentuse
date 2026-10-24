@@ -25,11 +25,11 @@ func TestRunCodexResume(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "codex")
 	os.WriteFile(bin, []byte(fakeCodex), 0o755)
-	la := localAgent{Name: "codex", Path: bin, Args: []string{"-s", "workspace-write"}}
+	la := localHarness{Name: "codex", Path: bin, Args: []string{"-s", "workspace-write"}}
 	var progress []string
 	report := func(p any) { b, _ := json.Marshal(p); progress = append(progress, string(b)) }
 
-	res := runAgent(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, report)
+	res := runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, report)
 	if !res.OK || res.Output != "done!" || res.SessionID != "th-1" || len(progress) != 2 {
 		t.Fatalf("first: %+v %v", res, progress)
 	}
@@ -38,7 +38,7 @@ func TestRunCodexResume(t *testing.T) {
 		t.Fatalf("args: %q", got)
 	}
 
-	res = runAgent(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Resume: "th-1", Input: json.RawMessage(`{"prompt":"again"}`)}, dir, report)
+	res = runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Resume: "th-1", Input: json.RawMessage(`{"prompt":"again"}`)}, dir, report)
 	args, _ = os.ReadFile(filepath.Join(dir, "args.txt"))
 	if got := strings.TrimSpace(string(args)); !res.OK || got != "exec --json --skip-git-repo-check -s workspace-write resume th-1 again" {
 		t.Fatalf("resume: %+v %q", res, got)

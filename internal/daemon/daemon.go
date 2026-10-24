@@ -26,11 +26,11 @@ type Daemon struct {
 	cfg Config
 	log *log.Logger
 
-	mu      sync.Mutex
-	agents  map[string]localAgent
-	running map[int64]context.CancelFunc // 正在回的消息(一次最多一条)
-	conn    func(protocol.Message) error // 当前连接的发送函数，断线时为 nil
-	outbox  []protocol.Message           // 断线期间跑完的结果，重连后补发
+	mu        sync.Mutex
+	harnesses map[string]localHarness
+	running   map[int64]context.CancelFunc // 正在回的消息(一次最多一条)
+	conn      func(protocol.Message) error // 当前连接的发送函数，断线时为 nil
+	outbox    []protocol.Message           // 断线期间跑完的结果，重连后补发
 }
 
 var errOffline = errors.New("未连接")
@@ -129,12 +129,12 @@ func (d *Daemon) session(ctx context.Context) error {
 	}
 
 	d.mu.Lock()
-	d.agents = detectAgents(d.cfg)
+	d.harnesses = detectHarnesses(d.cfg)
 	hello := protocol.Message{Type: protocol.TypeHello, Version: Version}
-	for _, a := range d.agents {
-		hello.Agents = append(hello.Agents, protocol.Agent{Name: a.Name, Version: a.Version})
+	for _, a := range d.harnesses {
+		hello.Harnesses = append(hello.Harnesses, protocol.Harness{Name: a.Name, Version: a.Version})
 	}
-	sort.Slice(hello.Agents, func(i, j int) bool { return hello.Agents[i].Name < hello.Agents[j].Name })
+	sort.Slice(hello.Harnesses, func(i, j int) bool { return hello.Harnesses[i].Name < hello.Harnesses[j].Name })
 	for id := range d.running {
 		hello.Running = append(hello.Running, id)
 	}
@@ -183,13 +183,13 @@ func (d *Daemon) session(ctx context.Context) error {
 		}
 		switch m.Type {
 		case protocol.TypeWelcome:
-			names := make([]string, 0, len(hello.Agents))
-			for _, a := range hello.Agents {
+			names := make([]string, 0, len(hello.Harnesses))
+			for _, a := range hello.Harnesses {
 				names = append(names, a.Name)
 			}
-			d.log.Printf("已连上 %s,daemon %s(%s),本机 agent: %v", d.cfg.Server, m.DaemonID, m.Name, names)
+			d.log.Printf("已连上 %s,daemon %s(%s),本机 harness: %v", d.cfg.Server, m.DaemonID, m.Name, names)
 			if len(m.Ignored) > 0 {
-				d.log.Printf("这些 agent 服务上没登记，已忽略: %v", m.Ignored)
+				d.log.Printf("这些 harness 服务上没登记，已忽略: %v", m.Ignored)
 			}
 			d.mu.Lock()
 			d.conn = send
@@ -227,11 +227,11 @@ func (d *Daemon) session(ctx context.Context) error {
 	}
 }
 
-// startMessage 在后台跑 agent 回一条消息，跑完回报结果并再说一次 ready。
+// startMessage 在后台跑 harness 回一条消息，跑完回报结果并再说一次 ready。
 // 不跟连接绑定：中途断线重连，结果照样回报给新连接。
 func (d *Daemon) startMessage(m protocol.Dispatch) {
 	d.mu.Lock()
-	la, ok := d.agents[m.Agent]
+	la, ok := d.harnesses[m.Harness]
 	tctx, cancel := context.WithCancel(context.Background())
 	d.running[m.ID] = cancel
 	d.mu.Unlock()
@@ -244,14 +244,14 @@ func (d *Daemon) startMessage(m protocol.Dispatch) {
 			cancel()
 			_ = d.send(protocol.Message{Type: protocol.TypeReady})
 		}()
-		d.log.Printf("会话 %s(%s)开始回消息 %d", m.SessionID, m.Agent, m.ID)
+		d.log.Printf("会话 %s(%s)开始回消息 %d", m.SessionID, m.Harness, m.ID)
 		var res Result
 		if !ok {
-			res = Result{Error: "本机没有 agent " + m.Agent}
+			res = Result{Error: "本机没有 harness " + m.Harness}
 		} else if dir, err := d.sessionDir(m); err != nil {
 			res = Result{Error: err.Error()}
 		} else {
-			res = runAgent(tctx, la, m, dir, func(p any) {
+			res = runHarness(tctx, la, m, dir, func(p any) {
 				b, _ := json.Marshal(p)
 				_ = d.send(protocol.Message{Type: protocol.TypeEvent, MessageID: m.ID, Kind: "progress", Payload: b})
 			})

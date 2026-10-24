@@ -18,11 +18,11 @@
 |---|---|
 | 「连接我的电脑」 | `create_daemon` / `createDaemon` / `CreateDaemon`,把返回的 `setup_command` 给用户复制 |
 | 看电脑在不在线 | `list_daemons` / `listDaemons` / `ListDaemons` |
-| 开关某台电脑上的 agent | `set_daemon_agent` / `setDaemonAgent` / `SetDaemonAgent` |
+| 开关某台电脑上的 harness | `set_daemon_harness` / `setDaemonHarness` / `SetDaemonHarness` |
 | 发起一次任务 | `create_session` / `createSession` / `CreateSession` |
-| 接着回复 | `send_message` / `sendMessage` / `SendMessage`(agent 还没回时 409) |
+| 接着回复 | `send_message` / `sendMessage` / `SendMessage`(harness 还没回时 409) |
 | 看进度和结果 | `get_session` / `getSession` / `GetSession`,或 `wait_session` 轮询到 `idle` |
 
-另外还有 `me`、`list_sessions`、`delete_session`、`list_agents`、`create_agent`、`delete_agent`、`reset_daemon`、`delete_daemon`,以及 admin 用的 `list_users`、`create_user`、`reset_user_token`,和接口一一对应。
+另外还有 `me`、`list_sessions`、`delete_session`、`list_harnesses`、`create_harness`、`delete_harness`、`reset_daemon`、`delete_daemon`,以及 admin 用的 `list_users`、`create_user`、`reset_user_token`,和接口一一对应。
 
 非 2xx 响应统一抛(Go 里返回)一个带 `status` 和服务端 `error` 说明的错误。

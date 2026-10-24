@@ -50,24 +50,24 @@ export class Client {
   createUser(user = {}) { return this._request("POST", "/api/users", null, user); }
   resetUserToken(userId) { return this._request("POST", `/api/users/${q(userId)}/token`); }
 
-  // agents
-  listAgents(user) { return this._request("GET", "/api/agents", user); }
-  createAgent(user, agent) { return this._request("POST", "/api/agents", user, agent); }
-  async deleteAgent(user, name) { await this._request("DELETE", `/api/agents/${q(name)}`, user); }
+  // harnesses
+  listHarnesses(user) { return this._request("GET", "/api/harnesses", user); }
+  createHarness(user, harness) { return this._request("POST", "/api/harnesses", user, harness); }
+  async deleteHarness(user, name) { await this._request("DELETE", `/api/harnesses/${q(name)}`, user); }
 
   // daemons
   listDaemons(user) { return this._request("GET", "/api/daemons", user); }
   // 添加一台 daemon,返回的 setup_command 给用户复制到自己电脑上跑。
   createDaemon(user, name) { return this._request("POST", "/api/daemons", user, name ? { name } : {}); }
   resetDaemon(user, daemonId) { return this._request("POST", `/api/daemons/${q(daemonId)}/reset`, user); }
-  setDaemonAgent(user, daemonId, agent, enabled) {
-    return this._request("PUT", `/api/daemons/${q(daemonId)}/agents/${q(agent)}`, user, { enabled: !!enabled });
+  setDaemonHarness(user, daemonId, harness, enabled) {
+    return this._request("PUT", `/api/daemons/${q(daemonId)}/harnesses/${q(harness)}`, user, { enabled: !!enabled });
   }
   async deleteDaemon(user, daemonId) { await this._request("DELETE", `/api/daemons/${q(daemonId)}`, user); }
 
   // sessions
   listSessions(user) { return this._request("GET", "/api/sessions", user); }
-  // 新建会话并发出第一条消息:{ agent, prompt?, input?, cwd? } → { session, message }。
+  // 新建会话并发出第一条消息:{ harness, prompt?, input?, cwd? } → { session, message }。
   createSession(user, req) { return this._request("POST", "/api/sessions", user, req); }
   // 回复:{ prompt? , input? }。会话不是 idle 时抛 AgentuseError(409)。
   sendMessage(user, sessionId, req) { return this._request("POST", `/api/sessions/${q(sessionId)}/messages`, user, req); }

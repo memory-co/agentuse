@@ -8,7 +8,7 @@ export declare class AgentuseError extends Error {
 export interface User { id: string; name: string; role: "admin" | "user"; created_at: number; }
 export interface UserToken { user: User; token: string; login_url: string; }
 
-export interface Agent {
+export interface Harness {
   name: string;
   kind: "builtin" | "custom";
   display_name: string;
@@ -17,10 +17,10 @@ export interface Agent {
   created_at: number;
 }
 
-export interface DaemonAgent {
+export interface DaemonHarness {
   daemon_id: string;
   user_id: string;
-  agent: string;
+  harness: string;
   version?: string;
   available: boolean;
   enabled: boolean;
@@ -34,7 +34,7 @@ export interface Daemon {
   status: "pending" | "online" | "offline";
   last_seen_at: number | null;
   created_at: number;
-  agents: DaemonAgent[];
+  harnesses: DaemonHarness[];
   setup_token?: string;
   setup_command?: string;
 }
@@ -42,7 +42,7 @@ export interface Daemon {
 export interface Session {
   id: string;
   user_id: string;
-  agent: string;
+  harness: string;
   daemon_id?: string;
   cwd?: string;
   harness_session_id?: string;
@@ -95,18 +95,18 @@ export declare class Client {
   createUser(user?: { id?: string; name?: string; role?: "admin" | "user" }): Promise<UserToken>;
   resetUserToken(userId: string): Promise<UserToken>;
 
-  listAgents(user: UserId): Promise<Agent[]>;
-  createAgent(user: UserId, agent: { name: string; display_name?: string; description?: string }): Promise<Agent>;
-  deleteAgent(user: UserId, name: string): Promise<void>;
+  listHarnesses(user: UserId): Promise<Harness[]>;
+  createHarness(user: UserId, harness: { name: string; display_name?: string; description?: string }): Promise<Harness>;
+  deleteHarness(user: UserId, name: string): Promise<void>;
 
   listDaemons(user: UserId): Promise<Daemon[]>;
   createDaemon(user: UserId, name?: string): Promise<Daemon>;
   resetDaemon(user: UserId, daemonId: string): Promise<Daemon>;
-  setDaemonAgent(user: UserId, daemonId: string, agent: string, enabled: boolean): Promise<Daemon>;
+  setDaemonHarness(user: UserId, daemonId: string, harness: string, enabled: boolean): Promise<Daemon>;
   deleteDaemon(user: UserId, daemonId: string): Promise<void>;
 
   listSessions(user: UserId): Promise<Session[]>;
-  createSession(user: UserId, req: MessageInput & { agent: string; cwd?: string }): Promise<{ session: Session; message: Message }>;
+  createSession(user: UserId, req: MessageInput & { harness: string; cwd?: string }): Promise<{ session: Session; message: Message }>;
   sendMessage(user: UserId, sessionId: string, req: MessageInput): Promise<Message>;
   getSession(user: UserId, sessionId: string): Promise<SessionDetail>;
   deleteSession(user: UserId, sessionId: string): Promise<void>;

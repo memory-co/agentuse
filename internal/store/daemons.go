@@ -14,28 +14,28 @@ const (
 )
 
 type Daemon struct {
-	ID         string        `json:"id"`
-	UserID     string        `json:"user_id"`
-	Name       string        `json:"name"`
-	SetupToken string        `json:"setup_token,omitempty"` // 注册前有值，注册后清空
-	Status     string        `json:"status"`
-	LastSeenAt *int64        `json:"last_seen_at"`
-	CreatedAt  int64         `json:"created_at"`
-	Agents     []DaemonAgent `json:"agents"`
+	ID         string          `json:"id"`
+	UserID     string          `json:"user_id"`
+	Name       string          `json:"name"`
+	SetupToken string          `json:"setup_token,omitempty"` // 注册前有值，注册后清空
+	Status     string          `json:"status"`
+	LastSeenAt *int64          `json:"last_seen_at"`
+	CreatedAt  int64           `json:"created_at"`
+	Harnesses  []DaemonHarness `json:"harnesses"`
 }
 
-type DaemonAgent struct {
+type DaemonHarness struct {
 	DaemonID  string `json:"daemon_id"`
 	UserID    string `json:"user_id"`
-	Agent     string `json:"agent"`
+	Harness   string `json:"harness"`
 	Version   string `json:"version"`
 	Available bool   `json:"available"`
 	Enabled   bool   `json:"enabled"`
 	UpdatedAt int64  `json:"updated_at"`
 }
 
-// ReportedAgent 是 daemon 连上时上报的一个本机可用 agent。
-type ReportedAgent struct {
+// ReportedHarness 是 daemon 连上时上报的一个本机可用 harness。
+type ReportedHarness struct {
 	Name    string `json:"name"`
 	Version string `json:"version,omitempty"`
 }
@@ -122,11 +122,11 @@ func (s *Store) scanDaemon(row scanner) (Daemon, error) {
 		return Daemon{}, ErrNotFound
 	}
 	d.SetupToken, d.LastSeenAt = token.String, nullInt(seen)
-	d.Agents = []DaemonAgent{}
+	d.Harnesses = []DaemonHarness{}
 	return d, err
 }
 
-// GetDaemon 取一台 daemon 及其 agent 列表;非 admin 只能看自己的。
+// GetDaemon 取一台 daemon 及其 harness 列表;非 admin 只能看自己的。
 func (s *Store) GetDaemon(ctx context.Context, u User, id string) (Daemon, error) {
 	q := daemonCols + ` WHERE id = ?`
 	args := []any{id}
@@ -138,8 +138,8 @@ func (s *Store) GetDaemon(ctx context.Context, u User, id string) (Daemon, error
 	if err != nil {
 		return d, err
 	}
-	agents, err := s.daemonAgents(ctx, `WHERE daemon_id = ?`, d.ID)
-	d.Agents = agents
+	harnesses, err := s.daemonHarnesses(ctx, `WHERE daemon_id = ?`, d.ID)
+	d.Harnesses = harnesses
 	return d, err
 }
 
@@ -174,30 +174,30 @@ func (s *Store) ListDaemons(ctx context.Context, u User) ([]Daemon, error) {
 	if !u.IsAdmin() {
 		where, aargs = `WHERE user_id = ?`, []any{u.ID}
 	}
-	agents, err := s.daemonAgents(ctx, where, aargs...)
+	harnesses, err := s.daemonHarnesses(ctx, where, aargs...)
 	if err != nil {
 		return nil, err
 	}
-	for _, a := range agents {
+	for _, a := range harnesses {
 		if i, ok := byID[a.DaemonID]; ok {
-			out[i].Agents = append(out[i].Agents, a)
+			out[i].Harnesses = append(out[i].Harnesses, a)
 		}
 	}
 	return out, nil
 }
 
-func (s *Store) daemonAgents(ctx context.Context, where string, args ...any) ([]DaemonAgent, error) {
+func (s *Store) daemonHarnesses(ctx context.Context, where string, args ...any) ([]DaemonHarness, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT daemon_id, user_id, agent, version, available, enabled, updated_at FROM daemon_agents `+where+` ORDER BY agent`, args...)
+		`SELECT daemon_id, user_id, harness, version, available, enabled, updated_at FROM daemon_harnesses `+where+` ORDER BY harness`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []DaemonAgent{}
+	out := []DaemonHarness{}
 	for rows.Next() {
-		var a DaemonAgent
+		var a DaemonHarness
 		var ver sql.NullString
-		if err := rows.Scan(&a.DaemonID, &a.UserID, &a.Agent, &ver, &a.Available, &a.Enabled, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.DaemonID, &a.UserID, &a.Harness, &ver, &a.Available, &a.Enabled, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 		a.Version = ver.String
@@ -235,10 +235,10 @@ func (s *Store) DeleteDaemon(ctx context.Context, u User, id string) error {
 	return tx.Commit()
 }
 
-// DaemonConnected 处理 daemon 连上:标在线，按上报更新 daemon_agents。
+// DaemonConnected 处理 daemon 连上:标在线，按上报更新 daemon_harnesses。
 // 上报里有的标 available=1 并保留原来的 enabled;没上报的标 available=0。
-// 不在 agents 表里登记过的名字被忽略，返回给调用方。
-func (s *Store) DaemonConnected(ctx context.Context, d Daemon, reported []ReportedAgent) (ignored []string, err error) {
+// 不在 harnesses 表里登记过的名字被忽略，返回给调用方。
+func (s *Store) DaemonConnected(ctx context.Context, d Daemon, reported []ReportedHarness) (ignored []string, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -248,12 +248,12 @@ func (s *Store) DaemonConnected(ctx context.Context, d Daemon, reported []Report
 	if _, err := tx.ExecContext(ctx, `UPDATE daemons SET status = ?, last_seen_at = ? WHERE id = ?`, DaemonOnline, now, d.ID); err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE daemon_agents SET available = 0, updated_at = ? WHERE daemon_id = ?`, now, d.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE daemon_harnesses SET available = 0, updated_at = ? WHERE daemon_id = ?`, now, d.ID); err != nil {
 		return nil, err
 	}
 	for _, a := range reported {
 		var exists int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents WHERE name = ?`, a.Name).Scan(&exists); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM harnesses WHERE name = ?`, a.Name).Scan(&exists); err != nil {
 			return nil, err
 		}
 		if exists == 0 {
@@ -261,8 +261,8 @@ func (s *Store) DaemonConnected(ctx context.Context, d Daemon, reported []Report
 			continue
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO daemon_agents (daemon_id, user_id, agent, version, available, enabled, updated_at) VALUES (?, ?, ?, ?, 1, 0, ?)
-			 ON CONFLICT(daemon_id, agent) DO UPDATE SET version = excluded.version, available = 1, updated_at = excluded.updated_at`,
+			`INSERT INTO daemon_harnesses (daemon_id, user_id, harness, version, available, enabled, updated_at) VALUES (?, ?, ?, ?, 1, 0, ?)
+			 ON CONFLICT(daemon_id, harness) DO UPDATE SET version = excluded.version, available = 1, updated_at = excluded.updated_at`,
 			d.ID, d.UserID, a.Name, a.Version, now); err != nil {
 			return nil, err
 		}
@@ -287,10 +287,10 @@ func (s *Store) MarkAllDaemonsOffline(ctx context.Context) error {
 	return err
 }
 
-// SetDaemonAgentEnabled 开关某台 daemon 上的某个 agent。只能开本机上报可用的。
-func (s *Store) SetDaemonAgentEnabled(ctx context.Context, u User, daemonID, agent string, enabled bool) error {
-	q := `UPDATE daemon_agents SET enabled = ?, updated_at = ? WHERE daemon_id = ? AND agent = ?`
-	args := []any{enabled, s.unix(), daemonID, agent}
+// SetDaemonHarnessEnabled 开关某台 daemon 上的某个 harness。只能开本机上报可用的。
+func (s *Store) SetDaemonHarnessEnabled(ctx context.Context, u User, daemonID, harness string, enabled bool) error {
+	q := `UPDATE daemon_harnesses SET enabled = ?, updated_at = ? WHERE daemon_id = ? AND harness = ?`
+	args := []any{enabled, s.unix(), daemonID, harness}
 	if !u.IsAdmin() {
 		q += ` AND user_id = ?`
 		args = append(args, u.ID)

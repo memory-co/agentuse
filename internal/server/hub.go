@@ -80,9 +80,9 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 		}
 		switch m.Type {
 		case protocol.TypeHello:
-			reported := make([]store.ReportedAgent, 0, len(m.Agents))
-			for _, a := range m.Agents {
-				reported = append(reported, store.ReportedAgent{Name: a.Name, Version: a.Version})
+			reported := make([]store.ReportedHarness, 0, len(m.Harnesses))
+			for _, a := range m.Harnesses {
+				reported = append(reported, store.ReportedHarness{Name: a.Name, Version: a.Version})
 			}
 			ignored, err := st.DaemonConnected(ctx, c.d, reported)
 			if err != nil {
@@ -145,14 +145,14 @@ func (h *hub) dispatch(ctx context.Context, c *daemonConn) {
 	c.idle = false
 	ss := cl.Session
 	msg := protocol.Message{Type: protocol.TypeMessage, Message: &protocol.Dispatch{
-		ID: cl.Message.ID, SessionID: ss.ID, Agent: ss.Agent, Cwd: ss.Cwd, Resume: ss.HarnessSessionID, Input: cl.Message.Content,
+		ID: cl.Message.ID, SessionID: ss.ID, Harness: ss.Harness, Cwd: ss.Cwd, Resume: ss.HarnessSessionID, Input: cl.Message.Content,
 	}}
 	if err := c.send(ctx, msg); err != nil {
 		// 没送到:等租约过期自动收回。
 		h.s.log.Printf("send session %s to %s: %v", ss.ID, c.d.ID, err)
 		return
 	}
-	h.s.log.Printf("会话 %s(%s)的消息 %d 派给 daemon %s", ss.ID, ss.Agent, cl.Message.ID, c.d.ID)
+	h.s.log.Printf("会话 %s(%s)的消息 %d 派给 daemon %s", ss.ID, ss.Harness, cl.Message.ID, c.d.ID)
 }
 
 // kickUser 有新活可派时，叫醒该用户所有空闲的 daemon。

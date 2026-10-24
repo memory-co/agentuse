@@ -102,4 +102,4 @@ agentuse-server user token u_10086
 | — | `agentuse-server login`、`agentuse-server user list`(新增) |
 | `agentuse daemon register …` | `agentuse register …` |
 | `agentuse daemon run` | `agentuse daemon` |
-| — | `agentuse status`、`agentuse agents`(新增) |
+| — | `agentuse status`、`agentuse harnesses`(新增) |

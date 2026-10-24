@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_token ON users(token_hash);
 
-CREATE TABLE IF NOT EXISTS agents (
+CREATE TABLE IF NOT EXISTS harnesses (
   name         TEXT PRIMARY KEY,
   kind         TEXT NOT NULL,
   display_name TEXT NOT NULL,
@@ -49,22 +49,22 @@ CREATE TABLE IF NOT EXISTS daemons (
 CREATE UNIQUE INDEX IF NOT EXISTS daemons_key ON daemons(key_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS daemons_setup_token ON daemons(setup_token);
 
-CREATE TABLE IF NOT EXISTS daemon_agents (
+CREATE TABLE IF NOT EXISTS daemon_harnesses (
   daemon_id  TEXT NOT NULL REFERENCES daemons(id) ON DELETE CASCADE,
   user_id    TEXT NOT NULL REFERENCES users(id),
-  agent      TEXT NOT NULL REFERENCES agents(name) ON DELETE CASCADE,
+  harness    TEXT NOT NULL REFERENCES harnesses(name) ON DELETE CASCADE,
   version    TEXT,
   available  INTEGER NOT NULL DEFAULT 1,
   enabled    INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL,
-  PRIMARY KEY (daemon_id, agent)
+  PRIMARY KEY (daemon_id, harness)
 );
-CREATE INDEX IF NOT EXISTS daemon_agents_user_agent ON daemon_agents(user_id, agent);
+CREATE INDEX IF NOT EXISTS daemon_harnesses_user_harness ON daemon_harnesses(user_id, harness);
 
 CREATE TABLE IF NOT EXISTS sessions (
   id                 TEXT PRIMARY KEY,
   user_id            TEXT NOT NULL REFERENCES users(id),
-  agent              TEXT NOT NULL REFERENCES agents(name),
+  harness            TEXT NOT NULL REFERENCES harnesses(name),
   daemon_id          TEXT REFERENCES daemons(id) ON DELETE SET NULL,
   cwd                TEXT,
   harness_session_id TEXT,
@@ -120,7 +120,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("store: migrate: %w", err)
 	}
 	s := &Store{db: db, now: time.Now}
-	if err := s.seedBuiltinAgents(context.Background()); err != nil {
+	if err := s.seedBuiltinHarnesses(context.Background()); err != nil {
 		db.Close()
 		return nil, err
 	}

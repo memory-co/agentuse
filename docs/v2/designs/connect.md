@@ -16,12 +16,12 @@ curl -fsSL "https://<服务>/setup.sh" -o setup.sh && TOKEN="st_xxx" bash setup.
 3. 装成后台服务并启动:macOS 用 launchd,Linux 有 systemd --user 就用它，否则 nohup
         │
         ▼
-daemon 连上 WebSocket,上报本机 agent ──▶ 页面上出现这台电脑和它的 agent 开关
+daemon 连上 WebSocket,上报本机 harness ──▶ 页面上出现这台电脑和它的 harness 开关
 ```
 
 - 安装令牌只能用一次，注册后作废;要换电脑或重装，在页面上「重新生成安装命令」,旧密钥同时失效。
 - 二进制从服务的 `-dist` 目录取(`make dist` 交叉编译 linux/darwin × amd64/arm64)。目录里缺平台时 `agentuse-server start` 会警告。
-- 用户在页面上为每台 daemon 选择开启哪些 agent,默认都关闭。
+- 用户在页面上为每台 daemon 选择开启哪些 harness,默认都关闭。
 
 ## 认证
 
@@ -42,19 +42,19 @@ daemon 连上 WebSocket,上报本机 agent ──▶ 页面上出现这台电脑
 派给 daemon 的是 `pending` 的[会话](../tables/sessions.md),带上它最后一条 `user` 消息。
 
 - 一台 daemon 一次只跑一个会话：说了 `ready` 才派，派出后等它再说 `ready`。
-- 有新消息、用户打开了某个 agent、有会话被收回时，服务叫醒该用户所有空闲的 daemon 去领。
-- 领活在一个事务里挑最早的 `pending` 会话，条件是同一用户、agent 在这台 daemon 上 `available = 1 AND enabled = 1`,并且会话还没绑定 daemon、或绑定的就是这台。
+- 有新消息、用户打开了某个 harness、有会话被收回时，服务叫醒该用户所有空闲的 daemon 去领。
+- 领活在一个事务里挑最早的 `pending` 会话，条件是同一用户、harness 在这台 daemon 上 `available = 1 AND enabled = 1`,并且会话还没绑定 daemon、或绑定的就是这台。
 - 会话第一次被领走时绑定到这台 daemon,之后只给它(harness 的会话存在那台电脑上)。它离线就等它上线，不换机器。
 - 租约 60 秒，心跳和每条回报都续租。daemon 掉线后租约过期，会话回到 `pending`。断线期间跑完的结果,daemon 重连后补发。
 
-## 本机怎么跑 agent
+## 本机怎么跑 harness
 
 每条消息起一次 CLI,第一条新建 harness 会话，之后用上次回报的 harness 会话 id(派活消息里的 `resume`)续接。
 
-| agent | 第一条 | 之后 | 进度 | 结果和会话 id |
+| harness | 第一条 | 之后 | 进度 | 结果和会话 id |
 |---|---|---|---|---|
 | `claude` | `claude -p <prompt> --output-format stream-json --verbose [args…]` | 加 `--resume <id>` | assistant 文本、工具调用 | `result` 行，带 `session_id` |
-| `codex` | `codex exec --json --skip-git-repo-check [args…] <prompt>` | `codex exec --json --skip-git-repo-check [args…] resume <id> <prompt>` | 每条 JSON 事件 | 最后一条 agent 消息;`thread.started` 里的 `thread_id` |
+| `codex` | `codex exec --json --skip-git-repo-check [args…] <prompt>` | `codex exec --json --skip-git-repo-check [args…] resume <id> <prompt>` | 每条 JSON 事件 | 最后一条 `agent_message`;`thread.started` 里的 `thread_id` |
 | 自定义 | `<command> [args…]`,stdin 写入 `{"session_id":"ss_…","resume":"…","input":…}` | 同左,`resume` 有值 | stdout 的 `{"type":"progress",…}` 行 | stdout 的 `{"type":"result","ok":…,"output":…,"session_id":…}` 行，没有就按退出码 |
 
 会话在 `cwd` 里跑;没给就在 `~/.agentuse/work/<session_id>/`,每次都是同一个目录(Claude Code 按目录找会话)。本机的启动命令和追加参数在 `~/.agentuse/daemon.json` 里配:
@@ -64,7 +64,7 @@ daemon 连上 WebSocket,上报本机 agent ──▶ 页面上出现这台电脑
   "server": "https://agentuse.example.com",
   "daemon_id": "dm_xxx",
   "key": "dk_xxx",
-  "agents": {
+  "harnesses": {
     "claude": { "args": ["--permission-mode", "acceptEdits"] },
     "codex": { "disabled": true },
     "my-harness": { "command": "/usr/local/bin/my-harness" }

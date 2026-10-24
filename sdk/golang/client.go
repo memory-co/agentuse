@@ -123,20 +123,20 @@ func (c *Client) ResetUserToken(ctx context.Context, userID string) (*UserToken,
 	return &t, c.do(ctx, "", "POST", "/api/users/"+esc(userID)+"/token", nil, &t)
 }
 
-// ---- agents ----
+// ---- harnesses ----
 
-func (c *Client) ListAgents(ctx context.Context, user string) ([]Agent, error) {
-	var as []Agent
-	return as, c.do(ctx, user, "GET", "/api/agents", nil, &as)
+func (c *Client) ListHarnesses(ctx context.Context, user string) ([]Harness, error) {
+	var as []Harness
+	return as, c.do(ctx, user, "GET", "/api/harnesses", nil, &as)
 }
 
-func (c *Client) CreateAgent(ctx context.Context, user string, req CreateAgentRequest) (*Agent, error) {
-	var a Agent
-	return &a, c.do(ctx, user, "POST", "/api/agents", req, &a)
+func (c *Client) CreateHarness(ctx context.Context, user string, req CreateHarnessRequest) (*Harness, error) {
+	var a Harness
+	return &a, c.do(ctx, user, "POST", "/api/harnesses", req, &a)
 }
 
-func (c *Client) DeleteAgent(ctx context.Context, user, name string) error {
-	return c.do(ctx, user, "DELETE", "/api/agents/"+esc(name), nil, nil)
+func (c *Client) DeleteHarness(ctx context.Context, user, name string) error {
+	return c.do(ctx, user, "DELETE", "/api/harnesses/"+esc(name), nil, nil)
 }
 
 // ---- daemons ----
@@ -157,9 +157,9 @@ func (c *Client) ResetDaemon(ctx context.Context, user, daemonID string) (*Daemo
 	return &d, c.do(ctx, user, "POST", "/api/daemons/"+esc(daemonID)+"/reset", nil, &d)
 }
 
-func (c *Client) SetDaemonAgent(ctx context.Context, user, daemonID, agent string, enabled bool) (*Daemon, error) {
+func (c *Client) SetDaemonHarness(ctx context.Context, user, daemonID, harness string, enabled bool) (*Daemon, error) {
 	var d Daemon
-	return &d, c.do(ctx, user, "PUT", "/api/daemons/"+esc(daemonID)+"/agents/"+esc(agent), map[string]bool{"enabled": enabled}, &d)
+	return &d, c.do(ctx, user, "PUT", "/api/daemons/"+esc(daemonID)+"/harnesses/"+esc(harness), map[string]bool{"enabled": enabled}, &d)
 }
 
 func (c *Client) DeleteDaemon(ctx context.Context, user, daemonID string) error {

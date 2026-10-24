@@ -141,16 +141,16 @@ func (s *Server) handleResetUserToken(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
-	agents, err := s.store.ListAgents(r.Context())
+func (s *Server) handleListHarnesses(w http.ResponseWriter, r *http.Request) {
+	harnesses, err := s.store.ListHarnesses(r.Context())
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, agents)
+	writeJSON(w, http.StatusOK, harnesses)
 }
 
-func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCreateHarness(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name        string `json:"name"`
 		DisplayName string `json:"display_name"`
@@ -160,7 +160,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a, err := s.store.CreateCustomAgent(r.Context(), currentUser(r).ID, req.Name, req.DisplayName, req.Description)
+	a, err := s.store.CreateCustomHarness(r.Context(), currentUser(r).ID, req.Name, req.DisplayName, req.Description)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -168,8 +168,8 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, a)
 }
 
-func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteCustomAgent(r.Context(), currentUser(r), r.PathValue("name")); err != nil {
+func (s *Server) handleDeleteHarness(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteCustomHarness(r.Context(), currentUser(r), r.PathValue("name")); err != nil {
 		s.storeErr(w, err)
 		return
 	}
@@ -251,7 +251,7 @@ func (s *Server) handleResetDaemon(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.view(r, d))
 }
 
-func (s *Server) handleToggleAgent(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleToggleHarness(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
@@ -261,7 +261,7 @@ func (s *Server) handleToggleAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	u := currentUser(r)
 	id := r.PathValue("id")
-	if err := s.store.SetDaemonAgentEnabled(r.Context(), u, id, r.PathValue("agent"), req.Enabled); err != nil {
+	if err := s.store.SetDaemonHarnessEnabled(r.Context(), u, id, r.PathValue("harness"), req.Enabled); err != nil {
 		s.storeErr(w, err)
 		return
 	}
@@ -299,17 +299,17 @@ func messageContent(input json.RawMessage, prompt string) (json.RawMessage, erro
 // handleCreateSession 建会话并发出第一条消息。
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Agent  string          `json:"agent"`
-		Input  json.RawMessage `json:"input"`
-		Prompt string          `json:"prompt"`
-		Cwd    string          `json:"cwd"`
+		Harness string          `json:"harness"`
+		Input   json.RawMessage `json:"input"`
+		Prompt  string          `json:"prompt"`
+		Cwd     string          `json:"cwd"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Agent == "" {
-		writeErr(w, http.StatusBadRequest, "agent 必填")
+	if req.Harness == "" {
+		writeErr(w, http.StatusBadRequest, "harness 必填")
 		return
 	}
 	content, err := messageContent(req.Input, req.Prompt)
@@ -322,7 +322,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		title = firstRunes(strings.TrimSpace(req.Prompt), 50)
 	}
 	u := currentUser(r)
-	ss, m, err := s.store.CreateSession(r.Context(), u.ID, req.Agent, strings.TrimSpace(req.Cwd), title, content)
+	ss, m, err := s.store.CreateSession(r.Context(), u.ID, req.Harness, strings.TrimSpace(req.Cwd), title, content)
 	if err != nil {
 		s.storeErr(w, err)
 		return

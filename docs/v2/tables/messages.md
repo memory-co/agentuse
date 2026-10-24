@@ -2,8 +2,8 @@
 
 会话里的消息，按顺序一条接一条，只追加不修改。
 
-- `user`:用户发的。`content` 是交给 agent 的输入，内置 agent 读 `{"prompt": "..."}`,自定义 harness 拿到原文。
-- `assistant`:agent 回的，daemon 回报结果时写入。`content` 是 `{"ok": bool, "output": "...", "error": "..."}`,内置 agent 可能多带 `session_id`、`cost_usd`。
+- `user`:用户发的。`content` 是交给 harness 的输入，内置 harness 读 `{"prompt": "..."}`,自定义 harness 拿到原文。
+- `assistant`:harness 回的，daemon 回报结果时写入。`content` 是 `{"ok": bool, "output": "...", "error": "..."}`,内置 harness 可能多带 `session_id`、`cost_usd`。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|

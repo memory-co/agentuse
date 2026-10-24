@@ -18,7 +18,7 @@ d = agentuse.create_daemon(uid, "my-laptop")
 print(d["setup_command"])
 
 # 电脑上线后打开 claude
-agentuse.set_daemon_agent(uid, d["id"], "claude", True)
+agentuse.set_daemon_harness(uid, d["id"], "claude", True)
 
 # 发起任务，等它回完
 s = agentuse.create_session(uid, "claude", prompt="修一下 README 的错别字", cwd="~/code/x")["session"]
@@ -30,7 +30,7 @@ try:
     agentuse.send_message(uid, s["id"], prompt="再把 CHANGELOG 也改一下")
 except AgentuseError as e:
     if e.status == 409:
-        ...  # agent 还没回完
+        ...  # harness 还没回完
 ```
 
 返回值都是接口里的 JSON 对象(dict / list),字段见 [apis](../../docs/v2/apis/README.md)。`timeout` 是单次 HTTP 请求的超时(秒),建客户端时给。

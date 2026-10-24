@@ -1,6 +1,6 @@
 # 嵌入到网站
 
-agentuse 可以嵌进任何网站，给网站的用户提供「用自己电脑上的 agent 干活」的能力。它的定位像 **Redis**:网站自己部署一个 agentuse-server,只有网站的**后端**调用它，网站的用户不直接接触 agentuse。
+agentuse 可以嵌进任何网站，给网站的用户提供「用自己电脑上的 harness 干活」的能力。它的定位像 **Redis**:网站自己部署一个 agentuse-server,只有网站的**后端**调用它，网站的用户不直接接触 agentuse。
 
 ```
  网站用户的浏览器                网站后端                        agentuse-server
@@ -24,7 +24,7 @@ agentuse 可以嵌进任何网站，给网站的用户提供「用自己电脑�
 ## 用户：直接用网站的 user id
 
 - agentuse 不管登录。网站后端认好用户之后，调 agentuse 时带上这个用户在网站里的 id,agentuse 就把它当成那个用户。
-- [users](../tables/users.md) 的 `id` 就是网站的 user id(如 `u_10086`)。daemon、会话、自定义 agent 都挂在它下面，网站不用另存映射表。
+- [users](../tables/users.md) 的 `id` 就是网站的 user id(如 `u_10086`)。daemon、会话、自定义 harness 都挂在它下面，网站不用另存映射表。
 - 用户第一次出现时自动创建(`role = user`,`name` 取 id),网站不用提前同步用户。删用户、改名都不需要通知 agentuse。
 
 ## 认证：服务密钥 + 代为某个用户
@@ -37,7 +37,7 @@ X-Agentuse-User: u_10086
 ```
 
 - 带了 `X-Agentuse-User`:按这个用户的身份执行，权限和普通用户完全一样(只能看到他自己的 daemon、会话)。用户不存在就先建。
-- 不带：就是 admin 本身，用来做管理(登记内置 agent、看全局)。
+- 不带：就是 admin 本身，用来做管理(登记内置 harness、看全局)。
 - 只有 admin 令牌能用这个头，普通用户令牌带了返回 403。
 - 服务密钥只放在网站后端，不能下发到浏览器。
 
@@ -48,7 +48,7 @@ X-Agentuse-User: u_10086
 | 网站上的功能 | 后端调用(带 `X-Agentuse-User`) |
 |---|---|
 | 「连接我的电脑」 | [`POST /api/daemons`](../apis/daemons.md),把返回的安装命令展示给用户复制 |
-| 看电脑在不在线、开关 agent | `GET /api/daemons`、`PUT /api/daemons/{id}/agents/{agent}` |
+| 看电脑在不在线、开关 harness | `GET /api/daemons`、`PUT /api/daemons/{id}/harnesses/{harness}` |
 | 发起一次任务 | [`POST /api/sessions`](../apis/sessions.md) |
 | 接着回复 | `POST /api/sessions/{id}/messages` |
 | 看进度和结果 | `GET /api/sessions/{id}`,轮询 |
