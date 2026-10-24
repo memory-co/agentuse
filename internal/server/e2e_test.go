@@ -46,13 +46,13 @@ func (c client) do(method, path string, body, out any) int {
 	return resp.StatusCode
 }
 
-// 一个按约定从 stdin 读任务、往 stdout 写 JSON 行的假 harness。
+// 一个按约定从 stdin 读输入、往 stdout 写 JSON 行的假 harness,会话 id 固定为 h-1。
 const harness = `#!/bin/sh
 read input
 echo '{"type":"progress","text":"working"}'
 echo "not json line"
 esc=$(printf '%s' "$input" | sed 's/"/\\"/g')
-echo "{\"type\":\"result\",\"ok\":true,\"output\":\"echo: $esc\"}"
+echo "{\"type\":\"result\",\"ok\":true,\"output\":\"echo: $esc\",\"session_id\":\"h-1\"}"
 `
 
 func TestEndToEnd(t *testing.T) {
@@ -124,11 +124,15 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatal("安装令牌应该只能用一次")
 	}
 
-	// 先建任务，此时 agent 还没开启，不会派
-	var task store.Task
-	ca.do("POST", "/api/tasks", map[string]string{"agent": "echo-harness", "prompt": "hi"}, &task)
-	if task.Status != store.TaskPending {
-		t.Fatalf("task: %+v", task)
+	// 先开会话，此时 agent 还没开启，不会派
+	var created struct {
+		Session store.Session `json:"session"`
+		Message store.Message `json:"message"`
+	}
+	ca.do("POST", "/api/sessions", map[string]string{"agent": "echo-harness", "prompt": "hi"}, &created)
+	ss := created.Session
+	if ss.Status != store.SessionPending || ss.Title != "hi" || created.Message.Role != store.RoleUserMsg {
+		t.Fatalf("session: %+v", created)
 	}
 
 	d, err := daemon.New(cfg, log.New(io.Discard, "", 0))
@@ -164,44 +168,57 @@ func TestEndToEnd(t *testing.T) {
 	if code := cb.do("PUT", "/api/daemons/"+dv.ID+"/agents/echo-harness", map[string]bool{"enabled": true}, nil); code != http.StatusNotFound {
 		t.Fatalf("bob toggle: %d", code)
 	}
-	// bob 的同名 agent 任务不能派给 alice 的 daemon
-	var bobTask store.Task
-	cb.do("POST", "/api/tasks", map[string]string{"agent": "echo-harness", "prompt": "bob"}, &bobTask)
+	// bob 的同名 agent 会话不能派给 alice 的 daemon
+	var bobCreated struct {
+		Session store.Session `json:"session"`
+	}
+	cb.do("POST", "/api/sessions", map[string]string{"agent": "echo-harness", "prompt": "bob"}, &bobCreated)
+	bobSession := bobCreated.Session
 
-	// 开启 agent → 排队的任务被派出并完成
+	// 开启 agent → 排队的会话被派出，agent 回复
 	if code := ca.do("PUT", "/api/daemons/"+dv.ID+"/agents/echo-harness", map[string]bool{"enabled": true}, nil); code != http.StatusOK {
 		t.Fatalf("toggle: %d", code)
 	}
 	var detail struct {
-		Task   store.Task        `json:"task"`
-		Events []store.TaskEvent `json:"events"`
+		Session  store.Session        `json:"session"`
+		Messages []store.Message      `json:"messages"`
+		Events   []store.SessionEvent `json:"events"`
 	}
 	waitFor(t, func() bool {
-		ca.do("GET", "/api/tasks/"+task.ID, nil, &detail)
-		return detail.Task.Status == store.TaskDone
+		ca.do("GET", "/api/sessions/"+ss.ID, nil, &detail)
+		return detail.Session.Status == store.SessionIdle
 	})
 	var res daemon.Result
-	json.Unmarshal(detail.Task.Result, &res)
-	if !res.OK || !strings.Contains(res.Output, `"prompt":"hi"`) || detail.Task.FinishedAt == nil || detail.Task.DaemonID != dv.ID {
-		t.Fatalf("result: %+v %s", detail.Task, detail.Task.Result)
+	json.Unmarshal(detail.Messages[1].Content, &res)
+	if !res.OK || !strings.Contains(res.Output, `"prompt":"hi"`) || !strings.Contains(res.Output, `"session_id":"`+ss.ID+`"`) ||
+		detail.Session.DaemonID != dv.ID || detail.Session.HarnessSessionID != "h-1" {
+		t.Fatalf("result: %+v %s", detail.Session, detail.Messages[1].Content)
 	}
 	if len(detail.Events) != 3 || detail.Events[0].Kind != "progress" || detail.Events[2].Kind != "done" {
 		t.Fatalf("events: %+v", detail.Events)
 	}
 
-	// 已连着的 daemon 也能马上接新任务
-	var task2 store.Task
-	ca.do("POST", "/api/tasks", map[string]string{"agent": "echo-harness", "prompt": "again"}, &task2)
-	waitFor(t, func() bool {
-		ca.do("GET", "/api/tasks/"+task2.ID, nil, &detail)
-		return detail.Task.Status == store.TaskDone
-	})
-
-	if code := cb.do("GET", "/api/tasks/"+bobTask.ID, nil, &detail); code != http.StatusOK || detail.Task.Status != store.TaskPending {
-		t.Fatalf("bob task should stay pending: %d %+v", code, detail.Task)
+	// 回复：同一个会话，harness 拿到上次的会话 id 续接
+	if code := ca.do("POST", "/api/sessions/"+ss.ID+"/messages", map[string]string{"prompt": "again"}, nil); code != http.StatusCreated {
+		t.Fatalf("reply: %d", code)
 	}
-	if code := cb.do("GET", "/api/tasks/"+task.ID, nil, nil); code != http.StatusNotFound {
-		t.Fatalf("bob should not see alice task: %d", code)
+	if code := ca.do("POST", "/api/sessions/"+ss.ID+"/messages", map[string]string{"prompt": "too soon"}, nil); code != http.StatusConflict {
+		t.Fatalf("reply while busy should be 409: %d", code)
+	}
+	waitFor(t, func() bool {
+		ca.do("GET", "/api/sessions/"+ss.ID, nil, &detail)
+		return detail.Session.Status == store.SessionIdle && len(detail.Messages) == 4
+	})
+	json.Unmarshal(detail.Messages[3].Content, &res)
+	if !res.OK || !strings.Contains(res.Output, `"prompt":"again"`) || !strings.Contains(res.Output, `"resume":"h-1"`) {
+		t.Fatalf("reply result: %s", detail.Messages[3].Content)
+	}
+
+	if code := cb.do("GET", "/api/sessions/"+bobSession.ID, nil, &detail); code != http.StatusOK || detail.Session.Status != store.SessionPending {
+		t.Fatalf("bob session should stay pending: %d %+v", code, detail.Session)
+	}
+	if code := cb.do("GET", "/api/sessions/"+ss.ID, nil, nil); code != http.StatusNotFound {
+		t.Fatalf("bob should not see alice session: %d", code)
 	}
 
 	// daemon 用密钥自检
@@ -210,7 +227,7 @@ func TestEndToEnd(t *testing.T) {
 	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("daemon me: %v %v", err, resp)
 	}
-	if code := ca.do("POST", "/api/users/"+bobTask.UserID+"/token", nil, nil); code != http.StatusForbidden {
+	if code := ca.do("POST", "/api/users/"+bobSession.UserID+"/token", nil, nil); code != http.StatusForbidden {
 		t.Fatalf("普通用户不能重置令牌: %d", code)
 	}
 

@@ -90,9 +90,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/daemons/{id}", s.auth(s.handleDeleteDaemon))
 	s.mux.HandleFunc("POST /api/daemons/{id}/reset", s.auth(s.handleResetDaemon))
 	s.mux.HandleFunc("PUT /api/daemons/{id}/agents/{agent}", s.auth(s.handleToggleAgent))
-	s.mux.HandleFunc("GET /api/tasks", s.auth(s.handleListTasks))
-	s.mux.HandleFunc("POST /api/tasks", s.auth(s.handleCreateTask))
-	s.mux.HandleFunc("GET /api/tasks/{id}", s.auth(s.handleGetTask))
+	s.mux.HandleFunc("GET /api/sessions", s.auth(s.handleListSessions))
+	s.mux.HandleFunc("POST /api/sessions", s.auth(s.handleCreateSession))
+	s.mux.HandleFunc("GET /api/sessions/{id}", s.auth(s.handleGetSession))
+	s.mux.HandleFunc("DELETE /api/sessions/{id}", s.auth(s.handleDeleteSession))
+	s.mux.HandleFunc("POST /api/sessions/{id}/messages", s.auth(s.handleAddMessage))
 
 	s.mux.HandleFunc("POST "+protocol.RegisterPath, s.handleRegister)
 	s.mux.HandleFunc("GET "+protocol.WSPath, s.hub.handleWS)
@@ -131,6 +133,10 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 func (s *Server) storeErr(w http.ResponseWriter, err error) {
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "不存在")
+		return
+	}
+	if errors.Is(err, store.ErrSessionBusy) {
+		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
 	writeErr(w, http.StatusBadRequest, err.Error())

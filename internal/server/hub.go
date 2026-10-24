@@ -16,7 +16,7 @@ import (
 	"github.com/memory-co/agentuse/internal/store"
 )
 
-// hub 管所有在线 daemon 的 WebSocket 连接，负责派任务。
+// hub 管所有在线 daemon 的 WebSocket 连接，负责派活。
 type hub struct {
 	s     *Server
 	mu    sync.Mutex
@@ -28,7 +28,7 @@ type daemonConn struct {
 	ws     *websocket.Conn
 	cancel context.CancelFunc
 
-	mu   sync.Mutex // 保护 idle,串行化领任务
+	mu   sync.Mutex // 保护 idle,串行化领活
 	idle bool       // daemon 说过 ready、还没派活
 }
 
@@ -88,7 +88,7 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 			if err != nil {
 				return err
 			}
-			users, err := st.RequeueDaemonTasks(ctx, c.d.ID, m.Running)
+			users, err := st.RequeueDaemonSessions(ctx, c.d.ID, m.Running)
 			if err != nil {
 				return err
 			}
@@ -105,14 +105,14 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 			h.dispatch(ctx, c)
 		case protocol.TypeHeartbeat:
 			_ = st.TouchDaemon(ctx, c.d.ID)
-			if m.TaskID != "" {
-				if err := st.RenewLease(ctx, c.d.ID, m.TaskID, protocol.LeaseSeconds); err != nil {
-					h.reportStale(ctx, c, m.TaskID, err)
+			if m.MessageID != 0 {
+				if err := st.RenewLease(ctx, c.d.ID, m.MessageID, protocol.LeaseSeconds); err != nil {
+					h.reportStale(ctx, c, m.MessageID, err)
 				}
 			}
 		case protocol.TypeEvent:
-			if err := st.AddEvent(ctx, c.d.ID, m.TaskID, m.Kind, m.Payload, protocol.LeaseSeconds); err != nil {
-				h.reportStale(ctx, c, m.TaskID, err)
+			if err := st.AddEvent(ctx, c.d.ID, m.MessageID, m.Kind, m.Payload, protocol.LeaseSeconds); err != nil {
+				h.reportStale(ctx, c, m.MessageID, err)
 			}
 		default:
 			_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, Error: "unknown message type " + m.Type})
@@ -120,22 +120,22 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 	}
 }
 
-// reportStale 告诉 daemon 这个任务已经不归它了，它应该停掉。
-func (h *hub) reportStale(ctx context.Context, c *daemonConn, taskID string, err error) {
-	if !errors.Is(err, store.ErrStaleTask) {
-		h.s.log.Printf("daemon %s task %s: %v", c.d.ID, taskID, err)
+// reportStale 告诉 daemon 这条消息已经不归它了，它应该停掉。
+func (h *hub) reportStale(ctx context.Context, c *daemonConn, messageID int64, err error) {
+	if !errors.Is(err, store.ErrStaleMessage) {
+		h.s.log.Printf("daemon %s message %d: %v", c.d.ID, messageID, err)
 	}
-	_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, TaskID: taskID, Error: err.Error()})
+	_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, MessageID: messageID, Error: err.Error()})
 }
 
-// dispatch 给空闲的 daemon 领一个任务推过去。
+// dispatch 给空闲的 daemon 领一个会话，把最后一条用户消息推过去。
 func (h *hub) dispatch(ctx context.Context, c *daemonConn) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.idle {
 		return
 	}
-	t, err := h.s.store.ClaimTask(ctx, c.d, protocol.LeaseSeconds)
+	cl, err := h.s.store.ClaimSession(ctx, c.d, protocol.LeaseSeconds)
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
 			h.s.log.Printf("claim for %s: %v", c.d.ID, err)
@@ -143,16 +143,19 @@ func (h *hub) dispatch(ctx context.Context, c *daemonConn) {
 		return
 	}
 	c.idle = false
-	msg := protocol.Message{Type: protocol.TypeTask, Task: &protocol.Task{ID: t.ID, Agent: t.Agent, Input: t.Input}}
+	ss := cl.Session
+	msg := protocol.Message{Type: protocol.TypeMessage, Message: &protocol.Dispatch{
+		ID: cl.Message.ID, SessionID: ss.ID, Agent: ss.Agent, Cwd: ss.Cwd, Resume: ss.HarnessSessionID, Input: cl.Message.Content,
+	}}
 	if err := c.send(ctx, msg); err != nil {
 		// 没送到:等租约过期自动收回。
-		h.s.log.Printf("send task %s to %s: %v", t.ID, c.d.ID, err)
+		h.s.log.Printf("send session %s to %s: %v", ss.ID, c.d.ID, err)
 		return
 	}
-	h.s.log.Printf("任务 %s(%s)派给 daemon %s", t.ID, t.Agent, c.d.ID)
+	h.s.log.Printf("会话 %s(%s)的消息 %d 派给 daemon %s", ss.ID, ss.Agent, cl.Message.ID, c.d.ID)
 }
 
-// kickUser 有新任务可派时，叫醒该用户所有空闲的 daemon。
+// kickUser 有新活可派时，叫醒该用户所有空闲的 daemon。
 func (h *hub) kickUser(userID string) {
 	h.mu.Lock()
 	var cs []*daemonConn

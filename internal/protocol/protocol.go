@@ -12,7 +12,7 @@ const (
 	// MePath:daemon 用密钥查自己的信息，不建连接，给 agentuse status 自检用。
 	MePath = "/api/daemon/me"
 
-	// LeaseSeconds:任务租约。daemon 每 HeartbeatSeconds 续一次。
+	// LeaseSeconds:会话租约。daemon 每 HeartbeatSeconds 续一次。
 	LeaseSeconds     = 60
 	HeartbeatSeconds = 15
 )
@@ -38,14 +38,14 @@ type MeResponse struct {
 // 消息类型。
 const (
 	// daemon → 服务
-	TypeHello     = "hello"     // 连上后第一条：本机可用 agent、正在跑的任务
+	TypeHello     = "hello"     // 连上后第一条：本机可用 agent、正在回的消息
 	TypeReady     = "ready"     // 空闲，可以接活
-	TypeEvent     = "event"     // 任务进度 / 结果
-	TypeHeartbeat = "heartbeat" // 任务续租
+	TypeEvent     = "event"     // 进度 / 结果
+	TypeHeartbeat = "heartbeat" // 续租
 
 	// 服务 → daemon
 	TypeWelcome = "welcome" // 回应 hello
-	TypeTask    = "task"    // 派一个任务
+	TypeMessage = "message" // 派一条用户消息
 	TypeError   = "error"
 )
 
@@ -54,22 +54,22 @@ type Message struct {
 	Type string `json:"type"`
 
 	// hello
-	Agents  []Agent  `json:"agents,omitempty"`
-	Running []string `json:"running,omitempty"`
-	Version string   `json:"version,omitempty"`
+	Agents  []Agent `json:"agents,omitempty"`
+	Running []int64 `json:"running,omitempty"` // 正在回的消息 id
+	Version string  `json:"version,omitempty"`
 
 	// welcome
 	DaemonID string   `json:"daemon_id,omitempty"`
 	Name     string   `json:"name,omitempty"`
 	Ignored  []string `json:"ignored,omitempty"` // 服务上没登记、被忽略的 agent
 
-	// task
-	Task *Task `json:"task,omitempty"`
+	// message
+	Message *Dispatch `json:"message,omitempty"`
 
-	// event / heartbeat
-	TaskID  string          `json:"task_id,omitempty"`
-	Kind    string          `json:"kind,omitempty"` // progress / done / failed
-	Payload json.RawMessage `json:"payload,omitempty"`
+	// event / heartbeat / error
+	MessageID int64           `json:"message_id,omitempty"`
+	Kind      string          `json:"kind,omitempty"` // progress / done / failed
+	Payload   json.RawMessage `json:"payload,omitempty"`
 
 	// error
 	Error string `json:"error,omitempty"`
@@ -80,14 +80,24 @@ type Agent struct {
 	Version string `json:"version,omitempty"`
 }
 
-type Task struct {
-	ID    string          `json:"id"`
-	Agent string          `json:"agent"`
-	Input json.RawMessage `json:"input"`
+// Dispatch 是派给 daemon 的一条用户消息，带上会话的信息。
+type Dispatch struct {
+	ID        int64           `json:"id"` // 消息 id
+	SessionID string          `json:"session_id"`
+	Agent     string          `json:"agent"`
+	Cwd       string          `json:"cwd,omitempty"`    // 会话的工作目录，空 = daemon 的 workdir/<session_id>
+	Resume    string          `json:"resume,omitempty"` // harness 自己的会话 id,第一条消息时为空
+	Input     json.RawMessage `json:"input"`            // 消息内容
 }
 
-// TaskInput 是页面 / API 创建任务时 input 的约定格式。自定义 harness 拿到的是 input 原文。
-type TaskInput struct {
+// PromptInput 是页面 / API 发消息时内容的约定格式。自定义 harness 拿到的是原文。
+type PromptInput struct {
 	Prompt string `json:"prompt"`
-	Cwd    string `json:"cwd,omitempty"` // 在 daemon 本机的哪个目录跑，空 = daemon 的工作目录
+}
+
+// HarnessInput 是写进自定义 harness stdin 的内容。
+type HarnessInput struct {
+	SessionID string          `json:"session_id"`
+	Resume    string          `json:"resume,omitempty"`
+	Input     json.RawMessage `json:"input"`
 }

@@ -206,7 +206,7 @@ func (s *Store) daemonAgents(ctx context.Context, where string, args ...any) ([]
 	return out, rows.Err()
 }
 
-// DeleteDaemon 删除 daemon;它正在跑的任务回到 pending。
+// DeleteDaemon 删除 daemon;它名下没回完的会话回到 idle,记一条失败的回复。
 func (s *Store) DeleteDaemon(ctx context.Context, u User, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -219,17 +219,18 @@ func (s *Store) DeleteDaemon(ctx context.Context, u User, id string) error {
 		q += ` AND user_id = ?`
 		args = append(args, u.ID)
 	}
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE tasks SET status = 'pending', daemon_id = NULL, lease_until = NULL, updated_at = ? WHERE daemon_id = ? AND status = 'running'`,
-		s.unix(), id); err != nil {
-		return err
-	}
-	res, err := tx.ExecContext(ctx, q, args...)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	var one int
+	check := strings.Replace(q, "DELETE FROM", "SELECT 1 FROM", 1)
+	if err := tx.QueryRowContext(ctx, check, args...).Scan(&one); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	if err := s.failDaemonSessions(ctx, tx, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

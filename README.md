@@ -1,6 +1,6 @@
 # agentuse
 
-> 用户电脑上跑一个 daemon,从 agentuse 服务领任务，在本地调用 CLI agent(Claude Code、Codex 或自己写的 harness)干活，再把进度和结果汇报回去。
+> 用户电脑上跑一个 daemon,从 agentuse 服务领活，在本地调用 CLI agent(Claude Code、Codex 或自己写的 harness)干活，再把进度和结果汇报回去。
 
 设计见 [`docs/v2/designs/main.md`](docs/v2/designs/main.md),接入与通信见 [`connect.md`](docs/v2/designs/connect.md),表结构见 [`docs/v2/tables/`](docs/v2/tables/),接口见 [`docs/v2/apis/`](docs/v2/apis/README.md),命令行见 [`docs/v2/cli/`](docs/v2/cli/README.md)。旧版(v1)文档留在 [`docs/v1/`](docs/v1/README.md)。
 
@@ -34,7 +34,7 @@ curl -fsSL "https://agentuse.example.com/setup.sh" -o setup.sh && TOKEN="st_…"
 
 ### 3. 选择开启哪些 agent
 
-在这台 daemon 下打开要用的 agent 开关(默认都关)。之后在「任务」页选 agent、写 prompt 提交，任务会派给你自己的、开启了这个 agent 的在线 daemon,进度和结果实时显示。
+在这台 daemon 下打开要用的 agent 开关(默认都关)。之后在「会话」页选 agent、写 prompt 开一个会话，会派给你自己的、开启了这个 agent 的在线 daemon,进度和回复实时显示，可以接着回复(会话对齐 Claude Code / Codex 自己的 session,在同一台电脑上续接)。
 
 ## 命令
 
@@ -66,8 +66,9 @@ agentuse agents                                         # 本机检测到的 age
 | PUT | `/api/daemons/{id}/agents/{agent}` | `{"enabled": true}` 开关 agent |
 | POST | `/api/daemons/{id}/reset` | 重新生成安装命令 |
 | DELETE | `/api/daemons/{id}` | 删除 |
-| GET / POST | `/api/tasks` | 列任务 / 建任务 `{"agent":"claude","prompt":"…","cwd":"可选"}` |
-| GET | `/api/tasks/{id}` | 任务详情和回报 |
+| GET / POST | `/api/sessions` | 列会话 / 开会话 `{"agent":"claude","prompt":"…","cwd":"可选"}` |
+| POST | `/api/sessions/{id}/messages` | 回复 `{"prompt":"…"}`,agent 还没回时 409 |
+| GET / DELETE | `/api/sessions/{id}` | 会话详情(消息和回报) / 删除 |
 | GET / POST | `/api/agents` | 列 agent / 注册自定义 harness |
 | GET / POST | `/api/users` | (admin)列用户 / 建用户 |
 
@@ -88,7 +89,7 @@ internal/
 ├── cli/             命令行
 ├── store/           SQLite 存储(表结构见 docs/v2/tables/)
 ├── protocol/        daemon ⇄ 服务的注册接口和 WebSocket 消息
-├── server/          HTTP API、WebSocket 派任务、setup.sh、网页(web/)
+├── server/          HTTP API、WebSocket 派活、setup.sh、网页(web/)
 └── daemon/          注册、连接、调用本地 CLI agent、汇报
 docs/                v2(当前) / v1(旧版)
 ```

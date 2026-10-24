@@ -28,9 +28,9 @@ type Daemon struct {
 
 	mu      sync.Mutex
 	agents  map[string]localAgent
-	running map[string]context.CancelFunc // 正在跑的任务(一次最多一个)
-	conn    func(protocol.Message) error  // 当前连接的发送函数，断线时为 nil
-	outbox  []protocol.Message            // 断线期间跑完的任务结果，重连后补发
+	running map[int64]context.CancelFunc // 正在回的消息(一次最多一条)
+	conn    func(protocol.Message) error // 当前连接的发送函数，断线时为 nil
+	outbox  []protocol.Message           // 断线期间跑完的结果，重连后补发
 }
 
 var errOffline = errors.New("未连接")
@@ -61,7 +61,7 @@ func New(cfg Config, logger *log.Logger) (*Daemon, error) {
 		cfg.Workdir = filepath.Join(home, ".agentuse", "work")
 	}
 	cfg.Workdir = expandHome(cfg.Workdir)
-	return &Daemon{cfg: cfg, log: logger, running: map[string]context.CancelFunc{}}, nil
+	return &Daemon{cfg: cfg, log: logger, running: map[int64]context.CancelFunc{}}, nil
 }
 
 // Run 连上服务干活，断线自动退避重连，直到 ctx 结束。
@@ -139,7 +139,7 @@ func (d *Daemon) session(ctx context.Context) error {
 		hello.Running = append(hello.Running, id)
 	}
 	for _, m := range d.outbox {
-		hello.Running = append(hello.Running, m.TaskID)
+		hello.Running = append(hello.Running, m.MessageID)
 	}
 	d.mu.Unlock()
 	if err := send(hello); err != nil {
@@ -151,7 +151,7 @@ func (d *Daemon) session(ctx context.Context) error {
 		d.mu.Unlock()
 	}()
 
-	// 心跳:有任务时续租，没任务时保活。
+	// 心跳:有活时续租，没活时保活。
 	go func() {
 		t := time.NewTicker(protocol.HeartbeatSeconds * time.Second)
 		defer t.Stop()
@@ -161,16 +161,16 @@ func (d *Daemon) session(ctx context.Context) error {
 				return
 			case <-t.C:
 				d.mu.Lock()
-				ids := make([]string, 0, len(d.running))
+				ids := make([]int64, 0, len(d.running))
 				for id := range d.running {
 					ids = append(ids, id)
 				}
 				d.mu.Unlock()
 				if len(ids) == 0 {
-					ids = []string{""}
+					ids = []int64{0}
 				}
 				for _, id := range ids {
-					_ = send(protocol.Message{Type: protocol.TypeHeartbeat, TaskID: id})
+					_ = send(protocol.Message{Type: protocol.TypeHeartbeat, MessageID: id})
 				}
 			}
 		}
@@ -207,17 +207,17 @@ func (d *Daemon) session(ctx context.Context) error {
 					return err
 				}
 			}
-		case protocol.TypeTask:
-			if m.Task != nil {
-				d.startTask(*m.Task)
+		case protocol.TypeMessage:
+			if m.Message != nil {
+				d.startMessage(*m.Message)
 			}
 		case protocol.TypeError:
-			if m.TaskID != "" {
+			if m.MessageID != 0 {
 				d.mu.Lock()
-				cancel := d.running[m.TaskID]
+				cancel := d.running[m.MessageID]
 				d.mu.Unlock()
 				if cancel != nil {
-					d.log.Printf("任务 %s 已不归本机(%s),停止执行", m.TaskID, m.Error)
+					d.log.Printf("消息 %d 已不归本机(%s),停止执行", m.MessageID, m.Error)
 					cancel()
 				}
 			} else {
@@ -227,37 +227,37 @@ func (d *Daemon) session(ctx context.Context) error {
 	}
 }
 
-// startTask 在后台跑一个任务，跑完回报结果并再说一次 ready。
-// 任务不跟连接绑定：中途断线重连，结果照样回报给新连接。
-func (d *Daemon) startTask(t protocol.Task) {
+// startMessage 在后台跑 agent 回一条消息，跑完回报结果并再说一次 ready。
+// 不跟连接绑定：中途断线重连，结果照样回报给新连接。
+func (d *Daemon) startMessage(m protocol.Dispatch) {
 	d.mu.Lock()
-	la, ok := d.agents[t.Agent]
+	la, ok := d.agents[m.Agent]
 	tctx, cancel := context.WithCancel(context.Background())
-	d.running[t.ID] = cancel
+	d.running[m.ID] = cancel
 	d.mu.Unlock()
 
 	go func() {
 		defer func() {
 			d.mu.Lock()
-			delete(d.running, t.ID)
+			delete(d.running, m.ID)
 			d.mu.Unlock()
 			cancel()
 			_ = d.send(protocol.Message{Type: protocol.TypeReady})
 		}()
-		d.log.Printf("开始任务 %s(%s)", t.ID, t.Agent)
+		d.log.Printf("会话 %s(%s)开始回消息 %d", m.SessionID, m.Agent, m.ID)
 		var res Result
 		if !ok {
-			res = Result{Error: "本机没有 agent " + t.Agent}
-		} else if dir, err := d.taskDir(t); err != nil {
+			res = Result{Error: "本机没有 agent " + m.Agent}
+		} else if dir, err := d.sessionDir(m); err != nil {
 			res = Result{Error: err.Error()}
 		} else {
-			res = runAgent(tctx, la, t.Input, dir, func(p any) {
+			res = runAgent(tctx, la, m, dir, func(p any) {
 				b, _ := json.Marshal(p)
-				_ = d.send(protocol.Message{Type: protocol.TypeEvent, TaskID: t.ID, Kind: "progress", Payload: b})
+				_ = d.send(protocol.Message{Type: protocol.TypeEvent, MessageID: m.ID, Kind: "progress", Payload: b})
 			})
 		}
 		if tctx.Err() != nil {
-			d.log.Printf("任务 %s 已取消", t.ID)
+			d.log.Printf("消息 %d 已取消", m.ID)
 			return
 		}
 		kind := "done"
@@ -265,23 +265,22 @@ func (d *Daemon) startTask(t protocol.Task) {
 			kind = "failed"
 		}
 		b, _ := json.Marshal(res)
-		if err := d.send(protocol.Message{Type: protocol.TypeEvent, TaskID: t.ID, Kind: kind, Payload: b}); err != nil {
-			d.log.Printf("回报任务 %s 结果失败: %v", t.ID, err)
+		if err := d.send(protocol.Message{Type: protocol.TypeEvent, MessageID: m.ID, Kind: kind, Payload: b}); err != nil {
+			d.log.Printf("回报消息 %d 结果失败: %v", m.ID, err)
 		}
-		d.log.Printf("任务 %s 结束: %s", t.ID, kind)
+		d.log.Printf("消息 %d 结束: %s", m.ID, kind)
 	}()
 }
 
-func (d *Daemon) taskDir(t protocol.Task) (string, error) {
-	var ti protocol.TaskInput
-	_ = json.Unmarshal(t.Input, &ti)
-	if ti.Cwd != "" {
-		dir := expandHome(ti.Cwd)
+// sessionDir 是会话的工作目录：给了 cwd 就用它，否则 workdir/<session_id>,每条消息都在同一个目录。
+func (d *Daemon) sessionDir(m protocol.Dispatch) (string, error) {
+	if m.Cwd != "" {
+		dir := expandHome(m.Cwd)
 		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-			return "", errors.New("工作目录不存在: " + ti.Cwd)
+			return "", errors.New("工作目录不存在: " + m.Cwd)
 		}
 		return dir, nil
 	}
-	dir := filepath.Join(d.cfg.Workdir, t.ID)
+	dir := filepath.Join(d.cfg.Workdir, m.SessionID)
 	return dir, os.MkdirAll(dir, 0o755)
 }
