@@ -1,11 +1,11 @@
 # agents
 
-全局有哪些 CLI agent 可以用。[tasks](tasks.md).agent 和 [daemon_agents](daemon_agents.md).agent 都必须是这里登记过的 `name`。
+全局有哪些 CLI agent 可以用。[sessions](sessions.md).agent 和 [daemon_agents](daemon_agents.md).agent 都必须是这里登记过的 `name`。
 
 分两类:
 
 - **内置**(`builtin`):agentuse 自带适配，如 `claude`(Claude Code)、`codex`。服务初始化时写入。
-- **自定义**(`custom`):用户自己手搓的 harness。用户先在服务上注册一个名字，再在自己的 daemon 上配置这个名字对应的本地启动命令。daemon 按统一约定调用它：任务 `input` 从 stdin 以 JSON 传入，进度和结果从 stdout 按行输出 JSON。只要遵守这个约定，任何程序都能接进来。
+- **自定义**(`custom`):用户自己手搓的 harness。用户先在服务上注册一个名字，再在自己的 daemon 上配置这个名字对应的本地启动命令。daemon 按统一约定调用它：每一轮的输入从 stdin 以 JSON 传入，进度和结果从 stdout 按行输出 JSON。只要遵守这个约定，任何程序都能接进来。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|

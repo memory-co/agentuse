@@ -1,6 +1,6 @@
 # daemon
 
-daemon 和服务之间的接口：先用安装令牌注册，再用长期密钥开一条 WebSocket。流程和派任务规则见 [designs/connect](../designs/connect.md),代码里的定义在 `internal/protocol`。
+daemon 和服务之间的接口：先用安装令牌注册，再用长期密钥开一条 WebSocket。流程和派活规则见 [designs/connect](../designs/connect.md),代码里的定义在 `internal/protocol`。
 
 ## POST /api/daemon/register
 
@@ -44,41 +44,41 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 |---|---|---|
 | `hello` | `agents`、`running`、`version` | 连上后第一条 |
 | `ready` | | 空闲，可以接活 |
-| `heartbeat` | `task_id`(可空) | 每 15 秒一次 |
-| `event` | `task_id`、`kind`、`payload` | 回报进度或结果 |
+| `heartbeat` | `turn_id`(可空) | 每 15 秒一次 |
+| `event` | `turn_id`、`kind`、`payload` | 回报进度或结果 |
 
-**hello**:上报本机可用的 agent 和手上还在跑的任务。服务据此更新 daemon_agents 的 `available`,并把挂在这台 daemon 名下、但不在 `running` 里的任务收回重排。
+**hello**:上报本机可用的 agent 和手上还在跑的轮。服务据此更新 daemon_agents 的 `available`,并把挂在这台 daemon 名下、但不在 `running` 里的轮收回重排。
 
 ```json
 {
   "type": "hello",
   "version": "v0.2.0",
   "agents": [{ "name": "claude", "version": "2.1.310 (Claude Code)" }, { "name": "my-harness" }],
-  "running": ["tk_…"]
+  "running": ["tn_…"]
 }
 ```
 
-**ready**:`{"type": "ready"}`。服务收到后给它领一个任务;没有就记住它空闲，等有任务时再推。
+**ready**:`{"type": "ready"}`。服务收到后给它领一轮;没有就记住它空闲，等有活时再推。
 
-**heartbeat**:`{"type": "heartbeat", "task_id": "tk_…"}`。带 `task_id` 时给任务续租(租约 60 秒);空闲时不带，只更新 `last_seen_at`。
+**heartbeat**:`{"type": "heartbeat", "turn_id": "tn_…"}`。带 `turn_id` 时给这一轮续租(租约 60 秒);空闲时不带，只更新 `last_seen_at`。
 
 **event**:
 
 ```json
-{ "type": "event", "task_id": "tk_…", "kind": "progress", "payload": { "text": "🔧 Bash {\"command\":\"ls\"}" } }
-{ "type": "event", "task_id": "tk_…", "kind": "done", "payload": { "ok": true, "output": "…" } }
-{ "type": "event", "task_id": "tk_…", "kind": "failed", "payload": { "ok": false, "error": "…" } }
+{ "type": "event", "turn_id": "tn_…", "kind": "progress", "payload": { "text": "🔧 Bash {\"command\":\"ls\"}" } }
+{ "type": "event", "turn_id": "tn_…", "kind": "done", "payload": { "ok": true, "output": "…", "session_id": "9f1c…" } }
+{ "type": "event", "turn_id": "tn_…", "kind": "failed", "payload": { "ok": false, "error": "…" } }
 ```
 
-每条都写进 task_events 并续租;`done` / `failed` 同时结束任务。daemon 发完结果再发一次 `ready`。
+每条都写进 turn_events 并续租;`done` / `failed` 同时结束这一轮。`payload.session_id` 是 harness 自己的会话 id,服务存进 sessions.harness_session_id,下一轮派活时带回来。daemon 发完结果再发一次 `ready`。
 
 ### 服务 → daemon
 
 | type | 字段 | 说明 |
 |---|---|---|
 | `welcome` | `daemon_id`、`name`、`ignored` | 回应 hello |
-| `task` | `task` | 派一个任务 |
-| `error` | `task_id`(可空)、`error` | 出错 |
+| `turn` | `turn` | 派一轮 |
+| `error` | `turn_id`(可空)、`error` | 出错 |
 
 **welcome**:`ignored` 是 hello 里报了、但服务上没登记的 agent 名字(被忽略)。
 
@@ -86,16 +86,29 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 { "type": "welcome", "daemon_id": "dm_…", "name": "my-laptop", "ignored": ["ghost"] }
 ```
 
-**task**:
+**turn**:
 
 ```json
-{ "type": "task", "task": { "id": "tk_…", "agent": "claude", "input": { "prompt": "…", "cwd": "~/code/x" } } }
+{
+  "type": "turn",
+  "turn": {
+    "id": "tn_…",
+    "session_id": "ss_…",
+    "seq": 2,
+    "agent": "claude",
+    "cwd": "~/code/x",
+    "resume": "9f1c…",
+    "input": { "prompt": "…" }
+  }
+}
 ```
 
-**error**:带 `task_id` 表示这个任务已经不归你了(租约过期被收回、或已经结束),daemon 应该停掉它、不再回报。不带 `task_id` 是普通错误，比如未知消息类型。
+`resume` 是会话的 harness_session_id,第一轮或还没有时不出现;`cwd` 没设时不出现。
+
+**error**:带 `turn_id` 表示这一轮已经不归你了(租约过期被收回、或已经结束),daemon 应该停掉它、不再回报。不带 `turn_id` 是普通错误，比如未知消息类型。
 
 ```json
-{ "type": "error", "task_id": "tk_…", "error": "store: task is not running on this daemon" }
+{ "type": "error", "turn_id": "tn_…", "error": "store: turn is not running on this daemon" }
 ```
 
 ## 本机配置
@@ -106,7 +119,7 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 |---|---|
 | `server` | 服务地址 |
 | `daemon_id` / `key` | 注册得到的 id 和密钥 |
-| `workdir` | 没给 `cwd` 的任务在哪跑，默认 `~/.agentuse/work`(每个任务一个子目录) |
+| `workdir` | 没给 `cwd` 的会话在哪跑，默认 `~/.agentuse/work`(每个会话一个子目录) |
 | `agents.<name>.command` | 启动命令;内置的默认 `claude` / `codex`,自定义的必填 |
 | `agents.<name>.args` | 追加参数 |
 | `agents.<name>.disabled` | `true` 时不上报 |

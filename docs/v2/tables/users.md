@@ -2,8 +2,8 @@
 
 使用 agentuse 的人。角色只分两种:
 
-- **admin**:管理员。管理内置 agent、查看和处理所有人的 daemon 与任务。
-- **user**:普通用户。只能管理自己的 daemon、自己注册的自定义 agent、自己创建的任务。
+- **admin**:管理员。管理内置 agent、查看和处理所有人的 daemon 与会话。
+- **user**:普通用户。只能管理自己的 daemon、自己注册的自定义 agent、自己创建的会话。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -32,4 +32,4 @@ CREATE UNIQUE INDEX users_token ON users(token_hash);
 |---|---|---|
 | [daemons](daemons.md) | `user_id` | daemon 属于谁 |
 | [agents](agents.md) | `owner_id` | 自定义 agent 由谁注册，内置为空 |
-| [tasks](tasks.md) | `user_id` | 任务由谁创建;只派给这个用户自己的 daemon |
+| [sessions](sessions.md) | `user_id` | 会话由谁创建;只派给这个用户自己的 daemon |
