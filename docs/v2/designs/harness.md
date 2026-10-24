@@ -6,7 +6,7 @@
 
 ```
 harness/
-├── embed.go            // go:embed,和 frontend/embed.go 一样把整个目录编进二进制
+├── embed.go            // go:embed,和 frontend/embed.go 一样编进二进制
 ├── claude/             // Claude Code
 │   ├── harness.yaml    // 命令入口点位(必须有)
 │   ├── hooks/          // 以后：Claude Code 的 hook,比如插话

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/memory-co/agentuse/harness"
 )
 
 const (
@@ -23,16 +25,19 @@ type Harness struct {
 	CreatedAt   int64  `json:"created_at"`
 }
 
-// BuiltinHarnesses 是服务初始化时写入的内置 harness。
-var BuiltinHarnesses = []Harness{
-	{Name: "claude", Kind: HarnessBuiltin, DisplayName: "Claude Code", Description: "Anthropic Claude Code CLI(claude -p)"},
-	{Name: "codex", Kind: HarnessBuiltin, DisplayName: "Codex", Description: "OpenAI Codex CLI(codex exec)"},
-}
-
 var harnessNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
+// seedBuiltinHarnesses 把 harness/*/harness.yaml 写进 harnesses 表。目录删了的不删行，免得 agent、会话的引用断掉。
 func (s *Store) seedBuiltinHarnesses(ctx context.Context) error {
-	for _, a := range BuiltinHarnesses {
+	builtins, err := harness.All()
+	if err != nil {
+		return fmt.Errorf("store: load harnesses: %w", err)
+	}
+	for _, sp := range builtins {
+		a := Harness{Name: sp.Name, Kind: HarnessBuiltin, DisplayName: sp.DisplayName, Description: sp.Description}
+		if a.DisplayName == "" {
+			a.DisplayName = a.Name
+		}
 		_, err := s.db.ExecContext(ctx,
 			`INSERT INTO harnesses (name, kind, display_name, description, created_at) VALUES (?, ?, ?, ?, ?)
 			 ON CONFLICT(name) DO UPDATE SET kind = excluded.kind, display_name = excluded.display_name, description = excluded.description`,

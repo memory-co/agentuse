@@ -1,0 +1,38 @@
+name: claude
+display_name: Claude Code
+description: Anthropic Claude Code CLI(claude -p)
+
+# 本机可执行文件，daemon.json 的 harnesses.claude.command 可以覆盖
+command: claude
+
+# 探测：能在 PATH 里找到 command 就算可用;version 的输出第一行记成 daemon_harnesses.version
+detect:
+  version: [--version]
+
+# 每条消息起一次进程。{prompt} {resume} {args} 是占位符，见下文
+run:
+  new:    [-p, "{prompt}", --output-format, stream-json, --verbose, "{args}"]
+  resume: [-p, "{prompt}", --output-format, stream-json, --verbose, --resume, "{resume}", "{args}"]
+
+# stdout 每行一个 JSON,按规则从上往下匹配
+output:
+  format: jsonl
+  session_id: session_id            # 任何一行带这个字段就记下来
+  rules:
+    - match: { type: assistant }
+      each: message.content         # 对数组里每一项再匹配
+      rules:
+        - match: { type: text }
+          progress: "{text}"
+        - match: { type: tool_use }
+          progress: "🔧 {name} {input}"
+    - match: { type: result }
+      result:
+        ok: { subtype: success, is_error: false }
+        output: result
+        error: subtype
+        cost_usd: total_cost_usd
+
+# 收尾：没出现 result 行就算失败;有 result 但退出码非 0 也算失败
+finish:
+  require_result: true

@@ -51,11 +51,13 @@ daemon 连上 WebSocket,上报本机 harness ──▶ 页面上出现这台电�
 
 每条消息起一次 CLI,第一条新建 harness 会话，之后用上次回报的 harness 会话 id(派活消息里的 `resume`)续接。
 
-| harness | 第一条 | 之后 | 进度 | 结果和会话 id |
-|---|---|---|---|---|
-| `claude` | `claude -p <prompt> --output-format stream-json --verbose [args…]` | 加 `--resume <id>` | assistant 文本、工具调用 | `result` 行，带 `session_id` |
-| `codex` | `codex exec --json --skip-git-repo-check [args…] <prompt>` | `codex exec --json --skip-git-repo-check [args…] resume <id> <prompt>` | 每条 JSON 事件 | 最后一条 `agent_message`;`thread.started` 里的 `thread_id` |
-| 自定义 | `<command> [args…]`,stdin 写入 `{"session_id":"ss_…","resume":"…","input":…}` | 同左,`resume` 有值 | stdout 的 `{"type":"progress",…}` 行 | stdout 的 `{"type":"result","ok":…,"output":…,"session_id":…}` 行，没有就按退出码 |
+内置 harness 怎么起、怎么续接、怎么从输出里读出进度 / 结果 / 会话 id,都写在仓库顶层 [`harness/<name>/harness.yaml`](../../../harness/)([设计](harness.md)):
+
+| harness | 第一条 | 之后 |
+|---|---|---|
+| `claude` | `claude -p <prompt> --output-format stream-json --verbose [args…]` | 加 `--resume <id>` |
+| `codex` | `codex exec --json --skip-git-repo-check [args…] <prompt>` | `codex exec --json --skip-git-repo-check [args…] resume <id> <prompt>` |
+| 自定义 | `<command> [args…]`,stdin 写入 `{"session_id":"ss_…","resume":"…","input":…}`;stdout 的 `{"type":"progress",…}` 行是进度,`{"type":"result","ok":…,"output":…,"session_id":…}` 行是结果，没有就按退出码 | 同左,`resume` 有值 |
 
 会话在 `cwd` 里跑;没给就在 `~/.agentuse/work/<session_id>/`,每次都是同一个目录(Claude Code 按目录找会话)。本机的启动命令和追加参数在 `~/.agentuse/daemon.json` 里配:
 

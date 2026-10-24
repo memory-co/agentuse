@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/memory-co/agentuse/harness"
 	"github.com/memory-co/agentuse/internal/protocol"
 )
 
@@ -32,8 +33,9 @@ type HarnessInfo struct {
 func ListHarnesses(cfg Config) []HarnessInfo {
 	found := detectHarnesses(cfg)
 	names := map[string]bool{}
-	for n := range builtins {
-		names[n] = true
+	builtins, _ := harness.All()
+	for _, sp := range builtins {
+		names[sp.Name] = true
 	}
 	for n := range cfg.Harnesses {
 		names[n] = true
