@@ -30,7 +30,7 @@ agentuse register -server https://agentuse.example.com -token st_…
 agentuse daemon
 ```
 
-前台运行：连上服务、上报本机 agent、领任务、执行、汇报;断线自动重连。Ctrl-C / SIGTERM 退出。
+前台运行：连上服务、上报本机 agent、领活、执行、汇报;断线自动重连。Ctrl-C / SIGTERM 退出。
 
 `setup.sh` 装的后台服务(launchd / systemd --user / nohup)跑的就是这条命令。日志打到 stderr。
 
@@ -61,5 +61,5 @@ my-harness  /usr/local/bin/my-harness
 
 ## 不做的
 
-- 不在这里开关 agent、建任务、管用户：这些在网页 / [HTTP API](../apis/README.md) 上做。
+- 不在这里开关 agent、开会话、管用户：这些在网页 / [HTTP API](../apis/README.md) 上做。
 - 卸载先手动：停掉后台服务、删 `~/.agentuse/`。以后可以加 `agentuse uninstall`。

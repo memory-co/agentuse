@@ -30,7 +30,7 @@
 
 - `status`:`pending`(已添加、还没跑安装命令)/ `online` / `offline`。
 - `setup_token`、`setup_command` 只在 `pending` 时出现。命令里的服务地址取服务的 `-public-url`,没配就按请求的 Host(和 `X-Forwarded-Proto` / `X-Forwarded-Host`)推断。
-- `agents`:这台电脑上报过的 agent。`available` 是本机最近一次上报里有没有它，`enabled` 是用户有没有打开。任务只派给 `available && enabled` 的。
+- `agents`:这台电脑上报过的 agent。`available` 是本机最近一次上报里有没有它，`enabled` 是用户有没有打开。只派给 `available && enabled` 的。
 - `last_seen_at` 没连过时为 `null`。
 
 ## GET /api/daemons
@@ -59,8 +59,8 @@
 { "enabled": true }
 ```
 
-只能开关 `agents` 列表里已有的(本机上报过的),否则 404。打开后，这个用户排队中的任务马上会派过来。返回 200 和 daemon 对象。
+只能开关 `agents` 列表里已有的(本机上报过的),否则 404。打开后，这个用户排队中的轮马上会派过来。返回 200 和 daemon 对象。
 
 ## DELETE /api/daemons/{id}
 
-删除 daemon,返回 204。它的连接立即断开、密钥失效，正在跑的任务回到 `pending`。
+删除 daemon,返回 204。它的连接立即断开、密钥失效，绑定在它上面的会话不能再回复，正在跑的那一轮标为 `failed`。
