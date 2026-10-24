@@ -3,10 +3,8 @@ package server
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"log"
 	"net/http"
 	"strings"
@@ -15,9 +13,6 @@ import (
 	"github.com/memory-co/agentuse/internal/protocol"
 	"github.com/memory-co/agentuse/internal/store"
 )
-
-//go:embed web
-var webFS embed.FS
 
 type Config struct {
 	// PublicURL 是用户电脑访问服务的地址，写进安装命令和 setup.sh。空 = 按请求的 Host 推断。
@@ -70,8 +65,7 @@ func (s *Server) Run(ctx context.Context) {
 }
 
 func (s *Server) routes() {
-	static, _ := fs.Sub(webFS, "web")
-	s.mux.Handle("GET /", http.FileServerFS(static))
+	s.mux.HandleFunc("GET /", s.handleWeb)
 	s.mux.HandleFunc("GET /login", s.handleLoginLink)
 	s.mux.HandleFunc("GET /setup.sh", s.handleSetupScript)
 	s.mux.HandleFunc("GET /download/{file}", s.handleDownload)
