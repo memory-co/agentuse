@@ -26,7 +26,7 @@ idle ──用户发消息──▶ pending ──派给 daemon──▶ running
                         └──租约过期 / daemon 掉线─┘
 ```
 
-- 只有 `idle` 时能发下一条消息。
+- 只有 `idle` 时能发下一条消息。TODO:插话(agent 跑的过程中追加消息)以后用 harness 的 hook 来做。
 - agent 失败也回到 `idle`,失败信息记在它回的那条消息里，可以接着发。
 
 ```sql

@@ -61,6 +61,7 @@
 或 `{"input": {…}}`,规则同上。
 
 - 会话不是 `idle`(agent 还没回)返回 409。
+  - TODO:插话(agent 还在跑时追加消息)以后用 harness 的 hook 来做。
 - 会话的 daemon 已被删除返回 400(harness 会话在原来那台电脑上，续不上)。
 - 返回 201 和 message 对象。只派给这个会话的 daemon,它离线就等它上线。
 
