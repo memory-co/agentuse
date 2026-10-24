@@ -54,7 +54,7 @@ daemon 本地不存状态，重启后重新连上服务即可。
 
 ## 接入与消息
 
-一台电脑怎么接进来(页面添加 daemon → 跑 `setup.sh` 注册 → 选择开启哪些 agent)、认证方式、WebSocket 消息格式、派任务规则，见 [connect](connect.md)。
+一台电脑怎么接进来(页面添加 daemon → 跑 `setup.sh` 注册 → 选择开启哪些 agent)、认证方式、WebSocket 消息格式、派任务规则，见 [connect](connect.md);全部接口见 [`docs/v2/apis/`](../apis/README.md)。
 
 ## 网页
 
