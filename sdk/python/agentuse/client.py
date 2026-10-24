@@ -19,26 +19,22 @@ class AgentuseError(Exception):
 
 
 class Client:
-    """agentuse 客户端。
+    """agentuse 客户端，不带状态，可以全局共用一个。
 
     token 是 admin 令牌(服务密钥),只能放在网站后端。
-    user 不为空时每个请求带 X-Agentuse-User,按那个用户的身份调用。
+    除了用户管理，每个方法第一个参数是网站的 user id,请求带 X-Agentuse-User
+    按那个用户的身份执行;传 None 就是 admin 本身。
     """
 
-    def __init__(self, base_url, token, user=None, timeout=30):
+    def __init__(self, base_url, token, timeout=30):
         self.base_url = base_url.rstrip("/")
         self.token = token
-        self.user = user
         self.timeout = timeout
 
-    def as_user(self, user_id):
-        """返回一个代为 user_id 调用的新客户端。"""
-        return Client(self.base_url, self.token, user=user_id, timeout=self.timeout)
-
-    def _request(self, method, path, body=None):
+    def _request(self, method, path, user=None, body=None):
         headers = {"Authorization": f"Bearer {self.token}", "Accept": "application/json"}
-        if self.user:
-            headers[USER_HEADER] = self.user
+        if user:
+            headers[USER_HEADER] = user
         data = None
         if body is not None:
             data = json.dumps(body).encode()
@@ -58,80 +54,80 @@ class Client:
 
     # auth / users
 
-    def me(self):
-        return self._request("GET", "/api/me")
+    def me(self, user):
+        return self._request("GET", "/api/me", user)
 
     def list_users(self):
         return self._request("GET", "/api/users")
 
     def create_user(self, id=None, name=None, role=None):
-        return self._request("POST", "/api/users", _drop_none(id=id, name=name, role=role))
+        return self._request("POST", "/api/users", None, _drop_none(id=id, name=name, role=role))
 
     def reset_user_token(self, user_id):
         return self._request("POST", f"/api/users/{_q(user_id)}/token")
 
     # agents
 
-    def list_agents(self):
-        return self._request("GET", "/api/agents")
+    def list_agents(self, user):
+        return self._request("GET", "/api/agents", user)
 
-    def create_agent(self, name, display_name=None, description=None):
+    def create_agent(self, user, name, display_name=None, description=None):
         return self._request(
-            "POST", "/api/agents", _drop_none(name=name, display_name=display_name, description=description)
+            "POST", "/api/agents", user, _drop_none(name=name, display_name=display_name, description=description)
         )
 
-    def delete_agent(self, name):
-        self._request("DELETE", f"/api/agents/{_q(name)}")
+    def delete_agent(self, user, name):
+        self._request("DELETE", f"/api/agents/{_q(name)}", user)
 
     # daemons
 
-    def list_daemons(self):
-        return self._request("GET", "/api/daemons")
+    def list_daemons(self, user):
+        return self._request("GET", "/api/daemons", user)
 
-    def create_daemon(self, name=None):
+    def create_daemon(self, user, name=None):
         """添加一台 daemon,返回的 setup_command 给用户复制到自己电脑上跑。"""
-        return self._request("POST", "/api/daemons", _drop_none(name=name))
+        return self._request("POST", "/api/daemons", user, _drop_none(name=name))
 
-    def reset_daemon(self, daemon_id):
-        return self._request("POST", f"/api/daemons/{_q(daemon_id)}/reset")
+    def reset_daemon(self, user, daemon_id):
+        return self._request("POST", f"/api/daemons/{_q(daemon_id)}/reset", user)
 
-    def set_daemon_agent(self, daemon_id, agent, enabled):
+    def set_daemon_agent(self, user, daemon_id, agent, enabled):
         return self._request(
-            "PUT", f"/api/daemons/{_q(daemon_id)}/agents/{_q(agent)}", {"enabled": bool(enabled)}
+            "PUT", f"/api/daemons/{_q(daemon_id)}/agents/{_q(agent)}", user, {"enabled": bool(enabled)}
         )
 
-    def delete_daemon(self, daemon_id):
-        self._request("DELETE", f"/api/daemons/{_q(daemon_id)}")
+    def delete_daemon(self, user, daemon_id):
+        self._request("DELETE", f"/api/daemons/{_q(daemon_id)}", user)
 
     # sessions
 
-    def list_sessions(self):
-        return self._request("GET", "/api/sessions")
+    def list_sessions(self, user):
+        return self._request("GET", "/api/sessions", user)
 
-    def create_session(self, agent, prompt=None, input=None, cwd=None):
+    def create_session(self, user, agent, prompt=None, input=None, cwd=None):
         """新建会话并发出第一条消息，返回 {"session": …, "message": …}。"""
         return self._request(
-            "POST", "/api/sessions", _drop_none(agent=agent, prompt=prompt, input=input, cwd=cwd)
+            "POST", "/api/sessions", user, _drop_none(agent=agent, prompt=prompt, input=input, cwd=cwd)
         )
 
-    def send_message(self, session_id, prompt=None, input=None):
+    def send_message(self, user, session_id, prompt=None, input=None):
         """回复。会话不是 idle 时抛 AgentuseError(409)。"""
         return self._request(
-            "POST", f"/api/sessions/{_q(session_id)}/messages", _drop_none(prompt=prompt, input=input)
+            "POST", f"/api/sessions/{_q(session_id)}/messages", user, _drop_none(prompt=prompt, input=input)
         )
 
-    def get_session(self, session_id):
+    def get_session(self, user, session_id):
         """返回 {"session": …, "messages": […], "events": […]}。"""
-        return self._request("GET", f"/api/sessions/{_q(session_id)}")
+        return self._request("GET", f"/api/sessions/{_q(session_id)}", user)
 
-    def delete_session(self, session_id):
-        self._request("DELETE", f"/api/sessions/{_q(session_id)}")
+    def delete_session(self, user, session_id):
+        self._request("DELETE", f"/api/sessions/{_q(session_id)}", user)
 
-    def wait_session(self, session_id, interval=2, timeout=None):
+    def wait_session(self, user, session_id, interval=2, timeout=None):
         """轮询直到会话回到 idle,返回最后一次 get_session 的结果。超时抛 TimeoutError。"""
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
-            detail = self.get_session(session_id)
+            detail = self.get_session(user, session_id)
             if detail["session"]["status"] == "idle":
                 return detail
             if deadline is not None and time.monotonic() >= deadline:

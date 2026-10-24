@@ -10,9 +10,9 @@
 
 三个版本用法一样:
 
-1. 用 agentuse-server 的地址和 **admin 令牌**(服务密钥)建一个客户端。令牌只放在后端，不能下发到浏览器。
-2. 网站认好用户之后，`as_user(网站的 user id)` 得到代为这个用户的客户端，请求会带 `X-Agentuse-User`,用户第一次出现时 agentuse 自动建。
-3. 用它调接口:
+1. 用 agentuse-server 的地址和 **admin 令牌**(服务密钥)建一个客户端。客户端不带状态，全局建一个共用就行。令牌只放在后端，不能下发到浏览器。
+2. 每个方法的第一个参数(Go 里是 `ctx` 之后)直接传**网站的 user id**,请求会带 `X-Agentuse-User` 按这个用户执行，用户第一次出现时 agentuse 自动建。传空(`None` / `null` / `""`)就是 admin 本身。用户管理(`list_users`、`create_user`、`reset_user_token`)只有 admin 能调，不带这个参数。
+3. 网站上的功能对应的方法:
 
 | 网站上的功能 | 方法(Python / Node / Go) |
 |---|---|
