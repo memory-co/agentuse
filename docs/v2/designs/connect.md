@@ -33,26 +33,9 @@ daemon 连上 WebSocket,上报本机 agent ──▶ 页面上出现这台电脑
 
 库里只存哈希(安装令牌除外，见 [daemons](../tables/daemons.md))。
 
-## WebSocket 消息
+## 消息
 
-连接地址 `/api/daemon/ws`,每条消息一个 JSON,用 `type` 区分。
-
-daemon → 服务:
-
-| type | 字段 | 含义 |
-|---|---|---|
-| `hello` | `agents: [{name, version}]`、`running: [task_id]` | 连上后第一条：本机可用 agent;手上还在跑的任务(重连时用，不在列表里的任务被收回) |
-| `ready` | | 空闲，可以接活 |
-| `event` | `task_id`、`kind`(progress/done/failed)、`payload` | 回报进度或结果，写进 [task_events](../tables/task_events.md) |
-| `heartbeat` | `task_id`(可空) | 每 15 秒一次：有任务时续租，没任务时保活 |
-
-服务 → daemon:
-
-| type | 字段 | 含义 |
-|---|---|---|
-| `welcome` | `daemon_id`、`name`、`ignored` | 回应 hello;`ignored` 是服务上没登记、被忽略的 agent |
-| `task` | `task: {id, agent, input}` | 派一个任务 |
-| `error` | `task_id`(可空)、`error` | 带 `task_id` 表示这个任务已经不归你了，停掉它 |
+注册接口和 WebSocket 消息的完整格式见 [apis/daemon](../apis/daemon.md)。
 
 ## 派任务
 

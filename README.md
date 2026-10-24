@@ -2,7 +2,7 @@
 
 > 用户电脑上跑一个 daemon,从 agentuse 服务领任务，在本地调用 CLI agent(Claude Code、Codex 或自己写的 harness)干活，再把进度和结果汇报回去。
 
-设计见 [`docs/v2/designs/main.md`](docs/v2/designs/main.md),接入与通信见 [`connect.md`](docs/v2/designs/connect.md),表结构见 [`docs/v2/tables/`](docs/v2/tables/)。旧版(v1)文档留在 [`docs/v1/`](docs/v1/README.md)。
+设计见 [`docs/v2/designs/main.md`](docs/v2/designs/main.md),接入与通信见 [`connect.md`](docs/v2/designs/connect.md),表结构见 [`docs/v2/tables/`](docs/v2/tables/),接口见 [`docs/v2/apis/`](docs/v2/apis/README.md)。旧版(v1)文档留在 [`docs/v1/`](docs/v1/README.md)。
 
 ## 快速开始
 
@@ -50,7 +50,7 @@ server 的参数也能用环境变量给:`AGENTUSE_ADDR`、`AGENTUSE_DB`、`AGEN
 
 ## API
 
-网页用的就是这些接口，脚本里带 `Authorization: Bearer <登录令牌>` 即可调用:
+网页用的就是这些接口，脚本里带 `Authorization: Bearer <登录令牌>` 即可调用。完整说明见 [`docs/v2/apis/`](docs/v2/apis/README.md)。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
