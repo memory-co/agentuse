@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420" font-family="-apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect width="920" height="420" rx="16" fill="#ffffff"/>
+
+  <!-- 左列：调用方 -->
+  <text x="120" y="38" text-anchor="middle" font-size="14" fill="#64748b">谁来用</text>
+  <g>
+    <rect x="30" y="60" width="180" height="76" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+    <text x="120" y="92" text-anchor="middle" font-size="16" font-weight="600" fill="#0f172a">自带网页</text>
+    <text x="120" y="116" text-anchor="middle" font-size="12.5" fill="#475569">机器 · Agent · 会话</text>
+  </g>
+  <g>
+    <rect x="30" y="160" width="180" height="76" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+    <text x="120" y="192" text-anchor="middle" font-size="16" font-weight="600" fill="#0f172a">你的网站后端</text>
+    <text x="120" y="216" text-anchor="middle" font-size="12.5" fill="#475569">SDK: Python / Node / Go</text>
+  </g>
+  <g>
+    <rect x="30" y="260" width="180" height="76" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+    <text x="120" y="292" text-anchor="middle" font-size="16" font-weight="600" fill="#0f172a">脚本 / CLI</text>
+    <text x="120" y="316" text-anchor="middle" font-size="12.5" fill="#475569">HTTP API + 令牌</text>
+  </g>
+
+  <!-- 中间：服务 -->
+  <text x="420" y="38" text-anchor="middle" font-size="14" fill="#64748b">你部署一份</text>
+  <rect x="320" y="60" width="200" height="276" rx="12" fill="#eef2ff" stroke="#6366f1" stroke-width="2"/>
+  <text x="420" y="96" text-anchor="middle" font-size="18" font-weight="700" fill="#3730a3">agentuse-server</text>
+  <g font-size="13" fill="#312e81">
+    <rect x="345" y="118" width="150" height="34" rx="7" fill="#ffffff" stroke="#c7d2fe"/>
+    <text x="420" y="140" text-anchor="middle">用户 · Agent</text>
+    <rect x="345" y="162" width="150" height="34" rx="7" fill="#ffffff" stroke="#c7d2fe"/>
+    <text x="420" y="184" text-anchor="middle">会话 · 消息 · 排队派活</text>
+    <rect x="345" y="206" width="150" height="34" rx="7" fill="#ffffff" stroke="#c7d2fe"/>
+    <text x="420" y="228" text-anchor="middle">Harness 登记</text>
+    <rect x="345" y="250" width="150" height="34" rx="7" fill="#ffffff" stroke="#c7d2fe"/>
+    <text x="420" y="272" text-anchor="middle">SQLite(一个文件)</text>
+  </g>
+  <text x="420" y="316" text-anchor="middle" font-size="12" fill="#6366f1">单个二进制，内嵌网页</text>
+
+  <!-- 左 → 中 -->
+  <g stroke="#64748b" stroke-width="1.6" fill="none" marker-end="url(#a)">
+    <path d="M212,98 L316,150"/>
+    <path d="M212,198 L316,198"/>
+    <path d="M212,298 L316,246"/>
+  </g>
+  <text x="264" y="186" text-anchor="middle" font-size="12" fill="#64748b">HTTP</text>
+
+  <!-- 右列：用户电脑 -->
+  <text x="770" y="38" text-anchor="middle" font-size="14" fill="#64748b">每个用户自己的电脑</text>
+  <g>
+    <rect x="640" y="60" width="260" height="128" rx="12" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.6"/>
+    <text x="660" y="86" font-size="14" font-weight="600" fill="#14532d">Alice 的 Mac</text>
+    <rect x="660" y="98" width="220" height="30" rx="7" fill="#dcfce7"/>
+    <text x="770" y="118" text-anchor="middle" font-size="13" fill="#14532d">agentuse daemon</text>
+    <g font-size="12.5" fill="#166534">
+      <rect x="660" y="140" width="66" height="30" rx="6" fill="#ffffff" stroke="#86efac"/>
+      <text x="693" y="160" text-anchor="middle">claude</text>
+      <rect x="737" y="140" width="66" height="30" rx="6" fill="#ffffff" stroke="#86efac"/>
+      <text x="770" y="160" text-anchor="middle">codex</text>
+      <rect x="814" y="140" width="66" height="30" rx="6" fill="#ffffff" stroke="#86efac" stroke-dasharray="4 3"/>
+      <text x="847" y="160" text-anchor="middle">自定义</text>
+    </g>
+  </g>
+  <g>
+    <rect x="640" y="208" width="260" height="128" rx="12" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.6"/>
+    <text x="660" y="234" font-size="14" font-weight="600" fill="#14532d">Bob 的 Linux 服务器</text>
+    <rect x="660" y="246" width="220" height="30" rx="7" fill="#dcfce7"/>
+    <text x="770" y="266" text-anchor="middle" font-size="13" fill="#14532d">agentuse daemon</text>
+    <g font-size="12.5" fill="#166534">
+      <rect x="660" y="288" width="66" height="30" rx="6" fill="#ffffff" stroke="#86efac"/>
+      <text x="693" y="308" text-anchor="middle">claude</text>
+      <rect x="737" y="288" width="66" height="30" rx="6" fill="#ffffff" stroke="#86efac"/>
+      <text x="770" y="308" text-anchor="middle">codex</text>
+    </g>
+  </g>
+
+  <!-- 中 ⇄ 右 -->
+  <g stroke="#22c55e" stroke-width="1.8" fill="none" marker-end="url(#a)" marker-start="url(#a)">
+    <path d="M524,150 L636,124"/>
+    <path d="M524,246 L636,272"/>
+  </g>
+  <text x="580" y="190" text-anchor="middle" font-size="12" fill="#15803d">WebSocket</text>
+  <text x="580" y="207" text-anchor="middle" font-size="11.5" fill="#15803d">daemon 主动连出</text>
+
+  <!-- 底部说明 -->
+  <text x="460" y="378" text-anchor="middle" font-size="13.5" fill="#334155">消息只派给 agent 主人自己的 daemon，代码和 harness 的登录状态都留在用户电脑上</text>
+  <text x="460" y="400" text-anchor="middle" font-size="12" fill="#94a3b8">用户电脑在 NAT / 防火墙后面也没关系：服务不需要能访问它</text>
+</svg>
