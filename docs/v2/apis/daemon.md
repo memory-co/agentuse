@@ -44,41 +44,41 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 |---|---|---|
 | `hello` | `agents`、`running`、`version` | 连上后第一条 |
 | `ready` | | 空闲，可以接活 |
-| `heartbeat` | `turn_id`(可空) | 每 15 秒一次 |
-| `event` | `turn_id`、`kind`、`payload` | 回报进度或结果 |
+| `heartbeat` | `message_id`(可空) | 每 15 秒一次 |
+| `event` | `message_id`、`kind`、`payload` | 回报进度或结果 |
 
-**hello**:上报本机可用的 agent 和手上还在跑的轮。服务据此更新 daemon_agents 的 `available`,并把挂在这台 daemon 名下、但不在 `running` 里的轮收回重排。
+**hello**:上报本机可用的 agent 和手上还在跑的消息(`message_id`)。服务据此更新 daemon_agents 的 `available`,并把挂在这台 daemon 名下、但不在 `running` 里的会话收回重排。
 
 ```json
 {
   "type": "hello",
   "version": "v0.2.0",
   "agents": [{ "name": "claude", "version": "2.1.310 (Claude Code)" }, { "name": "my-harness" }],
-  "running": ["tn_…"]
+  "running": [3]
 }
 ```
 
-**ready**:`{"type": "ready"}`。服务收到后给它领一轮;没有就记住它空闲，等有活时再推。
+**ready**:`{"type": "ready"}`。服务收到后给它领一个会话;没有就记住它空闲，等有活时再推。
 
-**heartbeat**:`{"type": "heartbeat", "turn_id": "tn_…"}`。带 `turn_id` 时给这一轮续租(租约 60 秒);空闲时不带，只更新 `last_seen_at`。
+**heartbeat**:`{"type": "heartbeat", "message_id": 3}`。带 `message_id` 时给它所在的会话续租(租约 60 秒);空闲时不带，只更新 `last_seen_at`。
 
 **event**:
 
 ```json
-{ "type": "event", "turn_id": "tn_…", "kind": "progress", "payload": { "text": "🔧 Bash {\"command\":\"ls\"}" } }
-{ "type": "event", "turn_id": "tn_…", "kind": "done", "payload": { "ok": true, "output": "…", "session_id": "9f1c…" } }
-{ "type": "event", "turn_id": "tn_…", "kind": "failed", "payload": { "ok": false, "error": "…" } }
+{ "type": "event", "message_id": 3, "kind": "progress", "payload": { "text": "🔧 Bash {\"command\":\"ls\"}" } }
+{ "type": "event", "message_id": 3, "kind": "done", "payload": { "ok": true, "output": "…", "session_id": "9f1c…" } }
+{ "type": "event", "message_id": 3, "kind": "failed", "payload": { "ok": false, "error": "…" } }
 ```
 
-每条都写进 turn_events 并续租;`done` / `failed` 同时结束这一轮。`payload.session_id` 是 harness 自己的会话 id,服务存进 sessions.harness_session_id,下一轮派活时带回来。daemon 发完结果再发一次 `ready`。
+每条都写进 session_events 并续租;`done` / `failed` 时 payload 记成一条 `assistant` 消息，会话回到 `idle`。`payload.session_id` 是 harness 自己的会话 id,服务存进 sessions.harness_session_id,下次派活时带回来。daemon 发完结果再发一次 `ready`。
 
 ### 服务 → daemon
 
 | type | 字段 | 说明 |
 |---|---|---|
 | `welcome` | `daemon_id`、`name`、`ignored` | 回应 hello |
-| `turn` | `turn` | 派一轮 |
-| `error` | `turn_id`(可空)、`error` | 出错 |
+| `message` | `message` | 派一条用户消息 |
+| `error` | `message_id`(可空)、`error` | 出错 |
 
 **welcome**:`ignored` 是 hello 里报了、但服务上没登记的 agent 名字(被忽略)。
 
@@ -86,15 +86,14 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 { "type": "welcome", "daemon_id": "dm_…", "name": "my-laptop", "ignored": ["ghost"] }
 ```
 
-**turn**:
+**message**:
 
 ```json
 {
-  "type": "turn",
-  "turn": {
-    "id": "tn_…",
+  "type": "message",
+  "message": {
+    "id": 3,
     "session_id": "ss_…",
-    "seq": 2,
     "agent": "claude",
     "cwd": "~/code/x",
     "resume": "9f1c…",
@@ -103,12 +102,12 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 }
 ```
 
-`resume` 是会话的 harness_session_id,第一轮或还没有时不出现;`cwd` 没设时不出现。
+`input` 是这条消息的 content。`resume` 是会话的 harness_session_id,第一条或还没有时不出现;`cwd` 没设时不出现。
 
-**error**:带 `turn_id` 表示这一轮已经不归你了(租约过期被收回、或已经结束),daemon 应该停掉它、不再回报。不带 `turn_id` 是普通错误，比如未知消息类型。
+**error**:带 `message_id` 表示这条消息已经不归你了(租约过期被收回、或已经结束),daemon 应该停掉它、不再回报。不带 `message_id` 是普通错误，比如未知消息类型。
 
 ```json
-{ "type": "error", "turn_id": "tn_…", "error": "store: turn is not running on this daemon" }
+{ "type": "error", "message_id": 3, "error": "store: message is not running on this daemon" }
 ```
 
 ## 本机配置

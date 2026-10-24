@@ -5,7 +5,7 @@
 - **available**:daemon 每次连上服务时上报本机检测到的 agent。上报里有的标 `1`(没有就新建一行),没上报的标 `0`。行不删，这样用户的开关不会因为重连丢掉。
 - **enabled**:用户在页面上为这台 daemon 打开的 agent。新检测到的默认关闭，要用户自己选。
 
-派活时，服务只把 [sessions](sessions.md) 的 `agent` 在这里 `available = 1 AND enabled = 1` 的轮派给这台 daemon。
+派活时，服务只把 [sessions](sessions.md) 的 `agent` 在这里 `available = 1 AND enabled = 1` 的会话派给这台 daemon。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
