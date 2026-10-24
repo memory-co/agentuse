@@ -35,7 +35,7 @@
 
 ## GET /api/agents/{id}
 
-返回 agent 对象。
+返回 agent 对象。任何登录用户都能查任何人的 agent,用来解析 @id。
 
 ## PATCH /api/agents/{id}
 
@@ -45,8 +45,8 @@
 { "harness": "codex" }
 ```
 
-规则同新建。返回 agent 对象。换 harness 只影响之后新建的会话，已有会话还用原来的 harness。
+只有主人(或 admin)能改，否则 404。规则同新建。返回 agent 对象。换 harness 只影响之后新建的会话，已有会话还用原来的 harness。
 
 ## DELETE /api/agents/{id}
 
-删除 agent,返回 204。用过它的会话保留,`agent_id` 变空。
+删除 agent,返回 204。只有主人(或 admin)能删。用过它的会话保留,`agent_id` 变空。

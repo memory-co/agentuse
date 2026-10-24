@@ -52,6 +52,7 @@ export interface Daemon {
 export interface Session {
   id: string;
   user_id: string;
+  created_by: string;
   agent_id?: string;
   harness: string;
   daemon_id?: string;

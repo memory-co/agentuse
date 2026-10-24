@@ -84,9 +84,6 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("create agent: %d", code)
 	}
 	cb.do("POST", "/api/agents", map[string]string{"name": "回声", "harness": "echo-harness"}, &bobAgent)
-	if code := cb.do("POST", "/api/sessions", map[string]string{"agent_id": aliceAgent.ID, "prompt": "x"}, nil); code != http.StatusBadRequest {
-		t.Fatalf("bob uses alice's agent: %d", code)
-	}
 
 	// 页面上添加 daemon,拿到安装命令
 	var dv struct {
@@ -228,6 +225,22 @@ func TestEndToEnd(t *testing.T) {
 	}
 	if code := cb.do("GET", "/api/sessions/"+ss.ID, nil, nil); code != http.StatusNotFound {
 		t.Fatalf("bob should not see alice session: %d", code)
+	}
+
+	// bob @ alice 的 agent:跑在 alice 的 daemon 上,bob 看得到结果
+	var at struct {
+		Session store.Session `json:"session"`
+	}
+	if code := cb.do("POST", "/api/sessions", map[string]string{"agent_id": aliceAgent.ID, "prompt": "from bob"}, &at); code != http.StatusCreated ||
+		at.Session.UserID != aliceAgent.UserID || at.Session.CreatedBy == aliceAgent.UserID {
+		t.Fatalf("bob @ alice's agent: %d %+v", code, at.Session)
+	}
+	waitFor(t, func() bool {
+		cb.do("GET", "/api/sessions/"+at.Session.ID, nil, &detail)
+		return detail.Session.Status == store.SessionIdle
+	})
+	if json.Unmarshal(detail.Messages[1].Content, &res); !res.OK || detail.Session.DaemonID != dv.ID || !strings.Contains(res.Output, "from bob") {
+		t.Fatalf("bob's session on alice's daemon: %+v %s", detail.Session, detail.Messages[1].Content)
 	}
 
 	// daemon 用密钥自检

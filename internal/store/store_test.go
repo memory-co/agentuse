@@ -159,12 +159,30 @@ func TestAgents(t *testing.T) {
 	if b, err := s.CreateAgent(ctx, bob.ID, "", "写代码", "codex", ""); err != nil || !strings.HasPrefix(b.ID, "ag_") {
 		t.Fatalf("same name for another user / generated id: %v %+v", err, b)
 	}
-	// bob 看不到、用不了 alice 的 agent
-	if _, err := s.GetAgent(ctx, bob, ag.ID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("bob get: %v", err)
+	// bob 能 @ alice 的 agent:会话属于 alice(跑在她的 daemon 上),created_by 是 bob,两人都看得到
+	if got, err := s.GetAgent(ctx, ag.ID); err != nil || got.UserID != alice.ID {
+		t.Fatalf("bob get: %v %+v", err, got)
 	}
-	if _, _, err := s.CreateSession(ctx, bob, ag.ID, "", "", json.RawMessage(`{}`)); err == nil {
-		t.Fatal("bob should not use alice's agent")
+	at, _, err := s.CreateSession(ctx, bob, ag.ID, "", "", json.RawMessage(`{}`))
+	if err != nil || at.UserID != alice.ID || at.CreatedBy != bob.ID {
+		t.Fatalf("bob @ alice's agent: %v %+v", err, at)
+	}
+	carol, _, _ := s.CreateUser(ctx, "", "carol", RoleUser)
+	for _, u := range []User{alice, bob} {
+		if _, err := s.GetSession(ctx, u, at.ID); err != nil {
+			t.Fatalf("%s get session: %v", u.Name, err)
+		}
+	}
+	if _, err := s.GetSession(ctx, carol, at.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("carol get session: %v", err)
+	}
+	if list, _ := s.ListSessions(ctx, bob, 10); len(list) != 1 || list[0].ID != at.ID {
+		t.Fatalf("bob list: %+v", list)
+	}
+	// 但只有主人能改、删 agent
+	bobName := "bob 的"
+	if _, err := s.UpdateAgent(ctx, bob, ag.ID, AgentPatch{Name: &bobName}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("bob update: %v", err)
 	}
 
 	// 换 harness:老会话不变，新会话用新的

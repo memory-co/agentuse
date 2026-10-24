@@ -25,6 +25,7 @@ const (
 type Session struct {
 	ID               string `json:"id"`
 	UserID           string `json:"user_id"`
+	CreatedBy        string `json:"created_by"`
 	AgentID          string `json:"agent_id,omitempty"`
 	Harness          string `json:"harness"`
 	DaemonID         string `json:"daemon_id,omitempty"`
@@ -71,7 +72,8 @@ var (
 )
 
 // CreateSession 用一个 agent 建会话并写入第一条用户消息，会话为 pending。
-// 会话属于 agent 的主人,harness 取 agent 此刻映射的 harness,之后不再跟着 agent 变。
+// 任何用户都能用任何人的 agent(@ 对方的 agent):会话属于 agent 的主人、跑在主人的 daemon 上,
+// created_by 记发起人;harness 取 agent 此刻映射的 harness,之后不再跟着 agent 变。
 func (s *Store) CreateSession(ctx context.Context, u User, agentID, cwd, title string, content json.RawMessage) (Session, Message, error) {
 	if !json.Valid(content) {
 		return Session{}, Message{}, errors.New("input 必须是 JSON")
@@ -81,13 +83,7 @@ func (s *Store) CreateSession(ctx context.Context, u User, agentID, cwd, title s
 		return Session{}, Message{}, err
 	}
 	defer tx.Rollback()
-	q := agentCols + ` WHERE id = ?`
-	args := []any{agentID}
-	if !u.IsAdmin() {
-		q += ` AND user_id = ?`
-		args = append(args, u.ID)
-	}
-	a, err := scanAgent(tx.QueryRowContext(ctx, q, args...))
+	a, err := scanAgent(tx.QueryRowContext(ctx, agentCols+` WHERE id = ?`, agentID))
 	if errors.Is(err, ErrNotFound) {
 		return Session{}, Message{}, fmt.Errorf("agent %q 不存在", agentID)
 	}
@@ -95,10 +91,10 @@ func (s *Store) CreateSession(ctx context.Context, u User, agentID, cwd, title s
 		return Session{}, Message{}, err
 	}
 	now := s.unix()
-	ss := Session{ID: randomID("ss_"), UserID: a.UserID, AgentID: a.ID, Harness: a.Harness, Cwd: cwd, Title: title, Status: SessionPending, CreatedAt: now, UpdatedAt: now}
+	ss := Session{ID: randomID("ss_"), UserID: a.UserID, CreatedBy: u.ID, AgentID: a.ID, Harness: a.Harness, Cwd: cwd, Title: title, Status: SessionPending, CreatedAt: now, UpdatedAt: now}
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO sessions (id, user_id, agent_id, harness, cwd, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		ss.ID, ss.UserID, ss.AgentID, ss.Harness, nullIfEmpty(cwd), title, ss.Status, now, now)
+		`INSERT INTO sessions (id, user_id, created_by, agent_id, harness, cwd, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		ss.ID, ss.UserID, ss.CreatedBy, ss.AgentID, ss.Harness, nullIfEmpty(cwd), title, ss.Status, now, now)
 	if err != nil {
 		return Session{}, Message{}, err
 	}
@@ -342,13 +338,13 @@ func (s *Store) failDaemonSessions(ctx context.Context, tx *sql.Tx, daemonID str
 	return nil
 }
 
-const sessionCols = `SELECT id, user_id, agent_id, harness, daemon_id, cwd, harness_session_id, title, status, lease_until, created_at, updated_at FROM sessions`
+const sessionCols = `SELECT id, user_id, created_by, agent_id, harness, daemon_id, cwd, harness_session_id, title, status, lease_until, created_at, updated_at FROM sessions`
 
 func (s *Store) scanSession(row scanner) (Session, error) {
 	var ss Session
 	var agent, daemon, cwd, harness sql.NullString
 	var lease sql.NullInt64
-	err := row.Scan(&ss.ID, &ss.UserID, &agent, &ss.Harness, &daemon, &cwd, &harness, &ss.Title, &ss.Status, &lease, &ss.CreatedAt, &ss.UpdatedAt)
+	err := row.Scan(&ss.ID, &ss.UserID, &ss.CreatedBy, &agent, &ss.Harness, &daemon, &cwd, &harness, &ss.Title, &ss.Status, &lease, &ss.CreatedAt, &ss.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, ErrNotFound
 	}
@@ -381,8 +377,8 @@ func (s *Store) getSession(ctx context.Context, q querier, u User, id string) (S
 	query := sessionCols + ` WHERE id = ?`
 	args := []any{id}
 	if !u.IsAdmin() {
-		query += ` AND user_id = ?`
-		args = append(args, u.ID)
+		query += ` AND (user_id = ? OR created_by = ?)`
+		args = append(args, u.ID, u.ID)
 	}
 	return s.scanSession(q.QueryRowContext(ctx, query, args...))
 }
@@ -391,13 +387,13 @@ func (s *Store) GetSession(ctx context.Context, u User, id string) (Session, err
 	return s.getSession(ctx, s.db, u, id)
 }
 
-// ListSessions 列最近的会话;admin 看所有人的。
+// ListSessions 列最近的会话：自己的 agent 上的、和自己发起的;admin 看所有人的。
 func (s *Store) ListSessions(ctx context.Context, u User, limit int) ([]Session, error) {
 	q := sessionCols
 	var args []any
 	if !u.IsAdmin() {
-		q += ` WHERE user_id = ?`
-		args = append(args, u.ID)
+		q += ` WHERE user_id = ? OR created_by = ?`
+		args = append(args, u.ID, u.ID)
 	}
 	q += ` ORDER BY updated_at DESC, id DESC LIMIT ?`
 	args = append(args, limit)

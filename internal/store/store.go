@@ -75,6 +75,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS agents_user_name ON agents(user_id, name);
 CREATE TABLE IF NOT EXISTS sessions (
   id                 TEXT PRIMARY KEY,
   user_id            TEXT NOT NULL REFERENCES users(id),
+  created_by         TEXT NOT NULL REFERENCES users(id),
   agent_id           TEXT REFERENCES agents(id) ON DELETE SET NULL,
   harness            TEXT NOT NULL REFERENCES harnesses(name),
   daemon_id          TEXT REFERENCES daemons(id) ON DELETE SET NULL,
@@ -88,6 +89,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS sessions_status ON sessions(status, updated_at);
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id, updated_at);
+CREATE INDEX IF NOT EXISTS sessions_created_by ON sessions(created_by, updated_at);
 
 CREATE TABLE IF NOT EXISTS messages (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,

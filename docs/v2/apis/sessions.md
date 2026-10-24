@@ -8,6 +8,7 @@
 {
   "id": "ss_b83a324345de1f46",
   "user_id": "u_10086",
+  "created_by": "u_10010",
   "agent_id": "code-helper",
   "harness": "claude",
   "daemon_id": "dm_5c1c8602536e55cb",
@@ -21,6 +22,7 @@
 ```
 
 - `status`:`idle` / `pending` / `running`。
+- `user_id` 是 agent 的主人，会话跑在他的 daemon 上;`created_by` 是发起人，用自己的 agent 时两者相同。
 - `harness` 是建会话时 agent 映射的 harness,之后 agent 换 harness 它也不变。
 - `agent_id`、`daemon_id`、`cwd`、`harness_session_id`、`lease_until` 没有值时不出现(agent 删除后 `agent_id` 就没了)。
 
@@ -33,7 +35,7 @@
 
 ## GET /api/sessions
 
-最近 100 个会话，按 `updated_at` 新的在前。普通用户只看自己的,admin 看全部。
+最近 100 个会话，按 `updated_at` 新的在前。普通用户看自己 agent 上的和自己发起的,admin 看全部。下面的接口也一样：主人和发起人都能看、回复、删除。
 
 ## POST /api/sessions
 
@@ -47,7 +49,7 @@
 { "agent_id": "my-bot", "input": { "任意": "JSON" } }
 ```
 
-- `agent_id` 必填，必须是自己的 agent(admin 可以用任何人的),否则 400。会话属于 agent 的主人,harness 取 agent 此刻的 harness。
+- `agent_id` 必填，可以是任何人的 agent(@ 对方的 agent),不存在返回 400。会话属于 agent 的主人、跑在主人的 daemon 上,`created_by` 是调用者;harness 取 agent 此刻的 harness。
 - `cwd` 可省略，定下后整个会话都在这里跑。
 - 给 `prompt` 时消息内容是 `{"prompt": …}`;给 `input` 时原样交给 harness,忽略 `prompt`。
 - 返回 201 和 `{"session": …, "message": …}`,会话为 `pending`。只派给 agent 主人自己的、开启了这个 harness 的在线 daemon;没有就一直排队。

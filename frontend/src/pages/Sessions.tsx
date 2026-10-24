@@ -4,7 +4,6 @@ import { Send, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { Confirm, ErrorState, Loading, StatusBadge } from '@/components/Shared';
@@ -22,7 +21,7 @@ const evText = (p: any) => (p && typeof p === 'object' && Object.keys(p).length 
 export function Sessions(_: { me: User }) {
   const sessions = useQuery({ queryKey: ['sessions'], queryFn: () => api<Session[]>('/api/sessions'), refetchInterval: 3000 });
   const agents = useAgents();
-  const agentName = (id?: string) => (id && agents.data?.find(a => a.id === id)?.name) || '(已删除)';
+  const agentName = (id?: string) => (id ? agents.data?.find(a => a.id === id)?.name || '@' + id : '(已删除)');
   const [open, setOpen] = useState<string | null>(null);
   return <div className="grid gap-4">
     <NewSession onCreated={setOpen} />
@@ -54,7 +53,7 @@ function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
   const [prompt, setPrompt] = useState('');
   useEffect(() => { if (!agent && agents.data?.length) setAgent(agents.data[0].id); }, [agent, agents.data]);
   const add = useMutation({
-    mutationFn: () => api<{ session: Session }>('/api/sessions', { method: 'POST', body: { agent_id: agent, prompt, cwd: cwd.trim() } }),
+    mutationFn: () => api<{ session: Session }>('/api/sessions', { method: 'POST', body: { agent_id: agent.trim(), prompt, cwd: cwd.trim() } }),
     onSuccess: r => { setPrompt(''); onCreated(r.session.id); void refresh(); },
   });
   return <Card>
@@ -62,16 +61,14 @@ function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
     <CardContent>
       <form className="grid gap-3" onSubmit={e => { e.preventDefault(); add.mutate(); }}>
         <div className="flex flex-wrap gap-2">
-          <Select value={agent} onValueChange={setAgent}>
-            <SelectTrigger className="w-56"><SelectValue placeholder={agents.data?.length === 0 ? '先去 Agent 页建一个' : '选择 agent'} /></SelectTrigger>
-            <SelectContent>{agents.data?.map(a => <SelectItem key={a.id} value={a.id}>{a.name} ({a.harness})</SelectItem>)}</SelectContent>
-          </Select>
+          <Input className="w-56 font-mono" list="my-agents" placeholder="agent id,别人的也行" value={agent} onChange={e => setAgent(e.target.value.replace(/^@/, ''))} />
+          <datalist id="my-agents">{agents.data?.map(a => <option key={a.id} value={a.id}>{a.name} ({a.harness})</option>)}</datalist>
           <Input className="min-w-64 flex-1" placeholder="工作目录(可选，daemon 本机路径，整个会话都在这里跑)" value={cwd} onChange={e => setCwd(e.target.value)} />
         </div>
         <Textarea placeholder="要 agent 做什么" value={prompt} onChange={e => setPrompt(e.target.value)} />
         <div className="flex flex-wrap items-center gap-3">
-          <Button type="submit" disabled={!agent || !prompt.trim() || add.isPending}><Send />发送</Button>
-          <span className="text-xs text-muted-foreground">会话用 agent 此刻的 harness,只派给你自己的、开启了这个 harness 的在线 daemon;之后一直在同一台上续接，换 agent 的 harness 不影响它。</span>
+          <Button type="submit" disabled={!agent.trim() || !prompt.trim() || add.isPending}><Send />发送</Button>
+          <span className="text-xs text-muted-foreground">可以填别人的 agent id(@ 对方的 agent)。会话跑在 agent 主人的 daemon 上，用 agent 此刻的 harness;之后一直在同一台上续接，换 agent 的 harness 不影响它。</span>
         </div>
       </form>
     </CardContent>
@@ -89,7 +86,7 @@ function SessionDetail({ id, onClose }: { id: string; onClose: () => void }) {
   if (q.isPending) return <Card><CardContent className="pt-6"><Loading /></CardContent></Card>;
   if (q.isError) return <Card><CardContent className="pt-6"><ErrorState error={q.error} /></CardContent></Card>;
   const { session: x, messages, events } = q.data;
-  const meta = [x.id, x.agent_id && `agent ${x.agent_id}`, `harness ${x.harness}`, x.daemon_id && `daemon ${x.daemon_id}`, x.cwd, x.harness_session_id && `harness 会话 ${x.harness_session_id}`].filter(Boolean).join(' · ');
+  const meta = [x.id, x.agent_id && `agent @${x.agent_id}`, x.created_by !== x.user_id && `${x.created_by} 发起，跑在 ${x.user_id} 的机器上`, `harness ${x.harness}`, x.daemon_id && `daemon ${x.daemon_id}`, x.cwd, x.harness_session_id && `harness 会话 ${x.harness_session_id}`].filter(Boolean).join(' · ');
   const last = events.filter(e => e.kind === 'progress').pop();
   return <Card>
     <CardHeader className="flex-row items-start justify-between gap-2 space-y-0">

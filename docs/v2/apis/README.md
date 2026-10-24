@@ -18,7 +18,7 @@ agentuse 服务对外的全部接口。一组接口一个文件:
 - 请求和响应都是 JSON(`Content-Type: application/json`),时间都是 unix 秒。
 - **认证**:`/api/*` 里除了 `/api/login`、`/api/logout` 和 `/api/daemon/*`，都要带用户登录令牌(`ut_` 开头):网页用 cookie `agentuse_token`,脚本用 `Authorization: Bearer ut_…`。见 [auth](auth.md)。
 - **代为用户**:admin 令牌可以再带 `X-Agentuse-User: <用户 id>`,按那个用户的身份调用，用户不存在就先建;普通用户令牌带这个头返回 403。嵌入网站时网站后端就这么用，见 [designs/embedding](../designs/embedding.md)。
-- **权限**:普通用户只能看和改自己的 daemon、agent、会话、自定义 harness;admin 能看和改所有人的。看不到的东西一律返回 404。
+- **权限**:普通用户只能看和改自己的 daemon、agent、会话、自定义 harness(例外：任何人的 agent 都能查、能用来开会话，见 [agents](agents.md));admin 能看和改所有人的。看不到的东西一律返回 404。
 - **错误**:非 2xx 时响应体是 `{"error": "说明"}`。
 
 | 状态码 | 含义 |

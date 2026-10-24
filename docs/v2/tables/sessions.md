@@ -2,7 +2,7 @@
 
 会话，对齐各 harness 自己的 session(如 Claude Code 的 session、Codex 的 thread)。一个会话是一段多轮对话：用户发一条消息,harness 回一条，可以一直往下回复。消息记在 [messages](messages.md)。
 
-会话用一个 [agent](agents.md) 开。建的时候把 agent 当时映射的 harness 记进 `harness`,之后不再跟着 agent 变：之后 agent 换了 harness,这个会话也还用原来的(续接只能用原来那个 harness 的会话)。
+会话用一个 [agent](agents.md) 开，可以是自己的，也可以是别人的(@ 对方的 agent)。会话属于 agent 的主人、跑在主人的 daemon 上,`created_by` 记是谁发起的;主人和发起人都能看、能接着回复、能删。建的时候把 agent 当时映射的 harness 记进 `harness`,之后不再跟着 agent 变：之后 agent 换了 harness,这个会话也还用原来的(续接只能用原来那个 harness 的会话)。
 
 派给 daemon 的单位是会话：用户发了消息，会话变成 `pending`,daemon 领走后 `running`,harness 回完回到 `idle`。
 
@@ -10,6 +10,7 @@
 |---|---|---|
 | `id` | TEXT PK | 会话 id,如 `ss_xxx` |
 | `user_id` | TEXT | 会话属于哪个 [用户](users.md),就是 agent 的主人;只派给这个用户自己的 daemon |
+| `created_by` | TEXT | 发起人 [用户](users.md);用自己的 agent 时和 `user_id` 相同 |
 | `agent_id` | TEXT | 用哪个 [agent](agents.md) 开的;agent 删除后变空 |
 | `harness` | TEXT | 实际用哪个 CLI harness,建会话时取 agent 当时的 harness,之后不变;派活按它匹配 |
 | `daemon_id` | TEXT | 跑这个会话的 daemon。第一次被领走时写入，之后只派给它(harness 的会话存在那台电脑上) |
@@ -36,6 +37,7 @@ idle ──用户发消息──▶ pending ──派给 daemon──▶ running
 CREATE TABLE sessions (
   id                 TEXT PRIMARY KEY,
   user_id            TEXT NOT NULL REFERENCES users(id),
+  created_by         TEXT NOT NULL REFERENCES users(id),
   agent_id           TEXT REFERENCES agents(id) ON DELETE SET NULL,
   harness            TEXT NOT NULL REFERENCES harnesses(name),
   daemon_id          TEXT REFERENCES daemons(id) ON DELETE SET NULL,
@@ -49,6 +51,7 @@ CREATE TABLE sessions (
 );
 CREATE INDEX sessions_status ON sessions(status, updated_at);
 CREATE INDEX sessions_user ON sessions(user_id, updated_at);
+CREATE INDEX sessions_created_by ON sessions(created_by, updated_at);
 ```
 
 daemon 被删后 `daemon_id` 变空，会话只能看、不能再发消息(harness 的会话在原来那台电脑上，换电脑续不上)。
