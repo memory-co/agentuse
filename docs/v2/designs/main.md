@@ -57,6 +57,10 @@ daemon 本地不存状态，重启后重新连上服务即可(harness 自己的�
 
 一台电脑怎么接进来(页面添加 daemon → 跑 `setup.sh` 注册 → 选择开启哪些 agent)、认证方式、WebSocket 消息格式、派活规则，见 [connect](connect.md);全部接口见 [`docs/v2/apis/`](../apis/README.md)。
 
+## 嵌入到网站
+
+agentuse 也能像 Redis 一样当中间件嵌进别的网站：网站后端带着服务密钥和自己的 user id 调用它，网站用户不直接接触 agentuse。见 [embedding](embedding.md)。
+
 ## 网页
 
 服务自带一个简单的网页：
