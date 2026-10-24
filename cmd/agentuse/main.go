@@ -1,4 +1,4 @@
-// Command agentuse 是 hub、daemon 和 agent 侧命令的单一二进制。
+// Command agentuse 是服务端(server)和 daemon 共用的单一二进制。
 package main
 
 import (

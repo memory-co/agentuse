@@ -9,9 +9,9 @@
 | `daemon_id` | TEXT | 领到它的 daemon,未派出时为空 |
 | `agent` | TEXT | 用哪个 CLI agent 执行，取 [agents](agents.md).name,如 `claude`、`codex`;必填,只派给在 [daemon_agents](daemon_agents.md) 里声明过它的 daemon |
 | `status` | TEXT | 见下方状态 |
-| `input` | TEXT | 任务内容(JSON),交给 agent 的东西 |
+| `input` | TEXT | 任务内容(JSON),交给 agent 的东西。内置 agent 读 `{"prompt": "...", "cwd": "可选，daemon 本机目录"}`;自定义 harness 拿到原文 |
 | `result` | TEXT | 最终结果(JSON),完成或失败时写入 |
-| `lease_until` | INTEGER | 租约到期时间(unix 秒);daemon 没在此前汇报，任务回到 `pending` |
+| `lease_until` | INTEGER | 租约到期时间(unix 秒),派出时为 60 秒后，daemon 每 15 秒心跳续租;过期没续，任务回到 `pending` |
 | `created_at` | INTEGER | 创建时间 |
 | `updated_at` | INTEGER | 最近一次状态变化时间 |
 | `finished_at` | INTEGER | 结束时间(unix 秒),进入 `done` / `failed` 时写入，未结束为空 |
@@ -29,7 +29,7 @@ pending ──派给 daemon──▶ running ──汇报成功──▶ done
 CREATE TABLE tasks (
   id          TEXT PRIMARY KEY,
   user_id     TEXT NOT NULL REFERENCES users(id),
-  daemon_id   TEXT REFERENCES daemons(id),
+  daemon_id   TEXT REFERENCES daemons(id) ON DELETE SET NULL,
   agent       TEXT NOT NULL REFERENCES agents(name),
   status      TEXT NOT NULL DEFAULT 'pending',
   input       TEXT NOT NULL,

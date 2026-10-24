@@ -1,68 +1,164 @@
-// Package store 是 hub 的会话表与运行队列。接口在这里,介质可换:
-// Memory(进程内,开发和测试用)和 SQLite(默认,持久化)。两者跑同一套行为测试(storetest)。
+// Package store 是 agentuse 服务的 SQLite 存储，表结构见 docs/v2/tables/。
 package store
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"time"
 
-	"github.com/memory-co/agentuse/internal/models"
+	_ "modernc.org/sqlite" // 纯 Go 的 SQLite 驱动，不需要 cgo
 )
 
-var (
-	ErrNotFound = errors.New("store: not found")
-	// ErrConflict 表示运行不在调用方以为的状态:不是 claimed,不是这个 daemon 领的,或已被回收重领。
-	ErrConflict = errors.New("store: run state conflict")
-)
+// ErrNotFound 表示要找的行不存在(或不属于当前用户)。
+var ErrNotFound = errors.New("store: not found")
 
-// RunFilter 过滤 ListRuns;零值字段不过滤。
-type RunFilter struct {
-	Platform  string
-	SessionID string
-	Status    models.RunStatus
-	Limit     int // 0 = 默认 100
+const schema = `
+CREATE TABLE IF NOT EXISTS users (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL UNIQUE,
+  role       TEXT NOT NULL DEFAULT 'user',
+  token_hash TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS users_token ON users(token_hash);
+
+CREATE TABLE IF NOT EXISTS agents (
+  name         TEXT PRIMARY KEY,
+  kind         TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  description  TEXT,
+  owner_id     TEXT REFERENCES users(id),
+  created_at   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS daemons (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users(id),
+  name         TEXT NOT NULL,
+  key_hash     TEXT,
+  setup_token  TEXT,
+  status       TEXT NOT NULL DEFAULT 'pending',
+  last_seen_at INTEGER,
+  created_at   INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS daemons_key ON daemons(key_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS daemons_setup_token ON daemons(setup_token);
+
+CREATE TABLE IF NOT EXISTS daemon_agents (
+  daemon_id  TEXT NOT NULL REFERENCES daemons(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users(id),
+  agent      TEXT NOT NULL REFERENCES agents(name) ON DELETE CASCADE,
+  version    TEXT,
+  available  INTEGER NOT NULL DEFAULT 1,
+  enabled    INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (daemon_id, agent)
+);
+CREATE INDEX IF NOT EXISTS daemon_agents_user_agent ON daemon_agents(user_id, agent);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id),
+  daemon_id   TEXT REFERENCES daemons(id) ON DELETE SET NULL,
+  agent       TEXT NOT NULL REFERENCES agents(name),
+  status      TEXT NOT NULL DEFAULT 'pending',
+  input       TEXT NOT NULL,
+  result      TEXT,
+  lease_until INTEGER,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  finished_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status, created_at);
+
+CREATE TABLE IF NOT EXISTS task_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  daemon_id  TEXT NOT NULL,
+  kind       TEXT NOT NULL,
+  payload    TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS task_events_task ON task_events(task_id, id);
+`
+
+// Store 包一个 SQLite 连接。单连接 + BEGIN IMMEDIATE,所有写串行，领任务的「挑一条再改」是原子的。
+type Store struct {
+	db  *sql.DB
+	now func() time.Time
 }
 
-// Claim 是 ClaimRun 的参数。
-type Claim struct {
-	DaemonID   string
-	Now        time.Time
-	LeaseUntil time.Time
-}
-
-// Store 是 hub 唯一的状态。它不存评论:评论留在平台。
-type Store interface {
-	// SessionByThread 找线程键对应的会话;没有返回 ErrNotFound。
-	SessionByThread(ctx context.Context, platform, thread string) (models.Session, error)
-	PutSession(ctx context.Context, s models.Session) error
-	GetSession(ctx context.Context, id string) (models.Session, error)
-	// ListSessions 按最近更新倒序;platform 为空 = 全部。
-	ListSessions(ctx context.Context, platform string, limit int) ([]models.Session, error)
-
-	// CreateRun 入队一条新运行(status 必须是 queued)。
-	CreateRun(ctx context.Context, r models.Run) error
-	GetRun(ctx context.Context, id string) (models.Run, error)
-	// ListRuns 按创建时间倒序。
-	ListRuns(ctx context.Context, f RunFilter) ([]models.Run, error)
-
-	// ClaimRun 原子地领取最早排队、且所属会话没有进行中运行的那一条:
-	// 标为 claimed、attempts+1、设租约。没有可领的返回 ErrNotFound。
-	// 「所属会话没有进行中运行」保证同一线程的运行严格串行,哪怕有多个 daemon。
-	ClaimRun(ctx context.Context, c Claim) (models.Run, error)
-	// ExtendLease 续租;运行必须仍是这个 daemon 这一次领取的 claimed 运行,否则 ErrConflict。
-	ExtendLease(ctx context.Context, runID, daemonID string, attempt int, until time.Time) (models.Run, error)
-	// FinishRun 结束运行(succeeded / failed);条件同 ExtendLease。
-	FinishRun(ctx context.Context, runID, daemonID string, attempt int, status models.RunStatus, errMsg string, now time.Time) (models.Run, error)
-	// ReapExpired 回收租约已过期的 claimed 运行:attempts < maxAttempts 的回到 queued,其余标 failed。
-	ReapExpired(ctx context.Context, now time.Time, maxAttempts int) ([]models.Run, error)
-
-	Close() error
-}
-
-func limitOr(n, def int) int {
-	if n <= 0 {
-		return def
+// Open 打开(必要时创建)数据库文件。path 为 ":memory:" 时是临时库。
+func Open(path string) (*Store, error) {
+	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_txlock=immediate"
+	if path == ":memory:" {
+		dsn = "file::memory:?_pragma=foreign_keys(1)&_txlock=immediate"
 	}
-	return n
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(schema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("store: migrate: %w", err)
+	}
+	s := &Store{db: db, now: time.Now}
+	if err := s.seedBuiltinAgents(context.Background()); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
 }
+
+func (s *Store) Close() error { return s.db.Close() }
+
+func (s *Store) unix() int64 { return s.now().Unix() }
+
+// HashSecret 把令牌 / 密钥变成存库用的哈希。
+func HashSecret(secret string) string {
+	h := sha256.Sum256([]byte(secret))
+	return hex.EncodeToString(h[:])
+}
+
+// RandomToken 生成带前缀的随机令牌，如 ut_xxxx。
+func RandomToken(prefix string) string {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return prefix + hex.EncodeToString(b)
+}
+
+func randomID(prefix string) string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return prefix + hex.EncodeToString(b)
+}
+
+func newUUID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	h := hex.EncodeToString(b)
+	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
+}
+
+func nullInt(v sql.NullInt64) *int64 {
+	if !v.Valid {
+		return nil
+	}
+	return &v.Int64
+}
+
+func nullStr(v sql.NullString) string { return v.String }

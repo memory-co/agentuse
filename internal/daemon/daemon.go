@@ -1,136 +1,287 @@
-// Package daemon 跑在用户电脑上:主动连出 hub,领取运行,在 worktree 里回放现场,驱动 agent CLI。
-// 同一个 daemon 可以同时服务多个平台。
 package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 
-	"github.com/memory-co/agentuse/internal/config"
-	"github.com/memory-co/agentuse/internal/hub"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+
+	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-// HeartbeatInterval 是跑运行期间续租的间隔;hub 的租约默认 2 分钟,够丢几次心跳。
-const HeartbeatInterval = 15 * time.Second
+// Version 由 main 设置，hello 时上报。
+var Version = "dev"
 
-// Daemon 是领取—执行—交回的循环。
 type Daemon struct {
-	Config    config.Daemon
-	Home      string
-	Client    *Client
-	Source    Source
-	Driver    Driver
-	Backoff   time.Duration // 连不上 hub 时多久重试
-	Heartbeat time.Duration
+	cfg Config
+	log *log.Logger
+
+	mu      sync.Mutex
+	agents  map[string]localAgent
+	running map[string]context.CancelFunc // 正在跑的任务(一次最多一个)
+	conn    func(protocol.Message) error  // 当前连接的发送函数，断线时为 nil
+	outbox  []protocol.Message            // 断线期间跑完的任务结果，重连后补发
 }
 
-func New(cfg config.Daemon, home string) (*Daemon, error) {
-	drv, err := NewDriver(cfg.Driver)
-	if err != nil {
-		return nil, err
+var errOffline = errors.New("未连接")
+
+// send 发到当前连接。断线时进度直接丢掉，最终结果留到重连后补发。
+func (d *Daemon) send(m protocol.Message) error {
+	d.mu.Lock()
+	conn := d.conn
+	if conn == nil && m.Type == protocol.TypeEvent && m.Kind != "progress" {
+		d.outbox = append(d.outbox, m)
 	}
-	client := NewClient(cfg.HubURL, cfg.ID, cfg.Key)
-	src, err := NewSource(cfg.Transport, client, 5*time.Second)
-	if err != nil {
-		return nil, err
+	d.mu.Unlock()
+	if conn == nil {
+		return errOffline
 	}
-	return &Daemon{
-		Config:    cfg,
-		Home:      home,
-		Client:    client,
-		Source:    src,
-		Driver:    drv,
-		Backoff:   5 * time.Second,
-		Heartbeat: HeartbeatInterval,
-	}, nil
+	return conn(m)
 }
 
-// Run 一直跑到 ctx 结束。一次只跑一条运行。
+func New(cfg Config, logger *log.Logger) (*Daemon, error) {
+	if cfg.Server == "" || cfg.Key == "" {
+		return nil, errors.New("daemon 还没注册：请先运行页面上的安装命令(或 agentuse daemon register)")
+	}
+	if logger == nil {
+		logger = log.Default()
+	}
+	if cfg.Workdir == "" {
+		home, _ := os.UserHomeDir()
+		cfg.Workdir = filepath.Join(home, ".agentuse", "work")
+	}
+	cfg.Workdir = expandHome(cfg.Workdir)
+	return &Daemon{cfg: cfg, log: logger, running: map[string]context.CancelFunc{}}, nil
+}
+
+// Run 连上服务干活，断线自动退避重连，直到 ctx 结束。
 func (d *Daemon) Run(ctx context.Context) error {
-	defer d.Source.Close()
+	backoff := time.Second
 	for {
-		claimed, err := d.Source.Next(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			log.Printf("next run: %v", err)
-			if !sleep(ctx, d.Backoff) {
-				return ctx.Err()
-			}
-			continue
+		start := time.Now()
+		err := d.session(ctx)
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
-		d.process(ctx, claimed)
-	}
-}
-
-// process 跑一条运行:期间心跳续租;续租发现运行已被收回就停掉 agent;最后交回。
-func (d *Daemon) process(ctx context.Context, c hub.Claimed) {
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go d.keepAlive(runCtx, cancel, c.Run.ID, c.Run.Attempts)
-
-	done := d.handle(runCtx, c)
-	done.Attempt = c.Run.Attempts
-	// 交回用父 ctx:运行被 cancel 了也要告诉 hub。
-	err := d.Client.Complete(ctx, c.Run.ID, done)
-	switch {
-	case errors.Is(err, ErrLost):
-		log.Printf("run %s: no longer ours, result dropped", c.Run.ID)
-	case err != nil:
-		log.Printf("complete %s: %v (lease will expire and the run will be retried)", c.Run.ID, err)
-	}
-}
-
-func (d *Daemon) keepAlive(ctx context.Context, cancel context.CancelFunc, runID string, attempt int) {
-	t := time.NewTicker(d.Heartbeat)
-	defer t.Stop()
-	for {
+		if errors.Is(err, errUnauthorized) {
+			return err
+		}
+		if time.Since(start) > time.Minute {
+			backoff = time.Second
+		}
+		d.log.Printf("连接断开: %v;%s 后重连", err, backoff)
 		select {
 		case <-ctx.Done():
-			return
-		case <-t.C:
-			err := d.Client.Heartbeat(ctx, runID, attempt)
-			if errors.Is(err, ErrLost) {
-				log.Printf("run %s: lease lost, stopping agent", runID)
-				cancel()
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff = min(backoff*2, time.Minute)
+	}
+}
+
+var errUnauthorized = errors.New("daemon 密钥无效(可能在页面上被删除或重置了),请重新运行安装命令")
+
+func wsURL(server string) string {
+	switch {
+	case strings.HasPrefix(server, "https://"):
+		return "wss://" + strings.TrimPrefix(server, "https://") + protocol.WSPath
+	case strings.HasPrefix(server, "http://"):
+		return "ws://" + strings.TrimPrefix(server, "http://") + protocol.WSPath
+	}
+	return server + protocol.WSPath
+}
+
+// session 是一次连接的生命周期。
+func (d *Daemon) session(ctx context.Context) error {
+	dialCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ws, resp, err := websocket.Dial(dialCtx, wsURL(d.cfg.Server), &websocket.DialOptions{
+		HTTPHeader: http.Header{"Authorization": {"Bearer " + d.cfg.Key}},
+	})
+	cancel()
+	if err != nil {
+		if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+			return errUnauthorized
+		}
+		return err
+	}
+	ws.SetReadLimit(8 << 20)
+	defer ws.CloseNow()
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
+
+	var wmu sync.Mutex
+	send := func(m protocol.Message) error {
+		wmu.Lock()
+		defer wmu.Unlock()
+		wctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		return wsjson.Write(wctx, ws, m)
+	}
+
+	d.mu.Lock()
+	d.agents = detectAgents(d.cfg)
+	hello := protocol.Message{Type: protocol.TypeHello, Version: Version}
+	for _, a := range d.agents {
+		hello.Agents = append(hello.Agents, protocol.Agent{Name: a.Name, Version: a.Version})
+	}
+	sort.Slice(hello.Agents, func(i, j int) bool { return hello.Agents[i].Name < hello.Agents[j].Name })
+	for id := range d.running {
+		hello.Running = append(hello.Running, id)
+	}
+	for _, m := range d.outbox {
+		hello.Running = append(hello.Running, m.TaskID)
+	}
+	d.mu.Unlock()
+	if err := send(hello); err != nil {
+		return err
+	}
+	defer func() {
+		d.mu.Lock()
+		d.conn = nil
+		d.mu.Unlock()
+	}()
+
+	// 心跳:有任务时续租，没任务时保活。
+	go func() {
+		t := time.NewTicker(protocol.HeartbeatSeconds * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
 				return
+			case <-t.C:
+				d.mu.Lock()
+				ids := make([]string, 0, len(d.running))
+				for id := range d.running {
+					ids = append(ids, id)
+				}
+				d.mu.Unlock()
+				if len(ids) == 0 {
+					ids = []string{""}
+				}
+				for _, id := range ids {
+					_ = send(protocol.Message{Type: protocol.TypeHeartbeat, TaskID: id})
+				}
 			}
-			if err != nil && ctx.Err() == nil {
-				log.Printf("heartbeat %s: %v", runID, err)
+		}
+	}()
+
+	for {
+		var m protocol.Message
+		if err := wsjson.Read(ctx, ws, &m); err != nil {
+			return err
+		}
+		switch m.Type {
+		case protocol.TypeWelcome:
+			names := make([]string, 0, len(hello.Agents))
+			for _, a := range hello.Agents {
+				names = append(names, a.Name)
+			}
+			d.log.Printf("已连上 %s,daemon %s(%s),本机 agent: %v", d.cfg.Server, m.DaemonID, m.Name, names)
+			if len(m.Ignored) > 0 {
+				d.log.Printf("这些 agent 服务上没登记，已忽略: %v", m.Ignored)
+			}
+			d.mu.Lock()
+			d.conn = send
+			outbox := d.outbox
+			d.outbox = nil
+			busy := len(d.running) > 0
+			d.mu.Unlock()
+			for _, m := range outbox {
+				if err := send(m); err != nil {
+					return err
+				}
+			}
+			if !busy {
+				if err := send(protocol.Message{Type: protocol.TypeReady}); err != nil {
+					return err
+				}
+			}
+		case protocol.TypeTask:
+			if m.Task != nil {
+				d.startTask(*m.Task)
+			}
+		case protocol.TypeError:
+			if m.TaskID != "" {
+				d.mu.Lock()
+				cancel := d.running[m.TaskID]
+				d.mu.Unlock()
+				if cancel != nil {
+					d.log.Printf("任务 %s 已不归本机(%s),停止执行", m.TaskID, m.Error)
+					cancel()
+				}
+			} else {
+				d.log.Printf("服务报错: %s", m.Error)
 			}
 		}
 	}
 }
 
-func (d *Daemon) handle(ctx context.Context, c hub.Claimed) hub.Completion {
-	log.Printf("run %s: %s (%s, attempt %d)", c.Run.ID, c.Run.Thread, c.Session.ID, c.Run.Attempts)
-	dir, err := PrepareWorkspace(ctx, d.Home, d.Config.Workspaces[c.Run.Platform], c.Session)
-	if err != nil {
-		return hub.Completion{Error: err.Error()}
-	}
-	res, err := d.Driver.Run(ctx, Job{
-		Prompt:   BuildPrompt(c.Run),
-		Dir:      dir,
-		Env:      []string{"AGENTUSE_URL=" + d.Config.HubURL, "AGENTUSE_TOKEN=" + c.Token},
-		ResumeID: c.Session.AgentSessionID,
-		Mode:     c.Run.WorkspaceMode,
-	})
-	if err != nil {
-		return hub.Completion{Error: err.Error(), AgentSessionID: res.AgentSessionID}
-	}
-	return hub.Completion{Succeeded: true, AgentSessionID: res.AgentSessionID}
+// startTask 在后台跑一个任务，跑完回报结果并再说一次 ready。
+// 任务不跟连接绑定：中途断线重连，结果照样回报给新连接。
+func (d *Daemon) startTask(t protocol.Task) {
+	d.mu.Lock()
+	la, ok := d.agents[t.Agent]
+	tctx, cancel := context.WithCancel(context.Background())
+	d.running[t.ID] = cancel
+	d.mu.Unlock()
+
+	go func() {
+		defer func() {
+			d.mu.Lock()
+			delete(d.running, t.ID)
+			d.mu.Unlock()
+			cancel()
+			_ = d.send(protocol.Message{Type: protocol.TypeReady})
+		}()
+		d.log.Printf("开始任务 %s(%s)", t.ID, t.Agent)
+		var res Result
+		if !ok {
+			res = Result{Error: "本机没有 agent " + t.Agent}
+		} else if dir, err := d.taskDir(t); err != nil {
+			res = Result{Error: err.Error()}
+		} else {
+			res = runAgent(tctx, la, t.Input, dir, func(p any) {
+				b, _ := json.Marshal(p)
+				_ = d.send(protocol.Message{Type: protocol.TypeEvent, TaskID: t.ID, Kind: "progress", Payload: b})
+			})
+		}
+		if tctx.Err() != nil {
+			d.log.Printf("任务 %s 已取消", t.ID)
+			return
+		}
+		kind := "done"
+		if !res.OK {
+			kind = "failed"
+		}
+		b, _ := json.Marshal(res)
+		if err := d.send(protocol.Message{Type: protocol.TypeEvent, TaskID: t.ID, Kind: kind, Payload: b}); err != nil {
+			d.log.Printf("回报任务 %s 结果失败: %v", t.ID, err)
+		}
+		d.log.Printf("任务 %s 结束: %s", t.ID, kind)
+	}()
 }
 
-func sleep(ctx context.Context, d time.Duration) bool {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-t.C:
-		return true
+func (d *Daemon) taskDir(t protocol.Task) (string, error) {
+	var ti protocol.TaskInput
+	_ = json.Unmarshal(t.Input, &ti)
+	if ti.Cwd != "" {
+		dir := expandHome(ti.Cwd)
+		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			return "", errors.New("工作目录不存在: " + ti.Cwd)
+		}
+		return dir, nil
 	}
+	dir := filepath.Join(d.cfg.Workdir, t.ID)
+	return dir, os.MkdirAll(dir, 0o755)
 }
