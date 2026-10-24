@@ -1,84 +1,88 @@
 # agentuse
 
-> 像接评论框一样接 Agent:让任意平台评论区里的一个 `@alice-claude`,叫醒 alice 自己电脑上的 agent。
+> 用户电脑上跑一个 daemon,从 agentuse 服务领任务，在本地调用 CLI agent(Claude Code、Codex 或自己写的 harness)干活，再把进度和结果汇报回去。
 
-agentuse 是**平台侧的中间件**:平台像起一个 Redis 一样起一个 hub 实例,接几十行代码;平台用户在设置页点一下、在自己电脑上跑一条命令,就能在评论里 @ 自己的 agent。
+设计见 [`docs/v2/designs/main.md`](docs/v2/designs/main.md),接入与通信见 [`connect.md`](docs/v2/designs/connect.md),表结构见 [`docs/v2/tables/`](docs/v2/tables/)。旧版(v1)文档留在 [`docs/v1/`](docs/v1/README.md)。
 
-设想见博客 [《能不能像接评论框一样接 Agent:AgentHub 的设想》](https://twwy.net/blog/agenthub-comment-box-for-agents/)。agentuse 是它的实现,三方分工:
+## 快速开始
 
-- **平台**(工单 / 博客 / 论坛):评论存库后 `notify` hub;在回调路由上把 agent 的回复写成评论、把状态写回对象;设置页替用户建 agent、展示安装命令。
-- **hub 实例**:平台自己管的实例(像平台的 Redis),服务平台上所有用户:唤醒判定、谁的 agent 在哪台电脑、会话表、运行队列、签发运行令牌、转发写回。**不存评论。**
-- **daemon**:用户电脑上常驻,由安装命令自动装好;主动连出 hub,只领自己 agent 的运行,在 git worktree 里驱动 `claude -p`。
-
-身份三段式:进来验平台签名,中间用线程级运行令牌,出去验 hub 签名。公开评论区里「谁能唤醒」和「谁的话只是材料」分开配置。
-
-设计文档见 [`docs/v1/designs/`](docs/v1/designs/README.md);数据结构 [`docs/v1/structs/`](docs/v1/structs/README.md);HTTP API 与 CLI [`docs/v1/apis/`](docs/v1/apis/README.md)。
-
-## 状态
-
-评论 → 唤醒 → 排队 → 领取 → 回复 / 改状态 → 回调平台,全链路可跑、有端到端测试。会话表和运行队列存在 SQLite(`~/.agentuse/hub.db`);daemon 用出站 WebSocket 接 hub 推送的运行,跑的时候每 15 秒心跳续租,掉线的运行到期自动回收重排;同一线程的运行严格串行。**正在改**:按平台侧实例的定位补账号与 agent 归属、一条命令接入,计划见 [roadmap](docs/v1/designs/roadmap.md)。下面「用起来」是现有实现的手工接入方式。
-
-## 用起来
-
-完整的接入步骤(部署 hub、平台接入、用户电脑接 daemon、验证与排错)见 [`docs/v1/onboarding.md`](docs/v1/onboarding.md)。最短路径:
+### 1. 起服务
 
 ```bash
-go install github.com/memory-co/agentuse/cmd/agentuse@latest
-
-# 跑 hub 的机器
-cp examples/hub.json ~/.agentuse/hub.json        # 改密钥、平台、策略
-agentuse hub start
-
-# 用户电脑
-cp examples/daemon.json ~/.agentuse/daemon.json  # 改 hub 地址、仓库
-agentuse daemon start
+make build dist                     # bin/agentuse + dist/ 下各平台二进制
+bin/agentuse server -dist dist      # 默认监听 :8080,数据在 ~/.agentuse/server.db
 ```
 
-平台侧(Go):
+第一次启动会建管理员 `admin`,并在日志里打印登录链接:
 
-```go
-hub := sdk.New(os.Getenv("AGENTUSE_URL"), "shop", os.Getenv("AGENTUSE_SECRET"))
-hub.Notify(ctx, sdk.Comment{ID: c.ID, Thread: "issue:MUL-42", Author: sdk.Author{ID: u.ID, Name: u.Name, Role: "member"}, Text: c.Body})
-http.Handle("/agentuse/callback", hub.Handler(func(ctx context.Context, ev sdk.Event) error { /* 写评论 / 改状态 */ return nil }))
+```
+第一次启动，已创建管理员 admin。登录令牌(只显示这一次): ut_…
+登录链接: http://localhost:8080/login?token=ut_…
 ```
 
-实例主人查看:
+放到公网 / 反向代理后面时，用 `-public-url https://agentuse.example.com` 指定用户电脑访问服务的地址(会写进安装命令)。不指定就按请求的 Host 推断。
+
+### 2. 接入一台电脑
+
+打开网页 →「机器」→「添加 daemon」,页面会给出一条命令，在要跑 agent 的电脑上执行:
 
 ```bash
-AGENTUSE_URL=https://hub.alice.dev AGENTUSE_ADMIN_KEY=… agentuse admin runs -status claimed
+curl -fsSL "https://agentuse.example.com/setup.sh" -o setup.sh && TOKEN="st_…" bash setup.sh
 ```
 
-agent 在运行里:
+它会下载 agentuse、注册这台电脑、装成后台服务(macOS launchd / Linux systemd --user,都没有就 nohup)。几秒后页面上这台电脑变成「在线」,并列出本机检测到的 agent。
 
-```bash
-agentuse reply "已修复,见分支 agent/claude/MUL-42"
-agentuse status in_review
+### 3. 选择开启哪些 agent
+
+在这台 daemon 下打开要用的 agent 开关(默认都关)。之后在「任务」页选 agent、写 prompt 提交，任务会派给你自己的、开启了这个 agent 的在线 daemon,进度和结果实时显示。
+
+## 命令
+
 ```
+agentuse server [-addr :8080] [-db 路径] [-public-url URL] [-dist 目录]
+agentuse daemon register -server URL -token 安装令牌   # setup.sh 会替你跑
+agentuse daemon run                                     # setup.sh 装成的后台服务跑的就是它
+agentuse user create 用户名 [-role user|admin]
+agentuse user token 用户名                              # 重置登录令牌
+```
+
+server 的参数也能用环境变量给:`AGENTUSE_ADDR`、`AGENTUSE_DB`、`AGENTUSE_PUBLIC_URL`、`AGENTUSE_DIST`。
+
+## API
+
+网页用的就是这些接口，脚本里带 `Authorization: Bearer <登录令牌>` 即可调用:
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/daemons` | 我的 daemon(admin 看全部) |
+| POST | `/api/daemons` | 添加 daemon,返回安装命令 |
+| PUT | `/api/daemons/{id}/agents/{agent}` | `{"enabled": true}` 开关 agent |
+| POST | `/api/daemons/{id}/reset` | 重新生成安装命令 |
+| DELETE | `/api/daemons/{id}` | 删除 |
+| GET / POST | `/api/tasks` | 列任务 / 建任务 `{"agent":"claude","prompt":"…","cwd":"可选"}` |
+| GET | `/api/tasks/{id}` | 任务详情和回报 |
+| GET / POST | `/api/agents` | 列 agent / 注册自定义 harness |
+| GET / POST | `/api/users` | (admin)列用户 / 建用户 |
 
 ## 开发
 
 ```bash
 make test     # go test ./...
 make build    # bin/agentuse
+make dist     # dist/agentuse-{linux,darwin}-{amd64,arm64}
 ```
 
 ## 布局
 
 ```
-cmd/agentuse/        单一二进制:hub / daemon / agent 侧命令
+cmd/agentuse/        单一二进制:server / daemon / user 命令
 internal/
 ├── cli/             命令行
-├── config/          hub.json / daemon.json
-├── models/          数据结构
-├── hub/             hub 业务 + HTTP 接口
-├── services/        wake(唤醒判定)/ token(运行令牌)/ callback(回调平台)
-├── store/           会话表与运行队列(接口 + SQLite / 内存实现,共用一套行为测试)
-└── daemon/          领取循环、worktree 现场、CLI 驱动、提示词
-pkg/
-├── signature/       平台 ⇄ hub 签名
-└── sdk/             平台侧 Go SDK
-docs/                v1(旧版) / v2(重写中)
-examples/            配置示例
+├── store/           SQLite 存储(表结构见 docs/v2/tables/)
+├── protocol/        daemon ⇄ 服务的注册接口和 WebSocket 消息
+├── server/          HTTP API、WebSocket 派任务、setup.sh、网页(web/)
+└── daemon/          注册、连接、调用本地 CLI agent、汇报
+docs/                v2(当前) / v1(旧版)
 ```
 
 ## License
