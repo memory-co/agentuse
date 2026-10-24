@@ -6,7 +6,7 @@
 
 ```json
 {
-  "id": "3f2b8c1e-9a4d-4e7b-b5a2-1c6d8e0f4a93",
+  "id": "u_10086",
   "name": "alice",
   "role": "user",
   "created_at": 1792799993
@@ -22,17 +22,22 @@
 ## POST /api/users
 
 ```json
-{ "name": "alice", "role": "user" }
+{ "id": "u_10086", "name": "alice", "role": "user" }
 ```
 
-`role` 可省略，默认 `user`。返回 201:
+- `id`:用户 id,直接填你们系统里已有的 user id,之后 daemon、任务都归属到它。只能用字母、数字和 `. _ - : @`,最长 128 个字符。可省略，省略时生成一个 UUID。
+- `role` 可省略，默认 `user`。
+
+返回 201:
 
 ```json
 {
-  "user": { "id": "…", "name": "alice", "role": "user", "created_at": 1792799993 },
+  "user": { "id": "u_10086", "name": "alice", "role": "user", "created_at": 1792799993 },
   "token": "ut_…",
   "login_url": "https://agentuse.example.com/login?token=ut_…"
 }
 ```
 
-`token` 只在这里出现一次，库里只存哈希。用户名重复返回 400。
+`token` 只在这里出现一次，库里只存哈希。id 或用户名重复、id 格式不对，都返回 400。
+
+命令行等价:`agentuse user create alice -id u_10086 [-role admin]`。
