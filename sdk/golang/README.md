@@ -17,10 +17,10 @@ d, err := c.CreateDaemon(ctx, uid, "my-laptop")
 fmt.Println(d.SetupCommand)
 
 // 电脑上线后打开 claude
-_, err = c.SetDaemonAgent(ctx, uid, d.ID, "claude", true)
+_, err = c.SetDaemonHarness(ctx, uid, d.ID, "claude", true)
 
 // 发起任务，等它回完(用 ctx 控制超时)
-r, err := c.CreateSession(ctx, uid, agentuse.CreateSessionRequest{Agent: "claude", Prompt: "修一下 README 的错别字", Cwd: "~/code/x"})
+r, err := c.CreateSession(ctx, uid, agentuse.CreateSessionRequest{Harness: "claude", Prompt: "修一下 README 的错别字", Cwd: "~/code/x"})
 wctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 defer cancel()
 detail, err := c.WaitSession(wctx, uid, r.Session.ID, 2*time.Second)
@@ -29,7 +29,7 @@ fmt.Println(string(detail.Messages[len(detail.Messages)-1].Content))
 // 接着回复
 _, err = c.SendMessage(ctx, uid, r.Session.ID, agentuse.MessageRequest{Prompt: "再把 CHANGELOG 也改一下"})
 if agentuse.IsStatus(err, 409) {
-	// agent 还没回完
+	// harness 还没回完
 }
 ```
 

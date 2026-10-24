@@ -25,7 +25,7 @@ const (
 type Session struct {
 	ID               string `json:"id"`
 	UserID           string `json:"user_id"`
-	Agent            string `json:"agent"`
+	Harness          string `json:"harness"`
 	DaemonID         string `json:"daemon_id,omitempty"`
 	Cwd              string `json:"cwd,omitempty"`
 	HarnessSessionID string `json:"harness_session_id,omitempty"`
@@ -63,14 +63,14 @@ type Claimed struct {
 var (
 	// ErrStaleMessage 表示 daemon 回报的消息已经不归它了(租约过期被收回、或已经回过)。
 	ErrStaleMessage = errors.New("store: message is not running on this daemon")
-	// ErrSessionBusy 表示会话还在等 agent 回复，不能再发消息。
-	ErrSessionBusy = errors.New("会话还在等 agent 回复")
+	// ErrSessionBusy 表示会话还在等 harness 回复，不能再发消息。
+	ErrSessionBusy = errors.New("会话还在等 harness 回复")
 	// ErrSessionOrphaned 表示会话的 daemon 已删除，续不上了。
 	ErrSessionOrphaned = errors.New("会话原来的 daemon 已删除，不能继续")
 )
 
-// CreateSession 建会话并写入第一条用户消息，会话为 pending。agent 必须登记过。
-func (s *Store) CreateSession(ctx context.Context, userID, agent, cwd, title string, content json.RawMessage) (Session, Message, error) {
+// CreateSession 建会话并写入第一条用户消息，会话为 pending。harness 必须登记过。
+func (s *Store) CreateSession(ctx context.Context, userID, harness, cwd, title string, content json.RawMessage) (Session, Message, error) {
 	if !json.Valid(content) {
 		return Session{}, Message{}, errors.New("input 必须是 JSON")
 	}
@@ -80,12 +80,12 @@ func (s *Store) CreateSession(ctx context.Context, userID, agent, cwd, title str
 	}
 	defer tx.Rollback()
 	now := s.unix()
-	ss := Session{ID: randomID("ss_"), UserID: userID, Agent: agent, Cwd: cwd, Title: title, Status: SessionPending, CreatedAt: now, UpdatedAt: now}
+	ss := Session{ID: randomID("ss_"), UserID: userID, Harness: harness, Cwd: cwd, Title: title, Status: SessionPending, CreatedAt: now, UpdatedAt: now}
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO sessions (id, user_id, agent, cwd, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		ss.ID, userID, agent, nullIfEmpty(cwd), title, ss.Status, now, now)
+		`INSERT INTO sessions (id, user_id, harness, cwd, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		ss.ID, userID, harness, nullIfEmpty(cwd), title, ss.Status, now, now)
 	if err != nil && strings.Contains(err.Error(), "FOREIGN KEY") {
-		return Session{}, Message{}, fmt.Errorf("agent %q 没有登记", agent)
+		return Session{}, Message{}, fmt.Errorf("harness %q 没有登记", harness)
 	}
 	if err != nil {
 		return Session{}, Message{}, err
@@ -98,7 +98,7 @@ func (s *Store) CreateSession(ctx context.Context, userID, agent, cwd, title str
 }
 
 // AddMessage 在 idle 的会话里发下一条用户消息，会话回到 pending。
-// TODO: 插话(agent 还在跑时追加消息)以后用 harness 的 hook 来做。
+// TODO: 插话(harness 还在跑时追加消息)以后用 harness 的 hook 来做。
 func (s *Store) AddMessage(ctx context.Context, u User, sessionID string, content json.RawMessage) (Session, Message, error) {
 	if !json.Valid(content) {
 		return Session{}, Message{}, errors.New("input 必须是 JSON")
@@ -142,7 +142,7 @@ func insertMessage(ctx context.Context, tx *sql.Tx, sessionID, role string, cont
 	return Message{ID: id, SessionID: sessionID, Role: role, Content: content, CreatedAt: now}, nil
 }
 
-// ClaimSession 给 daemon 挑一个 pending 的会话：同一用户、agent 在这台 daemon 上可用且已开启，
+// ClaimSession 给 daemon 挑一个 pending 的会话：同一用户、harness 在这台 daemon 上可用且已开启，
 // 会话没绑定 daemon 或绑定的就是这台;最早的优先。领走后会话绑定到这台 daemon。
 // 没有可领的返回 ErrNotFound。
 func (s *Store) ClaimSession(ctx context.Context, d Daemon, leaseSeconds int64) (Claimed, error) {
@@ -155,8 +155,8 @@ func (s *Store) ClaimSession(ctx context.Context, d Daemon, leaseSeconds int64) 
 	err = tx.QueryRowContext(ctx, `
 		SELECT s.id FROM sessions s
 		WHERE s.status = 'pending' AND s.user_id = ? AND (s.daemon_id IS NULL OR s.daemon_id = ?)
-		  AND EXISTS (SELECT 1 FROM daemon_agents da
-		              WHERE da.daemon_id = ? AND da.user_id = s.user_id AND da.agent = s.agent
+		  AND EXISTS (SELECT 1 FROM daemon_harnesses da
+		              WHERE da.daemon_id = ? AND da.user_id = s.user_id AND da.harness = s.harness
 		                AND da.available = 1 AND da.enabled = 1)
 		ORDER BY s.updated_at, s.id LIMIT 1`, d.UserID, d.ID, d.ID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -330,13 +330,13 @@ func (s *Store) failDaemonSessions(ctx context.Context, tx *sql.Tx, daemonID str
 	return nil
 }
 
-const sessionCols = `SELECT id, user_id, agent, daemon_id, cwd, harness_session_id, title, status, lease_until, created_at, updated_at FROM sessions`
+const sessionCols = `SELECT id, user_id, harness, daemon_id, cwd, harness_session_id, title, status, lease_until, created_at, updated_at FROM sessions`
 
 func (s *Store) scanSession(row scanner) (Session, error) {
 	var ss Session
 	var daemon, cwd, harness sql.NullString
 	var lease sql.NullInt64
-	err := row.Scan(&ss.ID, &ss.UserID, &ss.Agent, &daemon, &cwd, &harness, &ss.Title, &ss.Status, &lease, &ss.CreatedAt, &ss.UpdatedAt)
+	err := row.Scan(&ss.ID, &ss.UserID, &ss.Harness, &daemon, &cwd, &harness, &ss.Title, &ss.Status, &lease, &ss.CreatedAt, &ss.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, ErrNotFound
 	}

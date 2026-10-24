@@ -1,6 +1,6 @@
-# agents
+# harnesses
 
-全局有哪些 CLI agent 可以用。[sessions](sessions.md).agent 和 [daemon_agents](daemon_agents.md).agent 都必须是这里登记过的 `name`。
+全局有哪些 CLI harness 可以用。[sessions](sessions.md).harness 和 [daemon_harnesses](daemon_harnesses.md).harness 都必须是这里登记过的 `name`。
 
 分两类:
 
@@ -17,7 +17,7 @@
 | `created_at` | INTEGER | 注册时间(unix 秒) |
 
 ```sql
-CREATE TABLE agents (
+CREATE TABLE harnesses (
   name         TEXT PRIMARY KEY,
   kind         TEXT NOT NULL,
   display_name TEXT NOT NULL,
@@ -27,4 +27,4 @@ CREATE TABLE agents (
 );
 ```
 
-本机的启动命令不存在这里：同一个 agent 在不同电脑上装的位置不同，由各自的 daemon 配置。
+本机的启动命令不存在这里：同一个 harness 在不同电脑上装的位置不同，由各自的 daemon 配置。

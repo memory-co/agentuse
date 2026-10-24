@@ -8,9 +8,9 @@
 
 | tab | 功能 |
 | --- | --- |
-| 机器 | 添加 daemon、复制安装命令(setup.sh)、看在线状态、给每台 daemon 开关 agent、重新生成安装命令、删除 |
-| 会话 | 选 agent 开会话，看消息和进度，空闲时接着回复 |
-| Agent | 全部 agent,注册 / 删除自定义 harness |
+| 机器 | 添加 daemon、复制安装命令(setup.sh)、看在线状态、给每台 daemon 开关 harness、重新生成安装命令、删除 |
+| 会话 | 选 harness 开会话，看消息和进度，空闲时接着回复 |
+| Harness | 全部 harness,注册 / 删除自定义 harness |
 | 用户 | (仅 admin)建用户，拿登录链接 |
 
 进门先问 `GET /api/me`:401 显示登录页(输 `ut_` 令牌，`POST /api/login` 种 cookie),否则进壳。任何请求 401 都回登录页。列表每 3 秒轮询。接口见 [docs/v2/apis](../docs/v2/apis/README.md)。
@@ -37,7 +37,7 @@ embed.go            # Go 包 frontend:把 dist/ 嵌进 agentuse-server
 src/
 ├── main.tsx        # 入口：主题、QueryClient、Toaster
 ├── App.tsx         # 登录门 + 壳(tab)
-├── pages/          # Login / Daemons / Sessions / Agents / Users
+├── pages/          # Login / Daemons / Sessions / Harnesses / Users
 ├── components/     # Shared(状态徽章、复制块、确认框…)
 │   └── ui/         # shadcn/ui 组件，见 ui/README.md
 └── lib/            # api、query、types、utils

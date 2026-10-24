@@ -23,7 +23,7 @@ type UserToken struct {
 	LoginURL string `json:"login_url"`
 }
 
-type Agent struct {
+type Harness struct {
 	Name        string `json:"name"`
 	Kind        string `json:"kind"`
 	DisplayName string `json:"display_name"`
@@ -32,28 +32,28 @@ type Agent struct {
 	CreatedAt   int64  `json:"created_at"`
 }
 
-type CreateAgentRequest struct {
+type CreateHarnessRequest struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"display_name,omitempty"`
 	Description string `json:"description,omitempty"`
 }
 
 type Daemon struct {
-	ID           string        `json:"id"`
-	UserID       string        `json:"user_id"`
-	Name         string        `json:"name"`
-	Status       string        `json:"status"` // pending / online / offline
-	LastSeenAt   *int64        `json:"last_seen_at"`
-	CreatedAt    int64         `json:"created_at"`
-	Agents       []DaemonAgent `json:"agents"`
-	SetupToken   string        `json:"setup_token,omitempty"`
-	SetupCommand string        `json:"setup_command,omitempty"`
+	ID           string          `json:"id"`
+	UserID       string          `json:"user_id"`
+	Name         string          `json:"name"`
+	Status       string          `json:"status"` // pending / online / offline
+	LastSeenAt   *int64          `json:"last_seen_at"`
+	CreatedAt    int64           `json:"created_at"`
+	Harnesses    []DaemonHarness `json:"harnesses"`
+	SetupToken   string          `json:"setup_token,omitempty"`
+	SetupCommand string          `json:"setup_command,omitempty"`
 }
 
-type DaemonAgent struct {
+type DaemonHarness struct {
 	DaemonID  string `json:"daemon_id"`
 	UserID    string `json:"user_id"`
-	Agent     string `json:"agent"`
+	Harness   string `json:"harness"`
 	Version   string `json:"version"`
 	Available bool   `json:"available"`
 	Enabled   bool   `json:"enabled"`
@@ -63,7 +63,7 @@ type DaemonAgent struct {
 type Session struct {
 	ID               string `json:"id"`
 	UserID           string `json:"user_id"`
-	Agent            string `json:"agent"`
+	Harness          string `json:"harness"`
 	DaemonID         string `json:"daemon_id,omitempty"`
 	Cwd              string `json:"cwd,omitempty"`
 	HarnessSessionID string `json:"harness_session_id,omitempty"`
@@ -92,17 +92,17 @@ type SessionEvent struct {
 	CreatedAt int64           `json:"created_at"`
 }
 
-// MessageRequest 是一条用户消息:给 Prompt 时内容是 {"prompt": …};给 Input 时原样交给 agent。
+// MessageRequest 是一条用户消息:给 Prompt 时内容是 {"prompt": …};给 Input 时原样交给 harness。
 type MessageRequest struct {
 	Prompt string `json:"prompt,omitempty"`
 	Input  any    `json:"input,omitempty"`
 }
 
 type CreateSessionRequest struct {
-	Agent  string `json:"agent"`
-	Prompt string `json:"prompt,omitempty"`
-	Input  any    `json:"input,omitempty"`
-	Cwd    string `json:"cwd,omitempty"`
+	Harness string `json:"harness"`
+	Prompt  string `json:"prompt,omitempty"`
+	Input   any    `json:"input,omitempty"`
+	Cwd     string `json:"cwd,omitempty"`
 }
 
 type CreateSessionResponse struct {

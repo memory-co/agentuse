@@ -9,13 +9,13 @@ import (
 	"github.com/memory-co/agentuse/internal/daemon"
 )
 
-const agentuseUsage = `agentuse —— 让这台电脑上的 CLI agent 从 agentuse 服务领活
+const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 agentuse 服务领活
 
 用法:
   agentuse register -server URL -token 安装令牌   注册这台电脑(setup.sh 会替你跑)
   agentuse daemon                                 前台运行 daemon(后台服务跑的就是它)
   agentuse status                                 看本机的注册和连接状态
-  agentuse agents [-json]                         看本机检测到哪些 agent
+  agentuse harnesses [-json]                         看本机检测到哪些 harness
   agentuse version
 
 所有命令都可以用 -config 指定配置文件，默认 ~/.agentuse/daemon.json。
@@ -27,7 +27,7 @@ func AgentuseMain(args []string) int {
 		{"register", runRegister},
 		{"daemon", runDaemon},
 		{"status", runStatus},
-		{"agents", runAgents},
+		{"harnesses", runHarnesses},
 	})
 }
 
@@ -107,8 +107,8 @@ func runStatus(args []string) error {
 	return nil
 }
 
-func runAgents(args []string) error {
-	fs := newFlags("agentuse agents")
+func runHarnesses(args []string) error {
+	fs := newFlags("agentuse harnesses")
 	cfgPath := fs.String("config", daemon.DefaultConfigPath(), "配置文件")
 	asJSON := fs.Bool("json", false, "输出 JSON")
 	if err := parse(fs, args); err != nil {
@@ -118,12 +118,12 @@ func runAgents(args []string) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	agents := daemon.ListAgents(cfg)
+	harnesses := daemon.ListHarnesses(cfg)
 	if *asJSON {
-		return printJSON(os.Stdout, agents)
+		return printJSON(os.Stdout, harnesses)
 	}
 	rows := [][]string{{"名字", "命令", "版本"}}
-	for _, a := range agents {
+	for _, a := range harnesses {
 		path, ver := a.Path, a.Version
 		switch {
 		case a.Disabled:

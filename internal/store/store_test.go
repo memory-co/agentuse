@@ -26,7 +26,7 @@ func TestClaimAndLease(t *testing.T) {
 		t.Fatalf("register: %v %+v", err, d)
 	}
 	if _, _, err := s.CreateSession(ctx, u.ID, "nope", "", "", json.RawMessage(`{}`)); err == nil {
-		t.Fatal("unknown agent should fail")
+		t.Fatal("unknown harness should fail")
 	}
 	ss, m1, _ := s.CreateSession(ctx, u.ID, "claude", "", "x", json.RawMessage(`{"prompt":"x"}`))
 
@@ -34,18 +34,18 @@ func TestClaimAndLease(t *testing.T) {
 	if _, err := s.ClaimSession(ctx, d, 60); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("claim before report: %v", err)
 	}
-	ignored, _ := s.DaemonConnected(ctx, d, []ReportedAgent{{Name: "claude", Version: "1.0"}, {Name: "ghost"}})
+	ignored, _ := s.DaemonConnected(ctx, d, []ReportedHarness{{Name: "claude", Version: "1.0"}, {Name: "ghost"}})
 	if len(ignored) != 1 || ignored[0] != "ghost" {
 		t.Fatalf("ignored: %v", ignored)
 	}
 	if _, err := s.ClaimSession(ctx, d, 60); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("claim before enable: %v", err)
 	}
-	if err := s.SetDaemonAgentEnabled(ctx, u, d.ID, "claude", true); err != nil {
+	if err := s.SetDaemonHarnessEnabled(ctx, u, d.ID, "claude", true); err != nil {
 		t.Fatal(err)
 	}
 	// 重连上报不会丢掉 enabled
-	s.DaemonConnected(ctx, d, []ReportedAgent{{Name: "claude", Version: "1.1"}})
+	s.DaemonConnected(ctx, d, []ReportedHarness{{Name: "claude", Version: "1.1"}})
 	got, err := s.ClaimSession(ctx, d, 60)
 	if err != nil || got.Session.ID != ss.ID || got.Session.Status != SessionRunning || got.Message.ID != m1.ID {
 		t.Fatalf("claim: %v %+v", err, got)
@@ -80,8 +80,8 @@ func TestClaimAndLease(t *testing.T) {
 	// 回复：只派给绑定的 daemon,带上 harness 会话 id
 	d2, _ := s.CreateDaemon(ctx, u.ID, "")
 	d2, _, _ = s.RegisterDaemon(ctx, d2.SetupToken, "host-b")
-	s.DaemonConnected(ctx, d2, []ReportedAgent{{Name: "claude"}})
-	s.SetDaemonAgentEnabled(ctx, u, d2.ID, "claude", true)
+	s.DaemonConnected(ctx, d2, []ReportedHarness{{Name: "claude"}})
+	s.SetDaemonHarnessEnabled(ctx, u, d2.ID, "claude", true)
 	_, m3, err := s.AddMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"y"}`))
 	if err != nil {
 		t.Fatal(err)

@@ -8,7 +8,7 @@
 {
   "id": "ss_b83a324345de1f46",
   "user_id": "u_10086",
-  "agent": "claude",
+  "harness": "claude",
   "daemon_id": "dm_5c1c8602536e55cb",
   "cwd": "~/code/agentuse",
   "harness_session_id": "9f1c…",
@@ -38,17 +38,17 @@
 新建会话，同时发出第一条消息。两种写法:
 
 ```json
-{ "agent": "claude", "prompt": "修一下 README 的错别字", "cwd": "~/code/agentuse" }
+{ "harness": "claude", "prompt": "修一下 README 的错别字", "cwd": "~/code/agentuse" }
 ```
 
 ```json
-{ "agent": "my-harness", "input": { "任意": "JSON" } }
+{ "harness": "my-harness", "input": { "任意": "JSON" } }
 ```
 
-- `agent` 必填，必须是登记过的 agent,否则 400。
+- `harness` 必填，必须是登记过的 harness,否则 400。
 - `cwd` 可省略，定下后整个会话都在这里跑。
-- 给 `prompt` 时消息内容是 `{"prompt": …}`;给 `input` 时原样交给 agent,忽略 `prompt`。
-- 返回 201 和 `{"session": …, "message": …}`,会话为 `pending`。只派给创建者自己的、开启了这个 agent 的在线 daemon;没有就一直排队。
+- 给 `prompt` 时消息内容是 `{"prompt": …}`;给 `input` 时原样交给 harness,忽略 `prompt`。
+- 返回 201 和 `{"session": …, "message": …}`,会话为 `pending`。只派给创建者自己的、开启了这个 harness 的在线 daemon;没有就一直排队。
 
 ## POST /api/sessions/{id}/messages
 
@@ -60,8 +60,8 @@
 
 或 `{"input": {…}}`,规则同上。
 
-- 会话不是 `idle`(agent 还没回)返回 409。
-  - TODO:插话(agent 还在跑时追加消息)以后用 harness 的 hook 来做。
+- 会话不是 `idle`(harness 还没回)返回 409。
+  - TODO:插话(harness 还在跑时追加消息)以后用 harness 的 hook 来做。
 - 会话的 daemon 已被删除返回 400(harness 会话在原来那台电脑上，续不上)。
 - 返回 201 和 message 对象。只派给这个会话的 daemon,它离线就等它上线。
 

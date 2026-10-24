@@ -10,7 +10,7 @@ import type { User } from '@/lib/types';
 import { Login } from '@/pages/Login';
 import { Daemons } from '@/pages/Daemons';
 import { Sessions } from '@/pages/Sessions';
-import { Agents } from '@/pages/Agents';
+import { Harnesses } from '@/pages/Harnesses';
 import { Users } from '@/pages/Users';
 
 // 进门先问 GET /api/me:401 显示登录页，否则是壳。
@@ -28,7 +28,7 @@ export function App() {
 const TABS = [
   { key: 'daemons', label: '机器', Page: Daemons },
   { key: 'sessions', label: '会话', Page: Sessions },
-  { key: 'agents', label: 'Agent', Page: Agents },
+  { key: 'harnesses', label: 'Harness', Page: Harnesses },
   { key: 'users', label: '用户', Page: Users, admin: true },
 ] as const;
 

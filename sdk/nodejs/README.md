@@ -19,10 +19,10 @@ const d = await agentuse.createDaemon(uid, "my-laptop");
 console.log(d.setup_command);
 
 // 电脑上线后打开 claude
-await agentuse.setDaemonAgent(uid, d.id, "claude", true);
+await agentuse.setDaemonHarness(uid, d.id, "claude", true);
 
 // 发起任务，等它回完
-const { session } = await agentuse.createSession(uid, { agent: "claude", prompt: "修一下 README 的错别字", cwd: "~/code/x" });
+const { session } = await agentuse.createSession(uid, { harness: "claude", prompt: "修一下 README 的错别字", cwd: "~/code/x" });
 const detail = await agentuse.waitSession(uid, session.id, { interval: 2000, timeout: 600_000 });
 console.log(detail.messages.at(-1).content);
 
@@ -31,7 +31,7 @@ try {
   await agentuse.sendMessage(uid, session.id, { prompt: "再把 CHANGELOG 也改一下" });
 } catch (e) {
   if (e instanceof AgentuseError && e.status === 409) {
-    // agent 还没回完
+    // harness 还没回完
   }
 }
 ```

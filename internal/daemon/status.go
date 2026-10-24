@@ -19,8 +19,8 @@ import (
 	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-// AgentInfo 是 agentuse agents 列出的一行。
-type AgentInfo struct {
+// HarnessInfo 是 agentuse harnesses 列出的一行。
+type HarnessInfo struct {
 	Name     string `json:"name"`
 	Path     string `json:"path,omitempty"`
 	Version  string `json:"version,omitempty"`
@@ -28,19 +28,19 @@ type AgentInfo struct {
 	Disabled bool   `json:"disabled,omitempty"`
 }
 
-// ListAgents 按 daemon 的检测逻辑列出本机 agent,包括没装上的内置 agent 和配置里禁用的。
-func ListAgents(cfg Config) []AgentInfo {
-	found := detectAgents(cfg)
+// ListHarnesses 按 daemon 的检测逻辑列出本机 harness,包括没装上的内置 harness 和配置里禁用的。
+func ListHarnesses(cfg Config) []HarnessInfo {
+	found := detectHarnesses(cfg)
 	names := map[string]bool{}
 	for n := range builtins {
 		names[n] = true
 	}
-	for n := range cfg.Agents {
+	for n := range cfg.Harnesses {
 		names[n] = true
 	}
-	out := make([]AgentInfo, 0, len(names))
+	out := make([]HarnessInfo, 0, len(names))
 	for n := range names {
-		info := AgentInfo{Name: n, Disabled: cfg.Agents[n].Disabled}
+		info := HarnessInfo{Name: n, Disabled: cfg.Harnesses[n].Disabled}
 		if la, ok := found[n]; ok {
 			info.Path, info.Version, info.Found = la.Path, la.Version, true
 		}

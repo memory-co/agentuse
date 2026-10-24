@@ -74,9 +74,9 @@ func TestEndToEnd(t *testing.T) {
 	ca := client{t, ts.URL, aliceTok}
 	cb := client{t, ts.URL, bobTok}
 
-	// 自定义 agent
-	if code := ca.do("POST", "/api/agents", map[string]string{"name": "echo-harness"}, nil); code != http.StatusCreated {
-		t.Fatalf("create agent: %d", code)
+	// 自定义 harness
+	if code := ca.do("POST", "/api/harnesses", map[string]string{"name": "echo-harness"}, nil); code != http.StatusCreated {
+		t.Fatalf("create harness: %d", code)
 	}
 
 	// 页面上添加 daemon,拿到安装命令
@@ -108,7 +108,7 @@ func TestEndToEnd(t *testing.T) {
 	os.WriteFile(hpath, []byte(harness), 0o755)
 	if err := daemon.SaveConfig(cfgPath, daemon.Config{
 		Workdir: filepath.Join(dir, "work"),
-		Agents: map[string]daemon.AgentConfig{
+		Harnesses: map[string]daemon.HarnessConfig{
 			"echo-harness": {Command: hpath},
 			"claude":       {Disabled: true},
 			"codex":        {Disabled: true},
@@ -124,12 +124,12 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatal("安装令牌应该只能用一次")
 	}
 
-	// 先开会话，此时 agent 还没开启，不会派
+	// 先开会话，此时 harness 还没开启，不会派
 	var created struct {
 		Session store.Session `json:"session"`
 		Message store.Message `json:"message"`
 	}
-	ca.do("POST", "/api/sessions", map[string]string{"agent": "echo-harness", "prompt": "hi"}, &created)
+	ca.do("POST", "/api/sessions", map[string]string{"harness": "echo-harness", "prompt": "hi"}, &created)
 	ss := created.Session
 	if ss.Status != store.SessionPending || ss.Title != "hi" || created.Message.Role != store.RoleUserMsg {
 		t.Fatalf("session: %+v", created)
@@ -141,7 +141,7 @@ func TestEndToEnd(t *testing.T) {
 	}
 	go d.Run(ctx)
 
-	// 等 daemon 上线、上报 agent
+	// 等 daemon 上线、上报 harness
 	var got struct {
 		store.Daemon
 	}
@@ -149,34 +149,34 @@ func TestEndToEnd(t *testing.T) {
 		ca.do("GET", "/api/daemons/"+dv.ID, nil, nil)
 		var list []store.Daemon
 		ca.do("GET", "/api/daemons", nil, &list)
-		if len(list) == 1 && list[0].Status == store.DaemonOnline && len(list[0].Agents) == 1 {
+		if len(list) == 1 && list[0].Status == store.DaemonOnline && len(list[0].Harnesses) == 1 {
 			got.Daemon = list[0]
 			return true
 		}
 		return false
 	})
-	if a := got.Agents[0]; a.Agent != "echo-harness" || !a.Available || a.Enabled {
-		t.Fatalf("daemon agent: %+v", a)
+	if a := got.Harnesses[0]; a.Harness != "echo-harness" || !a.Available || a.Enabled {
+		t.Fatalf("daemon harness: %+v", a)
 	}
 
-	// bob 看不到 alice 的 daemon,也开不了它的 agent
+	// bob 看不到 alice 的 daemon,也开不了它的 harness
 	var bobList []store.Daemon
 	cb.do("GET", "/api/daemons", nil, &bobList)
 	if len(bobList) != 0 {
 		t.Fatalf("bob sees %d daemons", len(bobList))
 	}
-	if code := cb.do("PUT", "/api/daemons/"+dv.ID+"/agents/echo-harness", map[string]bool{"enabled": true}, nil); code != http.StatusNotFound {
+	if code := cb.do("PUT", "/api/daemons/"+dv.ID+"/harnesses/echo-harness", map[string]bool{"enabled": true}, nil); code != http.StatusNotFound {
 		t.Fatalf("bob toggle: %d", code)
 	}
-	// bob 的同名 agent 会话不能派给 alice 的 daemon
+	// bob 的同名 harness 会话不能派给 alice 的 daemon
 	var bobCreated struct {
 		Session store.Session `json:"session"`
 	}
-	cb.do("POST", "/api/sessions", map[string]string{"agent": "echo-harness", "prompt": "bob"}, &bobCreated)
+	cb.do("POST", "/api/sessions", map[string]string{"harness": "echo-harness", "prompt": "bob"}, &bobCreated)
 	bobSession := bobCreated.Session
 
-	// 开启 agent → 排队的会话被派出，agent 回复
-	if code := ca.do("PUT", "/api/daemons/"+dv.ID+"/agents/echo-harness", map[string]bool{"enabled": true}, nil); code != http.StatusOK {
+	// 开启 harness → 排队的会话被派出，harness 回复
+	if code := ca.do("PUT", "/api/daemons/"+dv.ID+"/harnesses/echo-harness", map[string]bool{"enabled": true}, nil); code != http.StatusOK {
 		t.Fatalf("toggle: %d", code)
 	}
 	var detail struct {

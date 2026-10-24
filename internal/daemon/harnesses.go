@@ -14,28 +14,28 @@ import (
 	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-// builtins 是自带适配的 agent:名字 → 默认命令。
+// builtins 是自带适配的 harness:名字 → 默认命令。
 var builtins = map[string]string{
 	"claude": "claude",
 	"codex":  "codex",
 }
 
-// localAgent 是本机一个可用的 agent。
-type localAgent struct {
+// localHarness 是本机一个可用的 harness。
+type localHarness struct {
 	Name    string
 	Path    string
 	Args    []string
 	Version string
 }
 
-// detectAgents 找出本机可用的 agent:内置的按默认命令探测，配置文件里的按配置。
-func detectAgents(cfg Config) map[string]localAgent {
-	out := map[string]localAgent{}
-	want := map[string]AgentConfig{}
+// detectHarnesses 找出本机可用的 harness:内置的按默认命令探测，配置文件里的按配置。
+func detectHarnesses(cfg Config) map[string]localHarness {
+	out := map[string]localHarness{}
+	want := map[string]HarnessConfig{}
 	for name, cmd := range builtins {
-		want[name] = AgentConfig{Command: cmd}
+		want[name] = HarnessConfig{Command: cmd}
 	}
-	for name, ac := range cfg.Agents {
+	for name, ac := range cfg.Harnesses {
 		if ac.Command == "" {
 			ac.Command = builtins[name]
 		}
@@ -49,7 +49,7 @@ func detectAgents(cfg Config) map[string]localAgent {
 		if err != nil {
 			continue
 		}
-		la := localAgent{Name: name, Path: path, Args: ac.Args}
+		la := localHarness{Name: name, Path: path, Args: ac.Args}
 		if _, ok := builtins[name]; ok {
 			la.Version = probeVersion(path)
 		}
@@ -84,7 +84,7 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// Result 是 agent 回一条消息的最终结果，作为 done / failed 的 payload。
+// Result 是 harness 回一条消息的最终结果，作为 done / failed 的 payload。
 type Result struct {
 	OK     bool   `json:"ok"`
 	Output string `json:"output,omitempty"`
@@ -97,8 +97,8 @@ type Result struct {
 // reportFn 回报一条进度,payload 是 JSON 对象。
 type reportFn func(payload any)
 
-// runAgent 在 dir 里跑 agent 回一条消息，过程中调用 report 回报进度。m.Resume 不为空时续接 harness 的会话。
-func runAgent(ctx context.Context, la localAgent, m protocol.Dispatch, dir string, report reportFn) Result {
+// runHarness 在 dir 里跑 harness 回一条消息，过程中调用 report 回报进度。m.Resume 不为空时续接 harness 的会话。
+func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir string, report reportFn) Result {
 	var pi protocol.PromptInput
 	_ = json.Unmarshal(m.Input, &pi)
 	switch la.Name {
@@ -124,11 +124,11 @@ func runAgent(ctx context.Context, la localAgent, m protocol.Dispatch, dir strin
 		return withSession(runCodex(ctx, exec.CommandContext(ctx, la.Path, args...), dir, report), m.Resume)
 	default:
 		in, _ := json.Marshal(protocol.HarnessInput{SessionID: m.SessionID, Resume: m.Resume, Input: m.Input})
-		return withSession(runHarness(ctx, exec.CommandContext(ctx, la.Path, la.Args...), in, dir, report), m.Resume)
+		return withSession(runCustomHarness(ctx, exec.CommandContext(ctx, la.Path, la.Args...), in, dir, report), m.Resume)
 	}
 }
 
-// withSession:agent 没报会话 id 时沿用续接的那个，免得服务那边丢掉。
+// withSession:harness 没报会话 id 时沿用续接的那个，免得服务那边丢掉。
 func withSession(r Result, resume string) Result {
 	if r.SessionID == "" {
 		r.SessionID = resume
@@ -241,8 +241,8 @@ func runClaude(ctx context.Context, cmd *exec.Cmd, dir string, report reportFn) 
 	return res
 }
 
-// runCodex 解析 codex exec --json 的 JSONL:thread.started 给会话 id,agent 消息和命令作为进度，
-// 最后一条 agent 消息作为结果输出,turn.completed 为成功。
+// runCodex 解析 codex exec --json 的 JSONL:thread.started 给会话 id,agent_message 和命令作为进度，
+// 最后一条 agent_message 作为结果输出,turn.completed 为成功。
 func runCodex(ctx context.Context, cmd *exec.Cmd, dir string, report reportFn) Result {
 	stdout, stderr, err := start(cmd, dir, nil)
 	if err != nil {
@@ -311,13 +311,13 @@ func runCodex(ctx context.Context, cmd *exec.Cmd, dir string, report reportFn) R
 	return res
 }
 
-// runHarness 按自定义 harness 的约定跑:HarnessInput 写进 stdin,stdout 每行一个 JSON。
+// runCustomHarness 按自定义 harness 的约定跑:HarnessInput 写进 stdin,stdout 每行一个 JSON。
 //
 //	{"type":"progress", ...任意字段}         → 原样作为进度回报
 //	{"type":"result","ok":true,"output":"…","session_id":"…"} → 最终结果
 //
 // 不是 JSON 的行当作文本进度。没输出 result 就按退出码判断成败。
-func runHarness(ctx context.Context, cmd *exec.Cmd, input json.RawMessage, dir string, report reportFn) Result {
+func runCustomHarness(ctx context.Context, cmd *exec.Cmd, input json.RawMessage, dir string, report reportFn) Result {
 	stdout, stderr, err := start(cmd, dir, strings.NewReader(string(input)+"\n"))
 	if err != nil {
 		return Result{Error: err.Error()}
