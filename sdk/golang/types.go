@@ -38,6 +38,28 @@ type CreateHarnessRequest struct {
 	Description string `json:"description,omitempty"`
 }
 
+type Agent struct {
+	ID          string `json:"id"`
+	UserID      string `json:"user_id"`
+	Name        string `json:"name"`
+	Harness     string `json:"harness"`
+	Description string `json:"description"`
+	CreatedAt   int64  `json:"created_at"`
+	UpdatedAt   int64  `json:"updated_at"`
+}
+
+type CreateAgentRequest struct {
+	Name        string `json:"name"`
+	Harness     string `json:"harness"`
+	Description string `json:"description,omitempty"`
+}
+
+type UpdateAgentRequest struct {
+	Name        *string `json:"name,omitempty"`
+	Harness     *string `json:"harness,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
 type Daemon struct {
 	ID           string          `json:"id"`
 	UserID       string          `json:"user_id"`
@@ -63,7 +85,8 @@ type DaemonHarness struct {
 type Session struct {
 	ID               string `json:"id"`
 	UserID           string `json:"user_id"`
-	Harness          string `json:"harness"`
+	AgentID          string `json:"agent_id,omitempty"` // agent 删除后为空
+	Harness          string `json:"harness"`            // 建会话时 agent 映射的 harness,之后不变
 	DaemonID         string `json:"daemon_id,omitempty"`
 	Cwd              string `json:"cwd,omitempty"`
 	HarnessSessionID string `json:"harness_session_id,omitempty"`
@@ -99,7 +122,7 @@ type MessageRequest struct {
 }
 
 type CreateSessionRequest struct {
-	Harness string `json:"harness"`
+	AgentID string `json:"agent_id"`
 	Prompt  string `json:"prompt,omitempty"`
 	Input   any    `json:"input,omitempty"`
 	Cwd     string `json:"cwd,omitempty"`

@@ -2,13 +2,16 @@
 
 会话，对齐各 harness 自己的 session(如 Claude Code 的 session、Codex 的 thread)。一个会话是一段多轮对话：用户发一条消息,harness 回一条，可以一直往下回复。消息记在 [messages](messages.md)。
 
+会话用一个 [agent](agents.md) 开。建的时候把 agent 当时映射的 harness 记进 `harness`,之后不再跟着 agent 变：之后 agent 换了 harness,这个会话也还用原来的(续接只能用原来那个 harness 的会话)。
+
 派给 daemon 的单位是会话：用户发了消息，会话变成 `pending`,daemon 领走后 `running`,harness 回完回到 `idle`。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | TEXT PK | 会话 id,如 `ss_xxx` |
-| `user_id` | TEXT | 创建它的 [用户](users.md);只派给这个用户自己的 daemon |
-| `harness` | TEXT | 用哪个 CLI harness,取 [harnesses](harnesses.md).name;建会话时定下，之后不变 |
+| `user_id` | TEXT | 会话属于哪个 [用户](users.md),就是 agent 的主人;只派给这个用户自己的 daemon |
+| `agent_id` | TEXT | 用哪个 [agent](agents.md) 开的;agent 删除后变空 |
+| `harness` | TEXT | 实际用哪个 CLI harness,建会话时取 agent 当时的 harness,之后不变;派活按它匹配 |
 | `daemon_id` | TEXT | 跑这个会话的 daemon。第一次被领走时写入，之后只派给它(harness 的会话存在那台电脑上) |
 | `cwd` | TEXT | daemon 本机的工作目录，可为空;为空时在 `~/.agentuse/work/<session_id>/`。建会话时定下 |
 | `harness_session_id` | TEXT | harness 自己的会话 id(Claude Code 的 `session_id`、Codex 的 `thread_id`),daemon 回报结果时带回;之后每次带上它续接 |
@@ -33,6 +36,7 @@ idle ──用户发消息──▶ pending ──派给 daemon──▶ running
 CREATE TABLE sessions (
   id                 TEXT PRIMARY KEY,
   user_id            TEXT NOT NULL REFERENCES users(id),
+  agent_id           TEXT REFERENCES agents(id) ON DELETE SET NULL,
   harness            TEXT NOT NULL REFERENCES harnesses(name),
   daemon_id          TEXT REFERENCES daemons(id) ON DELETE SET NULL,
   cwd                TEXT,

@@ -1,6 +1,6 @@
 # harnesses
 
-全局有哪些 CLI harness 可以用。[sessions](sessions.md).harness 和 [daemon_harnesses](daemon_harnesses.md).harness 都必须是这里登记过的 `name`。
+全局有哪些 CLI harness 可以用。[agents](agents.md).harness、[sessions](sessions.md).harness 和 [daemon_harnesses](daemon_harnesses.md).harness 都必须是这里登记过的 `name`。
 
 分两类:
 

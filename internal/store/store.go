@@ -61,9 +61,21 @@ CREATE TABLE IF NOT EXISTS daemon_harnesses (
 );
 CREATE INDEX IF NOT EXISTS daemon_harnesses_user_harness ON daemon_harnesses(user_id, harness);
 
+CREATE TABLE IF NOT EXISTS agents (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id),
+  name        TEXT NOT NULL,
+  harness     TEXT NOT NULL REFERENCES harnesses(name),
+  description TEXT,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS agents_user_name ON agents(user_id, name);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id                 TEXT PRIMARY KEY,
   user_id            TEXT NOT NULL REFERENCES users(id),
+  agent_id           TEXT REFERENCES agents(id) ON DELETE SET NULL,
   harness            TEXT NOT NULL REFERENCES harnesses(name),
   daemon_id          TEXT REFERENCES daemons(id) ON DELETE SET NULL,
   cwd                TEXT,
