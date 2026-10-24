@@ -30,4 +30,4 @@ CREATE UNIQUE INDEX daemons_key ON daemons(key_hash);
 CREATE UNIQUE INDEX daemons_setup_token ON daemons(setup_token);
 ```
 
-「重新生成安装命令」会清掉 `key_hash`、生成新的 `setup_token`、状态回到 `pending`,原来那台电脑的连接立即断开。删除 daemon 时它的 daemon_agents 一起删;绑定它的会话 `daemon_id` 变空、不能再回复，正在跑的那一轮标为 `failed`。
+「重新生成安装命令」会清掉 `key_hash`、生成新的 `setup_token`、状态回到 `pending`,原来那台电脑的连接立即断开。删除 daemon 时它的 daemon_agents 一起删;绑定它的会话 `daemon_id` 变空、不能再发消息;没回完的会话回到 `idle`,并追加一条失败的 `assistant` 消息。

@@ -8,7 +8,7 @@ agentuse 服务对外的全部接口。一组接口一个文件:
 | [users](users.md) | 用户管理(仅 admin) | 网页 / 脚本 |
 | [agents](agents.md) | agent 列表、注册自定义 harness | 网页 / 脚本 |
 | [daemons](daemons.md) | 添加 daemon、安装命令、开关 agent | 网页 / 脚本 |
-| [sessions](sessions.md) | 开会话、回复、看每一轮和回报 | 网页 / 脚本 |
+| [sessions](sessions.md) | 开会话、发消息、看消息和回报 | 网页 / 脚本 |
 | [setup](setup.md) | `setup.sh` 和二进制下载 | 用户电脑上的 curl |
 | [daemon](daemon.md) | daemon 注册、自检、WebSocket 消息 | daemon |
 
