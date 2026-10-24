@@ -40,4 +40,14 @@
 
 `token` 只在这里出现一次，库里只存哈希。id 或用户名重复、id 格式不对，都返回 400。
 
-命令行等价:`agentuse user create alice -id u_10086 [-role admin]`。
+命令行等价:`agentuse-server user create alice -id u_10086 [-role admin]`。
+
+## POST /api/users/{id}/token
+
+给用户换一个新的登录令牌，旧的立即失效。没有请求体。返回 200,格式同上:
+
+```json
+{ "user": { "id": "u_10086", "…": "…" }, "token": "ut_…", "login_url": "https://…/login?token=ut_…" }
+```
+
+用户不存在返回 404。命令行等价:`agentuse-server user token u_10086`。

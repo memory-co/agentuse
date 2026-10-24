@@ -24,7 +24,7 @@ CREATE TABLE users (
 CREATE UNIQUE INDEX users_token ON users(token_hash);
 ```
 
-服务第一次启动、库里没有用户时，自动建一个管理员 `admin`(id 为 UUID),把登录链接打印在日志里。之后管理员在页面上建其他用户。令牌丢了用 `agentuse user token <用户名>` 重置。
+服务第一次启动、库里没有用户时，自动建一个管理员 `admin`(id 为 UUID),把登录链接打印在日志里。之后管理员在页面上建其他用户。令牌丢了由管理员用 `agentuse-server user token <用户 id>` 重置;管理员自己的令牌丢了用 `agentuse-server start -reset-admin-token`。
 
 归属关系:
 

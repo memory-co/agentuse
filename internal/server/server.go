@@ -23,7 +23,6 @@ type Config struct {
 	// PublicURL 是用户电脑访问服务的地址，写进安装命令和 setup.sh。空 = 按请求的 Host 推断。
 	PublicURL string
 	// DistDir 放各平台的 agentuse 二进制(agentuse-<os>-<arch>),setup.sh 从这里下载。
-	// 找不到时，和服务同平台的请求直接拿服务自己的可执行文件。
 	DistDir string
 	Logger  *log.Logger
 }
@@ -82,6 +81,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/me", s.auth(s.handleMe))
 	s.mux.HandleFunc("GET /api/users", s.admin(s.handleListUsers))
 	s.mux.HandleFunc("POST /api/users", s.admin(s.handleCreateUser))
+	s.mux.HandleFunc("POST /api/users/{id}/token", s.admin(s.handleResetUserToken))
 	s.mux.HandleFunc("GET /api/agents", s.auth(s.handleListAgents))
 	s.mux.HandleFunc("POST /api/agents", s.auth(s.handleCreateAgent))
 	s.mux.HandleFunc("DELETE /api/agents/{name}", s.auth(s.handleDeleteAgent))
@@ -96,6 +96,7 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("POST "+protocol.RegisterPath, s.handleRegister)
 	s.mux.HandleFunc("GET "+protocol.WSPath, s.hub.handleWS)
+	s.mux.HandleFunc("GET "+protocol.MePath, s.handleDaemonMe)
 }
 
 // baseURL 是安装命令里的服务地址。

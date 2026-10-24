@@ -18,7 +18,7 @@ agentuse-server user create ──HTTP──▶ agentuse-server start ──▶ 
 | `agentuse-server login` | 保存服务地址和管理员令牌 | `GET /api/me` |
 | `agentuse-server user create <用户名>` | 建用户 | `POST /api/users` |
 | `agentuse-server user list` | 列用户 | `GET /api/users` |
-| `agentuse-server user token <用户 id>` | 重置登录令牌 | `POST /api/users/{id}/token`(待加) |
+| `agentuse-server user token <用户 id>` | 重置登录令牌 | `POST /api/users/{id}/token` |
 | `agentuse-server version` | 版本 | — |
 
 ## start
@@ -86,15 +86,15 @@ agentuse-server user list [-json]
 agentuse-server user token u_10086
 ```
 
-给用户换一个新的登录令牌，旧的立即失效。需要新加接口 `POST /api/users/{id}/token`(admin),返回 `{"token": "ut_…", "login_url": "…"}`。
+给用户换一个新的登录令牌，旧的立即失效。调 [`POST /api/users/{id}/token`](../apis/users.md#post-apiusersidtoken)。
 
 管理员自己的令牌丢了，没法再调接口，用 `start -reset-admin-token` 在服务器上找回。
 
-## 和现在的差别
+## 和旧命令的对照
 
-现在是一个二进制 `agentuse`,服务端命令 `agentuse server` / `agentuse user …` 直接读写数据库。拆分后:
+拆分前是一个二进制 `agentuse`,服务端命令 `agentuse server` / `agentuse user …` 直接读写数据库:
 
-| 现在 | 拆分后 |
+| 旧 | 新 |
 |---|---|
 | `agentuse server …` | `agentuse-server start …` |
 | `agentuse user create …`(直连数据库) | `agentuse-server user create …`(调 API) |
@@ -103,5 +103,3 @@ agentuse-server user token u_10086
 | `agentuse daemon register …` | `agentuse register …` |
 | `agentuse daemon run` | `agentuse daemon` |
 | — | `agentuse status`、`agentuse agents`(新增) |
-
-`setup.sh` 和后台服务的启动命令跟着改;接口文档加上 `POST /api/users/{id}/token`。

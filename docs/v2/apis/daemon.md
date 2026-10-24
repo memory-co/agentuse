@@ -20,6 +20,16 @@ daemon 和服务之间的接口：先用安装令牌注册，再用长期密钥�
 - 令牌用过一次就作废;无效或已用过返回 401。
 - `key` 只在这里出现一次，daemon 把它写进 `~/.agentuse/daemon.json`。
 
+## GET /api/daemon/me
+
+用密钥查自己，验证密钥是否还有效，带 `Authorization: Bearer dk_…`。不建连接，不影响正在跑的 daemon,`agentuse status` 用它。
+
+```json
+{ "daemon_id": "dm_…", "name": "my-laptop", "user_id": "u_10086", "status": "online" }
+```
+
+密钥无效返回 401。
+
 ## GET /api/daemon/ws
 
 WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效时不升级，直接返回 401(daemon 收到 401 就不再重连，提示重新跑安装命令)。

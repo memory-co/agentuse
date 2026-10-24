@@ -204,6 +204,16 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("bob should not see alice task: %d", code)
 	}
 
+	// daemon 用密钥自检
+	req, _ := http.NewRequest("GET", ts.URL+"/api/daemon/me", nil)
+	req.Header.Set("Authorization", "Bearer "+cfg.Key)
+	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("daemon me: %v %v", err, resp)
+	}
+	if code := ca.do("POST", "/api/users/"+bobTask.UserID+"/token", nil, nil); code != http.StatusForbidden {
+		t.Fatalf("普通用户不能重置令牌: %d", code)
+	}
+
 	// 删除 daemon 后密钥失效
 	if code := ca.do("DELETE", "/api/daemons/"+dv.ID, nil, nil); code != http.StatusNoContent {
 		t.Fatalf("delete: %d", code)

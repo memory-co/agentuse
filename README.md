@@ -9,8 +9,8 @@
 ### 1. 起服务
 
 ```bash
-make build dist                     # bin/agentuse + dist/ 下各平台二进制
-bin/agentuse server -dist dist      # 默认监听 :8080,数据在 ~/.agentuse/server.db
+make build dist                          # bin/agentuse、bin/agentuse-server + dist/ 下各平台 agentuse
+bin/agentuse-server start -dist dist     # 默认监听 :8080,数据在 ~/.agentuse/server.db
 ```
 
 第一次启动会建管理员 `admin`,并在日志里打印登录链接:
@@ -39,14 +39,21 @@ curl -fsSL "https://agentuse.example.com/setup.sh" -o setup.sh && TOKEN="st_…"
 ## 命令
 
 ```
-agentuse server [-addr :8080] [-db 路径] [-public-url URL] [-dist 目录]
-agentuse daemon register -server URL -token 安装令牌   # setup.sh 会替你跑
-agentuse daemon run                                     # setup.sh 装成的后台服务跑的就是它
-agentuse user create 用户名 [-id 用户id] [-role user|admin]
-agentuse user token 用户名                              # 重置登录令牌
+# 服务端
+agentuse-server start [-addr :8080] [-db 路径] [-public-url URL] [-dist 目录] [-reset-admin-token]
+agentuse-server login -server URL -token 管理员令牌     # 之后的管理命令都走 HTTP API
+agentuse-server user create 用户名 [-id 用户id] [-role user|admin]
+agentuse-server user list [-json]
+agentuse-server user token 用户id                       # 重置登录令牌
+
+# 用户电脑
+agentuse register -server URL -token 安装令牌           # setup.sh 会替你跑
+agentuse daemon                                         # setup.sh 装成的后台服务跑的就是它
+agentuse status                                         # 注册和连接状态
+agentuse agents                                         # 本机检测到的 agent
 ```
 
-server 的参数也能用环境变量给:`AGENTUSE_ADDR`、`AGENTUSE_DB`、`AGENTUSE_PUBLIC_URL`、`AGENTUSE_DIST`。
+两个 CLI 的完整说明见 [`docs/v2/cli/`](docs/v2/cli/README.md)。`start` 的参数也能用环境变量给:`AGENTUSE_ADDR`、`AGENTUSE_DB`、`AGENTUSE_PUBLIC_URL`、`AGENTUSE_DIST`。
 
 ## API
 
@@ -68,14 +75,15 @@ server 的参数也能用环境变量给:`AGENTUSE_ADDR`、`AGENTUSE_DB`、`AGEN
 
 ```bash
 make test     # go test ./...
-make build    # bin/agentuse
-make dist     # dist/agentuse-{linux,darwin}-{amd64,arm64}
+make build    # bin/agentuse、bin/agentuse-server
+make dist     # dist/agentuse-{linux,darwin}-{amd64,arm64}(只有用户电脑上的 agentuse)
 ```
 
 ## 布局
 
 ```
-cmd/agentuse/        单一二进制:server / daemon / user 命令
+cmd/agentuse/        用户电脑上的 CLI:register / daemon / status / agents
+cmd/agentuse-server/ 服务端 CLI:start / login / user
 internal/
 ├── cli/             命令行
 ├── store/           SQLite 存储(表结构见 docs/v2/tables/)

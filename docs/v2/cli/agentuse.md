@@ -45,16 +45,16 @@ daemon   dm_5c1c8602536e55cb
 后台服务 systemd --user: active
 ```
 
-只读：读配置、试连一次服务验证密钥、看后台服务是否在跑。没注册时提示去页面复制安装命令。
+只读：读配置、调 [`GET /api/daemon/me`](../apis/daemon.md#get-apidaemonme) 验证密钥(不建 WebSocket,不影响正在跑的 daemon)、看后台服务是否在跑。没注册时提示去页面复制安装命令。
 
 ### agents
 
 ```
 $ agentuse agents
-名字     命令                 版本
-claude   /opt/node/bin/claude 2.1.310 (Claude Code)
-codex    -                    未安装
-my-harness /usr/local/bin/my-harness
+名字        命令                       版本
+claude      /opt/node/bin/claude       2.1.310 (Claude Code)
+codex       -                          未安装
+my-harness  /usr/local/bin/my-harness
 ```
 
 按 daemon 的检测逻辑列出本机 agent,和 daemon 连上时上报的一致。是否开启在页面上设置，这里不管。

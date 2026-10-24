@@ -12,7 +12,7 @@ curl -fsSL "https://<服务>/setup.sh" -o setup.sh && TOKEN="st_xxx" bash setup.
         │
         ▼ setup.sh 在用户电脑上
 1. 从 <服务>/download/agentuse-<os>-<arch> 下载二进制到 ~/.agentuse/bin/agentuse
-2. agentuse daemon register:用 TOKEN 换长期密钥(dk_xxx),写进 ~/.agentuse/daemon.json
+2. agentuse register:用 TOKEN 换长期密钥(dk_xxx),写进 ~/.agentuse/daemon.json
 3. 装成后台服务并启动:macOS 用 launchd,Linux 有 systemd --user 就用它，否则 nohup
         │
         ▼
@@ -20,7 +20,7 @@ daemon 连上 WebSocket,上报本机 agent ──▶ 页面上出现这台电脑
 ```
 
 - 安装令牌只能用一次，注册后作废;要换电脑或重装，在页面上「重新生成安装命令」,旧密钥同时失效。
-- 二进制从服务的 `-dist` 目录取(`make dist` 交叉编译 linux/darwin × amd64/arm64);没有时，和服务同平台的请求直接拿服务自己的可执行文件。
+- 二进制从服务的 `-dist` 目录取(`make dist` 交叉编译 linux/darwin × amd64/arm64)。目录里缺平台时 `agentuse-server start` 会警告。
 - 用户在页面上为每台 daemon 选择开启哪些 agent,默认都关闭。
 
 ## 认证

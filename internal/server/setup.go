@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 )
 
@@ -45,7 +44,7 @@ if ! curl -fsSL "$SERVER/download/agentuse-$OS-$ARCH" -o "$BIN.tmp"; then
     say "服务上没有 $OS/$ARCH 的二进制，改用 go install 本地编译 ..."
     GOBIN="$INSTALL_DIR" go install github.com/memory-co/agentuse/cmd/agentuse@latest
   else
-    die "下载失败：服务上没有 $OS/$ARCH 的二进制(管理员可以 make dist 后用 -dist 指定目录)"
+    die "下载失败：服务上没有 $OS/$ARCH 的二进制(请管理员 make dist 后用 agentuse-server start -dist 指定目录)"
   fi
 else
   chmod +x "$BIN.tmp"
@@ -53,7 +52,7 @@ else
 fi
 
 say "注册这台电脑 ..."
-"$BIN" daemon register --server "$SERVER" --token "$TOKEN"
+"$BIN" register -server "$SERVER" -token "$TOKEN"
 
 LOG="$HOME/.agentuse/daemon.log"
 if [ "$OS" = darwin ]; then
@@ -64,7 +63,7 @@ if [ "$OS" = darwin ]; then
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>dev.agentuse.daemon</string>
-  <key>ProgramArguments</key><array><string>$BIN</string><string>daemon</string><string>run</string></array>
+  <key>ProgramArguments</key><array><string>$BIN</string><string>daemon</string></array>
   <key>EnvironmentVariables</key><dict><key>PATH</key><string>$PATH</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -84,7 +83,7 @@ Description=agentuse daemon
 After=network-online.target
 
 [Service]
-ExecStart=$BIN daemon run
+ExecStart=$BIN daemon
 Environment=PATH=$PATH
 Restart=always
 RestartSec=5
@@ -100,10 +99,10 @@ EOF
 else
   PIDFILE="$HOME/.agentuse/daemon.pid"
   if [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null; then sleep 1; fi
-  nohup "$BIN" daemon run >>"$LOG" 2>&1 &
+  nohup "$BIN" daemon >>"$LOG" 2>&1 &
   echo $! >"$PIDFILE"
   say "已在后台启动(pid $(cat "$PIDFILE")),日志: $LOG"
-  say "注意：没有 systemd/launchd,重启电脑后需要手动运行: $BIN daemon run"
+  say "注意：没有 systemd/launchd,重启电脑后需要手动运行: $BIN daemon"
 fi
 
 say "完成！回到 agentuse 页面，选择这台电脑上要开启的 agent。"
@@ -117,7 +116,21 @@ func (s *Server) handleSetupScript(w http.ResponseWriter, r *http.Request) {
 
 var binNameRe = regexp.MustCompile(`^agentuse-(linux|darwin)-(amd64|arm64)$`)
 
-// handleDownload 提供 daemon 二进制:先找 DistDir,再退回服务自己(同平台时)。
+// Platforms 是 setup.sh 支持下载的平台。
+var Platforms = []string{"linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64"}
+
+// MissingDist 返回 dir 里缺二进制的平台。
+func MissingDist(dir string) []string {
+	var missing []string
+	for _, p := range Platforms {
+		if dir == "" || !fileExists(filepath.Join(dir, "agentuse-"+p)) {
+			missing = append(missing, p)
+		}
+	}
+	return missing
+}
+
+// handleDownload 从 DistDir 提供用户电脑上的 agentuse 二进制。
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("file")
 	m := binNameRe.FindStringSubmatch(name)
@@ -129,11 +142,6 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.DistDir != "" {
 		if p := filepath.Join(s.cfg.DistDir, name); fileExists(p) {
 			path = p
-		}
-	}
-	if path == "" && m[1] == runtime.GOOS && m[2] == runtime.GOARCH {
-		if exe, err := os.Executable(); err == nil {
-			path = exe
 		}
 	}
 	if path == "" {
