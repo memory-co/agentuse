@@ -55,6 +55,15 @@ export class Client {
   createHarness(user, harness) { return this._request("POST", "/api/harnesses", user, harness); }
   async deleteHarness(user, name) { await this._request("DELETE", `/api/harnesses/${q(name)}`, user); }
 
+  // agents
+  listAgents(user) { return this._request("GET", "/api/agents", user); }
+  // { id?, name, harness, description? };id 全局唯一，别人用它 @ 这个 agent,不传时服务生成。
+  createAgent(user, agent) { return this._request("POST", "/api/agents", user, agent); }
+  getAgent(user, agentId) { return this._request("GET", `/api/agents/${q(agentId)}`, user); }
+  // 改名字、换 harness、改说明:{ name?, harness?, description? }。换 harness 只影响之后新建的会话。
+  updateAgent(user, agentId, patch) { return this._request("PATCH", `/api/agents/${q(agentId)}`, user, patch); }
+  async deleteAgent(user, agentId) { await this._request("DELETE", `/api/agents/${q(agentId)}`, user); }
+
   // daemons
   listDaemons(user) { return this._request("GET", "/api/daemons", user); }
   // 添加一台 daemon,返回的 setup_command 给用户复制到自己电脑上跑。
@@ -67,7 +76,7 @@ export class Client {
 
   // sessions
   listSessions(user) { return this._request("GET", "/api/sessions", user); }
-  // 新建会话并发出第一条消息:{ harness, prompt?, input?, cwd? } → { session, message }。
+  // 新建会话并发出第一条消息:{ agent_id, prompt?, input?, cwd? } → { session, message }。
   createSession(user, req) { return this._request("POST", "/api/sessions", user, req); }
   // 回复:{ prompt? , input? }。会话不是 idle 时抛 AgentuseError(409)。
   sendMessage(user, sessionId, req) { return this._request("POST", `/api/sessions/${q(sessionId)}/messages`, user, req); }

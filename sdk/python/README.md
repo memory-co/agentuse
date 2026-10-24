@@ -20,8 +20,11 @@ print(d["setup_command"])
 # 电脑上线后打开 claude
 agentuse.set_daemon_harness(uid, d["id"], "claude", True)
 
-# 发起任务，等它回完
-s = agentuse.create_session(uid, "claude", prompt="修一下 README 的错别字", cwd="~/code/x")["session"]
+# 建一个 agent,背后用 claude;以后 update_agent 换 harness,agent 不变
+a = agentuse.create_agent(uid, "写代码", "claude", id="code-helper")
+
+# 用这个 agent 发起任务，等它回完
+s = agentuse.create_session(uid, a["id"], prompt="修一下 README 的错别字", cwd="~/code/x")["session"]
 detail = agentuse.wait_session(uid, s["id"], interval=2, timeout=600)
 print(detail["messages"][-1]["content"])
 

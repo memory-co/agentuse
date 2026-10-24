@@ -3,7 +3,7 @@
 使用 agentuse 的人。角色只分两种:
 
 - **admin**:管理员。管理内置 harness、查看和处理所有人的 daemon 与会话。
-- **user**:普通用户。只能管理自己的 daemon、自己注册的自定义 harness、自己创建的会话。
+- **user**:普通用户。只能管理自己的 daemon、agent、自己注册的自定义 harness、自己的会话。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -31,5 +31,7 @@ CREATE UNIQUE INDEX users_token ON users(token_hash);
 | 表 | 字段 | 含义 |
 |---|---|---|
 | [daemons](daemons.md) | `user_id` | daemon 属于谁 |
+| [agents](agents.md) | `user_id` | agent 属于谁 |
 | [harnesses](harnesses.md) | `owner_id` | 自定义 harness 由谁注册，内置为空 |
-| [sessions](sessions.md) | `user_id` | 会话由谁创建;只派给这个用户自己的 daemon |
+| [sessions](sessions.md) | `user_id` | 会话属于谁(agent 的主人);只派给这个用户自己的 daemon |
+| [sessions](sessions.md) | `created_by` | 会话是谁发起的(可以 @ 别人的 agent) |

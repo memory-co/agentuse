@@ -79,6 +79,29 @@ class Client:
     def delete_harness(self, user, name):
         self._request("DELETE", f"/api/harnesses/{_q(name)}", user)
 
+    # agents
+
+    def list_agents(self, user):
+        return self._request("GET", "/api/agents", user)
+
+    def create_agent(self, user, name, harness, description=None, id=None):
+        """id 全局唯一，别人用它 @ 这个 agent;不传时服务生成 ag_xxx。"""
+        return self._request(
+            "POST", "/api/agents", user, _drop_none(id=id, name=name, harness=harness, description=description)
+        )
+
+    def get_agent(self, user, agent_id):
+        return self._request("GET", f"/api/agents/{_q(agent_id)}", user)
+
+    def update_agent(self, user, agent_id, name=None, harness=None, description=None):
+        """改名字、换 harness、改说明;None 不改。换 harness 只影响之后新建的会话。"""
+        return self._request(
+            "PATCH", f"/api/agents/{_q(agent_id)}", user, _drop_none(name=name, harness=harness, description=description)
+        )
+
+    def delete_agent(self, user, agent_id):
+        self._request("DELETE", f"/api/agents/{_q(agent_id)}", user)
+
     # daemons
 
     def list_daemons(self, user):
@@ -104,10 +127,10 @@ class Client:
     def list_sessions(self, user):
         return self._request("GET", "/api/sessions", user)
 
-    def create_session(self, user, harness, prompt=None, input=None, cwd=None):
-        """新建会话并发出第一条消息，返回 {"session": …, "message": …}。"""
+    def create_session(self, user, agent_id, prompt=None, input=None, cwd=None):
+        """用一个 agent 新建会话并发出第一条消息，返回 {"session": …, "message": …}。"""
         return self._request(
-            "POST", "/api/sessions", user, _drop_none(harness=harness, prompt=prompt, input=input, cwd=cwd)
+            "POST", "/api/sessions", user, _drop_none(agent_id=agent_id, prompt=prompt, input=input, cwd=cwd)
         )
 
     def send_message(self, user, session_id, prompt=None, input=None):

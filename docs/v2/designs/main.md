@@ -26,7 +26,7 @@
 ## 流程
 
 1. **连接**:daemon 启动后主动连出 agentuse 的 WebSocket 地址并认证，同时声明本机能用哪些 CLI harness(记在 daemon_harnesses 表)。用户电脑在 NAT 后面也没关系,服务不需要能访问用户电脑。
-2. **领活**:用户建一个**会话**(session)并发出第一条消息，之后可以在会话里一直回复。用户发了消息、harness 还没回的会话就是待派的活。daemon 空闲时告诉服务「我可以接活」,服务只挑同一用户、且 harness 是这台 daemon 开启了的会话，把最新那条消息通过这条连接推过来。
+2. **领活**:用户先建一个 **agent**:起个好懂的名字，背后选一个 harness,以后可以换 harness 而 agent 不变。然后用 agent 建一个**会话**(session)并发出第一条消息;agent id 全局唯一，也可以 @ 别人的 agent,活就派到 agent 主人的 daemon 上，之后可以在会话里一直回复。用户发了消息、harness 还没回的会话就是待派的活。daemon 空闲时告诉服务「我可以接活」,服务只挑同一用户、且 harness 是这台 daemon 开启了的会话，把最新那条消息通过这条连接推过来。
 3. **干活**:会话对齐 harness 自己的会话(Claude Code 的 session、Codex 的 thread)。第一条消息新建 harness 会话，之后每条都续接它，所以一个会话固定在第一次跑它的那台 daemon 上。harness 在服务上全局登记：内置的有 Claude Code、Codex;用户自己手搓的 harness 也能注册，只要按约定从 stdin 读输入、往 stdout 写进度和结果([harnesses](../tables/harnesses.md))。
 4. **汇报**:执行过程中回报进度，结束后回报结果(成功 / 失败及输出)和 harness 的会话 id,服务把结果记成 harness 回的一条消息。
 5. 回到第 2 步，等下一条消息。
@@ -43,11 +43,12 @@ agentuse 服务用 **SQLite** 存数据，一个文件、不依赖外部数据�
 
 | 表 | 存什么 |
 |---|---|
-| [users](../tables/users.md) | 用户，分 admin 和普通用户;daemon、自定义 harness、会话都归属到用户 |
+| [users](../tables/users.md) | 用户，分 admin 和普通用户;daemon、agent、自定义 harness、会话都归属到用户 |
 | [harnesses](../tables/harnesses.md) | 全局登记的 CLI harness,包括内置的和用户自定义的 harness |
+| [agents](../tables/agents.md) | 用户起名字的 agent,映射一个 harness,可以换 |
 | [daemons](../tables/daemons.md) | 登记过的 daemon 及其在线状态 |
 | [daemon_harnesses](../tables/daemon_harnesses.md) | 每个 daemon 能用哪些 CLI harness |
-| [sessions](../tables/sessions.md) | 会话，对齐 harness 的 session,多轮对话 |
+| [sessions](../tables/sessions.md) | 会话，用某个 agent 开，对齐 harness 的 session,多轮对话 |
 | [messages](../tables/messages.md) | 会话里的消息，用户发的和 harness 回的 |
 | [session_events](../tables/session_events.md) | daemon 回报的进度和结果，按时间追加 |
 
@@ -66,6 +67,7 @@ agentuse 也能像 Redis 一样当中间件嵌进别的网站：网站后端带�
 服务自带一个网页(源码在仓库顶层 `frontend/`,React + shadcn/ui,构建产物嵌进 agentuse-server):
 
 - **机器**:添加 daemon、复制安装命令、看在线状态、为每台 daemon 开关 harness。
-- **会话**:选 harness、写 prompt 开一个会话，像聊天一样看 harness 的进度和回复，在下面接着发消息。
+- **会话**:选 agent、写 prompt 开一个会话，像聊天一样看 harness 的进度和回复，在下面接着发消息。
+- **Agent**:建 agent、给它起名字、选 / 换背后的 harness。
 - **Harness**:看全部 harness,注册自定义 harness。
 - **用户**(仅 admin):建用户，拿到对方的登录链接。

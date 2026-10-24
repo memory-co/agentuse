@@ -176,6 +176,71 @@ func (s *Server) handleDeleteHarness(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
+	agents, err := s.store.ListAgents(r.Context(), currentUser(r))
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, agents)
+}
+
+func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Harness     string `json:"harness"`
+		Description string `json:"description"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	a, err := s.store.CreateAgent(r.Context(), currentUser(r).ID, req.ID, req.Name, req.Harness, req.Description)
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, a)
+}
+
+func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
+	a, err := s.store.GetAgent(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
+}
+
+// handleUpdateAgent 改名字、换 harness、改说明;没给的字段不变。
+func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name        *string `json:"name"`
+		Harness     *string `json:"harness"`
+		Description *string `json:"description"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	a, err := s.store.UpdateAgent(r.Context(), currentUser(r), r.PathValue("id"),
+		store.AgentPatch{Name: req.Name, Harness: req.Harness, Description: req.Description})
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
+}
+
+func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteAgent(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // daemonView 是页面上一台 daemon:待注册的附带安装命令。
 type daemonView struct {
 	store.Daemon
@@ -299,7 +364,7 @@ func messageContent(input json.RawMessage, prompt string) (json.RawMessage, erro
 // handleCreateSession 建会话并发出第一条消息。
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Harness string          `json:"harness"`
+		AgentID string          `json:"agent_id"`
 		Input   json.RawMessage `json:"input"`
 		Prompt  string          `json:"prompt"`
 		Cwd     string          `json:"cwd"`
@@ -308,8 +373,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Harness == "" {
-		writeErr(w, http.StatusBadRequest, "harness 必填")
+	if req.AgentID == "" {
+		writeErr(w, http.StatusBadRequest, "agent_id 必填")
 		return
 	}
 	content, err := messageContent(req.Input, req.Prompt)
@@ -321,13 +386,12 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	if len(req.Input) == 0 {
 		title = firstRunes(strings.TrimSpace(req.Prompt), 50)
 	}
-	u := currentUser(r)
-	ss, m, err := s.store.CreateSession(r.Context(), u.ID, req.Harness, strings.TrimSpace(req.Cwd), title, content)
+	ss, m, err := s.store.CreateSession(r.Context(), currentUser(r), req.AgentID, strings.TrimSpace(req.Cwd), title, content)
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	s.hub.kickUser(u.ID)
+	s.hub.kickUser(ss.UserID)
 	writeJSON(w, http.StatusCreated, map[string]any{"session": ss, "message": m})
 }
 

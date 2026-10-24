@@ -17,6 +17,16 @@ export interface Harness {
   created_at: number;
 }
 
+export interface Agent {
+  id: string;
+  user_id: string;
+  name: string;
+  harness: string;
+  description: string;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface DaemonHarness {
   daemon_id: string;
   user_id: string;
@@ -42,6 +52,8 @@ export interface Daemon {
 export interface Session {
   id: string;
   user_id: string;
+  created_by: string;
+  agent_id?: string;
   harness: string;
   daemon_id?: string;
   cwd?: string;
@@ -99,6 +111,12 @@ export declare class Client {
   createHarness(user: UserId, harness: { name: string; display_name?: string; description?: string }): Promise<Harness>;
   deleteHarness(user: UserId, name: string): Promise<void>;
 
+  listAgents(user: UserId): Promise<Agent[]>;
+  createAgent(user: UserId, agent: { id?: string; name: string; harness: string; description?: string }): Promise<Agent>;
+  getAgent(user: UserId, agentId: string): Promise<Agent>;
+  updateAgent(user: UserId, agentId: string, patch: { name?: string; harness?: string; description?: string }): Promise<Agent>;
+  deleteAgent(user: UserId, agentId: string): Promise<void>;
+
   listDaemons(user: UserId): Promise<Daemon[]>;
   createDaemon(user: UserId, name?: string): Promise<Daemon>;
   resetDaemon(user: UserId, daemonId: string): Promise<Daemon>;
@@ -106,7 +124,7 @@ export declare class Client {
   deleteDaemon(user: UserId, daemonId: string): Promise<void>;
 
   listSessions(user: UserId): Promise<Session[]>;
-  createSession(user: UserId, req: MessageInput & { harness: string; cwd?: string }): Promise<{ session: Session; message: Message }>;
+  createSession(user: UserId, req: MessageInput & { agent_id: string; cwd?: string }): Promise<{ session: Session; message: Message }>;
   sendMessage(user: UserId, sessionId: string, req: MessageInput): Promise<Message>;
   getSession(user: UserId, sessionId: string): Promise<SessionDetail>;
   deleteSession(user: UserId, sessionId: string): Promise<void>;
