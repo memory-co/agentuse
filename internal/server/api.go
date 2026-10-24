@@ -130,6 +130,17 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleResetUserToken(w http.ResponseWriter, r *http.Request) {
+	u, token, err := s.store.ResetUserToken(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user": u, "token": token, "login_url": s.baseURL(r) + "/login?token=" + token,
+	})
+}
+
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	agents, err := s.store.ListAgents(r.Context())
 	if err != nil {
@@ -320,6 +331,17 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"task": t, "events": events})
+}
+
+// handleDaemonMe:daemon 用密钥查自己，验证密钥是否还有效。
+func (s *Server) handleDaemonMe(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	d, err := s.store.DaemonByKey(r.Context(), key)
+	if key == "" || err != nil {
+		writeErr(w, http.StatusUnauthorized, "daemon 密钥无效，请重新运行安装命令")
+		return
+	}
+	writeJSON(w, http.StatusOK, protocol.MeResponse{DaemonID: d.ID, Name: d.Name, UserID: d.UserID, Status: d.Status})
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {

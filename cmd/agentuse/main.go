@@ -1,4 +1,4 @@
-// Command agentuse 是服务端(server)和 daemon 共用的单一二进制。
+// Command agentuse 跑在用户电脑上：注册本机、运行 daemon、查看本机状态。
 package main
 
 import (
@@ -7,4 +7,4 @@ import (
 	"github.com/memory-co/agentuse/internal/cli"
 )
 
-func main() { os.Exit(cli.Main(os.Args[1:])) }
+func main() { os.Exit(cli.AgentuseMain(os.Args[1:])) }

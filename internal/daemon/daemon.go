@@ -51,7 +51,7 @@ func (d *Daemon) send(m protocol.Message) error {
 
 func New(cfg Config, logger *log.Logger) (*Daemon, error) {
 	if cfg.Server == "" || cfg.Key == "" {
-		return nil, errors.New("daemon 还没注册：请先运行页面上的安装命令(或 agentuse daemon register)")
+		return nil, errors.New("daemon 还没注册：请先运行页面上的安装命令(或 agentuse register)")
 	}
 	if logger == nil {
 		logger = log.Default()

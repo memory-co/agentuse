@@ -9,6 +9,8 @@ const (
 	RegisterPath = "/api/daemon/register"
 	// WSPath:daemon 的 WebSocket 长连接，Authorization: Bearer <daemon 密钥>。
 	WSPath = "/api/daemon/ws"
+	// MePath:daemon 用密钥查自己的信息，不建连接，给 agentuse status 自检用。
+	MePath = "/api/daemon/me"
 
 	// LeaseSeconds:任务租约。daemon 每 HeartbeatSeconds 续一次。
 	LeaseSeconds     = 60
@@ -24,6 +26,13 @@ type RegisterResponse struct {
 	DaemonID string `json:"daemon_id"`
 	Name     string `json:"name"`
 	Key      string `json:"key"`
+}
+
+type MeResponse struct {
+	DaemonID string `json:"daemon_id"`
+	Name     string `json:"name"`
+	UserID   string `json:"user_id"`
+	Status   string `json:"status"`
 }
 
 // 消息类型。

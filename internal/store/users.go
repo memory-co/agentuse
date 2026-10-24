@@ -59,16 +59,26 @@ func (s *Store) CreateUser(ctx context.Context, id, name, role string) (User, st
 }
 
 // ResetUserToken 给用户换一个新的登录令牌，旧的立即失效。
-func (s *Store) ResetUserToken(ctx context.Context, name string) (string, error) {
-	token := RandomToken("ut_")
-	res, err := s.db.ExecContext(ctx, `UPDATE users SET token_hash = ? WHERE name = ?`, HashSecret(token), name)
+func (s *Store) ResetUserToken(ctx context.Context, id string) (User, string, error) {
+	u, err := s.GetUser(ctx, id)
 	if err != nil {
-		return "", err
+		return User{}, "", err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return "", ErrNotFound
+	token := RandomToken("ut_")
+	if _, err := s.db.ExecContext(ctx, `UPDATE users SET token_hash = ? WHERE id = ?`, HashSecret(token), id); err != nil {
+		return User{}, "", err
 	}
-	return token, nil
+	return u, token, nil
+}
+
+func (s *Store) GetUser(ctx context.Context, id string) (User, error) {
+	return s.scanUser(s.db.QueryRowContext(ctx, `SELECT id, name, role, created_at FROM users WHERE id = ?`, id))
+}
+
+// FirstAdmin 是最早建的管理员，服务第一次启动自动建的 admin 一般就是它。
+func (s *Store) FirstAdmin(ctx context.Context) (User, error) {
+	return s.scanUser(s.db.QueryRowContext(ctx,
+		`SELECT id, name, role, created_at FROM users WHERE role = ? ORDER BY created_at, id LIMIT 1`, RoleAdmin))
 }
 
 func (s *Store) UserByToken(ctx context.Context, token string) (User, error) {

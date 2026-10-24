@@ -1,6 +1,6 @@
 # auth
 
-用户用登录令牌(`ut_` 开头)登录。服务第一次启动时自动建管理员 `admin`,在日志里打印登录链接;其他用户由管理员在 [users](users.md) 里创建。令牌丢了用 `agentuse user token <用户名>` 重置。
+用户用登录令牌(`ut_` 开头)登录。服务第一次启动时自动建管理员 `admin`,在日志里打印登录链接;其他用户由管理员在 [users](users.md) 里创建。管理员可以用 [`POST /api/users/{id}/token`](users.md#post-apiusersidtoken) 或 `agentuse-server user token <用户 id>` 给别人重置令牌;管理员自己的令牌丢了，用 `agentuse-server start -reset-admin-token` 重启服务找回。
 
 ## GET /login?token=ut_…
 
