@@ -77,24 +77,24 @@
       <div id="daemons"></div>
     </section>
 
-    <section id="tab-tasks" class="hidden">
+    <section id="tab-sessions" class="hidden">
       <div class="card">
-        <h2>新建任务</h2>
+        <h2>新建会话</h2>
         <div class="row" style="margin-bottom:8px">
-          <select id="taskAgent"></select>
-          <input id="taskCwd" style="flex:1" placeholder="工作目录(可选，daemon 本机路径)">
+          <select id="ssAgent"></select>
+          <input id="ssCwd" style="flex:1" placeholder="工作目录(可选，daemon 本机路径，整个会话都在这里跑)">
         </div>
-        <textarea id="taskPrompt" placeholder="要 agent 做什么"></textarea>
-        <div class="row" style="margin-top:8px"><button class="btn primary" onclick="addTask()">提交</button><span class="muted small">任务只会派给你自己的、开启了这个 agent 的在线 daemon。</span></div>
+        <textarea id="ssPrompt" placeholder="要 agent 做什么"></textarea>
+        <div class="row" style="margin-top:8px"><button class="btn primary" onclick="addSession()">发送</button><span class="muted small">会话只派给你自己的、开启了这个 agent 的在线 daemon;之后一直在同一台上续接。</span></div>
       </div>
-      <div class="card"><h2>任务</h2><table><thead><tr><th>id</th><th>agent</th><th>状态</th><th>内容</th><th>创建</th></tr></thead><tbody id="tasks"></tbody></table></div>
-      <div class="card hidden" id="taskDetail"></div>
+      <div class="card hidden" id="ssDetail"></div>
+      <div class="card"><h2>会话</h2><table><thead><tr><th>标题</th><th>agent</th><th>状态</th><th>更新</th></tr></thead><tbody id="sessions"></tbody></table></div>
     </section>
 
     <section id="tab-agents" class="hidden">
       <div class="card">
         <h2>注册自定义 agent</h2>
-        <p class="muted small">自己写的 harness:daemon 把任务 input 以 JSON 写进 stdin,程序往 stdout 按行输出 JSON(<code>{"type":"progress",...}</code> / <code>{"type":"result","ok":true,"output":...}</code>)。注册后在 daemon 的 <code>~/.agentuse/daemon.json</code> 里配置本机启动命令。</p>
+        <p class="muted small">自己写的 harness:daemon 把 <code>{"session_id","resume","input"}</code> 以 JSON 写进 stdin,程序往 stdout 按行输出 JSON(<code>{"type":"progress",...}</code> / <code>{"type":"result","ok":true,"output":...,"session_id":...}</code>,session_id 下次通过 resume 带回来)。注册后在 daemon 的 <code>~/.agentuse/daemon.json</code> 里配置本机启动命令。</p>
         <div class="row"><input id="agName" placeholder="名字，如 my-harness"><input id="agDisplay" placeholder="显示名"><input id="agDesc" style="flex:1" placeholder="说明"><button class="btn primary" onclick="addAgent()">注册</button></div>
       </div>
       <div class="card"><h2>全部 agent</h2><table><thead><tr><th>名字</th><th>类型</th><th>显示名</th><th>说明</th><th></th></tr></thead><tbody id="agents"></tbody></table></div>
@@ -116,7 +116,7 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = t => t ? new Date(t * 1000).toLocaleString() : '';
-let me = null, agents = [], tab = 'daemons', openTask = null;
+let me = null, agents = [], tab = 'daemons', openSession = null;
 
 async function api(method, path, body) {
   const r = await fetch(path, { method, headers: body ? {'Content-Type':'application/json'} : {}, body: body ? JSON.stringify(body) : undefined });
@@ -136,7 +136,7 @@ const login = guard(async () => {
 });
 const logout = guard(async () => { await api('POST', '/api/logout'); location.href = '/'; });
 
-const TABS = [['daemons','机器'],['tasks','任务'],['agents','Agent'],['users','用户']];
+const TABS = [['daemons','机器'],['sessions','会话'],['agents','Agent'],['users','用户']];
 function renderNav() {
   $('nav').innerHTML = TABS.filter(([k]) => k !== 'users' || me.role === 'admin')
     .map(([k, n]) => `<button class="${k === tab ? 'on' : ''}" onclick="switchTab('${k}')">${n}</button>`).join('');
@@ -178,7 +178,7 @@ function renderDaemon(d) {
 }
 function copy(btn) { navigator.clipboard.writeText(btn.dataset.text).then(() => toast('已复制'), () => toast('复制失败，请手动选中')); }
 const addDaemon = guard(async () => { await api('POST', '/api/daemons', { name: $('daemonName').value.trim() }); $('daemonName').value = ''; await loadDaemons(); });
-const delDaemon = guard(async id => { if (!confirm('删除这台 daemon?它会断开，正在跑的任务会重新排队。')) return; await api('DELETE', '/api/daemons/' + id); await loadDaemons(); });
+const delDaemon = guard(async id => { if (!confirm('删除这台 daemon?它会断开，绑定在它上面的会话不能再继续。')) return; await api('DELETE', '/api/daemons/' + id); await loadDaemons(); });
 const resetDaemon = guard(async id => { if (!confirm('重新生成安装命令?这台电脑现有的密钥会立即失效，需要重新跑安装命令。')) return; await api('POST', `/api/daemons/${id}/reset`); await loadDaemons(); });
 const toggleAgent = guard(async (id, agent, on) => { await api('PUT', `/api/daemons/${id}/agents/${encodeURIComponent(agent)}`, { enabled: on }); toast(on ? '已开启' : '已关闭'); await loadDaemons(); });
 
@@ -186,7 +186,7 @@ async function loadAgents() {
   agents = await api('GET', '/api/agents');
   $('agents').innerHTML = agents.map(a => `<tr><td><code>${esc(a.name)}</code></td><td>${a.kind === 'builtin' ? '内置' : '自定义'}</td><td>${esc(a.display_name)}</td><td class="muted">${esc(a.description)}</td>
     <td>${a.kind === 'custom' && (a.owner_id === me.id || me.role === 'admin') ? `<button class="btn danger" onclick="delAgent('${esc(a.name)}')">删除</button>` : ''}</td></tr>`).join('');
-  const sel = $('taskAgent'), cur = sel.value;
+  const sel = $('ssAgent'), cur = sel.value;
   sel.innerHTML = agents.map(a => `<option value="${esc(a.name)}">${esc(a.display_name)} (${esc(a.name)})</option>`).join('');
   if (cur) sel.value = cur;
 }
@@ -197,32 +197,53 @@ const addAgent = guard(async () => {
 });
 const delAgent = guard(async n => { if (!confirm('删除 agent ' + n + '?')) return; await api('DELETE', '/api/agents/' + encodeURIComponent(n)); await loadAgents(); });
 
-const taskStatus = { pending: '排队中', running: '运行中', done: '完成', failed: '失败' };
-async function loadTasks() {
-  const ts = await api('GET', '/api/tasks');
-  $('tasks').innerHTML = ts.length ? ts.map(t => `<tr><td><a onclick="showTask('${t.id}')">${t.id}</a></td><td>${esc(t.agent)}</td>
-    <td><span class="badge ${t.status}">${taskStatus[t.status] || t.status}</span></td>
-    <td class="small">${esc((t.input && t.input.prompt) || JSON.stringify(t.input)).slice(0, 80)}</td><td class="small muted">${fmt(t.created_at)}</td></tr>`).join('')
-    : '<tr><td colspan="5" class="muted">还没有任务</td></tr>';
-  if (openTask) await showTask(openTask, true);
+const ssStatus = { idle: '已回复', pending: '排队中', running: '运行中' };
+async function loadSessions() {
+  const ss = await api('GET', '/api/sessions');
+  $('sessions').innerHTML = ss.length ? ss.map(x => `<tr><td><a onclick="showSession('${x.id}')">${esc(x.title || x.id)}</a></td><td>${esc(x.agent)}</td>
+    <td><span class="badge ${x.status === 'idle' ? 'done' : x.status}">${ssStatus[x.status] || x.status}</span></td><td class="small muted">${fmt(x.updated_at)}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="muted">还没有会话</td></tr>';
+  if (openSession) await showSession(openSession);
 }
-const addTask = guard(async () => {
-  const t = await api('POST', '/api/tasks', { agent: $('taskAgent').value, prompt: $('taskPrompt').value, cwd: $('taskCwd').value.trim() });
-  $('taskPrompt').value = ''; openTask = t.id; await loadTasks();
+const addSession = guard(async () => {
+  const r = await api('POST', '/api/sessions', { agent: $('ssAgent').value, prompt: $('ssPrompt').value, cwd: $('ssCwd').value.trim() });
+  $('ssPrompt').value = ''; openSession = r.session.id; await loadSessions();
 });
-const showTask = guard(async (id, quiet) => {
-  openTask = id;
-  const { task: t, events } = await api('GET', '/api/tasks/' + id);
-  const ev = events.map(e => {
-    let p = e.payload; if (p && typeof p === 'object' && 'text' in p && Object.keys(p).length === 1) p = p.text; else p = JSON.stringify(p);
-    return `<div class="small"><span class="muted">${fmt(e.created_at)}</span> <span class="badge ${e.kind === 'progress' ? 'running' : e.kind}">${e.kind}</span> ${esc(p).slice(0, 600)}</div>`;
-  }).join('');
-  $('taskDetail').classList.remove('hidden');
-  $('taskDetail').innerHTML = `<div class="row spread"><h2>任务 ${t.id}</h2><button class="btn" onclick="openTask=null;$('taskDetail').classList.add('hidden')">关闭</button></div>
-    <div class="small muted">agent ${esc(t.agent)} · <span class="badge ${t.status}">${taskStatus[t.status]}</span>${t.daemon_id ? ' · daemon ' + t.daemon_id : ''}${t.finished_at ? ' · 结束于 ' + fmt(t.finished_at) : ''}</div>
-    <pre>${esc(JSON.stringify(t.input, null, 2))}</pre>
-    ${t.result ? `<b>结果</b><pre>${esc(typeof t.result.output === 'string' ? t.result.output : JSON.stringify(t.result, null, 2))}</pre>` : ''}
-    <b>回报</b><div style="max-height:320px;overflow:auto">${ev || '<span class="muted small">暂无</span>'}</div>`;
+const reply = guard(async id => {
+  await api('POST', `/api/sessions/${id}/messages`, { prompt: $('replyPrompt').value });
+  $('replyPrompt').value = ''; await showSession(id);
+});
+const delSession = guard(async id => {
+  if (!confirm('删除这个会话?只删 agentuse 里的记录。')) return;
+  await api('DELETE', '/api/sessions/' + id); openSession = null; $('ssDetail').classList.add('hidden'); await loadSessions();
+});
+function evText(p) { return p && typeof p === 'object' && 'text' in p && Object.keys(p).length === 1 ? p.text : JSON.stringify(p); }
+function renderMessage(m, events) {
+  const c = m.content || {};
+  if (m.role === 'user') {
+    const text = typeof c.prompt === 'string' ? c.prompt : JSON.stringify(c, null, 2);
+    const ev = events.filter(e => e.message_id === m.id && e.kind === 'progress')
+      .map(e => `<div class="small muted">${esc(evText(e.payload)).slice(0, 600)}</div>`).join('');
+    return `<div style="margin:10px 0"><b>你</b> <span class="muted small">${fmt(m.created_at)}</span><pre>${esc(text)}</pre>
+      ${ev ? `<details><summary class="small muted">过程</summary><div style="max-height:260px;overflow:auto">${ev}</div></details>` : ''}</div>`;
+  }
+  const out = c.ok ? (typeof c.output === 'string' ? c.output : JSON.stringify(c, null, 2)) : (c.error || '失败') + (c.output ? '\n' + c.output : '');
+  return `<div style="margin:10px 0"><b>agent</b> ${c.ok ? '' : '<span class="badge failed">失败</span>'} <span class="muted small">${fmt(m.created_at)}</span><pre>${esc(out)}</pre></div>`;
+}
+const showSession = guard(async id => {
+  openSession = id;
+  const { session: x, messages, events } = await api('GET', '/api/sessions/' + id);
+  const live = x.status !== 'idle' ? `<div class="small"><span class="badge ${x.status}">${ssStatus[x.status]}</span> ${esc(evText((events.filter(e => e.kind === 'progress').pop() || {}).payload || '')).slice(0, 300)}</div>` : '';
+  const canReply = x.status === 'idle' && x.daemon_id;
+  $('ssDetail').classList.remove('hidden');
+  $('ssDetail').innerHTML = `<div class="row spread"><h2>${esc(x.title || x.id)}</h2><div class="row">
+      ${x.status !== 'running' ? `<button class="btn danger" onclick="delSession('${x.id}')">删除</button>` : ''}
+      <button class="btn" onclick="openSession=null;$('ssDetail').classList.add('hidden')">关闭</button></div></div>
+    <div class="small muted">${x.id} · agent ${esc(x.agent)}${x.daemon_id ? ' · daemon ' + x.daemon_id : ''}${x.cwd ? ' · ' + esc(x.cwd) : ''}${x.harness_session_id ? ' · harness 会话 ' + esc(x.harness_session_id) : ''}</div>
+    ${messages.map(m => renderMessage(m, events)).join('')}
+    ${live}
+    ${canReply ? `<textarea id="replyPrompt" placeholder="接着说…"></textarea><div class="row" style="margin-top:8px"><button class="btn primary" onclick="reply('${x.id}')">回复</button></div>`
+      : x.status === 'idle' ? '<p class="small muted">原来的 daemon 已删除，这个会话不能继续。</p>' : ''}`;
 });
 
 async function loadUsers() {
@@ -238,7 +259,7 @@ const addUser = guard(async () => {
 
 const refresh = guard(async () => {
   if (tab === 'daemons') await loadDaemons();
-  if (tab === 'tasks') await loadTasks();
+  if (tab === 'sessions') await loadSessions();
   if (tab === 'agents') await loadAgents();
   if (tab === 'users') await loadUsers();
 });

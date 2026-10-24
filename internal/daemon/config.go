@@ -1,4 +1,4 @@
-// Package daemon 是用户电脑上的常驻进程：连上服务、领任务、调用本地 CLI agent、汇报。
+// Package daemon 是用户电脑上的常驻进程：连上服务、领活、调用本地 CLI agent、汇报。
 package daemon
 
 import (
@@ -21,7 +21,7 @@ type Config struct {
 	Server   string `json:"server"`
 	DaemonID string `json:"daemon_id"`
 	Key      string `json:"key"`
-	// Workdir 是没指定 cwd 的任务的工作目录根，每个任务一个子目录。默认 ~/.agentuse/work。
+	// Workdir 是没指定 cwd 的会话的工作目录根，每个会话一个子目录。默认 ~/.agentuse/work。
 	Workdir string `json:"workdir,omitempty"`
 	// Agents 配置本机 agent 的启动命令。内置的(claude / codex)不配也会自动检测;
 	// 自定义 harness 必须在这里配，名字要和服务上注册的一致。

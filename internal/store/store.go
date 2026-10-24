@@ -61,33 +61,44 @@ CREATE TABLE IF NOT EXISTS daemon_agents (
 );
 CREATE INDEX IF NOT EXISTS daemon_agents_user_agent ON daemon_agents(user_id, agent);
 
-CREATE TABLE IF NOT EXISTS tasks (
-  id          TEXT PRIMARY KEY,
-  user_id     TEXT NOT NULL REFERENCES users(id),
-  daemon_id   TEXT REFERENCES daemons(id) ON DELETE SET NULL,
-  agent       TEXT NOT NULL REFERENCES agents(name),
-  status      TEXT NOT NULL DEFAULT 'pending',
-  input       TEXT NOT NULL,
-  result      TEXT,
-  lease_until INTEGER,
-  created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL,
-  finished_at INTEGER
+CREATE TABLE IF NOT EXISTS sessions (
+  id                 TEXT PRIMARY KEY,
+  user_id            TEXT NOT NULL REFERENCES users(id),
+  agent              TEXT NOT NULL REFERENCES agents(name),
+  daemon_id          TEXT REFERENCES daemons(id) ON DELETE SET NULL,
+  cwd                TEXT,
+  harness_session_id TEXT,
+  title              TEXT NOT NULL DEFAULT '',
+  status             TEXT NOT NULL DEFAULT 'pending',
+  lease_until        INTEGER,
+  created_at         INTEGER NOT NULL,
+  updated_at         INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status, created_at);
+CREATE INDEX IF NOT EXISTS sessions_status ON sessions(status, updated_at);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id, updated_at);
 
-CREATE TABLE IF NOT EXISTS task_events (
+CREATE TABLE IF NOT EXISTS messages (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  role       TEXT NOT NULL,
+  content    TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS messages_session ON messages(session_id, id);
+
+CREATE TABLE IF NOT EXISTS session_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  message_id INTEGER NOT NULL,
   daemon_id  TEXT NOT NULL,
   kind       TEXT NOT NULL,
   payload    TEXT,
   created_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS task_events_task ON task_events(task_id, id);
+CREATE INDEX IF NOT EXISTS session_events_session ON session_events(session_id, id);
 `
 
-// Store 包一个 SQLite 连接。单连接 + BEGIN IMMEDIATE,所有写串行，领任务的「挑一条再改」是原子的。
+// Store 包一个 SQLite 连接。单连接 + BEGIN IMMEDIATE,所有写串行，领活的「挑一条再改」是原子的。
 type Store struct {
 	db  *sql.DB
 	now func() time.Time

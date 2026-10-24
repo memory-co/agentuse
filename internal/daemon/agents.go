@@ -84,39 +84,56 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// Result 是一次任务的最终结果，作为 done / failed 的 payload。
+// Result 是 agent 回一条消息的最终结果，作为 done / failed 的 payload。
 type Result struct {
 	OK     bool   `json:"ok"`
 	Output string `json:"output,omitempty"`
 	Error  string `json:"error,omitempty"`
-	// 以下是 agent 给的附加信息，可为空
+	// SessionID 是 harness 自己的会话 id,服务存下来，下次通过 Dispatch.Resume 带回来续接。
 	SessionID string  `json:"session_id,omitempty"`
 	CostUSD   float64 `json:"cost_usd,omitempty"`
 }
 
-// reportFn 回报一条进度，payload 是 JSON 对象。
+// reportFn 回报一条进度,payload 是 JSON 对象。
 type reportFn func(payload any)
 
-// runAgent 在 dir 里跑一个任务，过程中调用 report 回报进度。
-func runAgent(ctx context.Context, la localAgent, input json.RawMessage, dir string, report reportFn) Result {
-	var ti protocol.TaskInput
-	_ = json.Unmarshal(input, &ti)
+// runAgent 在 dir 里跑 agent 回一条消息，过程中调用 report 回报进度。m.Resume 不为空时续接 harness 的会话。
+func runAgent(ctx context.Context, la localAgent, m protocol.Dispatch, dir string, report reportFn) Result {
+	var pi protocol.PromptInput
+	_ = json.Unmarshal(m.Input, &pi)
 	switch la.Name {
 	case "claude":
-		if ti.Prompt == "" {
+		if pi.Prompt == "" {
 			return Result{Error: "input.prompt 为空"}
 		}
-		args := append([]string{"-p", ti.Prompt, "--output-format", "stream-json", "--verbose"}, la.Args...)
-		return runClaude(ctx, exec.CommandContext(ctx, la.Path, args...), dir, report)
+		args := []string{"-p", pi.Prompt, "--output-format", "stream-json", "--verbose"}
+		if m.Resume != "" {
+			args = append(args, "--resume", m.Resume)
+		}
+		args = append(args, la.Args...)
+		return withSession(runClaude(ctx, exec.CommandContext(ctx, la.Path, args...), dir, report), m.Resume)
 	case "codex":
-		if ti.Prompt == "" {
+		if pi.Prompt == "" {
 			return Result{Error: "input.prompt 为空"}
 		}
-		args := append(append([]string{"exec"}, la.Args...), ti.Prompt)
-		return runPlain(ctx, exec.CommandContext(ctx, la.Path, args...), dir, report)
+		args := append([]string{"exec", "--json", "--skip-git-repo-check"}, la.Args...)
+		if m.Resume != "" {
+			args = append(args, "resume", m.Resume)
+		}
+		args = append(args, pi.Prompt)
+		return withSession(runCodex(ctx, exec.CommandContext(ctx, la.Path, args...), dir, report), m.Resume)
 	default:
-		return runHarness(ctx, exec.CommandContext(ctx, la.Path, la.Args...), input, dir, report)
+		in, _ := json.Marshal(protocol.HarnessInput{SessionID: m.SessionID, Resume: m.Resume, Input: m.Input})
+		return withSession(runHarness(ctx, exec.CommandContext(ctx, la.Path, la.Args...), in, dir, report), m.Resume)
 	}
+}
+
+// withSession:agent 没报会话 id 时沿用续接的那个，免得服务那边丢掉。
+func withSession(r Result, resume string) Result {
+	if r.SessionID == "" {
+		r.SessionID = resume
+	}
+	return r
 }
 
 const maxOutput = 64 << 10
@@ -224,36 +241,80 @@ func runClaude(ctx context.Context, cmd *exec.Cmd, dir string, report reportFn) 
 	return res
 }
 
-// runPlain 适配普通 CLI:stderr 每行作为进度,stdout 作为结果输出，退出码 0 为成功。
-func runPlain(ctx context.Context, cmd *exec.Cmd, dir string, report reportFn) Result {
+// runCodex 解析 codex exec --json 的 JSONL:thread.started 给会话 id,agent 消息和命令作为进度，
+// 最后一条 agent 消息作为结果输出,turn.completed 为成功。
+func runCodex(ctx context.Context, cmd *exec.Cmd, dir string, report reportFn) Result {
 	stdout, stderr, err := start(cmd, dir, nil)
 	if err != nil {
 		return Result{Error: err.Error()}
 	}
-	var out, errTail tail
+	var errTail tail
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		scanLines(stderr, func(l string) {
-			errTail.add(l)
-			if strings.TrimSpace(l) != "" {
-				report(map[string]string{"text": truncate(l, 4000)})
+	go func() { defer wg.Done(); scanLines(stderr, errTail.add) }()
+
+	var res Result
+	completed := false
+	scanLines(stdout, func(line string) {
+		var m struct {
+			Type     string `json:"type"`
+			ThreadID string `json:"thread_id"`
+			Message  string `json:"message"`
+			Error    struct {
+				Message string `json:"message"`
+			} `json:"error"`
+			Item struct {
+				Type    string `json:"type"`
+				Text    string `json:"text"`
+				Command string `json:"command"`
+			} `json:"item"`
+		}
+		if json.Unmarshal([]byte(line), &m) != nil {
+			if strings.TrimSpace(line) != "" {
+				report(map[string]string{"text": truncate(line, 4000)})
 			}
-		})
-	}()
-	scanLines(stdout, out.add)
+			return
+		}
+		switch m.Type {
+		case "thread.started":
+			res.SessionID = m.ThreadID
+		case "item.completed":
+			switch m.Item.Type {
+			case "agent_message":
+				res.Output = m.Item.Text
+				report(map[string]string{"text": truncate(m.Item.Text, 4000)})
+			case "command_execution":
+				report(map[string]string{"text": "🔧 " + truncate(m.Item.Command, 300)})
+			}
+		case "turn.completed":
+			completed = true
+		case "turn.failed":
+			res.Error = m.Error.Message
+		case "error":
+			report(map[string]string{"text": truncate(m.Message, 4000)})
+			res.Error = m.Message
+		}
+	})
 	wg.Wait()
-	if err := cmd.Wait(); err != nil {
-		return Result{Output: out.String(), Error: exitError(ctx, err, errTail.String())}
+	werr := cmd.Wait()
+	if completed && werr == nil {
+		res.OK, res.Error = true, ""
+		return res
 	}
-	return Result{OK: true, Output: out.String()}
+	if res.Error == "" || werr != nil {
+		msg := exitError(ctx, werr, errTail.String())
+		if res.Error != "" {
+			msg = res.Error + "; " + msg
+		}
+		res.Error = msg
+	}
+	return res
 }
 
-// runHarness 按自定义 harness 的约定跑:input 写进 stdin,stdout 每行一个 JSON。
+// runHarness 按自定义 harness 的约定跑:HarnessInput 写进 stdin,stdout 每行一个 JSON。
 //
 //	{"type":"progress", ...任意字段}         → 原样作为进度回报
-//	{"type":"result","ok":true,"output":"…"} → 最终结果
+//	{"type":"result","ok":true,"output":"…","session_id":"…"} → 最终结果
 //
 // 不是 JSON 的行当作文本进度。没输出 result 就按退出码判断成败。
 func runHarness(ctx context.Context, cmd *exec.Cmd, input json.RawMessage, dir string, report reportFn) Result {

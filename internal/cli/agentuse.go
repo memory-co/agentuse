@@ -9,7 +9,7 @@ import (
 	"github.com/memory-co/agentuse/internal/daemon"
 )
 
-const agentuseUsage = `agentuse —— 让这台电脑上的 CLI agent 从 agentuse 服务领任务
+const agentuseUsage = `agentuse —— 让这台电脑上的 CLI agent 从 agentuse 服务领活
 
 用法:
   agentuse register -server URL -token 安装令牌   注册这台电脑(setup.sh 会替你跑)

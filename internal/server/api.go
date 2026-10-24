@@ -276,17 +276,28 @@ func (s *Server) handleToggleAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.view(r, d))
 }
 
-func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
-	tasks, err := s.store.ListTasks(r.Context(), currentUser(r), 100)
+func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
+	sessions, err := s.store.ListSessions(r.Context(), currentUser(r), 100)
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, tasks)
+	writeJSON(w, http.StatusOK, sessions)
 }
 
-// handleCreateTask 建任务。input 可以直接给 JSON,也可以只给 prompt(和可选的 cwd)。
-func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
+// messageContent 取请求里的消息内容:input 直接给 JSON,或者只给 prompt。
+func messageContent(input json.RawMessage, prompt string) (json.RawMessage, error) {
+	if len(input) > 0 {
+		return input, nil
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return nil, errors.New("prompt 或 input 必填")
+	}
+	return json.Marshal(protocol.PromptInput{Prompt: prompt})
+}
+
+// handleCreateSession 建会话并发出第一条消息。
+func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Agent  string          `json:"agent"`
 		Input  json.RawMessage `json:"input"`
@@ -301,36 +312,82 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "agent 必填")
 		return
 	}
-	input := req.Input
-	if len(input) == 0 {
-		if strings.TrimSpace(req.Prompt) == "" {
-			writeErr(w, http.StatusBadRequest, "prompt 或 input 必填")
-			return
-		}
-		input, _ = json.Marshal(protocol.TaskInput{Prompt: req.Prompt, Cwd: req.Cwd})
+	content, err := messageContent(req.Input, req.Prompt)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	title := ""
+	if len(req.Input) == 0 {
+		title = firstRunes(strings.TrimSpace(req.Prompt), 50)
 	}
 	u := currentUser(r)
-	t, err := s.store.CreateTask(r.Context(), u.ID, req.Agent, input)
+	ss, m, err := s.store.CreateSession(r.Context(), u.ID, req.Agent, strings.TrimSpace(req.Cwd), title, content)
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
 	s.hub.kickUser(u.ID)
-	writeJSON(w, http.StatusCreated, t)
+	writeJSON(w, http.StatusCreated, map[string]any{"session": ss, "message": m})
 }
 
-func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
-	t, err := s.store.GetTask(r.Context(), currentUser(r), r.PathValue("id"))
+// handleAddMessage 在会话里回复下一条消息。
+func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Input  json.RawMessage `json:"input"`
+		Prompt string          `json:"prompt"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	content, err := messageContent(req.Input, req.Prompt)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ss, m, err := s.store.AddMessage(r.Context(), currentUser(r), r.PathValue("id"), content)
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	events, err := s.store.TaskEvents(r.Context(), t.ID)
+	s.hub.kickUser(ss.UserID)
+	writeJSON(w, http.StatusCreated, m)
+}
+
+func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
+	ss, err := s.store.GetSession(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"task": t, "events": events})
+	msgs, err := s.store.Messages(r.Context(), ss.ID)
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	events, err := s.store.SessionEvents(r.Context(), ss.ID)
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": ss, "messages": msgs, "events": events})
+}
+
+func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteSession(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func firstRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }
 
 // handleDaemonMe:daemon 用密钥查自己，验证密钥是否还有效。

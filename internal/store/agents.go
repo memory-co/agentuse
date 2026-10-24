@@ -66,7 +66,7 @@ func (s *Store) CreateCustomAgent(ctx context.Context, ownerID, name, displayNam
 	return a, nil
 }
 
-// DeleteCustomAgent 删除自定义 agent。非 admin 只能删自己的;内置的不能删;还有任务引用时不能删。
+// DeleteCustomAgent 删除自定义 agent。非 admin 只能删自己的;内置的不能删;还有会话引用时不能删。
 func (s *Store) DeleteCustomAgent(ctx context.Context, u User, name string) error {
 	q := `DELETE FROM agents WHERE name = ? AND kind = 'custom'`
 	args := []any{name}
@@ -77,7 +77,7 @@ func (s *Store) DeleteCustomAgent(ctx context.Context, u User, name string) erro
 	res, err := s.db.ExecContext(ctx, q, args...)
 	if err != nil {
 		if strings.Contains(err.Error(), "FOREIGN KEY") {
-			return errors.New("还有任务在用这个 agent,不能删除")
+			return errors.New("还有会话在用这个 agent,不能删除")
 		}
 		return err
 	}
