@@ -27,12 +27,16 @@ agentuse 是一个可以自己部署的 agent 中间件。用户用**一行命�
 
 ## 快速开始
 
-### 1. 起服务
+### 1. 安装并起服务
+
+在 Linux 服务器上(amd64 / arm64)一行装好:
 
 ```bash
-make build dist                          # bin/agentuse、bin/agentuse-server + dist/ 下各平台 agentuse
-bin/agentuse-server start -dist dist     # 默认监听 :8080,数据在 ~/.agentuse/server.db
+curl -fsSL https://raw.githubusercontent.com/memory-co/agentuse/main/install.sh | bash
+agentuse-server start                    # 默认监听 :8080,数据在 ~/.agentuse/server.db
 ```
+
+脚本会从最新 [Release](https://github.com/memory-co/agentuse/releases) 下载 `agentuse-server` 装到 `/usr/local/bin`(没权限就装到 `~/.local/bin`),并把各平台的 `agentuse` 放到 `~/.agentuse/dist`,供用户电脑的 `setup.sh` 下载。装指定版本：`curl … | VERSION=v0.0.5 bash`。
 
 第一次启动会建管理员 `admin`,并在日志里打印登录链接:
 
@@ -107,7 +111,16 @@ agentuse harnesses                                      # 本机检测到的 har
 | 命令行 | [`docs/v2/cli/`](docs/v2/cli/README.md) |
 | 旧版(v1) | [`docs/v1/`](docs/v1/README.md) |
 
-## 开发
+## 从源码构建
+
+需要 Go 1.24+ 和 Node 18+(macOS 上跑服务也走这个):
+
+```bash
+make build dist                          # bin/agentuse、bin/agentuse-server + dist/ 下各平台 agentuse
+bin/agentuse-server start -dist dist
+```
+
+开发常用:
 
 ```bash
 make test     # go test ./...

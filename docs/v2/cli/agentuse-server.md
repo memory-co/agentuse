@@ -33,7 +33,7 @@ agentuse-server start -addr :8080 -db /var/lib/agentuse/server.db \
 | `-addr` | `AGENTUSE_ADDR` | `:8080` | 监听地址 |
 | `-db` | `AGENTUSE_DB` | `~/.agentuse/server.db` | 数据库文件 |
 | `-public-url` | `AGENTUSE_PUBLIC_URL` | 空(按请求推断) | 用户电脑访问服务的地址，写进安装命令 |
-| `-dist` | `AGENTUSE_DIST` | `dist` | 各平台 `agentuse` 二进制目录 |
+| `-dist` | `AGENTUSE_DIST` | `~/.agentuse/dist`(`install.sh` 装到这里) | 各平台 `agentuse` 二进制目录 |
 | `-reset-admin-token` | | 关 | 启动时给 `admin` 换一个新令牌并打印，管理员令牌丢了用 |
 
 - 库里没有用户时，自动建管理员 `admin`,在日志里打印登录链接(令牌只显示这一次)。

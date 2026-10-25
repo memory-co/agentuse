@@ -21,6 +21,7 @@ cmd/agentuse/         → agentuse
 cmd/agentuse-server/  → agentuse-server
 ```
 
+- 发布:`v*` tag 触发 release,产出 `agentuse-{linux,darwin}-{amd64,arm64}`、`agentuse-server-linux-{amd64,arm64}`、`SHA256SUMS`。仓库根的 `install.sh` 从最新 release 装 `agentuse-server`,并把各平台 `agentuse` 放到 `~/.agentuse/dist`(`-dist` 的默认值)。
 - `make build`:两个都编到 `bin/`。
 - `make dist`:只交叉编译 `agentuse`(linux / darwin × amd64 / arm64)到 `dist/`,`agentuse-server` 通过 `/download/agentuse-<os>-<arch>` 提供给 `setup.sh` 下载，见 [apis/setup](../apis/setup.md)。
 - 拆开后，服务不能再「拿自己的可执行文件当 daemon 给」,所以必须有 `dist/`。`agentuse-server start` 启动时检查 `-dist` 目录，没有对应平台的二进制就打一条警告。
