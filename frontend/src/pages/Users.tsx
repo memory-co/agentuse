@@ -20,7 +20,7 @@ export function Users(_: { me: User }) {
     mutationFn: () => api<{ user: User; login_url: string }>('/api/users', { method: 'POST', body: { id: form.id.trim(), name: form.name.trim(), role: form.role } }),
     onSuccess: () => { setForm({ ...form, id: '', name: '' }); void queryClient.invalidateQueries({ queryKey: ['users'] }); },
   });
-  return <div className="grid gap-4">
+  return <div className="grid grid-cols-1 gap-4">
     <Card>
       <CardHeader><CardTitle className="text-base">{t('users.newTitle')}</CardTitle></CardHeader>
       <CardContent className="grid gap-3">

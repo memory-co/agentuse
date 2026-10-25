@@ -33,7 +33,10 @@ function Composer({ placeholder, disabled, busy, onSend, children }: {
   return <form onSubmit={submit} className="rounded-xl border bg-background p-2 shadow-sm focus-within:ring-1 focus-within:ring-ring">
     <Textarea
       value={text} onChange={e => setText(e.target.value)} placeholder={placeholder} disabled={disabled}
-      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }}
+      enterKeyHint="send"
+      onKeyDown={e => {                                              // 输入法选词时的 Enter 不算(Safari 上 isComposing 已复位，靠 keyCode 229 兜底)
+        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); submit(); }
+      }}
       className="max-h-60 min-h-[44px] resize-none border-0 p-2 shadow-none focus-visible:ring-0"
     />
     <div className="flex flex-wrap items-center gap-2">

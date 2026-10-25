@@ -24,7 +24,7 @@ export function Harnesses({ me }: { me: User }) {
     onSuccess: () => { setForm({ name: '', display_name: '', description: '' }); void refresh(); },
   });
   const del = useMutation({ mutationFn: (n: string) => api(`/api/harnesses/${encodeURIComponent(n)}`, { method: 'DELETE' }), onSuccess: refresh });
-  return <div className="grid gap-4">
+  return <div className="grid grid-cols-1 gap-4">
     <Card>
       <CardHeader>
         <CardTitle className="text-base">{t('harnesses.newTitle')}</CardTitle>

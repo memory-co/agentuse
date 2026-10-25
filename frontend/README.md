@@ -10,6 +10,8 @@
 - **侧栏下半**:会话列表(排队 / 运行中的带圆点)。管理员在列表上方有「身份」下拉：选自己就是看全部，选某个用户后所有请求带 `X-Agentuse-User`,看到的和那个用户一样(见 [embedding](../docs/v2/designs/embedding.md))。选择记在 localStorage。
 - **右边**:新会话页(选 agent、可选工作目录、写第一句话)或会话的对话流 + 底部回复框(回车发送,Shift+回车换行);Agents / Daemons / Harness / Users 是原来的管理页。
 
+三种宽度(照 memory.talk):≥1024 桌面侧栏，展开 / 图标栏由 `Ctrl/Cmd + B` 或顶栏按钮切换，记在 localStorage;768–1023 默认图标栏;<768 竖屏手机是「侧栏 | 主内容」两个整屏列横向吸附，左右滑动或点顶栏菜单按钮切换，点导航后自动回到主内容，留出刘海 / 底部安全区(`viewport-fit=cover`)。输入框 Enter 发送，输入法选词时的 Enter 不算。
+
 中英文切换在侧栏底部(登录页右上角也有),记在 localStorage,没选过跟浏览器语言;文案都在 `src/lib/i18n.ts`。中文里 daemon 叫「连接设备」,harness 叫「执行器」。服务端返回的错误信息不翻译。
 
 | 页面 | 功能 |
