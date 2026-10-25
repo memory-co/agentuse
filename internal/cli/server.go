@@ -44,12 +44,18 @@ func defaultDB() string {
 	return filepath.Join(home, ".agentuse", "server.db")
 }
 
+// defaultDist 是 install.sh 放各平台 agentuse 的目录。
+func defaultDist() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".agentuse", "dist")
+}
+
 func runStart(args []string) error {
 	fs := newFlags("agentuse-server start")
 	addr := fs.String("addr", envOr("AGENTUSE_ADDR", ":8080"), "监听地址")
 	dbPath := fs.String("db", envOr("AGENTUSE_DB", defaultDB()), "SQLite 数据库文件")
 	publicURL := fs.String("public-url", os.Getenv("AGENTUSE_PUBLIC_URL"), "用户电脑访问服务的地址(写进安装命令),空 = 按请求推断")
-	dist := fs.String("dist", envOr("AGENTUSE_DIST", "dist"), "各平台 agentuse 二进制所在目录(agentuse-<os>-<arch>)")
+	dist := fs.String("dist", envOr("AGENTUSE_DIST", defaultDist()), "各平台 agentuse 二进制所在目录(agentuse-<os>-<arch>)")
 	resetAdmin := fs.Bool("reset-admin-token", false, "启动时给管理员换一个新令牌并打印(令牌丢了用)")
 	if err := parse(fs, args); err != nil {
 		return err
@@ -82,7 +88,7 @@ func runStart(args []string) error {
 		return err
 	}
 	if missing := server.MissingDist(*dist); len(missing) > 0 {
-		log.Printf("警告: %s 里缺这些平台的 agentuse 二进制: %s;这些平台的电脑跑 setup.sh 会下载失败(先 make dist)",
+		log.Printf("警告: %s 里缺这些平台的 agentuse 二进制: %s;这些平台的电脑跑 setup.sh 会下载失败(重跑 install.sh,或 make dist 后用 -dist dist)",
 			*dist, strings.Join(missing, ", "))
 	}
 

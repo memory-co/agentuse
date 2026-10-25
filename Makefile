@@ -3,7 +3,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/memory-co/agentuse/internal/cli.Version=$(VERSION)
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
-SERVER_PLATFORMS := linux/amd64 linux/arm64
+SERVER_PLATFORMS := $(PLATFORMS)
 
 # 网页:frontend/ 构建到 frontend/dist,编译 agentuse-server 时嵌进去
 web:
@@ -23,7 +23,7 @@ dist:
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o dist/agentuse-$$os-$$arch ./cmd/agentuse || exit 1; \
 	done
 
-# 发布制品:dist/ 下的 agentuse 各平台 + agentuse-server linux 版 + SHA256SUMS
+# 发布制品:dist/ 下 agentuse、agentuse-server 各平台 + SHA256SUMS
 release: dist web
 	@for p in $(SERVER_PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; \
