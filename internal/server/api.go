@@ -13,6 +13,9 @@ import (
 
 const cookieName = "agentuse_token"
 
+// actAsHeader:admin 令牌带上它，就按这个用户的身份执行(见 docs/v2/designs/embedding.md)。
+const actAsHeader = "X-Agentuse-User"
+
 type userKey struct{}
 
 func currentUser(r *http.Request) store.User { return r.Context().Value(userKey{}).(store.User) }
@@ -27,7 +30,7 @@ func requestToken(r *http.Request) string {
 	return ""
 }
 
-// auth 要求登录：网页用 cookie,脚本用 Authorization: Bearer <用户令牌>。
+// auth 要求登录：网页用 cookie,脚本用 Authorization: Bearer <用户令牌>。admin 可以再带 X-Agentuse-User 代为某个用户。
 func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok := requestToken(r)
@@ -40,8 +43,32 @@ func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, http.StatusUnauthorized, "令牌无效")
 			return
 		}
+		if as := strings.TrimSpace(r.Header.Get(actAsHeader)); as != "" && as != u.ID {
+			if !u.IsAdmin() {
+				writeErr(w, http.StatusForbidden, "只有管理员令牌能带 "+actAsHeader)
+				return
+			}
+			if u, err = s.actAs(r.Context(), as); err != nil {
+				writeErr(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
 		h(w, r.WithContext(context.WithValue(r.Context(), userKey{}, u)))
 	}
+}
+
+// actAs 取 X-Agentuse-User 指的用户，第一次出现就自动建(role = user,name 取 id)。
+func (s *Server) actAs(ctx context.Context, id string) (store.User, error) {
+	u, err := s.store.GetUser(ctx, id)
+	if !errors.Is(err, store.ErrNotFound) {
+		return u, err
+	}
+	if u, _, err = s.store.CreateUser(ctx, id, id, store.RoleUser); err != nil {
+		if again, e := s.store.GetUser(ctx, id); e == nil { // 并发请求抢先建了
+			return again, nil
+		}
+	}
+	return u, err
 }
 
 func (s *Server) admin(h http.HandlerFunc) http.HandlerFunc {

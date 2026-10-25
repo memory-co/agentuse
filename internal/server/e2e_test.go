@@ -273,3 +273,55 @@ func waitFor(t *testing.T, cond func() bool) {
 	}
 	t.Fatal("timeout")
 }
+
+func TestActAsUser(t *testing.T) {
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	ts := httptest.NewServer(server.New(st, server.Config{Logger: log.New(io.Discard, "", 0)}))
+	defer ts.Close()
+	_, adminTok, _ := st.CreateUser(ctx, "", "root", store.RoleAdmin)
+	_, aliceTok, _ := st.CreateUser(ctx, "alice", "alice", store.RoleUser)
+
+	as := func(tok, user, method, path string, body, out any) int {
+		var r io.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			r = bytes.NewReader(b)
+		}
+		req, _ := http.NewRequest(method, ts.URL+path, r)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("X-Agentuse-User", user)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if out != nil {
+			_ = json.NewDecoder(resp.Body).Decode(out)
+		}
+		return resp.StatusCode
+	}
+
+	// 不存在的用户自动建
+	var me store.User
+	if code := as(adminTok, "u_10086", "GET", "/api/me", nil, &me); code != 200 || me.ID != "u_10086" || me.Role != store.RoleUser {
+		t.Fatalf("act as new user: %d %+v", code, me)
+	}
+	// 代为 alice 建的 agent 挂在 alice 下
+	var a store.Agent
+	if code := as(adminTok, "alice", "POST", "/api/agents", map[string]string{"name": "x", "harness": "claude"}, &a); code != http.StatusCreated || a.UserID != "alice" {
+		t.Fatalf("create agent as alice: %d %+v", code, a)
+	}
+	// 代为用户时就是普通用户权限
+	if code := as(adminTok, "alice", "GET", "/api/users", nil, nil); code != http.StatusForbidden {
+		t.Fatalf("admin api as user: %d", code)
+	}
+	// 普通用户令牌不能带
+	if code := as(aliceTok, "u_10086", "GET", "/api/me", nil, nil); code != http.StatusForbidden {
+		t.Fatalf("user token with header: %d", code)
+	}
+}
