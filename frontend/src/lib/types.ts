@@ -4,7 +4,7 @@ export interface User { id: string; name: string; role: Role; created_at: number
 
 export interface Harness { name: string; kind: 'builtin' | 'custom'; display_name: string; description: string; owner_id?: string; created_at: number }
 
-export interface Agent { id: string; user_id: string; name: string; harness: string; description: string; created_at: number; updated_at: number }
+export interface Agent { id: string; user_id: string; name: string; daemon_id?: string; harness: string; description: string; created_at: number; updated_at: number }
 
 export interface DaemonHarness { harness: string; version: string; available: boolean; enabled: boolean; updated_at: number }
 export interface Daemon {

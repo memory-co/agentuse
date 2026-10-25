@@ -156,7 +156,7 @@ func (c *Client) GetAgent(ctx context.Context, user, agentID string) (*Agent, er
 	return &a, c.do(ctx, user, "GET", "/api/agents/"+esc(agentID), nil, &a)
 }
 
-// UpdateAgent 改名字、换 harness、改说明;nil 字段不变。换 harness 只影响之后新建的会话。
+// UpdateAgent 改名字、切换运行时(DaemonID + Harness 一起给)、改说明;nil 字段不变。切换运行时只影响之后新建的会话。
 func (c *Client) UpdateAgent(ctx context.Context, user, agentID string, req UpdateAgentRequest) (*Agent, error) {
 	var a Agent
 	return &a, c.do(ctx, user, "PATCH", "/api/agents/"+esc(agentID), req, &a)

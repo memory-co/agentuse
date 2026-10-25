@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS agents (
   id          TEXT PRIMARY KEY,
   user_id     TEXT NOT NULL REFERENCES users(id),
   name        TEXT NOT NULL,
+  daemon_id   TEXT REFERENCES daemons(id) ON DELETE SET NULL,
   harness     TEXT NOT NULL REFERENCES harnesses(name),
   description TEXT,
   created_at  INTEGER NOT NULL,

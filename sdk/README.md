@@ -19,7 +19,7 @@
 | 「连接我的电脑」 | `create_daemon` / `createDaemon` / `CreateDaemon`,把返回的 `setup_command` 给用户复制 |
 | 看电脑在不在线 | `list_daemons` / `listDaemons` / `ListDaemons` |
 | 开关某台电脑上的 harness | `set_daemon_harness` / `setDaemonHarness` / `SetDaemonHarness` |
-| 建一个 agent(起名字，背后用某个 harness,以后可以换) | `create_agent` / `createAgent` / `CreateAgent`;换 harness 用 `update_agent` / `updateAgent` / `UpdateAgent` |
+| 建一个 agent(起名字，绑定运行时：某台电脑上的某个 harness,以后可以切换) | `create_agent` / `createAgent` / `CreateAgent`;切换运行时用 `update_agent` / `updateAgent` / `UpdateAgent` |
 | 用某个 agent 发起一次任务 | `create_session` / `createSession` / `CreateSession` |
 | 接着回复 | `send_message` / `sendMessage` / `SendMessage`(harness 还没回时 409) |
 | 看进度和结果 | `get_session` / `getSession` / `GetSession`,或 `wait_session` 轮询到 `idle` |

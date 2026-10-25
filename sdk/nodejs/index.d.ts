@@ -21,6 +21,7 @@ export interface Agent {
   id: string;
   user_id: string;
   name: string;
+  daemon_id?: string;
   harness: string;
   description: string;
   created_at: number;
@@ -112,9 +113,9 @@ export declare class Client {
   deleteHarness(user: UserId, name: string): Promise<void>;
 
   listAgents(user: UserId): Promise<Agent[]>;
-  createAgent(user: UserId, agent: { id?: string; name: string; harness: string; description?: string }): Promise<Agent>;
+  createAgent(user: UserId, agent: { id?: string; name: string; daemon_id: string; harness: string; description?: string }): Promise<Agent>;
   getAgent(user: UserId, agentId: string): Promise<Agent>;
-  updateAgent(user: UserId, agentId: string, patch: { name?: string; harness?: string; description?: string }): Promise<Agent>;
+  updateAgent(user: UserId, agentId: string, patch: { name?: string; daemon_id?: string; harness?: string; description?: string }): Promise<Agent>;
   deleteAgent(user: UserId, agentId: string): Promise<void>;
 
   listDaemons(user: UserId): Promise<Daemon[]>;

@@ -21,8 +21,8 @@ console.log(d.setup_command);
 // 电脑上线后打开 claude
 await agentuse.setDaemonHarness(uid, d.id, "claude", true);
 
-// 建一个 agent,背后用 claude;以后 updateAgent 换 harness,agent 不变
-const agent = await agentuse.createAgent(uid, { id: "code-helper", name: "写代码", harness: "claude" });
+// 建一个 agent,运行时是这台电脑上的 claude;以后 updateAgent 切换运行时,agent 不变
+const agent = await agentuse.createAgent(uid, { id: "code-helper", name: "写代码", daemon_id: d.id, harness: "claude" });
 
 // 用这个 agent 发起任务，等它回完
 const { session } = await agentuse.createSession(uid, { agent_id: agent.id, prompt: "修一下 README 的错别字", cwd: "~/code/x" });

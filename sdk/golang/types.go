@@ -42,6 +42,7 @@ type Agent struct {
 	ID          string `json:"id"`
 	UserID      string `json:"user_id"`
 	Name        string `json:"name"`
+	DaemonID    string `json:"daemon_id,omitempty"` // 运行时 = DaemonID + Harness;daemon 被删后为空
 	Harness     string `json:"harness"`
 	Description string `json:"description"`
 	CreatedAt   int64  `json:"created_at"`
@@ -51,12 +52,15 @@ type Agent struct {
 type CreateAgentRequest struct {
 	ID          string `json:"id,omitempty"` // 全局唯一;空 = 服务生成 ag_xxx
 	Name        string `json:"name"`
+	DaemonID    string `json:"daemon_id"` // 运行时：自己的某台 daemon + 它上报过的某个 harness
 	Harness     string `json:"harness"`
 	Description string `json:"description,omitempty"`
 }
 
+// UpdateAgentRequest 里切换运行时要 DaemonID 和 Harness 一起给。
 type UpdateAgentRequest struct {
 	Name        *string `json:"name,omitempty"`
+	DaemonID    *string `json:"daemon_id,omitempty"`
 	Harness     *string `json:"harness,omitempty"`
 	Description *string `json:"description,omitempty"`
 }
@@ -88,7 +92,7 @@ type Session struct {
 	UserID           string `json:"user_id"`            // agent 的主人，会话跑在他的 daemon 上
 	CreatedBy        string `json:"created_by"`         // 发起人
 	AgentID          string `json:"agent_id,omitempty"` // agent 删除后为空
-	Harness          string `json:"harness"`            // 建会话时 agent 映射的 harness,之后不变
+	Harness          string `json:"harness"`            // 建会话时 agent 运行时的 harness,之后不变
 	DaemonID         string `json:"daemon_id,omitempty"`
 	Cwd              string `json:"cwd,omitempty"`
 	HarnessSessionID string `json:"harness_session_id,omitempty"`

@@ -19,8 +19,8 @@ fmt.Println(d.SetupCommand)
 // 电脑上线后打开 claude
 _, err = c.SetDaemonHarness(ctx, uid, d.ID, "claude", true)
 
-// 建一个 agent,背后用 claude;以后 UpdateAgent 换 harness,agent 不变
-a, err := c.CreateAgent(ctx, uid, agentuse.CreateAgentRequest{ID: "code-helper", Name: "写代码", Harness: "claude"})
+// 建一个 agent,运行时是这台电脑上的 claude;以后 UpdateAgent 切换运行时,agent 不变
+a, err := c.CreateAgent(ctx, uid, agentuse.CreateAgentRequest{ID: "code-helper", Name: "写代码", DaemonID: d.ID, Harness: "claude"})
 
 // 用这个 agent 发起任务，等它回完(用 ctx 控制超时)
 r, err := c.CreateSession(ctx, uid, agentuse.CreateSessionRequest{AgentID: a.ID, Prompt: "修一下 README 的错别字", Cwd: "~/code/x"})
