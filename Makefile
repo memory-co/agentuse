@@ -1,4 +1,4 @@
-.PHONY: build web dist release test vet fmt run
+.PHONY: build web dist release test e2e vet fmt run
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/memory-co/agentuse/internal/cli.Version=$(VERSION)
@@ -35,8 +35,14 @@ release: dist web
 run: build dist
 	bin/agentuse-server start -dist dist
 
+# 单元测试：跟着代码放在各个包里,-short 跳过 test/e2e
 test:
-	go test ./...
+	go test -short ./...
+
+# e2e:test/e2e 下每个场景一个包，编好二进制再跑;只跑一个场景: make e2e E2E=install
+E2E ?= ...
+e2e:
+	go test -count=1 -v ./test/e2e/$(E2E)
 
 vet:
 	go vet ./...

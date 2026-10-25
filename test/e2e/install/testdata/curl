@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# 假 curl:GitHub 上的东西从本地返回，不碰外网;其它地址(本机的 agentuse 服务)交给真 curl。
+#   raw.githubusercontent.com/memory-co/agentuse/main/install.sh → $FAKE_INSTALL_SH
+#   api.github.com/repos/memory-co/agentuse/releases/latest      → {"tag_name": "$FAKE_LATEST"}
+#   github.com/memory-co/agentuse/releases/download/<tag>/<文件> → $FAKE_RELEASES/<tag>/<文件>
+# 请求过的地址追加到 $FAKE_CURL_LOG。
+set -euo pipefail
+
+url="" out=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case "${args[$i]}" in
+    -o) out="${args[$((i + 1))]}" ;;
+    http://* | https://*) url="${args[$i]}" ;;
+  esac
+done
+echo "$url" >>"${FAKE_CURL_LOG:-/dev/null}"
+
+serve() {
+  [ -f "$1" ] || { echo "curl: (22) The requested URL returned error: 404" >&2; exit 22; }
+  if [ -n "$out" ]; then cp "$1" "$out"; else cat "$1"; fi
+}
+
+case "$url" in
+  https://raw.githubusercontent.com/memory-co/agentuse/main/install.sh)
+    serve "$FAKE_INSTALL_SH" ;;
+  https://api.github.com/repos/memory-co/agentuse/releases/latest)
+    printf '{\n  "url": "x",\n  "tag_name": "%s",\n  "name": "%s"\n}\n' "$FAKE_LATEST" "$FAKE_LATEST" ;;
+  https://github.com/memory-co/agentuse/releases/download/*)
+    serve "$FAKE_RELEASES/${url#https://github.com/memory-co/agentuse/releases/download/}" ;;
+  http://127.0.0.1:* | http://localhost:*)
+    exec "$REAL_CURL" "$@" ;;
+  *)
+    echo "fake curl: e2e 里不访问外网: $url" >&2
+    exit 6 ;;
+esac

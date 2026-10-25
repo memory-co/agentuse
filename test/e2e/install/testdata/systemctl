@@ -1,0 +1,3 @@
+#!/bin/sh
+# 假 systemctl:假装没有 systemd --user,让 setup.sh 走 nohup 分支，不往测试机装服务。
+exit 1

@@ -123,7 +123,8 @@ bin/agentuse-server start -dist dist
 开发常用:
 
 ```bash
-make test     # go test ./...
+make test     # 单元测试 go test -short ./...
+make e2e      # e2e 场景(编好二进制再跑):make e2e E2E=install / E2E=session 只跑一个，见 test/e2e/
 make build    # bin/agentuse、bin/agentuse-server(先构建网页 frontend/dist 再嵌进去，需要 Node 18+)
 make dist     # dist/agentuse-{linux,darwin}-{amd64,arm64}(只有用户电脑上的 agentuse)
 ```
@@ -139,7 +140,9 @@ internal/
 ├── protocol/        daemon ⇄ 服务的注册接口和 WebSocket 消息
 ├── server/          HTTP API、WebSocket 派活、setup.sh、托管网页
 └── daemon/          注册、连接、调用本地 CLI harness、汇报
+harness/             内置 harness 的描述:harness/<name>/harness.yaml
 frontend/            网页:React + Vite + shadcn/ui,构建产物 dist/ 嵌进 agentuse-server
+test/e2e/            e2e 场景:install(安装)、session(普通会话，用自研 fakeharness)
 sdk/                 嵌入用客户端:python / nodejs / golang
 docs/                v2(当前) / v1(旧版)
 ```
