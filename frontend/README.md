@@ -10,6 +10,8 @@
 - **侧栏下半**:会话列表(排队 / 运行中的带圆点)。管理员在列表上方有「身份」下拉：选自己就是看全部，选某个用户后所有请求带 `X-Agentuse-User`,看到的和那个用户一样(见 [embedding](../docs/v2/designs/embedding.md))。选择记在 localStorage。
 - **右边**:新会话页(选 agent、可选工作目录、写第一句话)或会话的对话流 + 底部回复框(回车发送,Shift+回车换行);Agents / Daemons / Harness / Users 是原来的管理页。
 
+中英文切换在侧栏底部(登录页右上角也有),记在 localStorage,没选过跟浏览器语言;文案都在 `src/lib/i18n.ts`。中文里 daemon 叫「连接设备」,harness 叫「执行器」。服务端返回的错误信息不翻译。
+
 | 页面 | 功能 |
 | --- | --- |
 | Agents | 建 agent、换它背后的 harness、删除;admin 看全部 |
@@ -45,5 +47,5 @@ src/
 ├── components/     # Shared(状态徽章、复制块、确认框…)
 │   └── ui/         # shadcn/ui 组件，见 ui/README.md
 ├── hooks/          # use-mobile 等(sidebar 用)
-└── lib/            # api、actas(管理员代为用户)、query、types、utils
+└── lib/            # api、actas(管理员代为用户)、i18n(中英文案)、query、types、utils
 ```
