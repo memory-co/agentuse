@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/memory-co/agentuse/harness"
 	"github.com/memory-co/agentuse/internal/protocol"
@@ -132,10 +133,11 @@ func TestRunCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	started := make(chan struct{})
 	go func() { <-started; cancel() }()
-	// exec:让 sleep 顶替 shell。harness 的子进程如果还拿着 stdout,取消要等它退出(见 PR 说明)
-	res := runHarness(ctx, custom(t, "cat >/dev/null; echo started; exec sleep 10"), dispatch("hi", ""), t.TempDir(), func(any) { close(started) })
-	if res.OK || res.Error != "已取消" {
-		t.Fatalf("%+v", res)
+	// sleep 是 shell 的子进程，也拿着 stdout:取消时要连它一起杀掉，不能等它睡完
+	begin := time.Now()
+	res := runHarness(ctx, custom(t, "cat >/dev/null; echo started; sleep 10; echo late"), dispatch("hi", ""), t.TempDir(), func(any) { close(started) })
+	if res.OK || res.Error != "已取消" || time.Since(begin) > 5*time.Second {
+		t.Fatalf("%+v after %s", res, time.Since(begin))
 	}
 }
 

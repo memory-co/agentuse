@@ -145,6 +145,7 @@ func scanLines(r io.Reader, fn func(string)) {
 func start(cmd *exec.Cmd, dir string, stdin io.Reader) (stdout, stderr io.ReadCloser, err error) {
 	cmd.Dir = dir
 	cmd.Stdin = stdin
+	ownProcessGroup(cmd)
 	if stdout, err = cmd.StdoutPipe(); err != nil {
 		return
 	}

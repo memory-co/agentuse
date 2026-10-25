@@ -10,6 +10,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -187,7 +190,7 @@ func TestRun(t *testing.T) {
 // 服务说消息不归本机了：停掉正在跑的 harness,不回报结果。
 func TestRunStaleMessage(t *testing.T) {
 	f := newFakeServer(t)
-	slow := fakeBin(t, t.TempDir(), "slow", `read in; echo '{"type":"progress"}'; exec sleep 10`)
+	slow := fakeBin(t, t.TempDir(), "slow", `read in; echo '{"type":"progress"}'; sleep 10`)
 	d, _ := New(Config{Server: f.URL, Key: "dk_ok", Workdir: t.TempDir(), Harnesses: map[string]HarnessConfig{
 		"slow": {Command: slow}, "claude": {Disabled: true}, "codex": {Disabled: true},
 	}}, log.New(io.Discard, "", 0))
@@ -216,4 +219,47 @@ func TestRunUnauthorized(t *testing.T) {
 	if err := d.Run(ctx); !errors.Is(err, errUnauthorized) {
 		t.Fatalf("want errUnauthorized, got %v", err)
 	}
+}
+
+// daemon 退出时停掉还在跑的 harness,不留孤儿进程接着干活。
+func TestRunStopsHarnessOnExit(t *testing.T) {
+	f := newFakeServer(t)
+	pidfile := filepath.Join(t.TempDir(), "pid")
+	slow := fakeBin(t, t.TempDir(), "slow", `read in; sleep 30 & echo $! >`+pidfile+`; echo '{"type":"progress"}'; wait`)
+	d, _ := New(Config{Server: f.URL, Key: "dk_ok", Workdir: t.TempDir(), Harnesses: map[string]HarnessConfig{
+		"slow": {Command: slow}, "claude": {Disabled: true}, "codex": {Disabled: true},
+	}}, log.New(io.Discard, "", 0))
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error)
+	go func() { done <- d.Run(ctx) }()
+
+	f.next(t, protocol.TypeHello)
+	f.send <- protocol.Message{Type: protocol.TypeWelcome}
+	f.next(t, protocol.TypeReady)
+	f.send <- protocol.Message{Type: protocol.TypeMessage, Message: &protocol.Dispatch{ID: 1, SessionID: "ss_1", Harness: "slow", Input: json.RawMessage(`{}`)}}
+	f.next(t, protocol.TypeEvent)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run should return promptly")
+	}
+	b, _ := os.ReadFile(pidfile)
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	for i := 0; i < 20 && alive(pid); i++ { // macOS 没有 /proc,等 launchd 收尸
+		time.Sleep(100 * time.Millisecond)
+	}
+	if pid == 0 || alive(pid) {
+		t.Fatalf("harness 的子进程 %d 还活着", pid)
+	}
+}
+
+// alive:进程还在跑(僵尸进程不算，它的父进程已经被杀，等 init 收尸)。
+func alive(pid int) bool {
+	if b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat"); err == nil {
+		_, rest, _ := strings.Cut(string(b), ") ")
+		return !strings.HasPrefix(rest, "Z")
+	}
+	p, err := os.FindProcess(pid)
+	return err == nil && p.Signal(syscall.Signal(0)) == nil
 }
