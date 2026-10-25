@@ -8,6 +8,7 @@ import { PanelLeft } from "lucide-react"
 import { useDialogFocus } from "@/hooks/use-dialog-focus"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
+import { t } from "@/lib/i18n"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
@@ -216,8 +217,8 @@ const Sidebar = React.forwardRef<
             side={side}
           >
             <SheetHeader className="sr-only">
-              <SheetTitle>导航</SheetTitle>
-              <SheetDescription>侧栏导航</SheetDescription>
+              <SheetTitle>{t('nav.sheetTitle')}</SheetTitle>
+              <SheetDescription>{t('nav.sheetText')}</SheetDescription>
             </SheetHeader>
             <div className="flex h-full w-full flex-col">{children}</div>
           </SheetContent>
@@ -292,7 +293,7 @@ const SidebarTrigger = React.forwardRef<
       {...props}
     >
       <PanelLeft />
-      <span className="sr-only">展开或收起侧栏</span>
+      <span className="sr-only">{t('nav.toggleSidebar')}</span>
     </Button>
   )
 })

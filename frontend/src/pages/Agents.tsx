@@ -11,18 +11,21 @@ import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query';
 import { useHarnesses } from '@/pages/Harnesses';
 import type { Agent, Harness, User } from '@/lib/types';
+import { useT } from '@/lib/i18n';
 
 export const useAgents = () => useQuery({ queryKey: ['agents'], queryFn: () => api<Agent[]>('/api/agents'), staleTime: 30_000 });
 const refresh = () => queryClient.invalidateQueries({ queryKey: ['agents'] });
 
 function HarnessSelect({ value, onChange, harnesses, className }: { value: string; onChange: (v: string) => void; harnesses?: Harness[]; className?: string }) {
+  const t = useT();
   return <Select value={value} onValueChange={onChange}>
-    <SelectTrigger className={className}><SelectValue placeholder="选择 harness" /></SelectTrigger>
+    <SelectTrigger className={className}><SelectValue placeholder={t('agents.pickHarness')} /></SelectTrigger>
     <SelectContent>{harnesses?.map(a => <SelectItem key={a.name} value={a.name}>{a.display_name} ({a.name})</SelectItem>)}</SelectContent>
   </Select>;
 }
 
 export function Agents({ me }: { me: User }) {
+  const t = useT();
   const agents = useAgents();
   const harnesses = useHarnesses();
   const [form, setForm] = useState({ id: '', name: '', harness: '', description: '' });
@@ -39,24 +42,24 @@ export function Agents({ me }: { me: User }) {
   return <div className="grid gap-4">
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">新建 agent</CardTitle>
-        <CardDescription>给 agent 起个 id 和好懂的名字，背后选一个 harness 来跑。id 全局唯一，别人用 @id 找到它，建好后不能改。以后可以随时换 harness,agent 不变;已有的会话还用原来的 harness,换了之后新建的会话才用新的。</CardDescription>
+        <CardTitle className="text-base">{t('agents.newTitle')}</CardTitle>
+        <CardDescription>{t('agents.newText')}</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); add.mutate(); }}>
-          <Input className="w-40 font-mono" placeholder="id,如 code-helper" value={form.id} onChange={e => setForm({ ...form, id: e.target.value })} />
-          <Input className="w-44" placeholder="名字，如 写代码助手" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required />
+          <Input className="w-40 font-mono" placeholder={t('agents.idPlaceholder')} value={form.id} onChange={e => setForm({ ...form, id: e.target.value })} />
+          <Input className="w-44" placeholder={t('agents.namePlaceholder')} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required />
           <HarnessSelect className="w-56" value={form.harness} onChange={harness => setForm({ ...form, harness })} harnesses={harnesses.data} />
-          <Input className="min-w-48 flex-1" placeholder="说明" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
-          <Button type="submit" disabled={!form.harness || add.isPending}>新建</Button>
+          <Input className="min-w-48 flex-1" placeholder={t('common.description')} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+          <Button type="submit" disabled={!form.harness || add.isPending}>{t('common.new')}</Button>
         </form>
       </CardContent>
     </Card>
     <Card>
-      <CardHeader><CardTitle className="text-base">agent</CardTitle></CardHeader>
+      <CardHeader><CardTitle className="text-base">{t('agents.listTitle')}</CardTitle></CardHeader>
       <CardContent>
         {agents.isPending ? <Loading /> : agents.isError ? <ErrorState error={agents.error} /> : <Table>
-          <TableHeader><TableRow><TableHead>id</TableHead><TableHead>名字</TableHead><TableHead>harness</TableHead><TableHead>说明</TableHead>{me.role === 'admin' && <TableHead>用户</TableHead>}<TableHead /></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>id</TableHead><TableHead>{t('common.name')}</TableHead><TableHead>{t('agents.harness')}</TableHead><TableHead>{t('common.description')}</TableHead>{me.role === 'admin' && <TableHead>{t('common.user')}</TableHead>}<TableHead /></TableRow></TableHeader>
           <TableBody>
             {agents.data.length ? agents.data.map(a => <TableRow key={a.id}>
               <TableCell className="font-mono text-xs">@{a.id}</TableCell>
@@ -65,11 +68,11 @@ export function Agents({ me }: { me: User }) {
               <TableCell className="text-muted-foreground">{a.description}</TableCell>
               {me.role === 'admin' && <TableCell className="font-mono text-xs">{a.user_id}</TableCell>}
               <TableCell className="text-right">
-                <Confirm title={`删除 agent ${a.name}?`} description="用过它的会话保留。" action="删除" onConfirm={() => del.mutate(a.id)}>
-                  <Button variant="ghost" size="icon" className="size-8 text-destructive" aria-label="删除"><Trash2 /></Button>
+                <Confirm title={t('agents.deleteTitle', { name: a.name })} description={t('agents.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate(a.id)}>
+                  <Button variant="ghost" size="icon" className="size-8 text-destructive" aria-label={t('common.delete')}><Trash2 /></Button>
                 </Confirm>
               </TableCell>
-            </TableRow>) : <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">还没有 agent</TableCell></TableRow>}
+            </TableRow>) : <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">{t('agents.empty')}</TableCell></TableRow>}
           </TableBody>
         </Table>}
       </CardContent>
