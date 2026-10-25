@@ -29,7 +29,7 @@ agentuse 是一个可以自己部署的 agent 中间件。用户用**一行命�
 
 ### 1. 安装并起服务
 
-在 Linux 服务器上(amd64 / arm64)一行装好:
+Linux / macOS(amd64 / arm64)上一行装好:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/memory-co/agentuse/main/install.sh | bash
@@ -113,7 +113,7 @@ agentuse harnesses                                      # 本机检测到的 har
 
 ## 从源码构建
 
-需要 Go 1.24+ 和 Node 18+(macOS 上跑服务也走这个):
+需要 Go 1.24+ 和 Node 18+:
 
 ```bash
 make build dist                          # bin/agentuse、bin/agentuse-server + dist/ 下各平台 agentuse

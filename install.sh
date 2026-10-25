@@ -20,7 +20,7 @@ command -v curl >/dev/null 2>&1 || die "需要 curl"
 
 case "$(uname -s)" in
   Linux) OS=linux ;;
-  Darwin) die "agentuse-server 目前只发布 Linux 版。macOS 上请从源码构建：见 https://github.com/$REPO#从源码构建" ;;
+  Darwin) OS=darwin ;;
   *) die "不支持的系统: $(uname -s)" ;;
 esac
 case "$(uname -m)" in
@@ -56,10 +56,14 @@ fetch "agentuse-server-$OS-$ARCH"
 for p in $PLATFORMS; do fetch "agentuse-$p"; done
 
 info "校验 SHA256"
+# 只校验下载了的文件(macOS 自带的 shasum 不一定支持 --ignore-missing)
+FILES="agentuse-server-$OS-$ARCH"
+for p in $PLATFORMS; do FILES="$FILES agentuse-$p"; done
+for f in $FILES; do grep " \*\{0,1\}$f\$" "$TMP/SHA256SUMS" || die "SHA256SUMS 里没有 $f"; done > "$TMP/SUMS"
 if command -v sha256sum >/dev/null 2>&1; then
-  (cd "$TMP" && sha256sum -c --ignore-missing --quiet SHA256SUMS) || die "校验失败"
+  (cd "$TMP" && sha256sum -c --quiet SUMS) || die "校验失败"
 elif command -v shasum >/dev/null 2>&1; then
-  (cd "$TMP" && shasum -a 256 -c --ignore-missing --quiet SHA256SUMS) || die "校验失败"
+  (cd "$TMP" && shasum -a 256 -c --quiet SUMS) || die "校验失败"
 else
   echo "警告: 没有 sha256sum / shasum,跳过校验" >&2
 fi
