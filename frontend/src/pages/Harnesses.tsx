@@ -9,11 +9,13 @@ import { Confirm, ErrorState, Loading } from '@/components/Shared';
 import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query';
 import type { Harness, User } from '@/lib/types';
+import { useT } from '@/lib/i18n';
 
 export const useHarnesses = () => useQuery({ queryKey: ['harnesses'], queryFn: () => api<Harness[]>('/api/harnesses'), staleTime: 30_000 });
 const refresh = () => queryClient.invalidateQueries({ queryKey: ['harnesses'] });
 
 export function Harnesses({ me }: { me: User }) {
+  const t = useT();
   const harnesses = useHarnesses();
   const [form, setForm] = useState({ name: '', display_name: '', description: '' });
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
@@ -22,36 +24,36 @@ export function Harnesses({ me }: { me: User }) {
     onSuccess: () => { setForm({ name: '', display_name: '', description: '' }); void refresh(); },
   });
   const del = useMutation({ mutationFn: (n: string) => api(`/api/harnesses/${encodeURIComponent(n)}`, { method: 'DELETE' }), onSuccess: refresh });
-  return <div className="grid gap-4">
+  return <div className="grid grid-cols-1 gap-4">
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">注册自定义 harness</CardTitle>
+        <CardTitle className="text-base">{t('harnesses.newTitle')}</CardTitle>
         <CardDescription>
-          自己写的 harness:daemon 把 <code>{'{"session_id","resume","input"}'}</code> 以 JSON 写进 stdin,程序往 stdout 按行输出 JSON(<code>{'{"type":"progress",...}'}</code> / <code>{'{"type":"result","ok":true,"output":...,"session_id":...}'}</code>,session_id 下次通过 resume 带回来)。注册后在 daemon 的 <code>~/.agentuse/daemon.json</code> 里配置本机启动命令。
+          {t('harnesses.newText1')}<code>{'{"session_id","resume","input"}'}</code>{t('harnesses.newText2')}<code>{'{"type":"progress",...}'}</code> / <code>{'{"type":"result","ok":true,"output":...,"session_id":...}'}</code>{t('harnesses.newText3')}<code>~/.agentuse/daemon.json</code>{t('harnesses.newText4')}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); add.mutate(); }}>
-          <Input className="w-44" placeholder="名字，如 my-harness" value={form.name} onChange={set('name')} required />
-          <Input className="w-36" placeholder="显示名" value={form.display_name} onChange={set('display_name')} />
-          <Input className="min-w-48 flex-1" placeholder="说明" value={form.description} onChange={set('description')} />
-          <Button type="submit" disabled={add.isPending}>注册</Button>
+          <Input className="w-44" placeholder={t('harnesses.namePlaceholder')} value={form.name} onChange={set('name')} required />
+          <Input className="w-36" placeholder={t('harnesses.displayName')} value={form.display_name} onChange={set('display_name')} />
+          <Input className="min-w-48 flex-1" placeholder={t('common.description')} value={form.description} onChange={set('description')} />
+          <Button type="submit" disabled={add.isPending}>{t('harnesses.register')}</Button>
         </form>
       </CardContent>
     </Card>
     <Card>
-      <CardHeader><CardTitle className="text-base">全部 harness</CardTitle></CardHeader>
+      <CardHeader><CardTitle className="text-base">{t('harnesses.listTitle')}</CardTitle></CardHeader>
       <CardContent>
         {harnesses.isPending ? <Loading /> : harnesses.isError ? <ErrorState error={harnesses.error} /> : <Table>
-          <TableHeader><TableRow><TableHead>名字</TableHead><TableHead>类型</TableHead><TableHead>显示名</TableHead><TableHead>说明</TableHead><TableHead /></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>{t('common.name')}</TableHead><TableHead>{t('harnesses.kind')}</TableHead><TableHead>{t('harnesses.displayName')}</TableHead><TableHead>{t('common.description')}</TableHead><TableHead /></TableRow></TableHeader>
           <TableBody>{harnesses.data.map(a => <TableRow key={a.name}>
             <TableCell className="font-mono text-xs">{a.name}</TableCell>
-            <TableCell>{a.kind === 'builtin' ? '内置' : '自定义'}</TableCell>
+            <TableCell>{a.kind === 'builtin' ? t('harnesses.builtin') : t('harnesses.custom')}</TableCell>
             <TableCell>{a.display_name}</TableCell>
             <TableCell className="text-muted-foreground">{a.description}</TableCell>
             <TableCell className="text-right">{a.kind === 'custom' && (a.owner_id === me.id || me.role === 'admin') &&
-              <Confirm title={`删除 harness ${a.name}?`} action="删除" onConfirm={() => del.mutate(a.name)}>
-                <Button variant="ghost" size="icon" className="size-8 text-destructive" aria-label="删除"><Trash2 /></Button>
+              <Confirm title={t('harnesses.deleteTitle', { name: a.name })} action={t('common.delete')} onConfirm={() => del.mutate(a.name)}>
+                <Button variant="ghost" size="icon" className="size-8 text-destructive" aria-label={t('common.delete')}><Trash2 /></Button>
               </Confirm>}</TableCell>
           </TableRow>)}</TableBody>
         </Table>}

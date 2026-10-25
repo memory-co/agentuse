@@ -8,6 +8,7 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { cn, errText } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 
 const TONES = {
   ok: 'border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
@@ -21,7 +22,8 @@ export function StatusBadge({ tone, children }: { tone: keyof typeof TONES; chil
 }
 
 export function Loading() {
-  return <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />加载中…</div>;
+  const t = useT();
+  return <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />{t('common.loading')}</div>;
 }
 export function Empty({ children }: { children: ReactNode }) {
   return <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">{children}</div>;
@@ -32,28 +34,30 @@ export function ErrorState({ error }: { error: unknown }) {
 
 // 一段可复制的命令(安装命令、登录链接)。
 export function CopyBlock({ text }: { text: string }) {
+  const t = useT();
   const [done, setDone] = useState(false);
   const copy = () => navigator.clipboard.writeText(text).then(
     () => { setDone(true); setTimeout(() => setDone(false), 1500); },
-    () => toast.error('复制失败，请手动选中'),
+    () => toast.error(t('common.copyFailed')),
   );
   return <div className="relative">
     <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md border bg-muted p-3 pr-12 font-mono text-xs">{text}</pre>
-    <Button size="icon" variant="ghost" className="absolute right-1 top-1 size-8" onClick={copy} aria-label="复制">
+    <Button size="icon" variant="ghost" className="absolute right-1 top-1 size-8" onClick={copy} aria-label={t('common.copy')}>
       {done ? <Check /> : <Copy />}
     </Button>
   </div>;
 }
 
 // 破坏性操作的确认框。
-export function Confirm({ title, description, action = '确定', onConfirm, children }: {
+export function Confirm({ title, description, action, onConfirm, children }: {
   title: string; description?: string; action?: string; onConfirm: () => void; children: ReactNode;
 }) {
+  const t = useT();
   return <AlertDialog>
     <AlertDialogTrigger asChild>{children}</AlertDialogTrigger>
     <AlertDialogContent>
       <AlertDialogHeader><AlertDialogTitle>{title}</AlertDialogTitle>{description && <AlertDialogDescription>{description}</AlertDialogDescription>}</AlertDialogHeader>
-      <AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={onConfirm}>{action}</AlertDialogAction></AlertDialogFooter>
+      <AlertDialogFooter><AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel><AlertDialogAction onClick={onConfirm}>{action ?? t('common.ok')}</AlertDialogAction></AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>;
 }

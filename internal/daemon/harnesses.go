@@ -11,33 +11,30 @@ import (
 	"sync"
 	"time"
 
+	"github.com/memory-co/agentuse/harness"
 	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-// builtins 是自带适配的 harness:名字 → 默认命令。
-var builtins = map[string]string{
-	"claude": "claude",
-	"codex":  "codex",
-}
-
-// localHarness 是本机一个可用的 harness。
+// localHarness 是本机一个可用的 harness。Spec 为 nil 的是自定义 harness。
 type localHarness struct {
 	Name    string
 	Path    string
 	Args    []string
 	Version string
+	Spec    *harness.Spec
 }
 
-// detectHarnesses 找出本机可用的 harness:内置的按默认命令探测，配置文件里的按配置。
+// detectHarnesses 找出本机可用的 harness:内置的(harness/*/harness.yaml)按默认命令探测，配置文件里的按配置。
 func detectHarnesses(cfg Config) map[string]localHarness {
 	out := map[string]localHarness{}
 	want := map[string]HarnessConfig{}
-	for name, cmd := range builtins {
-		want[name] = HarnessConfig{Command: cmd}
+	builtins, _ := harness.All()
+	for _, sp := range builtins {
+		want[sp.Name] = HarnessConfig{Command: sp.Command}
 	}
 	for name, ac := range cfg.Harnesses {
-		if ac.Command == "" {
-			ac.Command = builtins[name]
+		if sp, ok := harness.Get(name); ok && ac.Command == "" {
+			ac.Command = sp.Command
 		}
 		want[name] = ac
 	}
@@ -50,18 +47,21 @@ func detectHarnesses(cfg Config) map[string]localHarness {
 			continue
 		}
 		la := localHarness{Name: name, Path: path, Args: ac.Args}
-		if _, ok := builtins[name]; ok {
-			la.Version = probeVersion(path)
+		if sp, ok := harness.Get(name); ok {
+			la.Spec = &sp
+			if len(sp.Detect.Version) > 0 {
+				la.Version = probeVersion(path, sp.Detect.Version)
+			}
 		}
 		out[name] = la
 	}
 	return out
 }
 
-func probeVersion(path string) string {
+func probeVersion(path string, args []string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	b, err := exec.CommandContext(ctx, path, "--version").Output()
+	b, err := exec.CommandContext(ctx, path, args...).Output()
 	if err != nil {
 		return ""
 	}
@@ -99,33 +99,17 @@ type reportFn func(payload any)
 
 // runHarness 在 dir 里跑 harness 回一条消息，过程中调用 report 回报进度。m.Resume 不为空时续接 harness 的会话。
 func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir string, report reportFn) Result {
-	var pi protocol.PromptInput
-	_ = json.Unmarshal(m.Input, &pi)
-	switch la.Name {
-	case "claude":
-		if pi.Prompt == "" {
-			return Result{Error: "input.prompt 为空"}
-		}
-		args := []string{"-p", pi.Prompt, "--output-format", "stream-json", "--verbose"}
-		if m.Resume != "" {
-			args = append(args, "--resume", m.Resume)
-		}
-		args = append(args, la.Args...)
-		return withSession(runClaude(ctx, exec.CommandContext(ctx, la.Path, args...), dir, report), m.Resume)
-	case "codex":
-		if pi.Prompt == "" {
-			return Result{Error: "input.prompt 为空"}
-		}
-		args := append([]string{"exec", "--json", "--skip-git-repo-check"}, la.Args...)
-		if m.Resume != "" {
-			args = append(args, "resume", m.Resume)
-		}
-		args = append(args, pi.Prompt)
-		return withSession(runCodex(ctx, exec.CommandContext(ctx, la.Path, args...), dir, report), m.Resume)
-	default:
+	if la.Spec == nil {
 		in, _ := json.Marshal(protocol.HarnessInput{SessionID: m.SessionID, Resume: m.Resume, Input: m.Input})
 		return withSession(runCustomHarness(ctx, exec.CommandContext(ctx, la.Path, la.Args...), in, dir, report), m.Resume)
 	}
+	var pi protocol.PromptInput
+	_ = json.Unmarshal(m.Input, &pi)
+	args, err := la.Spec.Args(pi.Prompt, m.Resume, la.Args)
+	if err != nil {
+		return Result{Error: err.Error()}
+	}
+	return withSession(runSpec(ctx, *la.Spec, exec.CommandContext(ctx, la.Path, args...), dir, report), m.Resume)
 }
 
 // withSession:harness 没报会话 id 时沿用续接的那个，免得服务那边丢掉。
@@ -171,8 +155,8 @@ func start(cmd *exec.Cmd, dir string, stdin io.Reader) (stdout, stderr io.ReadCl
 	return
 }
 
-// runClaude 解析 claude 的 stream-json:assistant 文本和工具调用作为进度,result 行作为结果。
-func runClaude(ctx context.Context, cmd *exec.Cmd, dir string, report reportFn) Result {
+// runSpec 按 harness.yaml 的 output 规则读 stdout,按 finish 判成败。
+func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, dir string, report reportFn) Result {
 	stdout, stderr, err := start(cmd, dir, nil)
 	if err != nil {
 		return Result{Error: err.Error()}
@@ -182,131 +166,39 @@ func runClaude(ctx context.Context, cmd *exec.Cmd, dir string, report reportFn) 
 	wg.Add(1)
 	go func() { defer wg.Done(); scanLines(stderr, errTail.add) }()
 
-	var res Result
-	gotResult := false
+	var st harness.State
 	scanLines(stdout, func(line string) {
-		var m struct {
-			Type      string  `json:"type"`
-			Subtype   string  `json:"subtype"`
-			SessionID string  `json:"session_id"`
-			Result    string  `json:"result"`
-			IsError   bool    `json:"is_error"`
-			CostUSD   float64 `json:"total_cost_usd"`
-			Message   struct {
-				Content []struct {
-					Type  string          `json:"type"`
-					Text  string          `json:"text"`
-					Name  string          `json:"name"`
-					Input json.RawMessage `json:"input"`
-				} `json:"content"`
-			} `json:"message"`
-		}
-		if json.Unmarshal([]byte(line), &m) != nil {
-			report(map[string]string{"text": truncate(line, 4000)})
-			return
-		}
-		if m.SessionID != "" {
-			res.SessionID = m.SessionID
-		}
-		switch m.Type {
-		case "assistant":
-			for _, c := range m.Message.Content {
-				switch c.Type {
-				case "text":
-					if strings.TrimSpace(c.Text) != "" {
-						report(map[string]string{"text": truncate(c.Text, 4000)})
-					}
-				case "tool_use":
-					report(map[string]string{"text": "🔧 " + c.Name + " " + truncate(string(c.Input), 300)})
-				}
-			}
-		case "result":
-			gotResult = true
-			res.OK = !m.IsError && (m.Subtype == "" || m.Subtype == "success")
-			res.Output = m.Result
-			res.CostUSD = m.CostUSD
-			if !res.OK {
-				res.Error = m.Subtype
-			}
-		}
+		sp.Line(&st, line, func(text string) { report(map[string]string{"text": text}) })
 	})
 	wg.Wait()
 	werr := cmd.Wait()
-	if !gotResult {
-		res.OK = false
-		res.Error = exitError(ctx, werr, errTail.String())
-	} else if werr != nil && res.OK {
-		res.OK, res.Error = false, exitError(ctx, werr, errTail.String())
-	}
-	return res
-}
 
-// runCodex 解析 codex exec --json 的 JSONL:thread.started 给会话 id,agent_message 和命令作为进度，
-// 最后一条 agent_message 作为结果输出,turn.completed 为成功。
-func runCodex(ctx context.Context, cmd *exec.Cmd, dir string, report reportFn) Result {
-	stdout, stderr, err := start(cmd, dir, nil)
-	if err != nil {
-		return Result{Error: err.Error()}
-	}
-	var errTail tail
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() { defer wg.Done(); scanLines(stderr, errTail.add) }()
-
-	var res Result
-	completed := false
-	scanLines(stdout, func(line string) {
-		var m struct {
-			Type     string `json:"type"`
-			ThreadID string `json:"thread_id"`
-			Message  string `json:"message"`
-			Error    struct {
-				Message string `json:"message"`
-			} `json:"error"`
-			Item struct {
-				Type    string `json:"type"`
-				Text    string `json:"text"`
-				Command string `json:"command"`
-			} `json:"item"`
+	res := Result{SessionID: st.SessionID, Output: st.Output, Error: st.Error, CostUSD: st.CostUSD}
+	switch {
+	case sp.Finish.RequireResult:
+		res.OK = st.SawResult && st.ResultOK && werr == nil
+		if !st.SawResult || (st.ResultOK && werr != nil) {
+			res.Error = exitError(ctx, werr, errTail.String())
 		}
-		if json.Unmarshal([]byte(line), &m) != nil {
-			if strings.TrimSpace(line) != "" {
-				report(map[string]string{"text": truncate(line, 4000)})
+	case sp.Finish.RequireOK:
+		res.OK = st.SawOK && werr == nil
+		if res.OK {
+			res.Error = ""
+		} else if res.Error == "" || werr != nil {
+			msg := exitError(ctx, werr, errTail.String())
+			if res.Error != "" {
+				msg = res.Error + "; " + msg
 			}
-			return
+			res.Error = msg
 		}
-		switch m.Type {
-		case "thread.started":
-			res.SessionID = m.ThreadID
-		case "item.completed":
-			switch m.Item.Type {
-			case "agent_message":
-				res.Output = m.Item.Text
-				report(map[string]string{"text": truncate(m.Item.Text, 4000)})
-			case "command_execution":
-				report(map[string]string{"text": "🔧 " + truncate(m.Item.Command, 300)})
-			}
-		case "turn.completed":
-			completed = true
-		case "turn.failed":
-			res.Error = m.Error.Message
-		case "error":
-			report(map[string]string{"text": truncate(m.Message, 4000)})
-			res.Error = m.Message
+	default:
+		res.OK = werr == nil
+		if !res.OK {
+			res.Error = exitError(ctx, werr, errTail.String())
 		}
-	})
-	wg.Wait()
-	werr := cmd.Wait()
-	if completed && werr == nil {
-		res.OK, res.Error = true, ""
-		return res
 	}
-	if res.Error == "" || werr != nil {
-		msg := exitError(ctx, werr, errTail.String())
-		if res.Error != "" {
-			msg = res.Error + "; " + msg
-		}
-		res.Error = msg
+	if res.OK {
+		res.Error = ""
 	}
 	return res
 }

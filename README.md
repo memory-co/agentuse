@@ -1,8 +1,29 @@
-# agentuse
+<h1 align="center">agentuse</h1>
 
-> 用户电脑上跑一个 daemon,从 agentuse 服务领活，在本地调用 harness(Claude Code、Codex 等 CLI,或自己写的程序)干活，再把进度和结果汇报回去。
+<p align="center"><b>让你网站的用户，用他们自己电脑上的 Claude Code / Codex 干活。</b></p>
 
-设计见 [`docs/v2/designs/main.md`](docs/v2/designs/main.md),接入与通信见 [`connect.md`](docs/v2/designs/connect.md),表结构见 [`docs/v2/tables/`](docs/v2/tables/),接口见 [`docs/v2/apis/`](docs/v2/apis/README.md),命令行见 [`docs/v2/cli/`](docs/v2/cli/README.md)。嵌进自己网站见 [`embedding.md`](docs/v2/designs/embedding.md) 和 [`sdk/`](sdk/README.md)(Python / Node.js / Go)。旧版(v1)文档留在 [`docs/v1/`](docs/v1/README.md)。
+<p align="center">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
+  <img alt="Go" src="https://img.shields.io/badge/go-1.24-00ADD8">
+  <img alt="SDK" src="https://img.shields.io/badge/SDK-Python%20%7C%20Node.js%20%7C%20Go-6366f1">
+</p>
+
+agentuse 是一个可以自己部署的 agent 中间件。用户用**一行命令**把自己的电脑接进来，在上面建几个有名字的 agent(背后是 Claude Code、Codex 或自己写的程序),之后从网页、你的网站或 API 发出的消息，都会派到 agent 主人自己的电脑上执行，进度和回复实时传回来。
+
+它像 Redis 一样嵌进你的网站：网站后端调用它，网站用户不用知道 agentuse 的存在。
+
+<p align="center"><img src="docs/images/architecture.svg" alt="agentuse 架构:网页 / 网站后端 / 脚本通过 HTTP 调用 agentuse-server,agentuse-server 通过 WebSocket 把活派给每个用户电脑上的 daemon,daemon 在本地调用 claude、codex 或自定义 harness" width="860"></p>
+
+## 特点
+
+- **一行命令接入**:`curl …/setup.sh … && bash setup.sh`,自动注册并装成后台服务(launchd / systemd),电脑在 NAT 后面也能用。
+- **活在自己电脑上跑**:代码、密钥、harness 的登录状态都不离开用户电脑;消息只派给 agent 主人自己的 daemon。
+- **harness 可换**:内置 Claude Code、Codex,也能注册自己写的程序;agent 换 harness 不用改名字。
+- **多轮会话**:会话对齐 Claude Code 的 session / Codex 的 thread,在同一台电脑上续接。
+- **部署简单**:一个 `agentuse-server` 二进制，内嵌网页，数据就一个 SQLite 文件。
+- **方便嵌入**:Python / Node.js / Go 零依赖 SDK,带上网站自己的 user id 就能代表这个用户调用。
+
+<p align="center"><img src="docs/images/flow.svg" alt="使用流程：添加机器 → 一行命令安装 → 打开 harness → 建 agent → 开会话" width="860"></p>
 
 ## 快速开始
 
@@ -73,6 +94,18 @@ agentuse harnesses                                      # 本机检测到的 har
 | GET / DELETE | `/api/sessions/{id}` | 会话详情(消息和回报) / 删除 |
 | GET / POST | `/api/harnesses` | 列 harness / 注册自定义 harness |
 | GET / POST | `/api/users` | (admin)列用户 / 建用户 |
+
+## 文档
+
+| | |
+|---|---|
+| 总体设计 | [`docs/v2/designs/main.md`](docs/v2/designs/main.md) |
+| 接入与通信 | [`docs/v2/designs/connect.md`](docs/v2/designs/connect.md) |
+| 嵌入到网站 | [`docs/v2/designs/embedding.md`](docs/v2/designs/embedding.md)、[`sdk/`](sdk/README.md) |
+| 表结构 | [`docs/v2/tables/`](docs/v2/tables/) |
+| 接口 | [`docs/v2/apis/`](docs/v2/apis/README.md) |
+| 命令行 | [`docs/v2/cli/`](docs/v2/cli/README.md) |
+| 旧版(v1) | [`docs/v1/`](docs/v1/README.md) |
 
 ## 开发
 
