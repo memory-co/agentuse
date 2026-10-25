@@ -42,9 +42,9 @@ daemon 连上 WebSocket,上报本机 harness ──▶ 页面上出现这台电�
 派给 daemon 的是 `pending` 的[会话](../tables/sessions.md),带上它最后一条 `user` 消息。
 
 - 一台 daemon 一次只跑一个会话：说了 `ready` 才派，派出后等它再说 `ready`。
-- 有新消息、用户打开了某个 harness、有会话被收回时，服务叫醒该用户所有空闲的 daemon 去领。
-- 领活在一个事务里挑最早的 `pending` 会话，条件是同一用户、harness 在这台 daemon 上 `available = 1 AND enabled = 1`,并且会话还没绑定 daemon、或绑定的就是这台。
-- 会话第一次被领走时绑定到这台 daemon,之后只给它(harness 的会话存在那台电脑上)。它离线就等它上线，不换机器。
+- 有新消息、用户打开了某个 harness、有会话被收回时，服务叫醒相关的空闲 daemon 去领。
+- 领活在一个事务里挑最早的 `pending` 会话，条件是会话的 `daemon_id` 就是这台、会话的 harness 在这台 daemon 上 `available = 1 AND enabled = 1`。
+- 会话建的时候就定了 daemon(取 [agent](../tables/agents.md) 的运行时),只给它(harness 的会话存在那台电脑上)。它离线就等它上线，不换机器。
 - 租约 60 秒，心跳和每条回报都续租。daemon 掉线后租约过期，会话回到 `pending`。断线期间跑完的结果,daemon 重连后补发。
 
 ## 本机怎么跑 harness

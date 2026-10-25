@@ -49,7 +49,7 @@ X-Agentuse-User: u_10086
 |---|---|
 | 「连接我的电脑」 | [`POST /api/daemons`](../apis/daemons.md),把返回的安装命令展示给用户复制 |
 | 看电脑在不在线、开关 harness | `GET /api/daemons`、`PUT /api/daemons/{id}/harnesses/{harness}` |
-| 建 agent、换它背后的 harness | [`POST /api/agents`](../apis/agents.md)、`PATCH /api/agents/{id}` |
+| 建 agent、切换它的运行时(daemon + harness) | [`POST /api/agents`](../apis/agents.md)、`PATCH /api/agents/{id}` |
 | 用某个 agent 发起一次任务 | [`POST /api/sessions`](../apis/sessions.md) |
 | 接着回复 | `POST /api/sessions/{id}/messages` |
 | 看进度和结果 | `GET /api/sessions/{id}`,轮询 |

@@ -28,7 +28,7 @@ type AgentPatch struct {
 	Description *string
 }
 
-// agent id 全局唯一，别人用它来 @ 这个 agent,建好后不能改。
+// agent id 全局唯一，建好后不能改。
 var agentIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 func cleanAgentName(name string) (string, error) {
@@ -86,13 +86,7 @@ func (s *Store) CreateAgent(ctx context.Context, userID, id, name, harness, desc
 
 // UpdateAgent 改名字、换 harness 或改说明，只有主人(或 admin)能改。已有会话不受影响，换 harness 只对之后新建的会话生效。
 func (s *Store) UpdateAgent(ctx context.Context, u User, id string, p AgentPatch) (Agent, error) {
-	q := agentCols + ` WHERE id = ?`
-	args := []any{id}
-	if !u.IsAdmin() {
-		q += ` AND user_id = ?`
-		args = append(args, u.ID)
-	}
-	a, err := scanAgent(s.db.QueryRowContext(ctx, q, args...))
+	a, err := s.GetAgent(ctx, u, id)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -150,9 +144,14 @@ func scanAgent(row scanner) (Agent, error) {
 	return a, err
 }
 
-// GetAgent 按 id 查 agent。任何登录用户都能查到任何人的 agent,用来解析 @id。
-func (s *Store) GetAgent(ctx context.Context, id string) (Agent, error) {
-	return scanAgent(s.db.QueryRowContext(ctx, agentCols+` WHERE id = ?`, id))
+func (s *Store) GetAgent(ctx context.Context, u User, id string) (Agent, error) {
+	q := agentCols + ` WHERE id = ?`
+	args := []any{id}
+	if !u.IsAdmin() {
+		q += ` AND user_id = ?`
+		args = append(args, u.ID)
+	}
+	return scanAgent(s.db.QueryRowContext(ctx, q, args...))
 }
 
 // ListAgents 列 agent,按名字排序;admin 看所有人的。

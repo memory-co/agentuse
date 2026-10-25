@@ -62,7 +62,7 @@ export function Agents({ me }: { me: User }) {
           <TableHeader><TableRow><TableHead>id</TableHead><TableHead>{t('common.name')}</TableHead><TableHead>{t('agents.harness')}</TableHead><TableHead>{t('common.description')}</TableHead>{me.role === 'admin' && <TableHead>{t('common.user')}</TableHead>}<TableHead /></TableRow></TableHeader>
           <TableBody>
             {agents.data.length ? agents.data.map(a => <TableRow key={a.id}>
-              <TableCell className="font-mono text-xs">@{a.id}</TableCell>
+              <TableCell className="font-mono text-xs">{a.id}</TableCell>
               <TableCell className="font-medium">{a.name}</TableCell>
               <TableCell><HarnessSelect className="h-8 w-52" value={a.harness} onChange={harness => swap.mutate({ id: a.id, harness })} harnesses={harnesses.data} /></TableCell>
               <TableCell className="text-muted-foreground">{a.description}</TableCell>

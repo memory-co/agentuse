@@ -63,7 +63,7 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
       <p className="text-sm text-muted-foreground">{t('session.askText')}</p>
     </div>
     <Composer placeholder={t('session.taskPlaceholder')} disabled={!agent.trim()} busy={add.isPending} onSend={p => add.mutateAsync(p)}>
-      <Input className="h-8 w-52 font-mono text-xs" list="agent-ids" placeholder={t('session.agentPlaceholder')} value={agent} onChange={e => setAgent(e.target.value.replace(/^@/, ''))} aria-label="agent" />
+      <Input className="h-8 w-52 font-mono text-xs" list="agent-ids" placeholder={t('session.agentPlaceholder')} value={agent} onChange={e => setAgent(e.target.value)} aria-label="agent" />
       <datalist id="agent-ids">{agents.data?.map(a => <option key={a.id} value={a.id}>{a.name} ({a.harness})</option>)}</datalist>
       <Input className="h-8 min-w-40 flex-1 text-xs" placeholder={t('session.cwdPlaceholder')} value={cwd} onChange={e => setCwd(e.target.value)} aria-label={t('session.cwd')} />
     </Composer>
@@ -86,7 +86,7 @@ export function Conversation({ id, onDeleted }: { id: string; onDeleted: () => v
   if (q.isPending) return <div className="px-6"><Loading /></div>;
   if (q.isError) return <div className="px-6 py-6"><ErrorState error={q.error} /></div>;
   const { session: x, messages, events } = q.data;
-  const meta = [x.agent_id && `@${x.agent_id}`, t('session.metaHarness', { harness: x.harness }), x.created_by !== x.user_id && t('session.metaOnBehalf', { by: x.created_by, owner: x.user_id }), x.daemon_id && t('session.metaDaemon', { id: x.daemon_id }), x.cwd, x.harness_session_id && t('session.metaHarnessSession', { id: x.harness_session_id })].filter(Boolean).join(' · ');
+  const meta = [x.agent_id, t('session.metaHarness', { harness: x.harness }), x.created_by !== x.user_id && t('session.metaOnBehalf', { by: x.created_by, owner: x.user_id }), x.daemon_id && t('session.metaDaemon', { id: x.daemon_id }), x.cwd, x.harness_session_id && t('session.metaHarnessSession', { id: x.harness_session_id })].filter(Boolean).join(' · ');
   const last = events.filter(e => e.kind === 'progress').pop();
   return <div className="flex min-h-0 flex-1 flex-col">
     <div className="min-h-0 flex-1 overflow-y-auto">

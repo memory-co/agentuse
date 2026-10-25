@@ -72,7 +72,7 @@ var (
 )
 
 // CreateSession 用一个 agent 建会话并写入第一条用户消息，会话为 pending。
-// 任何用户都能用任何人的 agent(@ 对方的 agent):会话属于 agent 的主人、跑在主人的 daemon 上,
+// agent_id 由调用方指定，可以是任何人的 agent:会话属于 agent 的主人、跑在主人的 daemon 上,
 // created_by 记发起人;harness 取 agent 此刻映射的 harness,之后不再跟着 agent 变。
 func (s *Store) CreateSession(ctx context.Context, u User, agentID, cwd, title string, content json.RawMessage) (Session, Message, error) {
 	if !json.Valid(content) {

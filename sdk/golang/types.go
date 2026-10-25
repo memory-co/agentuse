@@ -49,7 +49,7 @@ type Agent struct {
 }
 
 type CreateAgentRequest struct {
-	ID          string `json:"id,omitempty"` // 全局唯一，用来 @;空 = 服务生成 ag_xxx
+	ID          string `json:"id,omitempty"` // 全局唯一;空 = 服务生成 ag_xxx
 	Name        string `json:"name"`
 	Harness     string `json:"harness"`
 	Description string `json:"description,omitempty"`
