@@ -9,33 +9,43 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Confirm, ErrorState, Loading } from '@/components/Shared';
 import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query';
-import { useHarnesses } from '@/pages/Harnesses';
-import type { Agent, Harness, User } from '@/lib/types';
+import type { Agent, Daemon, User } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 
 export const useAgents = () => useQuery({ queryKey: ['agents'], queryFn: () => api<Agent[]>('/api/agents'), staleTime: 30_000 });
 const refresh = () => queryClient.invalidateQueries({ queryKey: ['agents'] });
 
-function HarnessSelect({ value, onChange, harnesses, className }: { value: string; onChange: (v: string) => void; harnesses?: Harness[]; className?: string }) {
+// 运行时 = 某台 daemon + 上面上报过的某个 harness,下拉框的值写成 "daemon_id/harness"。
+type Runtime = { daemon_id: string; harness: string };
+const rtKey = (r: Runtime) => `${r.daemon_id}/${r.harness}`;
+const parseRt = (k: string): Runtime => { const i = k.indexOf('/'); return { daemon_id: k.slice(0, i), harness: k.slice(i + 1) }; };
+const runtimesOf = (daemons: Daemon[] | undefined, userId: string) =>
+  (daemons || []).filter(d => d.user_id === userId).flatMap(d => d.harnesses.map(h => ({ key: rtKey({ daemon_id: d.id, harness: h.harness }), label: `${d.name} · ${h.harness}` })));
+
+function RuntimeSelect({ value, onChange, daemons, userId, className }: { value: string; onChange: (v: string) => void; daemons?: Daemon[]; userId: string; className?: string }) {
   const t = useT();
+  const options = runtimesOf(daemons, userId);
   return <Select value={value} onValueChange={onChange}>
-    <SelectTrigger className={className}><SelectValue placeholder={t('agents.pickHarness')} /></SelectTrigger>
-    <SelectContent>{harnesses?.map(a => <SelectItem key={a.name} value={a.name}>{a.display_name} ({a.name})</SelectItem>)}</SelectContent>
+    <SelectTrigger className={className}><SelectValue placeholder={t('agents.pickRuntime')} /></SelectTrigger>
+    <SelectContent>{options.map(o => <SelectItem key={o.key} value={o.key}>{o.label}</SelectItem>)}</SelectContent>
   </Select>;
 }
 
 export function Agents({ me }: { me: User }) {
   const t = useT();
   const agents = useAgents();
-  const harnesses = useHarnesses();
-  const [form, setForm] = useState({ id: '', name: '', harness: '', description: '' });
-  useEffect(() => { if (!form.harness && harnesses.data?.length) setForm(f => ({ ...f, harness: harnesses.data[0].name })); }, [form.harness, harnesses.data]);
+  const daemons = useQuery({ queryKey: ['daemons'], queryFn: () => api<Daemon[]>('/api/daemons'), staleTime: 10_000 });
+  const [form, setForm] = useState({ id: '', name: '', runtime: '', description: '' });
+  useEffect(() => {
+    const first = runtimesOf(daemons.data, me.id)[0];
+    if (!form.runtime && first) setForm(f => ({ ...f, runtime: first.key }));
+  }, [form.runtime, daemons.data, me.id]);
   const add = useMutation({
-    mutationFn: () => api('/api/agents', { method: 'POST', body: { id: form.id.trim(), name: form.name.trim(), harness: form.harness, description: form.description.trim() } }),
+    mutationFn: () => api('/api/agents', { method: 'POST', body: { id: form.id.trim(), name: form.name.trim(), ...parseRt(form.runtime), description: form.description.trim() } }),
     onSuccess: () => { setForm(f => ({ ...f, id: '', name: '', description: '' })); void refresh(); },
   });
   const swap = useMutation({
-    mutationFn: ({ id, harness }: { id: string; harness: string }) => api(`/api/agents/${id}`, { method: 'PATCH', body: { harness } }),
+    mutationFn: ({ id, runtime }: { id: string; runtime: string }) => api(`/api/agents/${id}`, { method: 'PATCH', body: parseRt(runtime) }),
     onSuccess: refresh,
   });
   const del = useMutation({ mutationFn: (id: string) => api(`/api/agents/${id}`, { method: 'DELETE' }), onSuccess: refresh });
@@ -49,9 +59,9 @@ export function Agents({ me }: { me: User }) {
         <form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); add.mutate(); }}>
           <Input className="w-40 font-mono" placeholder={t('agents.idPlaceholder')} value={form.id} onChange={e => setForm({ ...form, id: e.target.value })} />
           <Input className="w-44" placeholder={t('agents.namePlaceholder')} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required />
-          <HarnessSelect className="w-56" value={form.harness} onChange={harness => setForm({ ...form, harness })} harnesses={harnesses.data} />
+          <RuntimeSelect className="w-56" value={form.runtime} onChange={runtime => setForm({ ...form, runtime })} daemons={daemons.data} userId={me.id} />
           <Input className="min-w-48 flex-1" placeholder={t('common.description')} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
-          <Button type="submit" disabled={!form.harness || add.isPending}>{t('common.new')}</Button>
+          <Button type="submit" disabled={!form.runtime || add.isPending}>{t('common.new')}</Button>
         </form>
       </CardContent>
     </Card>
@@ -59,12 +69,12 @@ export function Agents({ me }: { me: User }) {
       <CardHeader><CardTitle className="text-base">{t('agents.listTitle')}</CardTitle></CardHeader>
       <CardContent>
         {agents.isPending ? <Loading /> : agents.isError ? <ErrorState error={agents.error} /> : <Table>
-          <TableHeader><TableRow><TableHead>id</TableHead><TableHead>{t('common.name')}</TableHead><TableHead>{t('agents.harness')}</TableHead><TableHead>{t('common.description')}</TableHead>{me.role === 'admin' && <TableHead>{t('common.user')}</TableHead>}<TableHead /></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>id</TableHead><TableHead>{t('common.name')}</TableHead><TableHead>{t('agents.runtime')}</TableHead><TableHead>{t('common.description')}</TableHead>{me.role === 'admin' && <TableHead>{t('common.user')}</TableHead>}<TableHead /></TableRow></TableHeader>
           <TableBody>
             {agents.data.length ? agents.data.map(a => <TableRow key={a.id}>
               <TableCell className="font-mono text-xs">{a.id}</TableCell>
               <TableCell className="font-medium">{a.name}</TableCell>
-              <TableCell><HarnessSelect className="h-8 w-52" value={a.harness} onChange={harness => swap.mutate({ id: a.id, harness })} harnesses={harnesses.data} /></TableCell>
+              <TableCell><RuntimeSelect className="h-8 w-52" value={a.daemon_id ? rtKey({ daemon_id: a.daemon_id, harness: a.harness }) : ''} onChange={runtime => swap.mutate({ id: a.id, runtime })} daemons={daemons.data} userId={a.user_id} /></TableCell>
               <TableCell className="text-muted-foreground">{a.description}</TableCell>
               {me.role === 'admin' && <TableCell className="font-mono text-xs">{a.user_id}</TableCell>}
               <TableCell className="text-right">

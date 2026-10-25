@@ -57,10 +57,10 @@ export class Client {
 
   // agents
   listAgents(user) { return this._request("GET", "/api/agents", user); }
-  // { id?, name, harness, description? };id 全局唯一，不传时服务生成。
+  // { id?, name, daemon_id, harness, description? };id 全局唯一，不传时服务生成。
   createAgent(user, agent) { return this._request("POST", "/api/agents", user, agent); }
   getAgent(user, agentId) { return this._request("GET", `/api/agents/${q(agentId)}`, user); }
-  // 改名字、换 harness、改说明:{ name?, harness?, description? }。换 harness 只影响之后新建的会话。
+  // 改名字、切换运行时、改说明:{ name?, daemon_id?, harness?, description? };daemon_id 和 harness 一起给。切换运行时只影响之后新建的会话。
   updateAgent(user, agentId, patch) { return this._request("PATCH", `/api/agents/${q(agentId)}`, user, patch); }
   async deleteAgent(user, agentId) { await this._request("DELETE", `/api/agents/${q(agentId)}`, user); }
 

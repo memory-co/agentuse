@@ -10,20 +10,23 @@ import (
 	"unicode/utf8"
 )
 
-// Agent 是用户起了名字的 agent,背后映射一个 harness;换 harness 时 agent 不变。
+// Agent 是用户起了名字的 agent,绑定一个运行时(主人的某台 daemon + 上面的某个 harness);
+// 切换运行时(daemon 和 harness 一起换)时 agent 不变。
 type Agent struct {
 	ID          string `json:"id"`
 	UserID      string `json:"user_id"`
 	Name        string `json:"name"`
+	DaemonID    string `json:"daemon_id,omitempty"` // daemon 被删后为空，要先切换运行时
 	Harness     string `json:"harness"`
 	Description string `json:"description"`
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`
 }
 
-// AgentPatch 是修改 agent 时要改的字段，nil 表示不改。
+// AgentPatch 是修改 agent 时要改的字段，nil 表示不改。DaemonID 和 Harness 要一起给。
 type AgentPatch struct {
 	Name        *string
+	DaemonID    *string
 	Harness     *string
 	Description *string
 }
@@ -42,6 +45,21 @@ func cleanAgentName(name string) (string, error) {
 	return name, nil
 }
 
+// checkRuntime 确认 (daemonID, harness) 是 userID 自己的 daemon 上报过的 harness,即 daemon_harnesses 里有这一行。
+func (s *Store) checkRuntime(ctx context.Context, userID, daemonID, harness string) error {
+	if daemonID == "" || harness == "" {
+		return errors.New("daemon_id 和 harness 必填")
+	}
+	var one int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT 1 FROM daemon_harnesses WHERE daemon_id = ? AND harness = ? AND user_id = ?`,
+		daemonID, harness, userID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("daemon %q 上没有 harness %q(daemon 要是自己的，并且上报过这个 harness)", daemonID, harness)
+	}
+	return err
+}
+
 func agentWriteErr(err error, id, name, harness string) error {
 	switch {
 	case err == nil:
@@ -57,8 +75,8 @@ func agentWriteErr(err error, id, name, harness string) error {
 }
 
 // CreateAgent 给用户建一个 agent。id 由调用方传入、全局唯一，不传时生成 ag_xxx;
-// 同一用户下名字不能重复,harness 必须登记过。
-func (s *Store) CreateAgent(ctx context.Context, userID, id, name, harness, description string) (Agent, error) {
+// 同一用户下名字不能重复;运行时 (daemonID, harness) 必须是这个用户自己的 daemon 上报过的 harness。
+func (s *Store) CreateAgent(ctx context.Context, userID, id, name, daemonID, harness, description string) (Agent, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		id = randomID("ag_")
@@ -69,22 +87,23 @@ func (s *Store) CreateAgent(ctx context.Context, userID, id, name, harness, desc
 	if err != nil {
 		return Agent{}, err
 	}
-	harness = strings.TrimSpace(harness)
-	if harness == "" {
-		return Agent{}, errors.New("harness 必填")
+	daemonID, harness = strings.TrimSpace(daemonID), strings.TrimSpace(harness)
+	if err := s.checkRuntime(ctx, userID, daemonID, harness); err != nil {
+		return Agent{}, err
 	}
 	now := s.unix()
-	a := Agent{ID: id, UserID: userID, Name: name, Harness: harness, Description: description, CreatedAt: now, UpdatedAt: now}
+	a := Agent{ID: id, UserID: userID, Name: name, DaemonID: daemonID, Harness: harness, Description: description, CreatedAt: now, UpdatedAt: now}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO agents (id, user_id, name, harness, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		a.ID, a.UserID, a.Name, a.Harness, a.Description, now, now)
+		`INSERT INTO agents (id, user_id, name, daemon_id, harness, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.UserID, a.Name, a.DaemonID, a.Harness, a.Description, now, now)
 	if err != nil {
 		return Agent{}, agentWriteErr(err, id, name, harness)
 	}
 	return a, nil
 }
 
-// UpdateAgent 改名字、换 harness 或改说明，只有主人(或 admin)能改。已有会话不受影响，换 harness 只对之后新建的会话生效。
+// UpdateAgent 改名字、切换运行时或改说明，只有主人(或 admin)能改。
+// 切换运行时 DaemonID 和 Harness 要一起给;已有会话不受影响，只对之后新建的会话生效。
 func (s *Store) UpdateAgent(ctx context.Context, u User, id string, p AgentPatch) (Agent, error) {
 	a, err := s.GetAgent(ctx, u, id)
 	if err != nil {
@@ -95,9 +114,13 @@ func (s *Store) UpdateAgent(ctx context.Context, u User, id string, p AgentPatch
 			return Agent{}, err
 		}
 	}
-	if p.Harness != nil {
-		if a.Harness = strings.TrimSpace(*p.Harness); a.Harness == "" {
-			return Agent{}, errors.New("harness 必填")
+	if (p.DaemonID == nil) != (p.Harness == nil) {
+		return Agent{}, errors.New("切换运行时要 daemon_id 和 harness 一起给")
+	}
+	if p.DaemonID != nil {
+		a.DaemonID, a.Harness = strings.TrimSpace(*p.DaemonID), strings.TrimSpace(*p.Harness)
+		if err := s.checkRuntime(ctx, a.UserID, a.DaemonID, a.Harness); err != nil {
+			return Agent{}, err
 		}
 	}
 	if p.Description != nil {
@@ -105,8 +128,8 @@ func (s *Store) UpdateAgent(ctx context.Context, u User, id string, p AgentPatch
 	}
 	a.UpdatedAt = s.unix()
 	_, err = s.db.ExecContext(ctx,
-		`UPDATE agents SET name = ?, harness = ?, description = ?, updated_at = ? WHERE id = ?`,
-		a.Name, a.Harness, a.Description, a.UpdatedAt, a.ID)
+		`UPDATE agents SET name = ?, daemon_id = ?, harness = ?, description = ?, updated_at = ? WHERE id = ?`,
+		a.Name, nullIfEmpty(a.DaemonID), a.Harness, a.Description, a.UpdatedAt, a.ID)
 	if err != nil {
 		return Agent{}, agentWriteErr(err, a.ID, a.Name, a.Harness)
 	}
@@ -131,16 +154,16 @@ func (s *Store) DeleteAgent(ctx context.Context, u User, id string) error {
 	return nil
 }
 
-const agentCols = `SELECT id, user_id, name, harness, description, created_at, updated_at FROM agents`
+const agentCols = `SELECT id, user_id, name, daemon_id, harness, description, created_at, updated_at FROM agents`
 
 func scanAgent(row scanner) (Agent, error) {
 	var a Agent
-	var desc sql.NullString
-	err := row.Scan(&a.ID, &a.UserID, &a.Name, &a.Harness, &desc, &a.CreatedAt, &a.UpdatedAt)
+	var daemon, desc sql.NullString
+	err := row.Scan(&a.ID, &a.UserID, &a.Name, &daemon, &a.Harness, &desc, &a.CreatedAt, &a.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Agent{}, ErrNotFound
 	}
-	a.Description = desc.String
+	a.DaemonID, a.Description = daemon.String, desc.String
 	return a, err
 }
 

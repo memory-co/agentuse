@@ -72,8 +72,8 @@ var (
 )
 
 // CreateSession 用一个 agent 建会话并写入第一条用户消息，会话为 pending。
-// agent_id 由调用方指定，可以是任何人的 agent:会话属于 agent 的主人、跑在主人的 daemon 上,
-// created_by 记发起人;harness 取 agent 此刻映射的 harness,之后不再跟着 agent 变。
+// agent_id 由调用方指定，可以是任何人的 agent:会话属于 agent 的主人,created_by 记发起人;
+// daemon_id 和 harness 取 agent 此刻的运行时，之后不再跟着 agent 变。
 func (s *Store) CreateSession(ctx context.Context, u User, agentID, cwd, title string, content json.RawMessage) (Session, Message, error) {
 	if !json.Valid(content) {
 		return Session{}, Message{}, errors.New("input 必须是 JSON")
@@ -90,11 +90,14 @@ func (s *Store) CreateSession(ctx context.Context, u User, agentID, cwd, title s
 	if err != nil {
 		return Session{}, Message{}, err
 	}
+	if a.DaemonID == "" {
+		return Session{}, Message{}, fmt.Errorf("agent %q 没有运行时(它的 daemon 已删除),请先切换运行时", agentID)
+	}
 	now := s.unix()
-	ss := Session{ID: randomID("ss_"), UserID: a.UserID, CreatedBy: u.ID, AgentID: a.ID, Harness: a.Harness, Cwd: cwd, Title: title, Status: SessionPending, CreatedAt: now, UpdatedAt: now}
+	ss := Session{ID: randomID("ss_"), UserID: a.UserID, CreatedBy: u.ID, AgentID: a.ID, Harness: a.Harness, DaemonID: a.DaemonID, Cwd: cwd, Title: title, Status: SessionPending, CreatedAt: now, UpdatedAt: now}
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO sessions (id, user_id, created_by, agent_id, harness, cwd, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		ss.ID, ss.UserID, ss.CreatedBy, ss.AgentID, ss.Harness, nullIfEmpty(cwd), title, ss.Status, now, now)
+		`INSERT INTO sessions (id, user_id, created_by, agent_id, harness, daemon_id, cwd, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		ss.ID, ss.UserID, ss.CreatedBy, ss.AgentID, ss.Harness, ss.DaemonID, nullIfEmpty(cwd), title, ss.Status, now, now)
 	if err != nil {
 		return Session{}, Message{}, err
 	}
@@ -150,8 +153,8 @@ func insertMessage(ctx context.Context, tx *sql.Tx, sessionID, role string, cont
 	return Message{ID: id, SessionID: sessionID, Role: role, Content: content, CreatedAt: now}, nil
 }
 
-// ClaimSession 给 daemon 挑一个 pending 的会话：同一用户、harness 在这台 daemon 上可用且已开启，
-// 会话没绑定 daemon 或绑定的就是这台;最早的优先。领走后会话绑定到这台 daemon。
+// ClaimSession 给 daemon 挑一个 pending 的会话：会话定在这台 daemon 上(建会话时取 agent 的运行时)、
+// harness 在这台可用且已开启;最早的优先。
 // 没有可领的返回 ErrNotFound。
 func (s *Store) ClaimSession(ctx context.Context, d Daemon, leaseSeconds int64) (Claimed, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -162,11 +165,11 @@ func (s *Store) ClaimSession(ctx context.Context, d Daemon, leaseSeconds int64) 
 	var id string
 	err = tx.QueryRowContext(ctx, `
 		SELECT s.id FROM sessions s
-		WHERE s.status = 'pending' AND s.user_id = ? AND (s.daemon_id IS NULL OR s.daemon_id = ?)
+		WHERE s.status = 'pending' AND s.daemon_id = ?
 		  AND EXISTS (SELECT 1 FROM daemon_harnesses da
-		              WHERE da.daemon_id = ? AND da.user_id = s.user_id AND da.harness = s.harness
+		              WHERE da.daemon_id = s.daemon_id AND da.harness = s.harness
 		                AND da.available = 1 AND da.enabled = 1)
-		ORDER BY s.updated_at, s.id LIMIT 1`, d.UserID, d.ID, d.ID).Scan(&id)
+		ORDER BY s.updated_at, s.id LIMIT 1`, d.ID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Claimed{}, ErrNotFound
 	}
@@ -175,8 +178,8 @@ func (s *Store) ClaimSession(ctx context.Context, d Daemon, leaseSeconds int64) 
 	}
 	now := s.unix()
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE sessions SET status = 'running', daemon_id = ?, lease_until = ?, updated_at = ? WHERE id = ?`,
-		d.ID, now+leaseSeconds, now, id); err != nil {
+		`UPDATE sessions SET status = 'running', lease_until = ?, updated_at = ? WHERE id = ?`,
+		now+leaseSeconds, now, id); err != nil {
 		return Claimed{}, err
 	}
 	ss, err := s.scanSession(tx.QueryRowContext(ctx, sessionCols+` WHERE id = ?`, id))

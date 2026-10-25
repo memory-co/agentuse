@@ -70,7 +70,7 @@ func TestEndToEnd(t *testing.T) {
 	defer ts.Close()
 
 	_, aliceTok, _ := st.CreateUser(ctx, "", "alice", store.RoleUser)
-	_, bobTok, _ := st.CreateUser(ctx, "", "bob", store.RoleUser)
+	bob, bobTok, _ := st.CreateUser(ctx, "", "bob", store.RoleUser)
 	ca := client{t, ts.URL, aliceTok}
 	cb := client{t, ts.URL, bobTok}
 
@@ -78,12 +78,6 @@ func TestEndToEnd(t *testing.T) {
 	if code := ca.do("POST", "/api/harnesses", map[string]string{"name": "echo-harness"}, nil); code != http.StatusCreated {
 		t.Fatalf("create harness: %d", code)
 	}
-	// alice 和 bob 各建一个用它的 agent
-	var aliceAgent, bobAgent store.Agent
-	if code := ca.do("POST", "/api/agents", map[string]string{"id": "alice-echo", "name": "回声", "harness": "echo-harness"}, &aliceAgent); code != http.StatusCreated {
-		t.Fatalf("create agent: %d", code)
-	}
-	cb.do("POST", "/api/agents", map[string]string{"name": "回声", "harness": "echo-harness"}, &bobAgent)
 
 	// 页面上添加 daemon,拿到安装命令
 	var dv struct {
@@ -130,17 +124,6 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatal("安装令牌应该只能用一次")
 	}
 
-	// 先开会话，此时 harness 还没开启，不会派
-	var created struct {
-		Session store.Session `json:"session"`
-		Message store.Message `json:"message"`
-	}
-	ca.do("POST", "/api/sessions", map[string]string{"agent_id": aliceAgent.ID, "prompt": "hi"}, &created)
-	ss := created.Session
-	if ss.Status != store.SessionPending || ss.AgentID != aliceAgent.ID || ss.Harness != "echo-harness" || ss.Title != "hi" || created.Message.Role != store.RoleUserMsg {
-		t.Fatalf("session: %+v", created)
-	}
-
 	d, err := daemon.New(cfg, log.New(io.Discard, "", 0))
 	if err != nil {
 		t.Fatal(err)
@@ -165,6 +148,27 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("daemon harness: %+v", a)
 	}
 
+	// agent 绑定运行时:alice 的这台 daemon + echo-harness
+	var aliceAgent store.Agent
+	if code := ca.do("POST", "/api/agents", map[string]string{"id": "alice-echo", "name": "回声", "daemon_id": dv.ID, "harness": "echo-harness"}, &aliceAgent); code != http.StatusCreated {
+		t.Fatalf("create agent: %d", code)
+	}
+	// bob 不能把 agent 绑到 alice 的 daemon 上
+	if code := cb.do("POST", "/api/agents", map[string]string{"name": "回声", "daemon_id": dv.ID, "harness": "echo-harness"}, nil); code != http.StatusBadRequest {
+		t.Fatalf("bob agent on alice's daemon: %d", code)
+	}
+
+	// 先开会话，此时 harness 还没开启，不会派
+	var created struct {
+		Session store.Session `json:"session"`
+		Message store.Message `json:"message"`
+	}
+	ca.do("POST", "/api/sessions", map[string]string{"agent_id": aliceAgent.ID, "prompt": "hi"}, &created)
+	ss := created.Session
+	if ss.Status != store.SessionPending || ss.AgentID != aliceAgent.ID || ss.Harness != "echo-harness" || ss.DaemonID != dv.ID || ss.Title != "hi" || created.Message.Role != store.RoleUserMsg {
+		t.Fatalf("session: %+v", created)
+	}
+
 	// bob 看不到 alice 的 daemon,也开不了它的 harness
 	var bobList []store.Daemon
 	cb.do("GET", "/api/daemons", nil, &bobList)
@@ -174,12 +178,6 @@ func TestEndToEnd(t *testing.T) {
 	if code := cb.do("PUT", "/api/daemons/"+dv.ID+"/harnesses/echo-harness", map[string]bool{"enabled": true}, nil); code != http.StatusNotFound {
 		t.Fatalf("bob toggle: %d", code)
 	}
-	// bob 的同名 harness 会话不能派给 alice 的 daemon
-	var bobCreated struct {
-		Session store.Session `json:"session"`
-	}
-	cb.do("POST", "/api/sessions", map[string]string{"agent_id": bobAgent.ID, "prompt": "bob"}, &bobCreated)
-	bobSession := bobCreated.Session
 
 	// 开启 harness → 排队的会话被派出，harness 回复
 	if code := ca.do("PUT", "/api/daemons/"+dv.ID+"/harnesses/echo-harness", map[string]bool{"enabled": true}, nil); code != http.StatusOK {
@@ -220,9 +218,6 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("reply result: %s", detail.Messages[3].Content)
 	}
 
-	if code := cb.do("GET", "/api/sessions/"+bobSession.ID, nil, &detail); code != http.StatusOK || detail.Session.Status != store.SessionPending {
-		t.Fatalf("bob session should stay pending: %d %+v", code, detail.Session)
-	}
 	if code := cb.do("GET", "/api/sessions/"+ss.ID, nil, nil); code != http.StatusNotFound {
 		t.Fatalf("bob should not see alice session: %d", code)
 	}
@@ -249,7 +244,7 @@ func TestEndToEnd(t *testing.T) {
 	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("daemon me: %v %v", err, resp)
 	}
-	if code := ca.do("POST", "/api/users/"+bobSession.UserID+"/token", nil, nil); code != http.StatusForbidden {
+	if code := ca.do("POST", "/api/users/"+bob.ID+"/token", nil, nil); code != http.StatusForbidden {
 		t.Fatalf("普通用户不能重置令牌: %d", code)
 	}
 
@@ -311,10 +306,10 @@ func TestActAsUser(t *testing.T) {
 	if code := as(adminTok, "u_10086", "GET", "/api/me", nil, &me); code != 200 || me.ID != "u_10086" || me.Role != store.RoleUser {
 		t.Fatalf("act as new user: %d %+v", code, me)
 	}
-	// 代为 alice 建的 agent 挂在 alice 下
-	var a store.Agent
-	if code := as(adminTok, "alice", "POST", "/api/agents", map[string]string{"name": "x", "harness": "claude"}, &a); code != http.StatusCreated || a.UserID != "alice" {
-		t.Fatalf("create agent as alice: %d %+v", code, a)
+	// 代为 alice 添加的 daemon 挂在 alice 下
+	var a store.Daemon
+	if code := as(adminTok, "alice", "POST", "/api/daemons", map[string]string{"name": "x"}, &a); code != http.StatusCreated || a.UserID != "alice" {
+		t.Fatalf("create daemon as alice: %d %+v", code, a)
 	}
 	// 代为用户时就是普通用户权限
 	if code := as(adminTok, "alice", "GET", "/api/users", nil, nil); code != http.StatusForbidden {

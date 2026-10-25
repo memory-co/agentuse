@@ -84,19 +84,19 @@ class Client:
     def list_agents(self, user):
         return self._request("GET", "/api/agents", user)
 
-    def create_agent(self, user, name, harness, description=None, id=None):
+    def create_agent(self, user, name, daemon_id, harness, description=None, id=None):
         """id 全局唯一，不传时服务生成 ag_xxx。"""
         return self._request(
-            "POST", "/api/agents", user, _drop_none(id=id, name=name, harness=harness, description=description)
+            "POST", "/api/agents", user, _drop_none(id=id, name=name, daemon_id=daemon_id, harness=harness, description=description)
         )
 
     def get_agent(self, user, agent_id):
         return self._request("GET", f"/api/agents/{_q(agent_id)}", user)
 
-    def update_agent(self, user, agent_id, name=None, harness=None, description=None):
-        """改名字、换 harness、改说明;None 不改。换 harness 只影响之后新建的会话。"""
+    def update_agent(self, user, agent_id, name=None, daemon_id=None, harness=None, description=None):
+        """改名字、切换运行时(daemon_id 和 harness 一起给)、改说明;None 不改。切换运行时只影响之后新建的会话。"""
         return self._request(
-            "PATCH", f"/api/agents/{_q(agent_id)}", user, _drop_none(name=name, harness=harness, description=description)
+            "PATCH", f"/api/agents/{_q(agent_id)}", user, _drop_none(name=name, daemon_id=daemon_id, harness=harness, description=description)
         )
 
     def delete_agent(self, user, agent_id):

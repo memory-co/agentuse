@@ -216,6 +216,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID          string `json:"id"`
 		Name        string `json:"name"`
+		DaemonID    string `json:"daemon_id"`
 		Harness     string `json:"harness"`
 		Description string `json:"description"`
 	}
@@ -223,7 +224,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a, err := s.store.CreateAgent(r.Context(), currentUser(r).ID, req.ID, req.Name, req.Harness, req.Description)
+	a, err := s.store.CreateAgent(r.Context(), currentUser(r).ID, req.ID, req.Name, req.DaemonID, req.Harness, req.Description)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -240,10 +241,11 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a)
 }
 
-// handleUpdateAgent 改名字、换 harness、改说明;没给的字段不变。
+// handleUpdateAgent 改名字、切换运行时(daemon_id + harness 一起给)、改说明;没给的字段不变。
 func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name        *string `json:"name"`
+		DaemonID    *string `json:"daemon_id"`
 		Harness     *string `json:"harness"`
 		Description *string `json:"description"`
 	}
@@ -252,7 +254,7 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a, err := s.store.UpdateAgent(r.Context(), currentUser(r), r.PathValue("id"),
-		store.AgentPatch{Name: req.Name, Harness: req.Harness, Description: req.Description})
+		store.AgentPatch{Name: req.Name, DaemonID: req.DaemonID, Harness: req.Harness, Description: req.Description})
 	if err != nil {
 		s.storeErr(w, err)
 		return
