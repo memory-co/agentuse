@@ -23,8 +23,26 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test
-        run: go test -race ./...
+      - name: Unit tests
+        run: go test -short -race ./...
+
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [install, session]
+    name: e2e (${{ matrix.scenario }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: E2E
+        run: go test -count=1 -v ./test/e2e/${{ matrix.scenario }}/
 
   frontend:
     runs-on: ubuntu-latest

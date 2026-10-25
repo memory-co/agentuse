@@ -1,12 +1,16 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log"
+	"net"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/memory-co/agentuse/internal/server"
@@ -71,4 +75,61 @@ func quiet(t *testing.T) {
 	out, errOut := os.Stdout, os.Stderr
 	os.Stdout, os.Stderr = devnull, devnull
 	t.Cleanup(func() { os.Stdout, os.Stderr = out, errOut; devnull.Close() })
+}
+
+func TestBootstrapAdmin(t *testing.T) {
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	defer log.SetOutput(os.Stderr)
+
+	// 空库：建 admin,打印令牌和登录链接
+	if err := bootstrapAdmin(ctx, st, "http://h:1", false); err != nil {
+		t.Fatal(err)
+	}
+	tok := regexp.MustCompile(`令牌\(只显示这一次\): (ut_\w+)`).FindStringSubmatch(logs.String())
+	if tok == nil || !strings.Contains(logs.String(), "http://h:1/login?token="+tok[1]) {
+		t.Fatalf("first start:\n%s", logs.String())
+	}
+	if u, err := st.UserByToken(ctx, tok[1]); err != nil || !u.IsAdmin() {
+		t.Fatalf("admin: %v %+v", err, u)
+	}
+
+	// 再启动：什么都不做
+	logs.Reset()
+	if err := bootstrapAdmin(ctx, st, "http://h:1", false); err != nil || logs.Len() != 0 {
+		t.Fatalf("second start: %v %q", err, logs.String())
+	}
+	// -reset-admin-token:旧令牌失效
+	if err := bootstrapAdmin(ctx, st, "http://h:1", true); err != nil || !strings.Contains(logs.String(), "已重置") {
+		t.Fatalf("reset: %v %q", err, logs.String())
+	}
+	if _, err := st.UserByToken(ctx, tok[1]); err == nil {
+		t.Fatal("old admin token should be invalid")
+	}
+}
+
+func TestDisplayAddr(t *testing.T) {
+	for in, want := range map[string]string{"[::]:8080": "localhost:8080", "0.0.0.0:80": "localhost:80", "127.0.0.1:9": "127.0.0.1:9"} {
+		a, _ := net.ResolveTCPAddr("tcp", in)
+		if got := displayAddr(a); got != want {
+			t.Errorf("displayAddr(%s) = %s, want %s", in, got, want)
+		}
+	}
+}
+
+func TestServerUsageErrors(t *testing.T) {
+	quiet(t)
+	for _, args := range [][]string{
+		{"user"}, {"user", "nope"}, {"user", "token"}, {"user", "create"}, {"login"}, {"start", "-bogus"},
+	} {
+		if code := ServerMain(args); code != 2 {
+			t.Errorf("%v: %d", args, code)
+		}
+	}
 }
