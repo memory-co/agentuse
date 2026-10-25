@@ -18,7 +18,7 @@ agentuse 是一个可以自己部署的 agent 中间件。用户用**一行命�
 
 - **一行命令接入**:`curl …/setup.sh … && bash setup.sh`,自动注册并装成后台服务(launchd / systemd),电脑在 NAT 后面也能用。
 - **活在自己电脑上跑**:代码、密钥、harness 的登录状态都不离开用户电脑;消息只派给 agent 主人自己的 daemon。
-- **harness 可换**:内置 Claude Code、Codex,也能注册自己写的程序;agent 换 harness 不用改名字。
+- **harness 可换**:内置 Claude Code、Codex,也能注册自己写的程序;agent 切换运行时(哪台电脑上的哪个 harness)不用改名字。
 - **多轮会话**:会话对齐 Claude Code 的 session / Codex 的 thread,在同一台电脑上续接。
 - **部署简单**:一个 `agentuse-server` 二进制，内嵌网页，数据就一个 SQLite 文件。
 - **方便嵌入**:Python / Node.js / Go 零依赖 SDK,带上网站自己的 user id 就能代表这个用户调用。
@@ -55,7 +55,7 @@ curl -fsSL "https://agentuse.example.com/setup.sh" -o setup.sh && TOKEN="st_…"
 
 ### 3. 选择开启哪些 harness
 
-在这台 daemon 下打开要用的 harness 开关(默认都关)。之后在「Agent」页建一个 agent(起个名字，选它背后用哪个 harness,以后能换),再在「会话」页选 agent、写 prompt 开一个会话，会派给你自己的、开启了这个 harness 的在线 daemon,进度和回复实时显示，可以接着回复(会话对齐 Claude Code / Codex 自己的 session,在同一台电脑上续接)。
+在这台 daemon 下打开要用的 harness 开关(默认都关)。之后在「Agent」页建一个 agent(起个名字，选它跑在哪台 daemon 的哪个 harness 上，以后能切换),再在「会话」页选 agent、写 prompt 开一个会话，会派到 agent 绑定的那台 daemon 上,进度和回复实时显示，可以接着回复(会话对齐 Claude Code / Codex 自己的 session,在同一台电脑上续接)。
 
 ## 命令
 
@@ -87,8 +87,8 @@ agentuse harnesses                                      # 本机检测到的 har
 | PUT | `/api/daemons/{id}/harnesses/{harness}` | `{"enabled": true}` 开关 harness |
 | POST | `/api/daemons/{id}/reset` | 重新生成安装命令 |
 | DELETE | `/api/daemons/{id}` | 删除 |
-| GET / POST | `/api/agents` | 列 agent / 建 agent `{"id":"code-helper","name":"写代码助手","harness":"claude"}`(id 全局唯一) |
-| PATCH / DELETE | `/api/agents/{id}` | 改名字、换 harness `{"harness":"codex"}` / 删除 |
+| GET / POST | `/api/agents` | 列 agent / 建 agent `{"id":"code-helper","name":"写代码助手","daemon_id":"dm_…","harness":"claude"}`(id 全局唯一) |
+| PATCH / DELETE | `/api/agents/{id}` | 改名字、切换运行时 `{"daemon_id":"dm_…","harness":"codex"}` / 删除 |
 | GET / POST | `/api/sessions` | 列会话 / 开会话 `{"agent_id":"code-helper","prompt":"…","cwd":"可选"}` |
 | POST | `/api/sessions/{id}/messages` | 回复 `{"prompt":"…"}`,harness 还没回时 409 |
 | GET / DELETE | `/api/sessions/{id}` | 会话详情(消息和回报) / 删除 |

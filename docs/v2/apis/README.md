@@ -6,7 +6,7 @@ agentuse 服务对外的全部接口。一组接口一个文件:
 |---|---|---|
 | [auth](auth.md) | 登录、退出、当前用户 | 网页 / 脚本 |
 | [users](users.md) | 用户管理(仅 admin) | 网页 / 脚本 |
-| [agents](agents.md) | 用户起名字的 agent,映射 / 换 harness | 网页 / 脚本 |
+| [agents](agents.md) | 用户起名字的 agent,绑定 / 切换运行时(daemon + harness) | 网页 / 脚本 |
 | [harnesses](harnesses.md) | harness 列表、注册自定义 harness | 网页 / 脚本 |
 | [daemons](daemons.md) | 添加 daemon、安装命令、开关 harness | 网页 / 脚本 |
 | [sessions](sessions.md) | 开会话、发消息、看消息和回报 | 网页 / 脚本 |
