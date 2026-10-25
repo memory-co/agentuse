@@ -25,7 +25,7 @@ export function Daemons({ me }: { me: User }) {
     mutationFn: () => api('/api/daemons', { method: 'POST', body: { name: name.trim() } }),
     onSuccess: () => { setName(''); void refresh(); },
   });
-  return <div className="grid gap-4">
+  return <div className="grid grid-cols-1 gap-4">
     <Card>
       <CardHeader><CardTitle className="text-base">{t('daemons.addTitle')}</CardTitle><CardDescription>{t('daemons.addText')}</CardDescription></CardHeader>
       <CardContent>

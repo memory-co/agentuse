@@ -39,7 +39,7 @@ export function Agents({ me }: { me: User }) {
     onSuccess: refresh,
   });
   const del = useMutation({ mutationFn: (id: string) => api(`/api/agents/${id}`, { method: 'DELETE' }), onSuccess: refresh });
-  return <div className="grid gap-4">
+  return <div className="grid grid-cols-1 gap-4">
     <Card>
       <CardHeader>
         <CardTitle className="text-base">{t('agents.newTitle')}</CardTitle>
