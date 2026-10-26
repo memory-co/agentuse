@@ -11,12 +11,12 @@ harness/
 │   ├── harness.yaml    // 命令入口点位(必须有)
 │   ├── hooks/          // 以后：Claude Code 的 hook,比如插话
 │   ├── plugins/        // 以后：随 agentuse 带的 plugin
-│   └── skills/         // 以后：随 agentuse 带的 skills
+│   └── skills/         // 随 agentuse 带的 skills,跑之前拷进会话目录的 .claude/skills/
 └── codex/
     └── harness.yaml
 ```
 
-目录名就是 harness 的 `name`。目前只有 `harness.yaml` 是必须的，其余子目录按需加，这份设计只定 `harness.yaml`。
+目录名就是 harness 的 `name`。只有 `harness.yaml` 是必须的，其余子目录按需加。
 
 ## 为什么
 
@@ -45,9 +45,22 @@ detect:
   version: [--version]
 
 # 每条消息起一次进程。{prompt} {resume} {args} 是占位符，见下文
+# prompt 不走参数，走 stdin(见 input)。不让它弹权限确认，也不让它向人提问(没人能答)
 run:
-  new:    [-p, "{prompt}", --output-format, stream-json, --verbose, "{args}"]
-  resume: [-p, "{prompt}", --output-format, stream-json, --verbose, --resume, "{resume}", "{args}"]
+  new:    [-p, --input-format, stream-json, --output-format, stream-json, --verbose,
+           --permission-mode, bypassPermissions, --disallowedTools, AskUserQuestion, "{args}"]
+  resume: [-p, --input-format, stream-json, --output-format, stream-json, --verbose,
+           --permission-mode, bypassPermissions, --disallowedTools, AskUserQuestion,
+           --resume, "{resume}", "{args}"]
+
+# stdin 写一行 JSON 作为这条消息;看到 result 行后关掉 stdin,进程退出
+input:
+  format: stream-json
+  message: { type: user, message: { role: user, content: "{prompt}" } }
+
+# 起进程前把本目录下的子目录拷进会话目录(每次覆盖，保证是当前版本)
+workdir:
+  skills: .claude/skills
 
 # stdout 每行一个 JSON,按规则从上往下匹配
 output:
@@ -122,6 +135,8 @@ finish:
 | `detect.version` | 探测版本用的参数，不写就不探测 |
 | `run.new` | 第一条消息的参数(不含 command 本身) |
 | `run.resume` | 之后每条的参数，派活消息里有 `resume` 时用 |
+| `input` | 不写:stdin 为空,prompt 只能用 `{prompt}` 放进参数(codex)。`format: stream-json`:把 `message` 里的占位符换掉，序列化成一行写进 stdin,stdin 保持打开，读到 `result` 行后关闭 |
+| `workdir` | `harness/<name>/` 下的子目录 → 会话目录里的相对路径，起进程前整个拷过去(覆盖同名文件);不写就什么也不拷 |
 | `output.format` | 目前只有 `jsonl`:stdout 每行一个 JSON,不是 JSON 的行当文本进度 |
 | `output.session_id` | 全局规则：哪个字段是 harness 的会话 id |
 | `output.rules` | 逐行匹配的规则列表，见下 |
@@ -131,11 +146,11 @@ finish:
 
 | 占位符 | 换成 |
 |---|---|
-| `{prompt}` | 消息内容里的 `prompt`(为空直接报错，不起进程) |
+| `{prompt}` | 消息内容里的 `prompt`(为空直接报错，不起进程);在 `input.message` 里是一个 JSON 字符串值，不用转义 |
 | `{resume}` | 上次回报的 harness 会话 id |
 | `{args}` | daemon.json 里这个 harness 的 `args`,**展开成多个参数**;没配就去掉 |
 
-占位符必须独占一个参数，不做字符串拼接，免得 prompt 里的内容被当成参数解析。
+在 `run` 里占位符必须独占一个参数，不做字符串拼接，免得 prompt 里的内容被当成参数解析。
 
 ### 规则
 
@@ -176,14 +191,36 @@ harness 没报会话 id 时沿用续接的那个，这条对所有 harness 都�
 
 不变：用户在服务上注册名字，在 daemon.json 里配命令，按 stdin `{"session_id","resume","input"}` / stdout `{"type":"progress"|"result",…}` 的约定跑([harnesses](../tables/harnesses.md))。`harness/` 只放内置的。
 
+## 工作目录
+
+工作目录由 daemon 锁定，用户不能指定：每个会话固定在 `~/.agentuse/work/<session_id>/`,第一条消息时建，之后每条都在这里(Claude Code 按目录找会话，换目录就续不上)。会话、API、daemon.json 都不再有 `cwd` / `workdir`。
+
+每次起进程前 daemon 按 `workdir` 把东西拷进去。claude 的会话目录长这样：
+
+```
+~/.agentuse/work/ss_xxx/
+└── .claude/skills/
+    └── agentuse/SKILL.md     // 来自 harness/claude/skills/agentuse/
+```
+
+`agentuse` 这个 skill 告诉 Claude 它跑在什么环境里：没有人在终端前，不能中途提问;每条消息的最后一段回复就是交给用户的结果，要写完整;这个目录是这个会话专用的，可以随便放文件，下一条消息还在。以后要按 agent 带不同的 skill、或者写 CLAUDE.md,再在这一步加。
+
+codex 暂时不拷东西，只是也在锁定的目录里跑。
+
 ## 以后
 
-- **hook / plugin / skills**:放在 `harness/<name>/` 下对应的子目录里，daemon 跑这个 harness 时带上(比如插话要靠 Claude Code 的 hook)。怎么带上(写进会话目录、还是通过命令行参数指过去)由 `harness.yaml` 里再加一节来描述，到时候再定。
+- **插话**:harness 跑的过程中用户追加消息。claude 改成 stream-json 输入后 stdin 一直开着，用 Claude Code 的 hook 回调来做：daemon 在 stdin 第一行写 `control_request initialize` 注册 PreToolUse / Stop hook(只对这个进程有效，不落盘);Claude 调下一个工具前通过 stdout 问 daemon,daemon 从 stdin 回 `control_response`,把插话作为 `additionalContext` 塞进去;回合要结束时 Stop hook 返回 `block` 让它接着处理。直接往 stdin 写新的 user 消息会开新回合，不算插话。服务端的接口、表、派活协议怎么改，单独一个设计。
+- **hook / plugin**:放在 `harness/<name>/` 下对应的子目录里，跑时带上;回调式 hook 由 daemon 在 stdin 注册，需要落盘的再通过 `workdir` 拷进去。
 - **用户自己的目录**:允许 daemon 读 `~/.agentuse/harness/<name>/harness.yaml`,让手搓的 harness 不用改成 agentuse 的 stdin/stdout 约定。先不做。
 
-## 实现步骤(定稿后)
+## 实现步骤
 
-1. 加 `harness/` 目录、`claude/harness.yaml`、`codex/harness.yaml`、`embed.go` 和加载 / 校验代码(带测试：两个 yaml 能解析、`name` 和目录名一致，规则对现有 stream-json / codex JSONL 样例跑出和现在一样的结果)。
-2. 服务用 yaml 写 harnesses 表。
-3. daemon 换成通用执行器，删掉 `runClaude` / `runCodex`。
-4. 更新 connect.md 的命令表。
+已完成：`harness/` 目录和加载代码、服务用 yaml 写 harnesses 表、daemon 通用执行器。
+
+stream-json 输入和工作目录(这次):
+
+1. `harness.Spec` 加 `input`、`workdir`,`embed.go` 把 `skills/` 等子目录也编进去;加 `harness/claude/skills/agentuse/SKILL.md`。
+2. claude 的 `run` 改成上面的样子;`runSpec` 按 `input` 写 stdin,读到 `result` 后关 stdin。
+3. daemon 固定会话目录、起进程前按 `workdir` 拷文件;去掉 daemon.json 的 `workdir`、派活消息的 `cwd`。
+4. 服务去掉 `sessions.cwd`、`POST /api/sessions` 的 `cwd`,SDK 和前端新会话里的工作目录输入框一起去掉(不做兼容，删库重建)。
+5. 测试：假 claude 读 stdin 一行再输出，检查 prompt 到达、stdin 被关、skill 拷进了会话目录。

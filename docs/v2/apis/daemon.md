@@ -95,14 +95,13 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
     "id": 3,
     "session_id": "ss_…",
     "harness": "claude",
-    "cwd": "~/code/x",
     "resume": "9f1c…",
     "input": { "prompt": "…" }
   }
 }
 ```
 
-`input` 是这条消息的 content。`resume` 是会话的 harness_session_id,第一条或还没有时不出现;`cwd` 没设时不出现。
+`input` 是这条消息的 content。`resume` 是会话的 harness_session_id,第一条或还没有时不出现。工作目录不下发,daemon 固定用 `~/.agentuse/work/<session_id>/`。
 
 **error**:带 `message_id` 表示这条消息已经不归你了(租约过期被收回、或已经结束),daemon 应该停掉它、不再回报。不带 `message_id` 是普通错误，比如未知消息类型。
 
@@ -118,7 +117,6 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 |---|---|
 | `server` | 服务地址 |
 | `daemon_id` / `key` | 注册得到的 id 和密钥 |
-| `workdir` | 没给 `cwd` 的会话在哪跑，默认 `~/.agentuse/work`(每个会话一个子目录) |
 | `harnesses.<name>.command` | 启动命令;内置的默认 `claude` / `codex`,自定义的必填 |
 | `harnesses.<name>.args` | 追加参数 |
 | `harnesses.<name>.disabled` | `true` 时不上报 |
