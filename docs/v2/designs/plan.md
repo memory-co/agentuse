@@ -81,6 +81,8 @@ daemon 每次清单变了就发一条 `plan` 回报，带**整份**清单(服务
 
 ## 实现步骤
 
+已完成。
+
 1. `harness.Spec` 规则加 `plan` / `plan_add` / `plan_update` / `final`;`harness.State` 攒当前清单，清单变了回调一次(带测试:TodoWrite 整份、TaskCreate + TaskUpdate 增量、`final` 不再出进度)。
 2. daemon 把回调发成 `plan` 回报;自定义 harness 的 `{"type":"plan"}` 行也转成 `plan`。
 3. 服务接受 `plan` 这个 kind(和 `progress` 一样处理)。

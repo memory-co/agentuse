@@ -37,6 +37,16 @@ output:
       rules:
         - match: { type: text }
           progress: "{text}"
+        # 计划(docs/v2/designs/plan.md):老版本 TodoWrite 每次给整份，新版本 TaskCreate / TaskUpdate 增量
+        - match: { type: tool_use, name: TodoWrite }
+          plan: { steps: input.todos, text: content, status: status }
+          final: true
+        - match: { type: tool_use, name: TaskCreate }
+          plan_add: { text: input.subject }
+          final: true
+        - match: { type: tool_use, name: TaskUpdate }
+          plan_update: { id: input.taskId, status: input.status }
+          final: true
         - match: { type: tool_use }
           progress: "🔧 {name} {input}"
     - match: { type: result }

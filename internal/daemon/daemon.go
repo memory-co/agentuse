@@ -40,7 +40,7 @@ var errOffline = errors.New("未连接")
 func (d *Daemon) send(m protocol.Message) error {
 	d.mu.Lock()
 	conn := d.conn
-	if conn == nil && m.Type == protocol.TypeEvent && m.Kind != "progress" {
+	if conn == nil && m.Type == protocol.TypeEvent && (m.Kind == "done" || m.Kind == "failed") {
 		d.outbox = append(d.outbox, m)
 	}
 	d.mu.Unlock()
@@ -248,9 +248,9 @@ func (d *Daemon) startMessage(m protocol.Dispatch) {
 		} else if dir, err := d.sessionDir(m); err != nil {
 			res = Result{Error: err.Error()}
 		} else {
-			res = runHarness(tctx, la, m, dir, func(p any) {
+			res = runHarness(tctx, la, m, dir, func(kind string, p any) {
 				b, _ := json.Marshal(p)
-				_ = d.send(protocol.Message{Type: protocol.TypeEvent, MessageID: m.ID, Kind: "progress", Payload: b})
+				_ = d.send(protocol.Message{Type: protocol.TypeEvent, MessageID: m.ID, Kind: kind, Payload: b})
 			})
 		}
 		if tctx.Err() != nil {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowUp, ChevronRight, Trash2 } from 'lucide-react';
+import { ArrowUp, Check, ChevronRight, Circle, LoaderCircle, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -117,8 +117,10 @@ function MessageView({ m, events }: { m: Message; events: SessionEvent[] }) {
   if (m.role === 'user') {
     const text = typeof c.prompt === 'string' ? c.prompt : JSON.stringify(c, null, 2);
     const progress = events.filter(e => e.message_id === m.id && e.kind === 'progress');
+    const plan = events.filter(e => e.message_id === m.id && e.kind === 'plan').pop();
     return <div className="grid gap-3">
       <div className="ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-2.5 text-sm" title={fmtTime(m.created_at)}>{text}</div>
+      {plan && <PlanView steps={plan.payload?.steps} />}
       {progress.length > 0 && <details className="group text-sm text-muted-foreground">
         <summary className="flex cursor-pointer list-none items-center gap-1 hover:text-foreground"><ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />{t('session.progress', { n: progress.length })}</summary>
         <div className="mt-2 grid max-h-64 gap-1 overflow-auto border-l pl-3 font-mono text-xs">{progress.map(e => <div key={e.id} className="break-words">{evText(e.payload).slice(0, 600)}</div>)}</div>
@@ -130,4 +132,19 @@ function MessageView({ m, events }: { m: Message; events: SessionEvent[] }) {
     {!c.ok && <div><StatusBadge tone="bad">{t('session.failed')}</StatusBadge></div>}
     <div className={cn('whitespace-pre-wrap break-words text-sm leading-7', !c.ok && 'text-destructive')}>{out}</div>
   </div>;
+}
+
+type Step = { text: string; status: string };
+
+/** 计划：harness 列的步骤清单，显示最新一份(docs/v2/designs/plan.md)。 */
+function PlanView({ steps }: { steps?: Step[] }) {
+  if (!Array.isArray(steps) || !steps.length) return null;
+  return <ul className="grid gap-1.5 rounded-lg border px-3 py-2.5 text-sm">
+    {steps.map((s, i) => <li key={i} className="flex items-start gap-2">
+      {s.status === 'completed' ? <Check className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        : s.status === 'in_progress' ? <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
+        : <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground/60" />}
+      <span className={cn('min-w-0 break-words', s.status === 'completed' && 'text-muted-foreground', s.status === 'in_progress' && 'font-medium')}>{s.text}</span>
+    </li>)}
+  </ul>;
 }

@@ -84,6 +84,10 @@ func claude(args []string) int {
 	emit(map[string]any{"type": "system", "subtype": "init", "session_id": sid})
 	emit(map[string]any{"type": "assistant", "message": map[string]any{"content": []any{
 		map[string]any{"type": "text", "text": "thinking about " + prompt},
+		map[string]any{"type": "tool_use", "name": "TodoWrite", "input": map[string]any{"todos": []any{
+			map[string]any{"content": "读 " + prompt, "status": "completed"},
+			map[string]any{"content": "回复", "status": "in_progress"},
+		}}},
 		map[string]any{"type": "tool_use", "name": "Bash", "input": map[string]any{"command": "ls"}},
 	}}})
 	if prompt == "fail" {

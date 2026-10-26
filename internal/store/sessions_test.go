@@ -201,6 +201,13 @@ func TestSessionValidation(t *testing.T) {
 	if err := s.AddEvent(ctx, d.ID, got.Message.ID, EventProgress, json.RawMessage(`{"text":"…"}`), 60); err != nil {
 		t.Fatal(err)
 	}
+	// plan 和 progress 一样只续租，会话还在跑
+	if err := s.AddEvent(ctx, d.ID, got.Message.ID, EventPlan, json.RawMessage(`{"steps":[]}`), 60); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetSession(ctx, alice, ss.ID); got.Status != SessionRunning {
+		t.Fatalf("plan 之后应该还在跑: %+v", got)
+	}
 	// failed 也回到 idle;没带 session_id 时不覆盖
 	if err := s.AddEvent(ctx, d.ID, got.Message.ID, EventFailed, json.RawMessage(`{"ok":false,"error":"x"}`), 60); err != nil {
 		t.Fatal(err)
@@ -209,7 +216,7 @@ func TestSessionValidation(t *testing.T) {
 		t.Fatalf("second result for the same message: %v", err)
 	}
 	evs, _ := s.SessionEvents(ctx, ss.ID)
-	if len(evs) != 2 || evs[0].Kind != EventProgress || string(evs[0].Payload) != `{"text":"…"}` || evs[1].Kind != EventFailed || evs[1].DaemonID != d.ID {
+	if len(evs) != 3 || evs[0].Kind != EventProgress || string(evs[0].Payload) != `{"text":"…"}` || evs[1].Kind != EventPlan || evs[2].Kind != EventFailed || evs[2].DaemonID != d.ID {
 		t.Fatalf("events: %+v", evs)
 	}
 	if got, _ := s.GetSession(ctx, alice, ss.ID); got.Status != SessionIdle || got.HarnessSessionID != "" || got.LeaseUntil != nil {
