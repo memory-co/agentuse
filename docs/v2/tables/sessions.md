@@ -14,7 +14,6 @@
 | `agent_id` | TEXT | 用哪个 [agent](agents.md) 开的;agent 删除后变空 |
 | `harness` | TEXT | 用哪个 CLI harness,建会话时取 agent 运行时的 harness,之后不变 |
 | `daemon_id` | TEXT | 跑这个会话的 daemon,建会话时取 agent 运行时的 daemon,之后只派给它(harness 的会话存在那台电脑上);daemon 被删后为空 |
-| `cwd` | TEXT | daemon 本机的工作目录，可为空;为空时在 `~/.agentuse/work/<session_id>/`。建会话时定下 |
 | `harness_session_id` | TEXT | harness 自己的会话 id(Claude Code 的 `session_id`、Codex 的 `thread_id`),daemon 回报结果时带回;之后每次带上它续接 |
 | `title` | TEXT | 标题，默认取第一条消息 prompt 的前 50 个字 |
 | `status` | TEXT | 见下方状态 |
@@ -30,7 +29,8 @@ idle ──用户发消息──▶ pending ──派给 daemon──▶ running
                         └──租约过期 / daemon 掉线─┘
 ```
 
-- 只有 `idle` 时能发下一条消息。TODO:插话(harness 跑的过程中追加消息)以后用 harness 的 hook 来做。
+- 只有 `idle` 时能发下一条消息。TODO:插话(harness 跑的过程中追加消息)以后用 harness 的 hook 来做，见 [harness 设计](../designs/harness.md#以后)。
+- 工作目录不存在表里,daemon 固定用 `~/.agentuse/work/<session_id>/`。
 - harness 失败也回到 `idle`,失败信息记在它回的那条消息里，可以接着发。
 
 ```sql
@@ -41,7 +41,6 @@ CREATE TABLE sessions (
   agent_id           TEXT REFERENCES agents(id) ON DELETE SET NULL,
   harness            TEXT NOT NULL REFERENCES harnesses(name),
   daemon_id          TEXT REFERENCES daemons(id) ON DELETE SET NULL,
-  cwd                TEXT,
   harness_session_id TEXT,
   title              TEXT NOT NULL DEFAULT '',
   status             TEXT NOT NULL DEFAULT 'pending',
