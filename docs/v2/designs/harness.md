@@ -165,6 +165,8 @@ finish:
 | `output` | 记下结果输出，后出现的覆盖前面的 |
 | `error` | 记下错误信息 |
 | `ok` | `true` 表示看到了成功标记 |
+| `plan` / `plan_add` / `plan_update` | 读出 harness 列的计划，见 [plan](plan.md) |
+| `final` | `true` 时命中这条后，同一层后面的规则不再匹配 |
 | `result` | 一次给全：`ok`(写成 match 那样的条件)、`output`、`error`、`cost_usd`,都是字段路径 |
 
 只做相等匹配和取字段，不引入表达式语言。两个现有 harness 都够用;真遇到写不出来的 harness,再给它在 Go 里留一个具名解析器(`output.format: <名字>`),而不是把 yaml 变复杂。
