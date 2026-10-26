@@ -42,7 +42,7 @@ func TestAgents(t *testing.T) {
 		t.Fatalf("same name for another user / generated id: %v %+v", err, b)
 	}
 	// bob 用 alice 的 agent 开会话：会话属于 alice、定在 agent 的运行时上,created_by 是 bob,两人都看得到
-	at, _, err := s.CreateSession(ctx, bob, ag.ID, "", "", json.RawMessage(`{}`))
+	at, _, err := s.CreateSession(ctx, bob, ag.ID, "", json.RawMessage(`{}`))
 	if err != nil || at.UserID != alice.ID || at.CreatedBy != bob.ID || at.DaemonID != laptop.ID {
 		t.Fatalf("bob uses alice's agent: %v %+v", err, at)
 	}
@@ -65,7 +65,7 @@ func TestAgents(t *testing.T) {
 	}
 
 	// 切换运行时:daemon 和 harness 一起换，只给一个不行;老会话不变，新会话用新的
-	old, _, _ := s.CreateSession(ctx, alice, ag.ID, "", "", json.RawMessage(`{}`))
+	old, _, _ := s.CreateSession(ctx, alice, ag.ID, "", json.RawMessage(`{}`))
 	codex, desktopID := "codex", desktop.ID
 	if _, err := s.UpdateAgent(ctx, alice, ag.ID, AgentPatch{Harness: &codex}); err == nil {
 		t.Fatal("harness alone should fail")
@@ -78,7 +78,7 @@ func TestAgents(t *testing.T) {
 	if _, err := s.UpdateAgent(ctx, alice, ag.ID, AgentPatch{DaemonID: &desktopID, Harness: &claude}); err == nil {
 		t.Fatal("harness not on that daemon should fail")
 	}
-	nw, _, _ := s.CreateSession(ctx, alice, ag.ID, "", "", json.RawMessage(`{}`))
+	nw, _, _ := s.CreateSession(ctx, alice, ag.ID, "", json.RawMessage(`{}`))
 	old, _ = s.GetSession(ctx, alice, old.ID)
 	if old.DaemonID != laptop.ID || old.Harness != "claude" || nw.DaemonID != desktop.ID || nw.Harness != "codex" {
 		t.Fatalf("runtime after switch: old=%+v new=%+v", old, nw)

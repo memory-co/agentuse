@@ -2,7 +2,7 @@
 // 不调用任何模型，输出可预测，方便断言。
 //
 //	fakeharness --version                    → 打印版本(daemon 探测用)
-//	fakeharness -p PROMPT … [--resume ID]   → 扮演 claude(harness/claude/harness.yaml 的 stream-json)
+//	fakeharness -p … [--resume ID]          → 扮演 claude(harness/claude/harness.yaml 的 stream-json,prompt 从 stdin 读)
 //	fakeharness exec --json … [resume ID] PROMPT → 扮演 codex(harness/codex/harness.yaml 的 JSONL)
 //	fakeharness(其它)                        → 自定义 harness:stdin 读 {session_id,resume,input},stdout 写 progress / result
 //
@@ -14,6 +14,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -49,14 +50,33 @@ func reply(mode, prompt, resume string) string {
 	return fmt.Sprintf("%s: %s (resume=%s, cwd=%s)", mode, prompt, resume, cwd())
 }
 
-// claude:-p PROMPT --output-format stream-json --verbose [--resume ID] [额外参数…]
+// claude:-p --input-format stream-json … [--resume ID] [额外参数…],stdin 一行 {"type":"user",…}。
+// 和真的 claude 一样，回完以后等 stdin 关掉才退出;会话目录里没有 agentuse skill 就报错。
 func claude(args []string) int {
-	prompt, resume := args[1], ""
-	for i := 2; i < len(args)-1; i++ {
+	resume := ""
+	for i := 1; i < len(args)-1; i++ {
 		if args[i] == "--resume" {
 			resume = args[i+1]
 		}
 	}
+	stdin := bufio.NewReader(os.Stdin)
+	line, _ := stdin.ReadBytes('\n')
+	var in struct {
+		Type    string `json:"type"`
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(line, &in); err != nil || in.Type != "user" {
+		fmt.Fprintln(os.Stderr, "bad stdin:", string(line))
+		return 2
+	}
+	if _, err := os.Stat(filepath.Join(".claude", "skills", "agentuse", "SKILL.md")); err != nil {
+		fmt.Fprintln(os.Stderr, "missing skill:", err)
+		return 2
+	}
+	defer io.Copy(io.Discard, stdin)
+	prompt := in.Message.Content
 	sid := resume
 	if sid == "" {
 		sid = "claude-" + cwd()

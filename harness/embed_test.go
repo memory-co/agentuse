@@ -27,8 +27,13 @@ func TestLoadValidate(t *testing.T) {
 		{"x", strings.Replace(strings.Replace(okYAML, "%s", "x", 1), "resume: [b]", "", 1), "缺 run.new / run.resume"},
 		{"x", strings.Replace(strings.Replace(okYAML, "%s", "x", 1), "jsonl", "xml", 1), "不支持的 output.format"},
 		{"x", "name: [", "harness/x/harness.yaml"},
+		{"x", strings.Replace(okYAML, "%s", "x", 1) + "input: {format: xml}\n", "不支持的 input.format"},
+		{"x", strings.Replace(okYAML, "%s", "x", 1) + "input: {format: stream-json}\n", "缺 input.message"},
+		{"x", strings.Replace(okYAML, "%s", "x", 1) + "workdir: {nope: .claude/skills}\n", "不是本目录下的子目录"},
+		{"x", strings.Replace(okYAML, "%s", "x", 1) + "workdir: {skills: ../up}\n", "相对路径"},
+		{"x", strings.Replace(okYAML, "%s", "x", 1) + "workdir: {skills: .claude/skills}\n", ""},
 	} {
-		specs, err := load(fstest.MapFS{c.dir + "/harness.yaml": {Data: []byte(c.yaml)}})
+		specs, err := load(fstest.MapFS{c.dir + "/harness.yaml": {Data: []byte(c.yaml)}, c.dir + "/skills/s/SKILL.md": {Data: []byte("x")}})
 		if c.err == "" {
 			if err != nil || len(specs) != 1 {
 				t.Fatalf("%s: %v %+v", c.dir, err, specs)

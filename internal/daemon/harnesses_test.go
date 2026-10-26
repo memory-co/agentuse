@@ -48,12 +48,15 @@ func TestRunCodexResume(t *testing.T) {
 	}
 }
 
-// 假 claude:按 stream-json 输出,result 行给结果和会话 id。
+// 假 claude:从 stdin 读一行消息，按 stream-json 输出,result 行给结果和会话 id;
+// 之后像真的 claude 一样等 stdin 关掉才退出。
 const fakeClaude = `#!/bin/sh
 echo "$@" > args.txt
+read line; echo "$line" > stdin.txt
 echo '{"type":"system","subtype":"init","session_id":"s-1"}'
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}'
 echo '{"type":"result","subtype":"success","is_error":false,"result":"ok!","session_id":"s-1"}'
+cat >/dev/null
 `
 
 func TestRunClaudeResume(t *testing.T) {
@@ -64,8 +67,16 @@ func TestRunClaudeResume(t *testing.T) {
 	la := localHarness{Name: "claude", Path: bin, Spec: &sp}
 	res := runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Resume: "s-1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, func(any) {})
 	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
-	if got := strings.TrimSpace(string(args)); !res.OK || res.Output != "ok!" || res.SessionID != "s-1" || got != "-p hi --output-format stream-json --verbose --resume s-1" {
+	if got := strings.TrimSpace(string(args)); !res.OK || res.Output != "ok!" || res.SessionID != "s-1" ||
+		got != "-p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions --disallowedTools AskUserQuestion --resume s-1" {
 		t.Fatalf("%+v %q", res, got)
+	}
+	in, _ := os.ReadFile(filepath.Join(dir, "stdin.txt"))
+	if got := strings.TrimSpace(string(in)); got != `{"message":{"content":"hi","role":"user"},"type":"user"}` {
+		t.Fatalf("stdin: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", "agentuse", "SKILL.md")); err != nil {
+		t.Fatalf("skill 没拷进会话目录: %v", err)
 	}
 
 	// 没有 result 行 → 失败

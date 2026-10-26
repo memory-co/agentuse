@@ -95,12 +95,12 @@ func TestHubDispatch(t *testing.T) {
 		Session store.Session `json:"session"`
 		Message store.Message `json:"message"`
 	}
-	e.req(aliceTok, "POST", "/api/sessions", map[string]string{"agent_id": "coder", "prompt": "hi", "cwd": "/w"}, &created)
+	e.req(aliceTok, "POST", "/api/sessions", map[string]string{"agent_id": "coder", "prompt": "hi"}, &created)
 	fd.send(protocol.Message{Type: protocol.TypeReady})
 	e.code(aliceTok, "PUT", "/api/daemons/"+d.ID+"/harnesses/claude", map[string]bool{"enabled": true})
 	m := fd.recv()
 	if m.Type != protocol.TypeMessage || m.Message.ID != created.Message.ID || m.Message.SessionID != created.Session.ID ||
-		m.Message.Harness != "claude" || m.Message.Cwd != "/w" || m.Message.Resume != "" || string(m.Message.Input) != `{"prompt":"hi"}` {
+		m.Message.Harness != "claude" || m.Message.Resume != "" || string(m.Message.Input) != `{"prompt":"hi"}` {
 		t.Fatalf("dispatch: %+v %+v", m, m.Message)
 	}
 

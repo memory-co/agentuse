@@ -23,8 +23,9 @@ import (
 var Version = "dev"
 
 type Daemon struct {
-	cfg Config
-	log *log.Logger
+	cfg     Config
+	log     *log.Logger
+	workdir string // 会话目录的根:~/.agentuse/work
 
 	mu        sync.Mutex
 	harnesses map[string]localHarness
@@ -56,12 +57,8 @@ func New(cfg Config, logger *log.Logger) (*Daemon, error) {
 	if logger == nil {
 		logger = log.Default()
 	}
-	if cfg.Workdir == "" {
-		home, _ := os.UserHomeDir()
-		cfg.Workdir = filepath.Join(home, ".agentuse", "work")
-	}
-	cfg.Workdir = expandHome(cfg.Workdir)
-	return &Daemon{cfg: cfg, log: logger, running: map[int64]context.CancelFunc{}}, nil
+	home, _ := os.UserHomeDir()
+	return &Daemon{cfg: cfg, log: logger, workdir: filepath.Join(home, ".agentuse", "work"), running: map[int64]context.CancelFunc{}}, nil
 }
 
 // Run 连上服务干活，断线自动退避重连，直到 ctx 结束。
@@ -272,15 +269,11 @@ func (d *Daemon) startMessage(m protocol.Dispatch) {
 	}()
 }
 
-// sessionDir 是会话的工作目录：给了 cwd 就用它，否则 workdir/<session_id>,每条消息都在同一个目录。
+// sessionDir 是会话的工作目录，固定为 ~/.agentuse/work/<session_id>,每条消息都在同一个目录。
 func (d *Daemon) sessionDir(m protocol.Dispatch) (string, error) {
-	if m.Cwd != "" {
-		dir := expandHome(m.Cwd)
-		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-			return "", errors.New("工作目录不存在: " + m.Cwd)
-		}
-		return dir, nil
+	if m.SessionID == "" || strings.ContainsAny(m.SessionID, `/\`) || strings.HasPrefix(m.SessionID, ".") {
+		return "", errors.New("会话 id 不合法: " + m.SessionID)
 	}
-	dir := filepath.Join(d.cfg.Workdir, m.SessionID)
+	dir := filepath.Join(d.workdir, m.SessionID)
 	return dir, os.MkdirAll(dir, 0o755)
 }

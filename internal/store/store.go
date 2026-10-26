@@ -80,7 +80,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   agent_id           TEXT REFERENCES agents(id) ON DELETE SET NULL,
   harness            TEXT NOT NULL REFERENCES harnesses(name),
   daemon_id          TEXT REFERENCES daemons(id) ON DELETE SET NULL,
-  cwd                TEXT,
   harness_session_id TEXT,
   title              TEXT NOT NULL DEFAULT '',
   status             TEXT NOT NULL DEFAULT 'pending',

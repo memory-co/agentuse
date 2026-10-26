@@ -334,8 +334,8 @@ func TestSessionsAPI(t *testing.T) {
 		Message store.Message `json:"message"`
 	}
 	long := strings.Repeat("长", 60)
-	if r := e.req(aliceTok, "POST", "/api/sessions", map[string]string{"agent_id": "coder", "prompt": "  " + long, "cwd": " /tmp "}, &created); r.StatusCode != http.StatusCreated ||
-		created.Session.Title != strings.Repeat("长", 50) || created.Session.Cwd != "/tmp" || string(created.Message.Content) != `{"prompt":"  `+long+`"}` {
+	if r := e.req(aliceTok, "POST", "/api/sessions", map[string]string{"agent_id": "coder", "prompt": "  " + long}, &created); r.StatusCode != http.StatusCreated ||
+		created.Session.Title != strings.Repeat("长", 50) || string(created.Message.Content) != `{"prompt":"  `+long+`"}` {
 		t.Fatalf("create: %d %+v", r.StatusCode, created)
 	}
 	id := created.Session.ID

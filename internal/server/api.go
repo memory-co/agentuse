@@ -396,7 +396,6 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		AgentID string          `json:"agent_id"`
 		Input   json.RawMessage `json:"input"`
 		Prompt  string          `json:"prompt"`
-		Cwd     string          `json:"cwd"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -415,7 +414,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	if len(req.Input) == 0 {
 		title = firstRunes(strings.TrimSpace(req.Prompt), 50)
 	}
-	ss, m, err := s.store.CreateSession(r.Context(), currentUser(r), req.AgentID, strings.TrimSpace(req.Cwd), title, content)
+	ss, m, err := s.store.CreateSession(r.Context(), currentUser(r), req.AgentID, title, content)
 	if err != nil {
 		s.storeErr(w, err)
 		return

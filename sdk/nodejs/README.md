@@ -25,7 +25,7 @@ await agentuse.setDaemonHarness(uid, d.id, "claude", true);
 const agent = await agentuse.createAgent(uid, { id: "code-helper", name: "写代码", daemon_id: d.id, harness: "claude" });
 
 // 用这个 agent 发起任务，等它回完
-const { session } = await agentuse.createSession(uid, { agent_id: agent.id, prompt: "修一下 README 的错别字", cwd: "~/code/x" });
+const { session } = await agentuse.createSession(uid, { agent_id: agent.id, prompt: "修一下 README 的错别字" });
 const detail = await agentuse.waitSession(uid, session.id, { interval: 2000, timeout: 600_000 });
 console.log(detail.messages.at(-1).content);
 

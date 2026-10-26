@@ -57,7 +57,6 @@ export interface Session {
   agent_id?: string;
   harness: string;
   daemon_id?: string;
-  cwd?: string;
   harness_session_id?: string;
   title: string;
   status: "idle" | "pending" | "running";
@@ -125,7 +124,7 @@ export declare class Client {
   deleteDaemon(user: UserId, daemonId: string): Promise<void>;
 
   listSessions(user: UserId): Promise<Session[]>;
-  createSession(user: UserId, req: MessageInput & { agent_id: string; cwd?: string }): Promise<{ session: Session; message: Message }>;
+  createSession(user: UserId, req: MessageInput & { agent_id: string }): Promise<{ session: Session; message: Message }>;
   sendMessage(user: UserId, sessionId: string, req: MessageInput): Promise<Message>;
   getSession(user: UserId, sessionId: string): Promise<SessionDetail>;
   deleteSession(user: UserId, sessionId: string): Promise<void>;

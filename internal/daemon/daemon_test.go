@@ -25,12 +25,8 @@ func TestNew(t *testing.T) {
 	}
 	t.Setenv("HOME", "/home/x")
 	d, err := New(Config{Server: "http://x", Key: "dk"}, nil)
-	if err != nil || d.cfg.Workdir != "/home/x/.agentuse/work" {
-		t.Fatalf("default workdir: %v %+v", err, d.cfg)
-	}
-	d, _ = New(Config{Server: "http://x", Key: "dk", Workdir: "~/w"}, nil)
-	if d.cfg.Workdir != "/home/x/w" {
-		t.Fatalf("workdir: %q", d.cfg.Workdir)
+	if err != nil || d.workdir != "/home/x/.agentuse/work" {
+		t.Fatalf("workdir: %v %q", err, d.workdir)
 	}
 }
 
@@ -47,17 +43,17 @@ func TestWSURL(t *testing.T) {
 }
 
 func TestSessionDir(t *testing.T) {
-	work := t.TempDir()
-	d, _ := New(Config{Server: "http://x", Key: "dk", Workdir: work}, log.New(io.Discard, "", 0))
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	d, _ := New(Config{Server: "http://x", Key: "dk"}, log.New(io.Discard, "", 0))
 	dir, err := d.sessionDir(protocol.Dispatch{SessionID: "ss_1"})
-	if st, _ := os.Stat(dir); err != nil || dir != filepath.Join(work, "ss_1") || !st.IsDir() {
-		t.Fatalf("default: %v %q", err, dir)
+	if st, _ := os.Stat(dir); err != nil || dir != filepath.Join(home, ".agentuse", "work", "ss_1") || !st.IsDir() {
+		t.Fatalf("session dir: %v %q", err, dir)
 	}
-	if dir, err := d.sessionDir(protocol.Dispatch{SessionID: "ss_1", Cwd: work}); err != nil || dir != work {
-		t.Fatalf("cwd: %v %q", err, dir)
-	}
-	if _, err := d.sessionDir(protocol.Dispatch{Cwd: filepath.Join(work, "missing")}); err == nil {
-		t.Fatal("missing cwd should fail")
+	for _, id := range []string{"", "..", "../x", "a/b"} {
+		if _, err := d.sessionDir(protocol.Dispatch{SessionID: id}); err == nil {
+			t.Fatalf("会话 id %q 应该被拒绝", id)
+		}
 	}
 }
 
@@ -147,7 +143,8 @@ func (f *fakeServer) next(t *testing.T, typ string) protocol.Message {
 func TestRun(t *testing.T) {
 	f := newFakeServer(t)
 	mine := fakeBin(t, t.TempDir(), "mine", `read in; echo '{"type":"progress","text":"p"}'; echo '{"type":"result","ok":true,"output":"done","session_id":"h-1"}'`)
-	d, _ := New(Config{Server: f.URL, Key: "dk_ok", Workdir: t.TempDir(), Harnesses: map[string]HarnessConfig{
+	t.Setenv("HOME", t.TempDir())
+	d, _ := New(Config{Server: f.URL, Key: "dk_ok", Harnesses: map[string]HarnessConfig{
 		"mine": {Command: mine}, "claude": {Disabled: true}, "codex": {Disabled: true},
 	}}, log.New(io.Discard, "", 0))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -188,7 +185,8 @@ func TestRun(t *testing.T) {
 func TestRunStaleMessage(t *testing.T) {
 	f := newFakeServer(t)
 	slow := fakeBin(t, t.TempDir(), "slow", `read in; echo '{"type":"progress"}'; exec sleep 10`)
-	d, _ := New(Config{Server: f.URL, Key: "dk_ok", Workdir: t.TempDir(), Harnesses: map[string]HarnessConfig{
+	t.Setenv("HOME", t.TempDir())
+	d, _ := New(Config{Server: f.URL, Key: "dk_ok", Harnesses: map[string]HarnessConfig{
 		"slow": {Command: slow}, "claude": {Disabled: true}, "codex": {Disabled: true},
 	}}, log.New(io.Discard, "", 0))
 	ctx, cancel := context.WithCancel(context.Background())

@@ -109,7 +109,11 @@ func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir s
 	if err != nil {
 		return Result{Error: err.Error()}
 	}
-	return withSession(runSpec(ctx, *la.Spec, exec.CommandContext(ctx, la.Path, args...), dir, report), m.Resume)
+	if err := la.Spec.Prepare(dir); err != nil {
+		return Result{Error: "准备工作目录: " + err.Error()}
+	}
+	cmd := exec.CommandContext(ctx, la.Path, args...)
+	return withSession(runSpec(ctx, *la.Spec, cmd, la.Spec.Stdin(pi.Prompt), dir, report), m.Resume)
 }
 
 // withSession:harness 没报会话 id 时沿用续接的那个，免得服务那边丢掉。
@@ -144,7 +148,9 @@ func scanLines(r io.Reader, fn func(string)) {
 
 func start(cmd *exec.Cmd, dir string, stdin io.Reader) (stdout, stderr io.ReadCloser, err error) {
 	cmd.Dir = dir
-	cmd.Stdin = stdin
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
 	if stdout, err = cmd.StdoutPipe(); err != nil {
 		return
 	}
@@ -156,10 +162,28 @@ func start(cmd *exec.Cmd, dir string, stdin io.Reader) (stdout, stderr io.ReadCl
 }
 
 // runSpec 按 harness.yaml 的 output 规则读 stdout,按 finish 判成败。
-func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, dir string, report reportFn) Result {
+// input 不为空时写进 stdin 并保持打开(stream-json),读到 result 行后关掉，进程才会退出。
+func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, input []byte, dir string, report reportFn) Result {
+	var in io.WriteCloser
+	if input != nil {
+		var err error
+		if in, err = cmd.StdinPipe(); err != nil {
+			return Result{Error: err.Error()}
+		}
+	}
 	stdout, stderr, err := start(cmd, dir, nil)
 	if err != nil {
 		return Result{Error: err.Error()}
+	}
+	closeIn := func() {}
+	if in != nil {
+		var once sync.Once
+		closeIn = func() { once.Do(func() { in.Close() }) }
+		go func() {
+			if _, err := in.Write(input); err != nil {
+				closeIn()
+			}
+		}()
 	}
 	var errTail tail
 	var wg sync.WaitGroup
@@ -169,7 +193,11 @@ func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, dir string, re
 	var st harness.State
 	scanLines(stdout, func(line string) {
 		sp.Line(&st, line, func(text string) { report(map[string]string{"text": text}) })
+		if st.SawResult {
+			closeIn()
+		}
 	})
+	closeIn()
 	wg.Wait()
 	werr := cmd.Wait()
 

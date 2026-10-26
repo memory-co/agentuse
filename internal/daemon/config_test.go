@@ -19,7 +19,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	if _, err := LoadConfig(path); !os.IsNotExist(err) {
 		t.Fatalf("missing: %v", err)
 	}
-	c := Config{Server: "http://x", DaemonID: "dm_1", Key: "dk_1", Workdir: "~/w",
+	c := Config{Server: "http://x", DaemonID: "dm_1", Key: "dk_1",
 		Harnesses: map[string]HarnessConfig{"mine": {Command: "/bin/mine", Args: []string{"-v"}}, "codex": {Disabled: true}}}
 	if err := SaveConfig(path, c); err != nil {
 		t.Fatal(err)
