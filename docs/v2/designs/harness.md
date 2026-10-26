@@ -211,7 +211,7 @@ codex 暂时不拷东西，只是也在锁定的目录里跑。
 
 ## 以后
 
-- **插话**:harness 跑的过程中用户追加消息。claude 改成 stream-json 输入后 stdin 一直开着，用 Claude Code 的 hook 回调来做：daemon 在 stdin 第一行写 `control_request initialize` 注册 PreToolUse / Stop hook(只对这个进程有效，不落盘);Claude 调下一个工具前通过 stdout 问 daemon,daemon 从 stdin 回 `control_response`,把插话作为 `additionalContext` 塞进去;回合要结束时 Stop hook 返回 `block` 让它接着处理。直接往 stdin 写新的 user 消息会开新回合，不算插话。服务端的接口、表、派活协议怎么改，单独一个设计。
+- **插话**:已单独设计，见 [steer](steer.md)。harness.yaml 用 `steer: claude-hooks` 打开。
 - **hook / plugin**:放在 `harness/<name>/` 下对应的子目录里，跑时带上;回调式 hook 由 daemon 在 stdin 注册，需要落盘的再通过 `workdir` 拷进去。
 - **用户自己的目录**:允许 daemon 读 `~/.agentuse/harness/<name>/harness.yaml`,让手搓的 harness 不用改成 agentuse 的 stdin/stdout 约定。先不做。
 

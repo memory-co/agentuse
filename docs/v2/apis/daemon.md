@@ -67,11 +67,12 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 ```json
 { "type": "event", "message_id": 3, "kind": "progress", "payload": { "text": "🔧 Bash {\"command\":\"ls\"}" } }
 { "type": "event", "message_id": 3, "kind": "plan", "payload": { "steps": [{ "text": "改 harness.yaml", "status": "in_progress" }] } }
+{ "type": "event", "message_id": 3, "kind": "steered", "payload": { "steer_id": 7 } }
 { "type": "event", "message_id": 3, "kind": "done", "payload": { "ok": true, "output": "…", "session_id": "9f1c…" } }
 { "type": "event", "message_id": 3, "kind": "failed", "payload": { "ok": false, "error": "…" } }
 ```
 
-每条都写进 session_events 并续租;`plan` 每次带整份计划([设计](../designs/plan.md));`done` / `failed` 时 payload 记成一条 `assistant` 消息，会话回到 `idle`。`payload.session_id` 是 harness 自己的会话 id,服务存进 sessions.harness_session_id,下次派活时带回来。daemon 发完结果再发一次 `ready`。
+每条都写进 session_events 并续租;`plan` 每次带整份计划([设计](../designs/plan.md));`steered` 表示插话已经塞给 harness([设计](../designs/steer.md));`done` / `failed` 时 payload 记成一条 `assistant` 消息，会话回到 `idle`。`payload.session_id` 是 harness 自己的会话 id,服务存进 sessions.harness_session_id,下次派活时带回来。daemon 发完结果再发一次 `ready`。
 
 ### 服务 → daemon
 
@@ -79,6 +80,7 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 |---|---|---|
 | `welcome` | `daemon_id`、`name`、`ignored` | 回应 hello |
 | `message` | `message` | 派一条用户消息 |
+| `steer` | `steer` | 推一条插话:`{"id", "message_id", "prompt"}`;daemon 不在跑这条消息或 harness 不能插话时忽略 |
 | `error` | `message_id`(可空)、`error` | 出错 |
 
 **welcome**:`ignored` 是 hello 里报了、但服务上没登记的 harness 名字(被忽略)。
