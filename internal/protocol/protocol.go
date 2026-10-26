@@ -46,6 +46,7 @@ const (
 	// 服务 → daemon
 	TypeWelcome = "welcome" // 回应 hello
 	TypeMessage = "message" // 派一条用户消息
+	TypeSteer   = "steer"   // 推一条插话
 	TypeError   = "error"
 )
 
@@ -66,9 +67,12 @@ type Message struct {
 	// message
 	Message *Dispatch `json:"message,omitempty"`
 
+	// steer
+	Steer *Steer `json:"steer,omitempty"`
+
 	// event / heartbeat / error
 	MessageID int64           `json:"message_id,omitempty"`
-	Kind      string          `json:"kind,omitempty"` // progress / done / failed
+	Kind      string          `json:"kind,omitempty"` // progress / plan / steered / done / failed
 	Payload   json.RawMessage `json:"payload,omitempty"`
 
 	// error
@@ -87,6 +91,18 @@ type Dispatch struct {
 	Harness   string          `json:"harness"`
 	Resume    string          `json:"resume,omitempty"` // harness 自己的会话 id,第一条消息时为空
 	Input     json.RawMessage `json:"input"`            // 消息内容
+}
+
+// Steer 是推给 daemon 的一条插话，挂在它正在回的消息 MessageID 上。见 docs/v2/designs/steer.md。
+type Steer struct {
+	ID        int64  `json:"id"`
+	MessageID int64  `json:"message_id"`
+	Prompt    string `json:"prompt"`
+}
+
+// SteeredPayload 是 steered 回报的内容。
+type SteeredPayload struct {
+	SteerID int64 `json:"steer_id"`
 }
 
 // PromptInput 是页面 / API 发消息时内容的约定格式。自定义 harness 拿到的是原文。

@@ -153,6 +153,28 @@ func (h *hub) dispatch(ctx context.Context, c *daemonConn) {
 		return
 	}
 	h.s.log.Printf("会话 %s(%s)的消息 %d 派给 daemon %s", ss.ID, ss.Harness, cl.Message.ID, c.d.ID)
+	// 派出前就有的插话，跟着推过去
+	steers, err := h.s.store.PendingSteers(ctx, cl.Message.ID)
+	if err != nil {
+		h.s.log.Printf("steers of message %d: %v", cl.Message.ID, err)
+	}
+	for _, st := range steers {
+		_ = c.send(ctx, steerMessage(st))
+	}
+}
+
+func steerMessage(st store.Steer) protocol.Message {
+	return protocol.Message{Type: protocol.TypeSteer, Steer: &protocol.Steer{ID: st.ID, MessageID: st.MessageID, Prompt: st.Prompt}}
+}
+
+// pushSteer 把插话推给正在跑这个会话的 daemon;它不在线就算了，这一轮结束时插话会转成下一条消息。
+func (h *hub) pushSteer(daemonID string, st store.Steer) {
+	h.mu.Lock()
+	c := h.conns[daemonID]
+	h.mu.Unlock()
+	if c != nil {
+		_ = c.send(context.Background(), steerMessage(st))
+	}
 }
 
 // kickUser 有新活可派时，叫醒该用户所有空闲的 daemon。

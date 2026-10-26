@@ -345,9 +345,14 @@ func TestSessionsAPI(t *testing.T) {
 		t.Fatalf("create with input: %d %+v", r.StatusCode, created)
 	}
 
-	// pending 时不能回复
-	if c := e.code(aliceTok, "POST", "/api/sessions/"+id+"/messages", map[string]string{"prompt": "y"}); c != http.StatusConflict {
-		t.Fatalf("reply while pending: %d", c)
+	// pending 时回复是插话;插话只收 prompt
+	var steer store.Steer
+	if r := e.req(aliceTok, "POST", "/api/sessions/"+id+"/messages", map[string]string{"prompt": "y"}, &steer); r.StatusCode != http.StatusAccepted ||
+		steer.Status != store.SteerPending || steer.Prompt != "y" || steer.MessageID != created.Message.ID-1 {
+		t.Fatalf("reply while pending: %d %+v", r.StatusCode, steer)
+	}
+	if c := e.code(aliceTok, "POST", "/api/sessions/"+id+"/messages", map[string]any{"input": map[string]int{"n": 1}}); c != http.StatusConflict {
+		t.Fatalf("input while pending: %d", c)
 	}
 	if c := e.code(aliceTok, "POST", "/api/sessions/"+id+"/messages", map[string]string{}); c != http.StatusBadRequest {
 		t.Fatalf("empty reply: %d", c)
@@ -362,9 +367,10 @@ func TestSessionsAPI(t *testing.T) {
 	var detail struct {
 		Session  store.Session        `json:"session"`
 		Messages []store.Message      `json:"messages"`
+		Steers   []store.Steer        `json:"steers"`
 		Events   []store.SessionEvent `json:"events"`
 	}
-	if r := e.req(aliceTok, "GET", "/api/sessions/"+id, nil, &detail); r.StatusCode != 200 || len(detail.Messages) != 1 || detail.Events == nil {
+	if r := e.req(aliceTok, "GET", "/api/sessions/"+id, nil, &detail); r.StatusCode != 200 || len(detail.Messages) != 1 || detail.Events == nil || len(detail.Steers) != 1 {
 		t.Fatalf("get: %d %+v", r.StatusCode, detail)
 	}
 	if c := e.code(bobTok, "GET", "/api/sessions/"+id, nil); c != http.StatusNotFound {

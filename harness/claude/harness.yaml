@@ -23,6 +23,9 @@ input:
   format: stream-json
   message: { type: user, message: { role: user, content: "{prompt}" } }
 
+# 插话：在 stdin 注册 PreToolUse / Stop hook,回调时把插话塞进去(docs/v2/designs/steer.md)
+steer: claude-hooks
+
 # 起进程前把本目录下的子目录拷进会话目录(每次覆盖，保证是当前版本)
 workdir:
   skills: .claude/skills

@@ -170,9 +170,6 @@ func TestSession(t *testing.T) {
 			if _, err := c.SendMessage(ctx, alice, id, agentuse.MessageRequest{Prompt: "again"}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := c.SendMessage(ctx, alice, id, agentuse.MessageRequest{Prompt: "too soon"}); !agentuse.IsStatus(err, 409) {
-				t.Fatalf("会话忙时回复应该 409: %v", err)
-			}
 			d = wait(t, c, alice, id)
 			if r := lastResult(t, d); !r.OK || r.Output != tc.mode+": again (resume="+wantSID+", cwd="+id+")" || len(d.Messages) != 4 {
 				t.Fatalf("续接: %+v", r)
@@ -187,6 +184,47 @@ func TestSession(t *testing.T) {
 			}
 		})
 	}
+
+	// 插话:claude 在 PreToolUse 回调里收到，同一轮里处理;codex 不能插话，这一轮跑完后变成下一条消息
+	t.Run("steer", func(t *testing.T) {
+		running := func(id string) {
+			e2eutil.WaitFor(t, 10*time.Second, "会话开始跑", func() bool {
+				d, err := c.GetSession(ctx, alice, id)
+				return err == nil && d.Session.Status == "running"
+			})
+		}
+		cs, err := c.CreateSession(ctx, alice, agentuse.CreateSessionRequest{AgentID: "alice-claude", Prompt: "wait-steer"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		running(cs.Session.ID)
+		reply, err := c.SendMessage(ctx, alice, cs.Session.ID, agentuse.MessageRequest{Prompt: "插一句"})
+		if err != nil || reply.Steer == nil || reply.Steer.Status != "pending" {
+			t.Fatalf("插话: %v %+v", err, reply)
+		}
+		d := wait(t, c, alice, cs.Session.ID)
+		if r := lastResult(t, d); !r.OK || !strings.HasSuffix(r.Output, " +插一句") || len(d.Messages) != 2 ||
+			len(d.Steers) != 1 || d.Steers[0].Status != "delivered" {
+			t.Fatalf("claude 插话: %+v %+v %+v", r, d.Messages, d.Steers)
+		}
+
+		xs, err := c.CreateSession(ctx, alice, agentuse.CreateSessionRequest{AgentID: "alice-codex", Prompt: "slow"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		running(xs.Session.ID)
+		if reply, err := c.SendMessage(ctx, alice, xs.Session.ID, agentuse.MessageRequest{Prompt: "排队的"}); err != nil || reply.Steer == nil {
+			t.Fatalf("codex 插话: %v %+v", err, reply)
+		}
+		if _, err := c.SendMessage(ctx, alice, xs.Session.ID, agentuse.MessageRequest{Input: map[string]int{"n": 1}}); !agentuse.IsStatus(err, 409) {
+			t.Fatalf("插话带 input 应该 409: %v", err)
+		}
+		d = wait(t, c, alice, xs.Session.ID)
+		if r := lastResult(t, d); !r.OK || !strings.HasPrefix(r.Output, "codex: 排队的") || len(d.Messages) != 4 ||
+			len(d.Steers) != 1 || d.Steers[0].Status != "queued" {
+			t.Fatalf("codex 排队: %+v %+v %+v", r, d.Messages, d.Steers)
+		}
+	})
 
 	// bob 用 alice 的 agent:跑在 alice 的设备上,bob 看得到;别人看不到
 	at, err := c.CreateSession(ctx, bob, agentuse.CreateSessionRequest{AgentID: "alice-fake", Prompt: "from bob"})

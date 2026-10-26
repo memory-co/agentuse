@@ -8,7 +8,7 @@ import { Confirm, ErrorState, Loading, StatusBadge } from '@/components/Shared';
 import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query';
 import { useAgents } from '@/pages/Agents';
-import type { Message, Session, SessionDetail as Detail, SessionEvent, SessionStatus } from '@/lib/types';
+import type { Message, Session, SessionDetail as Detail, SessionEvent, SessionStatus, Steer } from '@/lib/types';
 import { cn, fmtTime } from '@/lib/utils';
 import { t, useT } from '@/lib/i18n';
 
@@ -84,6 +84,7 @@ export function Conversation({ id, onDeleted }: { id: string; onDeleted: () => v
   if (q.isPending) return <div className="px-6"><Loading /></div>;
   if (q.isError) return <div className="px-6 py-6"><ErrorState error={q.error} /></div>;
   const { session: x, messages, events } = q.data;
+  const steers = q.data.steers ?? [];
   const meta = [x.agent_id, t('session.metaHarness', { harness: x.harness }), x.created_by !== x.user_id && t('session.metaOnBehalf', { by: x.created_by, owner: x.user_id }), x.daemon_id && t('session.metaDaemon', { id: x.daemon_id }), x.harness_session_id && t('session.metaHarnessSession', { id: x.harness_session_id })].filter(Boolean).join(' · ');
   const last = events.filter(e => e.kind === 'progress').pop();
   return <div className="flex min-h-0 flex-1 flex-col">
@@ -95,7 +96,7 @@ export function Conversation({ id, onDeleted }: { id: string; onDeleted: () => v
             <Button variant="ghost" size="icon" className="size-7 text-destructive" aria-label={t('session.delete')}><Trash2 /></Button>
           </Confirm>}
         </div>
-        {messages.map(m => <MessageView key={m.id} m={m} events={events} />)}
+        {messages.map(m => <MessageView key={m.id} m={m} events={events} steers={steers} />)}
         {x.status !== 'idle' && <div className="flex items-start gap-2 text-sm">
           <StatusBadge tone={STATUS_TONE[x.status]}>{statusLabel(x.status)}</StatusBadge>
           <span className="min-w-0 break-words text-muted-foreground">{last ? evText(last.payload).slice(0, 300) : ''}</span>
@@ -105,21 +106,27 @@ export function Conversation({ id, onDeleted }: { id: string; onDeleted: () => v
     </div>
     <div className="mx-auto w-full max-w-3xl px-4 pb-4">
       {x.daemon_id || x.status !== 'idle'
-        ? <Composer placeholder={x.status === 'idle' ? t('session.replyPlaceholder') : t('session.busyPlaceholder')} disabled={x.status !== 'idle'} busy={reply.isPending} onSend={p => reply.mutateAsync(p)} />
+        ? <Composer placeholder={x.status === 'idle' ? t('session.replyPlaceholder') : t('session.busyPlaceholder')} busy={reply.isPending} onSend={p => reply.mutateAsync(p)} />
         : <p className="py-2 text-center text-sm text-muted-foreground">{t('session.daemonGone')}</p>}
     </div>
   </div>;
 }
 
-function MessageView({ m, events }: { m: Message; events: SessionEvent[] }) {
+function MessageView({ m, events, steers }: { m: Message; events: SessionEvent[]; steers: Steer[] }) {
   const t = useT();
   const c = m.content || {};
   if (m.role === 'user') {
     const text = typeof c.prompt === 'string' ? c.prompt : JSON.stringify(c, null, 2);
     const progress = events.filter(e => e.message_id === m.id && e.kind === 'progress');
     const plan = events.filter(e => e.message_id === m.id && e.kind === 'plan').pop();
+    // 插话：转成下一条消息的(queued)不再单独显示
+    const mine = steers.filter(s => s.message_id === m.id && s.status !== 'queued');
     return <div className="grid gap-3">
       <div className="ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-2.5 text-sm" title={fmtTime(m.created_at)}>{text}</div>
+      {mine.map(s => <div key={s.id} className="ml-auto grid max-w-[75%] justify-items-end gap-0.5" title={fmtTime(s.created_at)}>
+        <div className="whitespace-pre-wrap break-words rounded-2xl border border-dashed px-3 py-1.5 text-xs">{s.prompt}</div>
+        <span className="text-[11px] text-muted-foreground">{t(s.status === 'delivered' ? 'session.steerDelivered' : 'session.steerPending')}</span>
+      </div>)}
       {plan && <PlanView steps={plan.payload?.steps} />}
       {progress.length > 0 && <details className="group text-sm text-muted-foreground">
         <summary className="flex cursor-pointer list-none items-center gap-1 hover:text-foreground"><ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />{t('session.progress', { n: progress.length })}</summary>

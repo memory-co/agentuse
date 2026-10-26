@@ -17,6 +17,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 const Version = "fakeharness 1.0.0"
@@ -60,6 +62,11 @@ func claude(args []string) int {
 		}
 	}
 	stdin := bufio.NewReader(os.Stdin)
+	// 第一行是 daemon 注册 hook 的 control_request(插话用)
+	if line, _ := stdin.ReadBytes('\n'); !strings.Contains(string(line), `"initialize"`) {
+		fmt.Fprintln(os.Stderr, "missing initialize:", string(line))
+		return 2
+	}
 	line, _ := stdin.ReadBytes('\n')
 	var in struct {
 		Type    string `json:"type"`
@@ -94,9 +101,42 @@ func claude(args []string) int {
 		emit(map[string]any{"type": "result", "subtype": "error_during_execution", "is_error": true, "session_id": sid})
 		return 1
 	}
+	out := reply("claude", prompt, resume)
+	if prompt == "wait-steer" {
+		// 每 100ms 发一次 PreToolUse 回调，直到 daemon 塞来插话，最多 10 秒
+		for i := 0; i < 100; i++ {
+			if extra := preToolUse(stdin, i); extra != "" {
+				out += " +" + extra[strings.LastIndex(extra, "\n")+1:]
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 	emit(map[string]any{"type": "result", "subtype": "success", "is_error": false, "session_id": sid,
-		"result": reply("claude", prompt, resume), "total_cost_usd": 0.01})
+		"result": out, "total_cost_usd": 0.01})
 	return 0
+}
+
+// preToolUse 发一次 PreToolUse hook 回调，返回 daemon 塞来的 additionalContext。
+func preToolUse(stdin *bufio.Reader, n int) string {
+	id := fmt.Sprintf("pre-%d", n)
+	emit(map[string]any{"type": "control_request", "request_id": id, "request": map[string]any{
+		"subtype": "hook_callback", "callback_id": "agentuse-pre", "input": map[string]any{}}})
+	line, _ := stdin.ReadBytes('\n')
+	var resp struct {
+		Response struct {
+			RequestID string `json:"request_id"`
+			Response  struct {
+				HookSpecificOutput struct {
+					AdditionalContext string `json:"additionalContext"`
+				} `json:"hookSpecificOutput"`
+			} `json:"response"`
+		} `json:"response"`
+	}
+	if json.Unmarshal(line, &resp) != nil || resp.Response.RequestID != id {
+		return ""
+	}
+	return resp.Response.Response.HookSpecificOutput.AdditionalContext
 }
 
 // codex:exec --json --skip-git-repo-check [额外参数…] [resume ID] PROMPT
@@ -110,6 +150,9 @@ func codex(args []string) int {
 	}
 	emit(map[string]any{"type": "turn.started"})
 	emit(map[string]any{"type": "item.completed", "item": map[string]any{"type": "command_execution", "command": "ls"}})
+	if prompt == "slow" {
+		time.Sleep(time.Second) // 给测试留出插话的时间
+	}
 	if prompt == "fail" {
 		emit(map[string]any{"type": "turn.failed", "error": map[string]any{"message": "fake failure"}})
 		return 1

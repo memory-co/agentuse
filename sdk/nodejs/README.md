@@ -29,14 +29,9 @@ const { session } = await agentuse.createSession(uid, { agent_id: agent.id, prom
 const detail = await agentuse.waitSession(uid, session.id, { interval: 2000, timeout: 600_000 });
 console.log(detail.messages.at(-1).content);
 
-// 接着回复
-try {
-  await agentuse.sendMessage(uid, session.id, { prompt: "再把 CHANGELOG 也改一下" });
-} catch (e) {
-  if (e instanceof AgentuseError && e.status === 409) {
-    // harness 还没回完
-  }
-}
+// 接着回复;harness 还在跑时是插话(返回 steer),会在它下一步之前送达
+const r = await agentuse.sendMessage(uid, session.id, { prompt: "再把 CHANGELOG 也改一下" });
+if ("status" in r) console.log("插话:", r.status);
 ```
 
 返回值都是接口里的 JSON 对象，字段见 [apis](../../docs/v2/apis/README.md) 和 `index.d.ts`。需要自定义请求时可以传 `fetch`。

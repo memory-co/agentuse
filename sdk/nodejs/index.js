@@ -79,8 +79,9 @@ export class Client {
   // 新建会话并发出第一条消息:{ agent_id, prompt?, input? } → { session, message }。
   createSession(user, req) { return this._request("POST", "/api/sessions", user, req); }
   // 回复:{ prompt? , input? }。会话不是 idle 时抛 AgentuseError(409)。
+  // 会话 idle 时返回 message;忙时是插话，返回 steer。
   sendMessage(user, sessionId, req) { return this._request("POST", `/api/sessions/${q(sessionId)}/messages`, user, req); }
-  // → { session, messages, events }
+  // → { session, messages, steers, events }
   getSession(user, sessionId) { return this._request("GET", `/api/sessions/${q(sessionId)}`, user); }
   async deleteSession(user, sessionId) { await this._request("DELETE", `/api/sessions/${q(sessionId)}`, user); }
 

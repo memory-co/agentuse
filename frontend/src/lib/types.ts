@@ -19,4 +19,5 @@ export interface Session {
 }
 export interface Message { id: number; session_id: string; role: 'user' | 'assistant'; content: any; created_at: number }
 export interface SessionEvent { id: number; session_id: string; message_id: number; daemon_id: string; kind: string; payload?: any; created_at: number }
-export interface SessionDetail { session: Session; messages: Message[]; events: SessionEvent[] }
+export interface Steer { id: number; session_id: string; message_id: number; created_by: string; prompt: string; status: 'pending' | 'delivered' | 'queued'; created_at: number }
+export interface SessionDetail { session: Session; messages: Message[]; steers: Steer[]; events: SessionEvent[] }

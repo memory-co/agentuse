@@ -29,7 +29,7 @@ type Daemon struct {
 
 	mu        sync.Mutex
 	harnesses map[string]localHarness
-	running   map[int64]context.CancelFunc // 正在回的消息(一次最多一条)
+	running   map[int64]*runningMsg        // 正在回的消息(一次最多一条)
 	conn      func(protocol.Message) error // 当前连接的发送函数，断线时为 nil
 	outbox    []protocol.Message           // 断线期间跑完的结果，重连后补发
 }
@@ -58,7 +58,7 @@ func New(cfg Config, logger *log.Logger) (*Daemon, error) {
 		logger = log.Default()
 	}
 	home, _ := os.UserHomeDir()
-	return &Daemon{cfg: cfg, log: logger, workdir: filepath.Join(home, ".agentuse", "work"), running: map[int64]context.CancelFunc{}}, nil
+	return &Daemon{cfg: cfg, log: logger, workdir: filepath.Join(home, ".agentuse", "work"), running: map[int64]*runningMsg{}}, nil
 }
 
 // Run 连上服务干活，断线自动退避重连，直到 ctx 结束。
@@ -208,14 +208,23 @@ func (d *Daemon) session(ctx context.Context) error {
 			if m.Message != nil {
 				d.startMessage(*m.Message)
 			}
+		case protocol.TypeSteer:
+			// 插话：交给正在跑这条消息的 harness;不在跑就忽略，服务会把它转成下一条消息
+			if m.Steer != nil {
+				d.mu.Lock()
+				if r := d.running[m.Steer.MessageID]; r != nil {
+					r.steers.push(*m.Steer)
+				}
+				d.mu.Unlock()
+			}
 		case protocol.TypeError:
 			if m.MessageID != 0 {
 				d.mu.Lock()
-				cancel := d.running[m.MessageID]
+				r := d.running[m.MessageID]
 				d.mu.Unlock()
-				if cancel != nil {
+				if r != nil {
 					d.log.Printf("消息 %d 已不归本机(%s),停止执行", m.MessageID, m.Error)
-					cancel()
+					r.cancel()
 				}
 			} else {
 				d.log.Printf("服务报错: %s", m.Error)
@@ -224,13 +233,19 @@ func (d *Daemon) session(ctx context.Context) error {
 	}
 }
 
+type runningMsg struct {
+	cancel context.CancelFunc
+	steers *steerQueue
+}
+
 // startMessage 在后台跑 harness 回一条消息，跑完回报结果并再说一次 ready。
 // 不跟连接绑定：中途断线重连，结果照样回报给新连接。
 func (d *Daemon) startMessage(m protocol.Dispatch) {
 	d.mu.Lock()
 	la, ok := d.harnesses[m.Harness]
 	tctx, cancel := context.WithCancel(context.Background())
-	d.running[m.ID] = cancel
+	steers := &steerQueue{}
+	d.running[m.ID] = &runningMsg{cancel: cancel, steers: steers}
 	d.mu.Unlock()
 
 	go func() {
@@ -248,7 +263,7 @@ func (d *Daemon) startMessage(m protocol.Dispatch) {
 		} else if dir, err := d.sessionDir(m); err != nil {
 			res = Result{Error: err.Error()}
 		} else {
-			res = runHarness(tctx, la, m, dir, func(kind string, p any) {
+			res = runHarness(tctx, la, m, dir, steers, func(kind string, p any) {
 				b, _ := json.Marshal(p)
 				_ = d.send(protocol.Message{Type: protocol.TypeEvent, MessageID: m.ID, Kind: kind, Payload: b})
 			})

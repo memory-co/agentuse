@@ -438,13 +438,38 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	ss, m, err := s.store.AddMessage(r.Context(), currentUser(r), r.PathValue("id"), content)
-	if err != nil {
-		s.storeErr(w, err)
+	u, id := currentUser(r), r.PathValue("id")
+	// 空闲时发下一条消息;忙时插话(docs/v2/designs/steer.md)。两次之间状态可能刚好变了，所以最多试两轮。
+	for range 2 {
+		ss, m, err := s.store.AddMessage(r.Context(), u, id, content)
+		if err == nil {
+			s.hub.kickUser(ss.UserID)
+			writeJSON(w, http.StatusCreated, m)
+			return
+		}
+		if !errors.Is(err, store.ErrSessionBusy) {
+			s.storeErr(w, err)
+			return
+		}
+		if len(req.Input) > 0 {
+			writeErr(w, http.StatusConflict, "会话还在跑，插话只能用 prompt")
+			return
+		}
+		ss, st, err := s.store.AddSteer(r.Context(), u, id, req.Prompt)
+		if errors.Is(err, store.ErrSessionIdle) {
+			continue
+		}
+		if err != nil {
+			s.storeErr(w, err)
+			return
+		}
+		if ss.Status == store.SessionRunning {
+			s.hub.pushSteer(ss.DaemonID, st)
+		}
+		writeJSON(w, http.StatusAccepted, st)
 		return
 	}
-	s.hub.kickUser(ss.UserID)
-	writeJSON(w, http.StatusCreated, m)
+	writeErr(w, http.StatusConflict, "会话状态在变，请重试")
 }
 
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
@@ -463,7 +488,12 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"session": ss, "messages": msgs, "events": events})
+	steers, err := s.store.Steers(r.Context(), ss.ID)
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": ss, "messages": msgs, "steers": steers, "events": events})
 }
 
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {

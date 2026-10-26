@@ -134,7 +134,7 @@ class Client:
         )
 
     def send_message(self, user, session_id, prompt=None, input=None):
-        """回复。会话不是 idle 时抛 AgentuseError(409)。"""
+        """回复。会话 idle 时返回 message;忙时是插话，返回 steer(带 status)。插话只收 prompt,带 input 抛 AgentuseError(409)。"""
         return self._request(
             "POST", f"/api/sessions/{_q(session_id)}/messages", user, _drop_none(prompt=prompt, input=input)
         )

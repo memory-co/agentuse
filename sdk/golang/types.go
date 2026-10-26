@@ -140,5 +140,23 @@ type CreateSessionResponse struct {
 type SessionDetail struct {
 	Session  Session        `json:"session"`
 	Messages []Message      `json:"messages"`
+	Steers   []Steer        `json:"steers"`
 	Events   []SessionEvent `json:"events"`
+}
+
+// Steer 是一条插话：会话忙时发的消息。见 docs/v2/designs/steer.md。
+type Steer struct {
+	ID        int64  `json:"id"`
+	SessionID string `json:"session_id"`
+	MessageID int64  `json:"message_id"` // 挂在哪条用户消息上
+	CreatedBy string `json:"created_by"`
+	Prompt    string `json:"prompt"`
+	Status    string `json:"status"` // pending / delivered / queued
+	CreatedAt int64  `json:"created_at"`
+}
+
+// Reply 是 SendMessage 的结果：会话 idle 时是 Message,忙时是 Steer。
+type Reply struct {
+	Message *Message
+	Steer   *Steer
 }

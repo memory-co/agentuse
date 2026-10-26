@@ -28,12 +28,10 @@ s = agentuse.create_session(uid, a["id"], prompt="修一下 README 的错别字"
 detail = agentuse.wait_session(uid, s["id"], interval=2, timeout=600)
 print(detail["messages"][-1]["content"])
 
-# 接着回复
-try:
-    agentuse.send_message(uid, s["id"], prompt="再把 CHANGELOG 也改一下")
-except AgentuseError as e:
-    if e.status == 409:
-        ...  # harness 还没回完
+# 接着回复;harness 还在跑时是插话(返回 steer),会在它下一步之前送达
+r = agentuse.send_message(uid, s["id"], prompt="再把 CHANGELOG 也改一下")
+if "status" in r:
+    print("插话:", r["status"])
 ```
 
 返回值都是接口里的 JSON 对象(dict / list),字段见 [apis](../../docs/v2/apis/README.md)。`timeout` 是单次 HTTP 请求的超时(秒),建客户端时给。

@@ -110,6 +110,19 @@ CREATE TABLE IF NOT EXISTS session_events (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS session_events_session ON session_events(session_id, id);
+
+CREATE TABLE IF NOT EXISTS steers (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  message_id INTEGER NOT NULL,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  prompt     TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS steers_message ON steers(message_id, id);
+CREATE INDEX IF NOT EXISTS steers_session ON steers(session_id, id);
 `
 
 // Store 包一个 SQLite 连接。单连接 + BEGIN IMMEDIATE,所有写串行，领活的「挑一条再改」是原子的。

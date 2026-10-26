@@ -94,11 +94,12 @@ type Result struct {
 	CostUSD   float64 `json:"cost_usd,omitempty"`
 }
 
-// reportFn 回报一条进度(kind 是 progress 或 plan),payload 是 JSON 对象。
+// reportFn 回报一条进度(kind 是 progress、plan 或 steered),payload 是 JSON 对象。
 type reportFn func(kind string, payload any)
 
 // runHarness 在 dir 里跑 harness 回一条消息，过程中调用 report 回报进度。m.Resume 不为空时续接 harness 的会话。
-func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir string, report reportFn) Result {
+// steers 是这条消息的插话队列，harness 能插话时从里面取。
+func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir string, steers *steerQueue, report reportFn) Result {
 	if la.Spec == nil {
 		in, _ := json.Marshal(protocol.HarnessInput{SessionID: m.SessionID, Resume: m.Resume, Input: m.Input})
 		return withSession(runCustomHarness(ctx, exec.CommandContext(ctx, la.Path, la.Args...), in, dir, report), m.Resume)
@@ -113,7 +114,7 @@ func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir s
 		return Result{Error: "准备工作目录: " + err.Error()}
 	}
 	cmd := exec.CommandContext(ctx, la.Path, args...)
-	return withSession(runSpec(ctx, *la.Spec, cmd, la.Spec.Stdin(pi.Prompt), dir, report), m.Resume)
+	return withSession(runSpec(ctx, *la.Spec, cmd, la.Spec.Stdin(pi.Prompt), dir, steers, report), m.Resume)
 }
 
 // withSession:harness 没报会话 id 时沿用续接的那个，免得服务那边丢掉。
@@ -163,7 +164,9 @@ func start(cmd *exec.Cmd, dir string, stdin io.Reader) (stdout, stderr io.ReadCl
 
 // runSpec 按 harness.yaml 的 output 规则读 stdout,按 finish 判成败。
 // input 不为空时写进 stdin 并保持打开(stream-json),读到 result 行后关掉，进程才会退出。
-func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, input []byte, dir string, report reportFn) Result {
+// steer 为 claude-hooks 时先在 stdin 注册 hook,再在 hook 回调里塞插话。
+func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, input []byte, dir string, steers *steerQueue, report reportFn) Result {
+	hooks := sp.Steer == harness.SteerClaudeHooks && input != nil
 	var in io.WriteCloser
 	if input != nil {
 		var err error
@@ -176,12 +179,16 @@ func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, input []byte, 
 		return Result{Error: err.Error()}
 	}
 	closeIn := func() {}
+	var w *stdinWriter
 	if in != nil {
-		var once sync.Once
-		closeIn = func() { once.Do(func() { in.Close() }) }
+		w = &stdinWriter{w: in}
+		closeIn = w.close
 		go func() {
-			if _, err := in.Write(input); err != nil {
-				closeIn()
+			if hooks && w.writeJSON(claudeHooksInit()) != nil {
+				return
+			}
+			if w.write(input) != nil {
+				w.close()
 			}
 		}()
 	}
@@ -192,6 +199,9 @@ func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, input []byte, 
 
 	var st harness.State
 	scanLines(stdout, func(line string) {
+		if hooks && claudeControl(line, w, steers, report) {
+			return
+		}
 		sp.Line(&st, line, func(text string) { report("progress", map[string]string{"text": text}) })
 		if st.PlanDirty {
 			st.PlanDirty = false
