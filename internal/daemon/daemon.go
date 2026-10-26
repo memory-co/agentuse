@@ -29,6 +29,7 @@ type Daemon struct {
 	mu        sync.Mutex
 	harnesses map[string]localHarness
 	running   map[int64]context.CancelFunc // 正在回的消息(一次最多一条)
+	wg        sync.WaitGroup               // 正在回的消息的 goroutine
 	conn      func(protocol.Message) error // 当前连接的发送函数，断线时为 nil
 	outbox    []protocol.Message           // 断线期间跑完的结果，重连后补发
 }
@@ -64,8 +65,9 @@ func New(cfg Config, logger *log.Logger) (*Daemon, error) {
 	return &Daemon{cfg: cfg, log: logger, running: map[int64]context.CancelFunc{}}, nil
 }
 
-// Run 连上服务干活，断线自动退避重连，直到 ctx 结束。
+// Run 连上服务干活，断线自动退避重连，直到 ctx 结束。结束时停掉还在跑的 harness 再返回。
 func (d *Daemon) Run(ctx context.Context) error {
+	defer d.stopRunning()
 	backoff := time.Second
 	for {
 		start := time.Now()
@@ -227,6 +229,17 @@ func (d *Daemon) session(ctx context.Context) error {
 	}
 }
 
+// stopRunning 取消所有正在跑的 harness(连同它们的子进程)并等它们退出。
+// 没回完的消息不回报，服务等 daemon 重连或租约过期后重新派。
+func (d *Daemon) stopRunning() {
+	d.mu.Lock()
+	for _, cancel := range d.running {
+		cancel()
+	}
+	d.mu.Unlock()
+	d.wg.Wait()
+}
+
 // startMessage 在后台跑 harness 回一条消息，跑完回报结果并再说一次 ready。
 // 不跟连接绑定：中途断线重连，结果照样回报给新连接。
 func (d *Daemon) startMessage(m protocol.Dispatch) {
@@ -234,9 +247,11 @@ func (d *Daemon) startMessage(m protocol.Dispatch) {
 	la, ok := d.harnesses[m.Harness]
 	tctx, cancel := context.WithCancel(context.Background())
 	d.running[m.ID] = cancel
+	d.wg.Add(1)
 	d.mu.Unlock()
 
 	go func() {
+		defer d.wg.Done()
 		defer func() {
 			d.mu.Lock()
 			delete(d.running, m.ID)
