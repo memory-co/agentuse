@@ -18,6 +18,7 @@ const (
 	RoleAssistantMsg = "assistant"
 
 	EventProgress = "progress"
+	EventPlan     = "plan"
 	EventDone     = "done"
 	EventFailed   = "failed"
 )
@@ -215,7 +216,7 @@ func (s *Store) RenewLease(ctx context.Context, daemonID string, messageID int64
 // payload 里带了 session_id 就记成 harness 的会话 id。
 func (s *Store) AddEvent(ctx context.Context, daemonID string, messageID int64, kind string, payload json.RawMessage, leaseSeconds int64) error {
 	switch kind {
-	case EventProgress, EventDone, EventFailed:
+	case EventProgress, EventPlan, EventDone, EventFailed:
 	default:
 		return fmt.Errorf("未知回报类型 %q", kind)
 	}
@@ -232,7 +233,8 @@ func (s *Store) AddEvent(ctx context.Context, daemonID string, messageID int64, 
 	defer tx.Rollback()
 	now := s.unix()
 	var sessionID string
-	if kind == EventProgress {
+	running := kind == EventProgress || kind == EventPlan // 跑的过程中的回报：只续租
+	if running {
 		err = tx.QueryRowContext(ctx,
 			`UPDATE sessions SET lease_until = ? WHERE `+runningWhere+` RETURNING id`,
 			now+leaseSeconds, daemonID, messageID, messageID).Scan(&sessionID)
@@ -253,7 +255,7 @@ func (s *Store) AddEvent(ctx context.Context, daemonID string, messageID int64, 
 	if err != nil {
 		return err
 	}
-	if kind != EventProgress {
+	if !running {
 		if _, err := insertMessage(ctx, tx, sessionID, RoleAssistantMsg, payload, now); err != nil {
 			return err
 		}

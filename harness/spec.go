@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -52,6 +53,33 @@ type Rule struct {
 	Error     string         `yaml:"error"`
 	OK        bool           `yaml:"ok"`
 	Result    *ResultRule    `yaml:"result"`
+	// 计划，见 docs/v2/designs/plan.md
+	Plan       *PlanRule `yaml:"plan"`
+	PlanAdd    *PlanStep `yaml:"plan_add"`
+	PlanUpdate *PlanStep `yaml:"plan_update"`
+	// Final:命中后同一层后面的规则不再匹配。
+	Final bool `yaml:"final"`
+}
+
+// PlanRule 一次给整份计划:Steps 是数组路径,Text / Status 是数组里每一项的字段。
+type PlanRule struct {
+	Steps  string `yaml:"steps"`
+	Text   string `yaml:"text"`
+	Status string `yaml:"status"`
+}
+
+// PlanStep 是增量改计划时的字段路径:plan_add 用 ID(可空)和 Text,plan_update 用 ID 和 Status。
+type PlanStep struct {
+	ID     string `yaml:"id"`
+	Text   string `yaml:"text"`
+	Status string `yaml:"status"`
+}
+
+// Step 是计划里的一步。
+type Step struct {
+	ID     string `json:"-"`
+	Text   string `json:"text"`
+	Status string `json:"status"` // pending / in_progress / completed
 }
 
 type ResultRule struct {
@@ -132,6 +160,8 @@ type State struct {
 	SawOK     bool // 见过 ok: true 的规则
 	SawResult bool // 见过 result 规则
 	ResultOK  bool // result 规则判定的成败
+	Plan      []Step
+	PlanDirty bool // 上次取走以后计划变过，调用方发完回报后清掉
 }
 
 const maxProgress = 4000
@@ -188,6 +218,32 @@ func applyRules(rules []Rule, m map[string]any, st *State, progress func(string)
 		if r.OK {
 			st.SawOK = true
 		}
+		if r.Plan != nil {
+			applyPlan(r.Plan, m, st)
+		}
+		if r.PlanAdd != nil {
+			id := str(lookup(m, r.PlanAdd.ID))
+			if r.PlanAdd.ID == "" || id == "" {
+				id = strconv.Itoa(len(st.Plan) + 1)
+			}
+			st.Plan = append(st.Plan, Step{ID: id, Text: str(lookup(m, r.PlanAdd.Text)), Status: "pending"})
+			st.PlanDirty = true
+		}
+		if u := r.PlanUpdate; u != nil {
+			id, status := str(lookup(m, u.ID)), str(lookup(m, u.Status))
+			for i, s := range st.Plan {
+				if s.ID != id || status == "" {
+					continue
+				}
+				if status == "deleted" {
+					st.Plan = append(st.Plan[:i:i], st.Plan[i+1:]...)
+				} else {
+					st.Plan[i].Status = status
+				}
+				st.PlanDirty = true
+				break
+			}
+		}
 		if rr := r.Result; rr != nil {
 			st.SawResult = true
 			st.ResultOK = matches(rr.OK, m)
@@ -201,7 +257,23 @@ func applyRules(rules []Rule, m map[string]any, st *State, progress func(string)
 				st.Error = str(lookup(m, rr.Error))
 			}
 		}
+		if r.Final {
+			return
+		}
 	}
+}
+
+func applyPlan(r *PlanRule, m map[string]any, st *State) {
+	items, _ := lookup(m, r.Steps).([]any)
+	plan := make([]Step, 0, len(items))
+	for i, it := range items {
+		im, ok := it.(map[string]any)
+		if !ok {
+			continue
+		}
+		plan = append(plan, Step{ID: strconv.Itoa(i + 1), Text: str(lookup(im, r.Text)), Status: str(lookup(im, r.Status))})
+	}
+	st.Plan, st.PlanDirty = plan, true
 }
 
 // matches:cond 里每个字段路径的值都和期望值相等。字段不存在算不相等。

@@ -94,8 +94,8 @@ type Result struct {
 	CostUSD   float64 `json:"cost_usd,omitempty"`
 }
 
-// reportFn 回报一条进度,payload 是 JSON 对象。
-type reportFn func(payload any)
+// reportFn 回报一条进度(kind 是 progress 或 plan),payload 是 JSON 对象。
+type reportFn func(kind string, payload any)
 
 // runHarness 在 dir 里跑 harness 回一条消息，过程中调用 report 回报进度。m.Resume 不为空时续接 harness 的会话。
 func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir string, report reportFn) Result {
@@ -192,7 +192,11 @@ func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, input []byte, 
 
 	var st harness.State
 	scanLines(stdout, func(line string) {
-		sp.Line(&st, line, func(text string) { report(map[string]string{"text": text}) })
+		sp.Line(&st, line, func(text string) { report("progress", map[string]string{"text": text}) })
+		if st.PlanDirty {
+			st.PlanDirty = false
+			report("plan", map[string]any{"steps": st.Plan})
+		}
 		if st.SawResult {
 			closeIn()
 		}
@@ -255,7 +259,7 @@ func runCustomHarness(ctx context.Context, cmd *exec.Cmd, input json.RawMessage,
 		var m map[string]json.RawMessage
 		if json.Unmarshal([]byte(line), &m) != nil {
 			out.add(line)
-			report(map[string]string{"text": truncate(line, 4000)})
+			report("progress", map[string]string{"text": truncate(line, 4000)})
 			return
 		}
 		var typ string
@@ -266,7 +270,11 @@ func runCustomHarness(ctx context.Context, cmd *exec.Cmd, input json.RawMessage,
 			res = &r
 			return
 		}
-		report(json.RawMessage(line))
+		if typ == "plan" {
+			report("plan", map[string]json.RawMessage{"steps": m["steps"]})
+			return
+		}
+		report("progress", json.RawMessage(line))
 	})
 	wg.Wait()
 	werr := cmd.Wait()

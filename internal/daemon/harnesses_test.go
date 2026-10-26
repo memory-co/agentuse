@@ -30,7 +30,7 @@ func TestRunCodexResume(t *testing.T) {
 	sp, _ := harness.Get("codex")
 	la := localHarness{Name: "codex", Path: bin, Args: []string{"-s", "workspace-write"}, Spec: &sp}
 	var progress []string
-	report := func(p any) { b, _ := json.Marshal(p); progress = append(progress, string(b)) }
+	report := func(_ string, p any) { b, _ := json.Marshal(p); progress = append(progress, string(b)) }
 
 	res := runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, report)
 	if !res.OK || res.Output != "done!" || res.SessionID != "th-1" || len(progress) != 2 {
@@ -65,7 +65,7 @@ func TestRunClaudeResume(t *testing.T) {
 	os.WriteFile(bin, []byte(fakeClaude), 0o755)
 	sp, _ := harness.Get("claude")
 	la := localHarness{Name: "claude", Path: bin, Spec: &sp}
-	res := runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Resume: "s-1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, func(any) {})
+	res := runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Resume: "s-1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, func(string, any) {})
 	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
 	if got := strings.TrimSpace(string(args)); !res.OK || res.Output != "ok!" || res.SessionID != "s-1" ||
 		got != "-p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions --disallowedTools AskUserQuestion --resume s-1" {
@@ -81,7 +81,7 @@ func TestRunClaudeResume(t *testing.T) {
 
 	// 没有 result 行 → 失败
 	os.WriteFile(bin, []byte("#!/bin/sh\necho '{\"type\":\"system\"}'\n"), 0o755)
-	if res = runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, func(any) {}); res.OK || res.Error == "" {
+	if res = runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, func(string, any) {}); res.OK || res.Error == "" {
 		t.Fatalf("no result: %+v", res)
 	}
 }
@@ -104,9 +104,9 @@ func TestRunCustomHarness(t *testing.T) {
 		want         Result
 		progress     []string
 	}{
-		{"result", `read in; echo '{"type":"progress","n":1}'; echo "$in" | sed 's/^/got /'; echo '{"type":"result","ok":true,"output":"done","session_id":"h-2","cost_usd":0.5}'`,
+		{"result", `read in; echo '{"type":"progress","n":1}'; echo "$in" | sed 's/^/got /'; echo '{"type":"plan","steps":[{"text":"a","status":"pending"}]}'; echo '{"type":"result","ok":true,"output":"done","session_id":"h-2","cost_usd":0.5}'`,
 			Result{OK: true, Output: "done", SessionID: "h-2", CostUSD: 0.5},
-			[]string{`{"type":"progress","n":1}`, `{"text":"got {\"session_id\":\"ss_1\",\"resume\":\"h-1\",\"input\":{\"prompt\":\"hi\"}}"}`}},
+			[]string{`{"type":"progress","n":1}`, `{"text":"got {\"session_id\":\"ss_1\",\"resume\":\"h-1\",\"input\":{\"prompt\":\"hi\"}}"}`, `plan {"steps":[{"text":"a","status":"pending"}]}`}},
 		// 没有 result:退出码 0 就成功，文本输出当结果;没报会话 id 时沿用续接的
 		{"plain text", "cat >/dev/null; echo line1; echo; echo line2",
 			Result{OK: true, Output: "line1\nline2", SessionID: "h-1"}, []string{`{"text":"line1"}`, `{"text":"line2"}`}},
@@ -118,8 +118,11 @@ func TestRunCustomHarness(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var progress []string
-			res := runHarness(ctx, custom(t, c.script), dispatch("hi", "h-1"), dir, func(p any) {
+			res := runHarness(ctx, custom(t, c.script), dispatch("hi", "h-1"), dir, func(kind string, p any) {
 				b, _ := json.Marshal(p)
+				if kind != "progress" {
+					b = append([]byte(kind+" "), b...)
+				}
 				progress = append(progress, string(b))
 			})
 			if res != c.want || !reflect.DeepEqual(progress, c.progress) {
@@ -129,12 +132,12 @@ func TestRunCustomHarness(t *testing.T) {
 	}
 
 	// 跑在会话目录里
-	res := runHarness(ctx, custom(t, "cat >/dev/null; pwd"), dispatch("hi", ""), dir, func(any) {})
+	res := runHarness(ctx, custom(t, "cat >/dev/null; pwd"), dispatch("hi", ""), dir, func(string, any) {})
 	if wd, _ := filepath.EvalSymlinks(dir); !res.OK || (res.Output != dir && res.Output != wd) {
 		t.Fatalf("cwd: %+v", res)
 	}
 	// 可执行文件没了
-	if res := runHarness(ctx, localHarness{Name: "x", Path: filepath.Join(dir, "missing")}, dispatch("hi", ""), dir, func(any) {}); res.OK || res.Error == "" {
+	if res := runHarness(ctx, localHarness{Name: "x", Path: filepath.Join(dir, "missing")}, dispatch("hi", ""), dir, func(string, any) {}); res.OK || res.Error == "" {
 		t.Fatalf("missing binary: %+v", res)
 	}
 }
@@ -144,7 +147,7 @@ func TestRunCancelled(t *testing.T) {
 	started := make(chan struct{})
 	go func() { <-started; cancel() }()
 	// exec:让 sleep 顶替 shell。harness 的子进程如果还拿着 stdout,取消要等它退出(见 PR 说明)
-	res := runHarness(ctx, custom(t, "cat >/dev/null; echo started; exec sleep 10"), dispatch("hi", ""), t.TempDir(), func(any) { close(started) })
+	res := runHarness(ctx, custom(t, "cat >/dev/null; echo started; exec sleep 10"), dispatch("hi", ""), t.TempDir(), func(string, any) { close(started) })
 	if res.OK || res.Error != "已取消" {
 		t.Fatalf("%+v", res)
 	}
@@ -157,7 +160,7 @@ func TestRunSpecFinish(t *testing.T) {
 	claude, _ := harness.Get("claude")
 	run := func(sp harness.Spec, script string) Result {
 		la := localHarness{Name: sp.Name, Path: fakeBin(t, t.TempDir(), sp.Name, script), Spec: &sp}
-		return runHarness(ctx, la, dispatch("hi", ""), dir, func(any) {})
+		return runHarness(ctx, la, dispatch("hi", ""), dir, func(string, any) {})
 	}
 
 	// codex(require_ok):turn.failed 的错误 + 退出码都报出来
@@ -179,7 +182,7 @@ func TestRunSpecFinish(t *testing.T) {
 	}
 	// 空 prompt 不起进程
 	la := localHarness{Name: "claude", Path: "/nonexistent", Spec: &claude}
-	if res = runHarness(ctx, la, protocol.Dispatch{Input: json.RawMessage(`{}`)}, dir, func(any) {}); res.OK || !strings.Contains(res.Error, "prompt") {
+	if res = runHarness(ctx, la, protocol.Dispatch{Input: json.RawMessage(`{}`)}, dir, func(string, any) {}); res.OK || !strings.Contains(res.Error, "prompt") {
 		t.Fatalf("empty prompt: %+v", res)
 	}
 	// 都不写 finish:按退出码

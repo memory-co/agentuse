@@ -187,3 +187,31 @@ func TestLineEdgeCases(t *testing.T) {
 		t.Fatalf("state: %+v", st)
 	}
 }
+
+func TestClaudePlan(t *testing.T) {
+	tool := func(name, input string) string {
+		return `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"` + name + `","input":` + input + `}]}}`
+	}
+	// TodoWrite:每次整份，不再出 🔧 进度
+	st, progress := run(t, "claude",
+		tool("TodoWrite", `{"todos":[{"content":"读代码","status":"completed","activeForm":"读代码中"},{"content":"改","status":"in_progress"}]}`))
+	want := []Step{{ID: "1", Text: "读代码", Status: "completed"}, {ID: "2", Text: "改", Status: "in_progress"}}
+	if !reflect.DeepEqual(st.Plan, want) || !st.PlanDirty || len(progress) != 0 {
+		t.Fatalf("TodoWrite: %+v %v", st.Plan, progress)
+	}
+
+	// TaskCreate / TaskUpdate:按建的顺序编 id,deleted 删掉
+	st, progress = run(t, "claude",
+		tool("TaskCreate", `{"subject":"a","description":"…"}`),
+		tool("TaskCreate", `{"subject":"b"}`),
+		tool("TaskCreate", `{"subject":"c"}`),
+		tool("TaskUpdate", `{"taskId":"1","status":"completed"}`),
+		tool("TaskUpdate", `{"taskId":"2","status":"deleted"}`),
+		tool("TaskUpdate", `{"taskId":"3","status":"in_progress"}`),
+		tool("TaskUpdate", `{"taskId":"9","status":"completed"}`),
+		tool("Bash", `{"command":"ls"}`))
+	want = []Step{{ID: "1", Text: "a", Status: "completed"}, {ID: "3", Text: "c", Status: "in_progress"}}
+	if !reflect.DeepEqual(st.Plan, want) || !reflect.DeepEqual(progress, []string{`🔧 Bash {"command":"ls"}`}) {
+		t.Fatalf("Task*: %+v %v", st.Plan, progress)
+	}
+}

@@ -163,6 +163,9 @@ func TestSession(t *testing.T) {
 			if !hasProgress(d) {
 				t.Fatalf("没有进度回报: %+v", d.Events)
 			}
+			if tc.mode == "claude" && !hasPlan(d, `{"steps":[{"text":"读 hi","status":"completed"},{"text":"回复","status":"in_progress"}]}`) {
+				t.Fatalf("没有计划回报: %+v", d.Events)
+			}
 
 			if _, err := c.SendMessage(ctx, alice, id, agentuse.MessageRequest{Prompt: "again"}); err != nil {
 				t.Fatal(err)
@@ -221,6 +224,15 @@ func TestSession(t *testing.T) {
 func hasProgress(d *agentuse.SessionDetail) bool {
 	for _, e := range d.Events {
 		if e.Kind == "progress" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPlan(d *agentuse.SessionDetail, want string) bool {
+	for _, e := range d.Events {
+		if e.Kind == "plan" && string(e.Payload) == want {
 			return true
 		}
 	}
