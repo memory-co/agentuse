@@ -94,7 +94,6 @@ type Session struct {
 	AgentID          string `json:"agent_id,omitempty"` // agent 删除后为空
 	Harness          string `json:"harness"`            // 建会话时 agent 运行时的 harness,之后不变
 	DaemonID         string `json:"daemon_id,omitempty"`
-	Cwd              string `json:"cwd,omitempty"`
 	HarnessSessionID string `json:"harness_session_id,omitempty"`
 	Title            string `json:"title"`
 	Status           string `json:"status"` // idle / pending / running
@@ -131,7 +130,6 @@ type CreateSessionRequest struct {
 	AgentID string `json:"agent_id"`
 	Prompt  string `json:"prompt,omitempty"`
 	Input   any    `json:"input,omitempty"`
-	Cwd     string `json:"cwd,omitempty"`
 }
 
 type CreateSessionResponse struct {

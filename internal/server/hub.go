@@ -145,7 +145,7 @@ func (h *hub) dispatch(ctx context.Context, c *daemonConn) {
 	c.idle = false
 	ss := cl.Session
 	msg := protocol.Message{Type: protocol.TypeMessage, Message: &protocol.Dispatch{
-		ID: cl.Message.ID, SessionID: ss.ID, Harness: ss.Harness, Cwd: ss.Cwd, Resume: ss.HarnessSessionID, Input: cl.Message.Content,
+		ID: cl.Message.ID, SessionID: ss.ID, Harness: ss.Harness, Resume: ss.HarnessSessionID, Input: cl.Message.Content,
 	}}
 	if err := c.send(ctx, msg); err != nil {
 		// 没送到:等租约过期自动收回。

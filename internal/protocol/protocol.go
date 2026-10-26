@@ -85,7 +85,6 @@ type Dispatch struct {
 	ID        int64           `json:"id"` // 消息 id
 	SessionID string          `json:"session_id"`
 	Harness   string          `json:"harness"`
-	Cwd       string          `json:"cwd,omitempty"`    // 会话的工作目录，空 = daemon 的 workdir/<session_id>
 	Resume    string          `json:"resume,omitempty"` // harness 自己的会话 id,第一条消息时为空
 	Input     json.RawMessage `json:"input"`            // 消息内容
 }

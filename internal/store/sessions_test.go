@@ -33,10 +33,10 @@ func TestClaimAndLease(t *testing.T) {
 	if err != nil || ag.DaemonID != d.ID {
 		t.Fatalf("create agent: %v %+v", err, ag)
 	}
-	if _, _, err := s.CreateSession(ctx, u, "ag_nope", "", "", json.RawMessage(`{}`)); err == nil {
+	if _, _, err := s.CreateSession(ctx, u, "ag_nope", "", json.RawMessage(`{}`)); err == nil {
 		t.Fatal("unknown agent should fail")
 	}
-	ss, m1, _ := s.CreateSession(ctx, u, ag.ID, "", "x", json.RawMessage(`{"prompt":"x"}`))
+	ss, m1, _ := s.CreateSession(ctx, u, ag.ID, "x", json.RawMessage(`{"prompt":"x"}`))
 	if ss.AgentID != ag.ID || ss.Harness != "claude" || ss.DaemonID != d.ID || ss.UserID != u.ID {
 		t.Fatalf("session from agent: %+v", ss)
 	}
@@ -133,21 +133,21 @@ func TestClaimAndLease(t *testing.T) {
 	if ag, _ = s.GetAgent(ctx, u, ag.ID); ag.DaemonID != "" {
 		t.Fatalf("agent after daemon delete: %+v", ag)
 	}
-	if _, _, err := s.CreateSession(ctx, u, ag.ID, "", "", json.RawMessage(`{}`)); err == nil {
+	if _, _, err := s.CreateSession(ctx, u, ag.ID, "", json.RawMessage(`{}`)); err == nil {
 		t.Fatal("agent without runtime should fail")
 	}
 	d2id, claude := d2.ID, "claude"
 	if ag, err = s.UpdateAgent(ctx, u, ag.ID, AgentPatch{DaemonID: &d2id, Harness: &claude}); err != nil || ag.DaemonID != d2.ID {
 		t.Fatalf("switch runtime: %v %+v", err, ag)
 	}
-	s4, _, _ := s.CreateSession(ctx, u, ag.ID, "", "", json.RawMessage(`{}`))
+	s4, _, _ := s.CreateSession(ctx, u, ag.ID, "", json.RawMessage(`{}`))
 	if got, err := s.ClaimSession(ctx, d2, 60); err != nil || got.Session.ID != s4.ID {
 		t.Fatalf("claim on new runtime: %v %+v", err, got)
 	}
 
 	// 本机不再上报 claude → 不可用，不再派
 	s.DaemonConnected(ctx, d2, nil)
-	s.CreateSession(ctx, u, ag.ID, "", "", json.RawMessage(`{}`))
+	s.CreateSession(ctx, u, ag.ID, "", json.RawMessage(`{}`))
 	if _, err := s.ClaimSession(ctx, d2, 60); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("claim unavailable: %v", err)
 	}
@@ -161,11 +161,11 @@ func TestSessionValidation(t *testing.T) {
 	s.SetDaemonHarnessEnabled(ctx, alice, d.ID, "claude", true)
 	ag, _ := s.CreateAgent(ctx, alice.ID, "", "a", d.ID, "claude", "")
 
-	if _, _, err := s.CreateSession(ctx, alice, ag.ID, "", "", json.RawMessage(`not json`)); err == nil {
+	if _, _, err := s.CreateSession(ctx, alice, ag.ID, "", json.RawMessage(`not json`)); err == nil {
 		t.Fatal("invalid content should fail")
 	}
-	ss, m, err := s.CreateSession(ctx, alice, ag.ID, "/tmp/w", "标题", json.RawMessage(`{"prompt":"x"}`))
-	if err != nil || ss.Cwd != "/tmp/w" || ss.Title != "标题" || m.Role != RoleUserMsg {
+	ss, m, err := s.CreateSession(ctx, alice, ag.ID, "标题", json.RawMessage(`{"prompt":"x"}`))
+	if err != nil || ss.Title != "标题" || m.Role != RoleUserMsg {
 		t.Fatalf("create: %v %+v %+v", err, ss, m)
 	}
 	if _, _, err := s.AddMessage(ctx, alice, ss.ID, json.RawMessage(`{`)); err == nil {
@@ -176,9 +176,6 @@ func TestSessionValidation(t *testing.T) {
 	}
 
 	got, _ := s.ClaimSession(ctx, d, 60)
-	if got.Session.Cwd != "/tmp/w" {
-		t.Fatalf("claimed cwd: %+v", got.Session)
-	}
 	if err := s.DeleteSession(ctx, alice, ss.ID); !errors.Is(err, ErrSessionBusy) {
 		t.Fatalf("delete running: %v", err)
 	}
@@ -237,10 +234,10 @@ func TestListSessions(t *testing.T) {
 
 	var ids []string
 	for i := 0; i < 3; i++ {
-		ss, _, _ := s.CreateSession(ctx, alice, ag.ID, "", "", json.RawMessage(`{}`))
+		ss, _, _ := s.CreateSession(ctx, alice, ag.ID, "", json.RawMessage(`{}`))
 		ids = append(ids, ss.ID)
 	}
-	s.CreateSession(ctx, bob, bg.ID, "", "", json.RawMessage(`{}`))
+	s.CreateSession(ctx, bob, bg.ID, "", json.RawMessage(`{}`))
 
 	// 最近更新的在前,limit 生效
 	l, _ := s.ListSessions(ctx, alice, 2)

@@ -7,15 +7,18 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed */harness.yaml
+//go:embed */harness.yaml */skills
 var files embed.FS
 
 var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
@@ -58,7 +61,7 @@ func load(fsys fs.FS) ([]Spec, error) {
 		if err := yaml.Unmarshal(b, &s); err != nil {
 			return nil, fmt.Errorf("harness/%s: %w", p, err)
 		}
-		if err := s.validate(path.Dir(p)); err != nil {
+		if err := s.validate(fsys, path.Dir(p)); err != nil {
 			return nil, fmt.Errorf("harness/%s: %w", p, err)
 		}
 		out = append(out, s)
@@ -67,8 +70,20 @@ func load(fsys fs.FS) ([]Spec, error) {
 	return out, nil
 }
 
-func (s Spec) validate(dir string) error {
+func (s Spec) validate(fsys fs.FS, dir string) error {
+	for src, dst := range s.Workdir {
+		if st, err := fs.Stat(fsys, path.Join(dir, src)); err != nil || !st.IsDir() || strings.Contains(src, "/") {
+			return fmt.Errorf("workdir: %q 不是本目录下的子目录", src)
+		}
+		if dst == "" || filepath.IsAbs(dst) || strings.HasPrefix(path.Clean(dst), "..") {
+			return fmt.Errorf("workdir: %q 必须是会话目录里的相对路径", dst)
+		}
+	}
 	switch {
+	case s.Input.Format != "" && s.Input.Format != "stream-json":
+		return fmt.Errorf("不支持的 input.format %q", s.Input.Format)
+	case s.Input.Format != "" && len(s.Input.Message) == 0:
+		return fmt.Errorf("缺 input.message")
 	case !nameRe.MatchString(s.Name):
 		return fmt.Errorf("name %q 只能用小写字母、数字和 -", s.Name)
 	case s.Name != dir:
@@ -81,4 +96,43 @@ func (s Spec) validate(dir string) error {
 		return fmt.Errorf("不支持的 output.format %q", s.Output.Format)
 	}
 	return nil
+}
+
+// Prepare 按 workdir 把本目录下的子目录拷进会话目录 dir。
+// 每一项(如 skills/agentuse)先整个删掉再拷，保证是当前版本;会话目录里别的东西不动。
+func (s Spec) Prepare(dir string) error {
+	for src, dst := range s.Workdir {
+		root := path.Join(s.Name, src)
+		entries, err := fs.ReadDir(files, root)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			to := filepath.Join(dir, filepath.FromSlash(dst), e.Name())
+			if err := os.RemoveAll(to); err != nil {
+				return err
+			}
+			if err := copyTree(path.Join(root, e.Name()), to); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func copyTree(from, to string) error {
+	return fs.WalkDir(files, from, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(to, filepath.FromSlash(strings.TrimPrefix(strings.TrimPrefix(p, from), "/")))
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		b, err := fs.ReadFile(files, p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, b, 0o644)
+	})
 }

@@ -14,7 +14,7 @@ export interface Daemon {
 
 export type SessionStatus = 'idle' | 'pending' | 'running';
 export interface Session {
-  id: string; user_id: string; created_by: string; agent_id?: string; harness: string; daemon_id?: string; cwd?: string; harness_session_id?: string;
+  id: string; user_id: string; created_by: string; agent_id?: string; harness: string; daemon_id?: string; harness_session_id?: string;
   title: string; status: SessionStatus; created_at: number; updated_at: number;
 }
 export interface Message { id: number; session_id: string; role: 'user' | 'assistant'; content: any; created_at: number }

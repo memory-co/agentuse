@@ -22,8 +22,17 @@ type Spec struct {
 		New    []string `yaml:"new"`
 		Resume []string `yaml:"resume"`
 	} `yaml:"run"`
-	Output Output `yaml:"output"`
-	Finish Finish `yaml:"finish"`
+	Input Input `yaml:"input"`
+	// Workdir:本目录下的子目录 → 会话目录里的相对路径，起进程前拷过去。
+	Workdir map[string]string `yaml:"workdir"`
+	Output  Output            `yaml:"output"`
+	Finish  Finish            `yaml:"finish"`
+}
+
+// Input 描述 stdin。Format 为空时 stdin 为空,prompt 只能放进参数。
+type Input struct {
+	Format  string         `yaml:"format"`  // "" 或 stream-json
+	Message map[string]any `yaml:"message"` // stream-json 时写进 stdin 的那一行,字符串值里的 {prompt} 会被替换
 }
 
 type Output struct {
@@ -81,6 +90,37 @@ func (s Spec) Args(prompt, resume string, extra []string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// Stdin 按 input 生成要写进 stdin 的内容(一行 JSON),不需要 stdin 时返回 nil。
+func (s Spec) Stdin(prompt string) []byte {
+	if s.Input.Format != "stream-json" {
+		return nil
+	}
+	b, _ := json.Marshal(fill(s.Input.Message, prompt))
+	return append(b, '\n')
+}
+
+// fill 把 v 里所有字符串值中的 {prompt} 换成 prompt。
+func fill(v any, prompt string) any {
+	switch v := v.(type) {
+	case string:
+		return strings.ReplaceAll(v, "{prompt}", prompt)
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for k, x := range v {
+			out[k] = fill(x, prompt)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, x := range v {
+			out[i] = fill(x, prompt)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // State 是读输出过程中攒下的结果。

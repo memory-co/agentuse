@@ -93,7 +93,7 @@ agentuse harnesses                                      # 本机检测到的 har
 | DELETE | `/api/daemons/{id}` | 删除 |
 | GET / POST | `/api/agents` | 列 agent / 建 agent `{"id":"code-helper","name":"写代码助手","daemon_id":"dm_…","harness":"claude"}`(id 全局唯一) |
 | PATCH / DELETE | `/api/agents/{id}` | 改名字、切换运行时 `{"daemon_id":"dm_…","harness":"codex"}` / 删除 |
-| GET / POST | `/api/sessions` | 列会话 / 开会话 `{"agent_id":"code-helper","prompt":"…","cwd":"可选"}` |
+| GET / POST | `/api/sessions` | 列会话 / 开会话 `{"agent_id":"code-helper","prompt":"…"}` |
 | POST | `/api/sessions/{id}/messages` | 回复 `{"prompt":"…"}`,harness 还没回时 409 |
 | GET / DELETE | `/api/sessions/{id}` | 会话详情(消息和回报) / 删除 |
 | GET / POST | `/api/harnesses` | 列 harness / 注册自定义 harness |

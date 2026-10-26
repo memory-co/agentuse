@@ -127,7 +127,7 @@ func TestDeleteDaemon(t *testing.T) {
 	bob, _, _ := s.CreateUser(ctx, "", "bob", RoleUser)
 	d := registered(t, s, alice, "laptop", "claude")
 	ag, _ := s.CreateAgent(ctx, alice.ID, "", "a", d.ID, "claude", "")
-	ss, _, _ := s.CreateSession(ctx, alice, ag.ID, "", "", json.RawMessage(`{}`))
+	ss, _, _ := s.CreateSession(ctx, alice, ag.ID, "", json.RawMessage(`{}`))
 
 	if err := s.DeleteDaemon(ctx, bob, d.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("bob deletes: %v", err)

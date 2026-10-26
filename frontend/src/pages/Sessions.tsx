@@ -19,7 +19,7 @@ const refresh = () => queryClient.invalidateQueries({ queryKey: ['sessions'] });
 // progress 回报只有 {text} 时直接显示文字，否则显示 JSON。
 const evText = (p: any) => (p && typeof p === 'object' && Object.keys(p).length === 1 && 'text' in p ? String(p.text) : JSON.stringify(p ?? ''));
 
-/** 底部输入框:回车发送,Shift+回车换行;children 放在输入框下面一行(选 agent、工作目录)。 */
+/** 底部输入框:回车发送,Shift+回车换行;children 放在输入框下面一行(选 agent)。 */
 function Composer({ placeholder, disabled, busy, onSend, children }: {
   placeholder: string; disabled?: boolean; busy?: boolean; onSend: (text: string) => Promise<unknown>; children?: ReactNode;
 }) {
@@ -46,15 +46,14 @@ function Composer({ placeholder, disabled, busy, onSend, children }: {
   </form>;
 }
 
-/** 新会话：选 agent、可选工作目录，写第一句话。 */
+/** 新会话：选 agent,写第一句话。 */
 export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
   const t = useT();
   const agents = useAgents();
   const [agent, setAgent] = useState('');
-  const [cwd, setCwd] = useState('');
   useEffect(() => { if (!agent && agents.data?.length) setAgent(agents.data[0].id); }, [agent, agents.data]);
   const add = useMutation({
-    mutationFn: (prompt: string) => api<{ session: Session }>('/api/sessions', { method: 'POST', body: { agent_id: agent.trim(), prompt, cwd: cwd.trim() } }),
+    mutationFn: (prompt: string) => api<{ session: Session }>('/api/sessions', { method: 'POST', body: { agent_id: agent.trim(), prompt } }),
     onSuccess: r => { void refresh(); onCreated(r.session.id); },
   });
   return <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-6 px-4 py-10">
@@ -65,7 +64,6 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
     <Composer placeholder={t('session.taskPlaceholder')} disabled={!agent.trim()} busy={add.isPending} onSend={p => add.mutateAsync(p)}>
       <Input className="h-8 w-52 font-mono text-xs" list="agent-ids" placeholder={t('session.agentPlaceholder')} value={agent} onChange={e => setAgent(e.target.value)} aria-label="agent" />
       <datalist id="agent-ids">{agents.data?.map(a => <option key={a.id} value={a.id}>{a.name} ({a.harness})</option>)}</datalist>
-      <Input className="h-8 min-w-40 flex-1 text-xs" placeholder={t('session.cwdPlaceholder')} value={cwd} onChange={e => setCwd(e.target.value)} aria-label={t('session.cwd')} />
     </Composer>
     {agents.isSuccess && !agents.data.length && <p className="text-center text-sm text-muted-foreground">{t('session.noAgents')}</p>}
   </div>;
@@ -86,7 +84,7 @@ export function Conversation({ id, onDeleted }: { id: string; onDeleted: () => v
   if (q.isPending) return <div className="px-6"><Loading /></div>;
   if (q.isError) return <div className="px-6 py-6"><ErrorState error={q.error} /></div>;
   const { session: x, messages, events } = q.data;
-  const meta = [x.agent_id, t('session.metaHarness', { harness: x.harness }), x.created_by !== x.user_id && t('session.metaOnBehalf', { by: x.created_by, owner: x.user_id }), x.daemon_id && t('session.metaDaemon', { id: x.daemon_id }), x.cwd, x.harness_session_id && t('session.metaHarnessSession', { id: x.harness_session_id })].filter(Boolean).join(' · ');
+  const meta = [x.agent_id, t('session.metaHarness', { harness: x.harness }), x.created_by !== x.user_id && t('session.metaOnBehalf', { by: x.created_by, owner: x.user_id }), x.daemon_id && t('session.metaDaemon', { id: x.daemon_id }), x.harness_session_id && t('session.metaHarnessSession', { id: x.harness_session_id })].filter(Boolean).join(' · ');
   const last = events.filter(e => e.kind === 'progress').pop();
   return <div className="flex min-h-0 flex-1 flex-col">
     <div className="min-h-0 flex-1 overflow-y-auto">

@@ -21,8 +21,6 @@ type Config struct {
 	Server   string `json:"server"`
 	DaemonID string `json:"daemon_id"`
 	Key      string `json:"key"`
-	// Workdir 是没指定 cwd 的会话的工作目录根，每个会话一个子目录。默认 ~/.agentuse/work。
-	Workdir string `json:"workdir,omitempty"`
 	// Harnesses 配置本机 harness 的启动命令。内置的(claude / codex)不配也会自动检测;
 	// 自定义 harness 必须在这里配，名字要和服务上注册的一致。
 	Harnesses map[string]HarnessConfig `json:"harnesses,omitempty"`
@@ -30,7 +28,7 @@ type Config struct {
 
 type HarnessConfig struct {
 	Command string   `json:"command"`        // 可执行文件，如 claude、/usr/local/bin/my-harness
-	Args    []string `json:"args,omitempty"` // 追加参数，如 ["--permission-mode", "acceptEdits"]
+	Args    []string `json:"args,omitempty"` // 追加参数，如 ["--model", "opus"]
 	// Disabled 为 true 时不上报这个 harness。
 	Disabled bool `json:"disabled,omitempty"`
 }

@@ -75,7 +75,6 @@ func TestSession(t *testing.T) {
 	// 用户电脑：daemon.json 里把三个 harness 都指向 fakeharness
 	cfg := filepath.Join(home, "daemon.json")
 	writeJSON(t, cfg, map[string]any{
-		"workdir": filepath.Join(home, "work"),
 		"harnesses": map[string]any{
 			"fake":   map[string]any{"command": fake},
 			"claude": map[string]any{"command": fake},

@@ -9,10 +9,23 @@ command: claude
 detect:
   version: [--version]
 
-# 每条消息起一次进程。{prompt} {resume} {args} 是占位符，见下文
+# 每条消息起一次进程。{prompt} {resume} {args} 是占位符，见 docs/v2/designs/harness.md
+# prompt 不走参数，走 stdin(见 input)。不让它弹权限确认，也不让它向人提问(没人能答)
 run:
-  new:    [-p, "{prompt}", --output-format, stream-json, --verbose, "{args}"]
-  resume: [-p, "{prompt}", --output-format, stream-json, --verbose, --resume, "{resume}", "{args}"]
+  new:    [-p, --input-format, stream-json, --output-format, stream-json, --verbose,
+           --permission-mode, bypassPermissions, --disallowedTools, AskUserQuestion, "{args}"]
+  resume: [-p, --input-format, stream-json, --output-format, stream-json, --verbose,
+           --permission-mode, bypassPermissions, --disallowedTools, AskUserQuestion,
+           --resume, "{resume}", "{args}"]
+
+# stdin 写一行 JSON 作为这条消息;看到 result 行后关掉 stdin,进程退出
+input:
+  format: stream-json
+  message: { type: user, message: { role: user, content: "{prompt}" } }
+
+# 起进程前把本目录下的子目录拷进会话目录(每次覆盖，保证是当前版本)
+workdir:
+  skills: .claude/skills
 
 # stdout 每行一个 JSON,按规则从上往下匹配
 output:

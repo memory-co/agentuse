@@ -76,7 +76,7 @@ export class Client {
 
   // sessions
   listSessions(user) { return this._request("GET", "/api/sessions", user); }
-  // 新建会话并发出第一条消息:{ agent_id, prompt?, input?, cwd? } → { session, message }。
+  // 新建会话并发出第一条消息:{ agent_id, prompt?, input? } → { session, message }。
   createSession(user, req) { return this._request("POST", "/api/sessions", user, req); }
   // 回复:{ prompt? , input? }。会话不是 idle 时抛 AgentuseError(409)。
   sendMessage(user, sessionId, req) { return this._request("POST", `/api/sessions/${q(sessionId)}/messages`, user, req); }

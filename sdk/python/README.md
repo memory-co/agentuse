@@ -24,7 +24,7 @@ agentuse.set_daemon_harness(uid, d["id"], "claude", True)
 a = agentuse.create_agent(uid, "写代码", d["id"], "claude", id="code-helper")
 
 # 用这个 agent 发起任务，等它回完
-s = agentuse.create_session(uid, a["id"], prompt="修一下 README 的错别字", cwd="~/code/x")["session"]
+s = agentuse.create_session(uid, a["id"], prompt="修一下 README 的错别字")["session"]
 detail = agentuse.wait_session(uid, s["id"], interval=2, timeout=600)
 print(detail["messages"][-1]["content"])
 

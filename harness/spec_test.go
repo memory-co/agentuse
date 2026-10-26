@@ -1,6 +1,8 @@
 package harness
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -28,11 +30,48 @@ func TestArgs(t *testing.T) {
 	}
 	sp, _ = Get("claude")
 	got, _ = sp.Args("hi", "", nil)
-	if strings.Join(got, " ") != "-p hi --output-format stream-json --verbose" {
+	if strings.Join(got, " ") != "-p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions --disallowedTools AskUserQuestion" {
 		t.Fatalf("claude new: %q", got)
 	}
 	if _, err := sp.Args("", "", nil); err == nil {
 		t.Fatal("空 prompt 应报错")
+	}
+}
+
+func TestStdin(t *testing.T) {
+	sp, _ := Get("claude")
+	got := string(sp.Stdin(`说 "hi" {prompt}`))
+	if got != `{"message":{"content":"说 \"hi\" {prompt}","role":"user"},"type":"user"}`+"\n" {
+		t.Fatalf("claude stdin: %q", got)
+	}
+	if sp, _ := Get("codex"); sp.Stdin("hi") != nil {
+		t.Fatal("codex 不写 stdin")
+	}
+}
+
+func TestPrepare(t *testing.T) {
+	sp, _ := Get("claude")
+	dir := t.TempDir()
+	stale := filepath.Join(dir, ".claude", "skills", "agentuse", "old.md")
+	mine := filepath.Join(dir, ".claude", "skills", "mine", "SKILL.md")
+	for _, p := range []string{stale, mine} {
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte("x"), 0o644)
+	}
+	if err := sp.Prepare(dir); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, ".claude", "skills", "agentuse", "SKILL.md")); err != nil || !strings.Contains(string(b), "name: agentuse") {
+		t.Fatalf("skill: %v", err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatal("自带 skill 应该整个换成当前版本")
+	}
+	if _, err := os.Stat(mine); err != nil {
+		t.Fatal("会话目录里别的东西不该动")
+	}
+	if sp, _ := Get("codex"); sp.Prepare(t.TempDir()) != nil {
+		t.Fatal("codex 没有 workdir")
 	}
 }
 

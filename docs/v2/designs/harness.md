@@ -215,9 +215,7 @@ codex 暂时不拷东西，只是也在锁定的目录里跑。
 
 ## 实现步骤
 
-已完成：`harness/` 目录和加载代码、服务用 yaml 写 harnesses 表、daemon 通用执行器。
-
-stream-json 输入和工作目录(这次):
+已完成：`harness/` 目录和加载代码、服务用 yaml 写 harnesses 表、daemon 通用执行器;stream-json 输入和锁定工作目录也已完成：
 
 1. `harness.Spec` 加 `input`、`workdir`,`embed.go` 把 `skills/` 等子目录也编进去;加 `harness/claude/skills/agentuse/SKILL.md`。
 2. claude 的 `run` 改成上面的样子;`runSpec` 按 `input` 写 stdin,读到 `result` 后关 stdin。
