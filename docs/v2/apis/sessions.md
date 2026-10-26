@@ -63,10 +63,15 @@
 
 或 `{"input": {…}}`,规则同上。
 
-- 会话不是 `idle`(harness 还没回)返回 409。
-  - TODO:插话(harness 还在跑时追加消息)以后用 harness 的 hook 来做。
 - 会话的 daemon 已被删除返回 400(harness 会话在原来那台电脑上，续不上)。
-- 返回 201 和 message 对象。只派给这个会话的 daemon,它离线就等它上线。
+- `idle` 时返回 201 和 message 对象。只派给这个会话的 daemon,它离线就等它上线。
+- `pending` / `running` 时是[插话](../designs/steer.md)：返回 202 和 steer 对象。插话只收 `prompt`,带 `input` 返回 409。
+
+```json
+{ "id": 7, "session_id": "ss_…", "message_id": 3, "created_by": "u_10010", "prompt": "顺便把 CHANGELOG 也改了", "status": "pending", "created_at": 1792800050 }
+```
+
+`status`:`pending` 还没送达;`delivered` 已经塞给 harness;`queued` 没来得及送，已经转成下一条消息。
 
 ## GET /api/sessions/{id}
 
@@ -74,6 +79,9 @@
 {
   "session": { "id": "ss_…", "status": "idle", "…": "…" },
   "messages": [ { "id": 1, "role": "user", "…": "…" }, { "id": 2, "role": "assistant", "…": "…" } ],
+  "steers": [
+    { "id": 7, "session_id": "ss_…", "message_id": 1, "created_by": "u_10010", "prompt": "…", "status": "delivered", "created_at": 1792800044 }
+  ],
   "events": [
     { "id": 1, "session_id": "ss_…", "message_id": 1, "daemon_id": "dm_…", "kind": "progress", "payload": { "text": "…" }, "created_at": 1792800043 },
     { "id": 2, "session_id": "ss_…", "message_id": 1, "daemon_id": "dm_…", "kind": "done", "payload": { "ok": true, "output": "…" }, "created_at": 1792800045 }
@@ -81,7 +89,7 @@
 }
 ```
 
-`messages` 和 `events` 都按时间顺序;`events.message_id` 是它在回的那条 `user` 消息。
+`messages`、`steers`、`events` 都按时间顺序;`steers.message_id`、`events.message_id` 是它挂着的那条 `user` 消息。
 
 ## DELETE /api/sessions/{id}
 

@@ -8,7 +8,7 @@ daemon 跑会话时的每一次回报(进度、结果),只追加不修改。用�
 | `session_id` | TEXT | 所属 [会话](sessions.md) |
 | `message_id` | INTEGER | 在回哪条 `user` [消息](messages.md) |
 | `daemon_id` | TEXT | 回报的 daemon(不加外键:daemon 删了，历史回报照样留着) |
-| `kind` | TEXT | `progress` / `plan` / `done` / `failed` |
+| `kind` | TEXT | `progress` / `plan` / `steered` / `done` / `failed` |
 | `payload` | TEXT | 回报内容(JSON) |
 | `created_at` | INTEGER | 收到的时间(unix 秒) |
 
