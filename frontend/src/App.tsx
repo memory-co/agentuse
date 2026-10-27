@@ -132,7 +132,7 @@ function Shell({ me }: { me: User }) {
     {admin && actAs && <span className="ml-auto shrink-0 truncate text-xs text-muted-foreground">{t('actAs.acting', { id: actAs })}</span>}
   </>;
   const content = route.page === 'session' ? <Conversation key={route.id} id={route.id} onDeleted={() => go(current?.work_id ? { page: 'work', id: current.work_id } : { page: 'new' })} />
-    : route.page === 'workNew' ? <NewWork onCreated={id => go({ page: 'work', id })} />
+    : route.page === 'workNew' ? <NewWork me={effective} onCreated={id => go({ page: 'work', id })} />
     : route.page === 'work' ? <WorkPage key={route.id} id={route.id} onDeleted={() => go({ page: 'new' })} />
     : page ? <div className="mx-auto w-full max-w-5xl px-4 py-6"><page.Page me={effective} /></div>
     : <NewSession onCreated={id => go({ page: 'session', id })} />;

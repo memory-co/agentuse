@@ -23,6 +23,12 @@ func TestWorks(t *testing.T) {
 	if _, _, err := s.CreateWork(ctx, alice, "w", "", ""); err == nil {
 		t.Fatal("没有 agent 应该报错")
 	}
+	bd := registered(t, s, bob, "desktop", "claude")
+	s.SetDaemonHarnessEnabled(ctx, bob, bd.ID, "claude", true)
+	bag, _ := s.CreateAgent(ctx, bob.ID, "", "b", bd.ID, "claude", "")
+	if _, _, err := s.CreateWork(ctx, alice, "w", bag.ID, ""); err == nil {
+		t.Fatal("协调者不能用别人的 agent")
+	}
 	w, coord, err := s.CreateWork(ctx, alice, "重构", ag.ID, "先读 README")
 	if err != nil || coord.Status != SessionIdle || coord.WorkRole != WorkCoordinator || w.CoordinatorID != coord.ID || coord.WorkID != w.ID {
 		t.Fatalf("create: %v %+v %+v", err, w, coord)
