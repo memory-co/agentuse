@@ -175,7 +175,7 @@ func TestHarnessesAPI(t *testing.T) {
 	}
 }
 
-// daemonWith 建一台 alice 的、已上报 harness 的 daemon。
+// daemonWith 建一台 u 的、已上报并开启 harnesses 的 daemon。
 func (e *env) daemonWith(u store.User, harnesses ...string) store.Daemon {
 	e.t.Helper()
 	ctx := context.Background()
@@ -186,6 +186,9 @@ func (e *env) daemonWith(u store.User, harnesses ...string) store.Daemon {
 		rep = append(rep, store.ReportedHarness{Name: h})
 	}
 	e.st.DaemonConnected(ctx, d, rep)
+	for _, h := range harnesses {
+		e.st.SetDaemonHarnessEnabled(ctx, u, d.ID, h, true)
+	}
 	return d
 }
 
@@ -375,6 +378,28 @@ func TestSessionsAPI(t *testing.T) {
 	}
 	if c := e.code(bobTok, "GET", "/api/sessions/"+id, nil); c != http.StatusNotFound {
 		t.Fatalf("bob get: %d", c)
+	}
+	// daemon 离线时排队中的会话带 daemon_offline
+	var off struct {
+		DaemonOffline bool `json:"daemon_offline"`
+	}
+	if e.req(aliceTok, "GET", "/api/sessions/"+id, nil, &off); off.DaemonOffline {
+		t.Fatal("daemon_offline while online")
+	}
+	e.st.DaemonDisconnected(context.Background(), d.ID)
+	if e.req(aliceTok, "GET", "/api/sessions/"+id, nil, &off); !off.DaemonOffline {
+		t.Fatal("daemon_offline missing")
+	}
+	// harness 关掉后：排队中的会话失败，再建会话 400 并说明原因
+	e.st.SetDaemonHarnessEnabled(context.Background(), alice, d.ID, "claude", false)
+	if e.req(aliceTok, "GET", "/api/sessions/"+id, nil, &detail); detail.Session.Status != store.SessionIdle || len(detail.Messages) != 2 {
+		t.Fatalf("after disable: %+v", detail)
+	}
+	var fail struct {
+		Error string `json:"error"`
+	}
+	if r := e.req(aliceTok, "POST", "/api/sessions", map[string]string{"agent_id": "coder", "prompt": "x"}, &fail); r.StatusCode != http.StatusBadRequest || !strings.Contains(fail.Error, "没有开启") {
+		t.Fatalf("create on disabled harness: %d %+v", r.StatusCode, fail)
 	}
 	var list []store.Session
 	if e.req(aliceTok, "GET", "/api/sessions", nil, &list); len(list) != 2 {

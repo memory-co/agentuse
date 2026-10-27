@@ -61,7 +61,7 @@ func TestDaemonStatus(t *testing.T) {
 	if err != nil || got.Status != DaemonOnline || got.LastSeenAt == nil || len(got.Harnesses) != 2 {
 		t.Fatalf("online: %v %+v", err, got)
 	}
-	if h := got.Harnesses[0]; h.Harness != "claude" || !h.Available || h.Enabled || h.UserID != alice.ID {
+	if h := got.Harnesses[0]; h.Harness != "claude" || !h.Available || !h.Enabled || h.UserID != alice.ID {
 		t.Fatalf("reported harness: %+v", h)
 	}
 	if _, err := s.GetDaemon(ctx, bob, d.ID); !errors.Is(err, ErrNotFound) {

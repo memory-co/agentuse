@@ -59,7 +59,7 @@
 { "enabled": true }
 ```
 
-只能开关 `harnesses` 列表里已有的(本机上报过的),否则 404。打开后，这个用户排队中的会话马上会派过来。返回 200 和 daemon 对象。
+只能开关 `harnesses` 列表里已有的(本机上报过的),否则 404。打开后，这个用户排队中的会话马上会派过来;关掉后，这个 harness 上排队中的会话直接失败(见 [sessions](sessions.md)),以它为运行时的 agent 也不能再开新会话，要先切换运行时。返回 200 和 daemon 对象。
 
 ## DELETE /api/daemons/{id}
 

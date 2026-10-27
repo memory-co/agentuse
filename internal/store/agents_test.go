@@ -91,6 +91,7 @@ func TestAgents(t *testing.T) {
 	// 有 agent 用着的 harness 不能删
 	s.CreateCustomHarness(ctx, alice.ID, "mine", "", "")
 	s.DaemonConnected(ctx, desktop, []ReportedHarness{{Name: "codex"}, {Name: "mine"}})
+	s.SetDaemonHarnessEnabled(ctx, alice, desktop.ID, "mine", true)
 	mine := "mine"
 	if _, err := s.UpdateAgent(ctx, alice, ag.ID, AgentPatch{DaemonID: &desktopID, Harness: &mine}); err != nil {
 		t.Fatal(err)

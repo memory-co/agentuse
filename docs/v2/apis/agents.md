@@ -31,7 +31,7 @@
 
 - `id` 全局唯一。只能用小写字母、数字、`-` 和 `_`,以字母或数字开头，最长 64 个字符;已被占用返回 400。省略时生成 `ag_xxx`。建好后不能改。
 - `name` 必填，最长 64 个字，同一用户下重名返回 400。
-- `daemon_id`、`harness` 必填，一起指定运行时:daemon 必须是自己的,harness 必须是这台 daemon 上报过的(在 [daemon 对象](daemons.md) 的 `harnesses` 列表里),否则 400。
+- `daemon_id`、`harness` 必填，一起指定运行时:daemon 必须是自己的,harness 必须是这台 daemon 上报过、现在可用并且已开启的(在 [daemon 对象](daemons.md) 的 `harnesses` 列表里，`available && enabled`),否则 400 并说明原因。
 
 返回 201 和 agent 对象。
 

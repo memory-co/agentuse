@@ -121,27 +121,27 @@ func TestSession(t *testing.T) {
 		t.Fatalf("status: %s", out)
 	}
 
-	// 先建 agent、开会话，harness 还没开启 → 排队
-	for _, h := range []string{"fake", "claude", "codex"} {
-		if _, err := c.CreateAgent(ctx, alice, agentuse.CreateAgentRequest{ID: "alice-" + h, Name: h, DaemonID: dv.ID, Harness: h}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	queued, err := c.CreateSession(ctx, alice, agentuse.CreateSessionRequest{AgentID: "alice-fake", Prompt: "queued"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(300 * time.Millisecond)
-	if d, _ := c.GetSession(ctx, alice, queued.Session.ID); d.Session.Status != "pending" {
-		t.Fatalf("harness 没开启时不该派出: %+v", d.Session)
+	// harness 还没开启：不能选作 agent 的运行时，报清楚原因
+	if _, err := c.CreateAgent(ctx, alice, agentuse.CreateAgentRequest{ID: "alice-fake", Name: "fake", DaemonID: dv.ID, Harness: "fake"}); err == nil || !strings.Contains(err.Error(), "没有开启") {
+		t.Fatalf("harness 没开启时不该能建 agent: %v", err)
 	}
 	for _, h := range []string{"fake", "claude", "codex"} {
 		if _, err := c.SetDaemonHarness(ctx, alice, dv.ID, h, true); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := c.CreateAgent(ctx, alice, agentuse.CreateAgentRequest{ID: "alice-" + h, Name: h, DaemonID: dv.ID, Harness: h}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if r := lastResult(t, wait(t, c, alice, queued.Session.ID)); !r.OK || !strings.HasPrefix(r.Output, "custom: queued") {
-		t.Fatalf("排队的会话: %+v", r)
+	// 之后又关掉:开会话直接报错，不会一直排队
+	if _, err := c.SetDaemonHarness(ctx, alice, dv.ID, "fake", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateSession(ctx, alice, agentuse.CreateSessionRequest{AgentID: "alice-fake", Prompt: "x"}); err == nil || !strings.Contains(err.Error(), "没有开启") {
+		t.Fatalf("harness 关掉后不该能开会话: %v", err)
+	}
+	if _, err := c.SetDaemonHarness(ctx, alice, dv.ID, "fake", true); err != nil {
+		t.Fatal(err)
 	}
 
 	// 每种 harness:开会话 → 续接 → 失败

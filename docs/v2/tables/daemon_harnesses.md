@@ -5,7 +5,7 @@
 - **available**:daemon 每次连上服务时上报本机检测到的 harness。上报里有的标 `1`(没有就新建一行),没上报的标 `0`。行不删，这样用户的开关不会因为重连丢掉。
 - **enabled**:用户在页面上为这台 daemon 打开的 harness。新检测到的默认关闭，要用户自己选。
 
-一行就是一个**运行时**(daemon + harness),[agent](agents.md) 绑定的就是它。派活时，服务只把 `daemon_id` 是这台、`harness` 在这里 `available = 1 AND enabled = 1` 的 [会话](sessions.md) 派给这台 daemon。
+一行就是一个**运行时**(daemon + harness),[agent](agents.md) 绑定的就是它，只能绑 `available = 1 AND enabled = 1` 的。派活时，服务只把 `daemon_id` 是这台、`harness` 在这里 `available = 1 AND enabled = 1` 的 [会话](sessions.md) 派给这台 daemon。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|

@@ -267,6 +267,10 @@ func (s *Store) DaemonConnected(ctx context.Context, d Daemon, reported []Report
 			return nil, err
 		}
 	}
+	// 这次没上报的 harness 上排着的会话派不出去了，直接判失败
+	if err := s.failUnrunnable(ctx, tx, d.ID); err != nil {
+		return nil, err
+	}
 	return ignored, tx.Commit()
 }
 
@@ -288,19 +292,28 @@ func (s *Store) MarkAllDaemonsOffline(ctx context.Context) error {
 }
 
 // SetDaemonHarnessEnabled 开关某台 daemon 上的某个 harness。只能开本机上报可用的。
+// 关掉时，这个 harness 上排队中的会话直接判失败。
 func (s *Store) SetDaemonHarnessEnabled(ctx context.Context, u User, daemonID, harness string, enabled bool) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	q := `UPDATE daemon_harnesses SET enabled = ?, updated_at = ? WHERE daemon_id = ? AND harness = ?`
 	args := []any{enabled, s.unix(), daemonID, harness}
 	if !u.IsAdmin() {
 		q += ` AND user_id = ?`
 		args = append(args, u.ID)
 	}
-	res, err := s.db.ExecContext(ctx, q, args...)
+	res, err := tx.ExecContext(ctx, q, args...)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	return nil
+	if err := s.failUnrunnable(ctx, tx, daemonID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

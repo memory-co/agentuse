@@ -10,24 +10,37 @@ import { Confirm, ErrorState, Loading } from '@/components/Shared';
 import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query';
 import type { Agent, Daemon, User } from '@/lib/types';
-import { useT } from '@/lib/i18n';
+import { t, useT } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
 export const useAgents = () => useQuery({ queryKey: ['agents'], queryFn: () => api<Agent[]>('/api/agents'), staleTime: 30_000 });
 const refresh = () => queryClient.invalidateQueries({ queryKey: ['agents'] });
 
-// 运行时 = 某台 daemon + 上面上报过的某个 harness,下拉框的值写成 "daemon_id/harness"。
+// 运行时 = 某台 daemon + 上面可用并已开启的某个 harness,下拉框的值写成 "daemon_id/harness"。
 type Runtime = { daemon_id: string; harness: string };
 const rtKey = (r: Runtime) => `${r.daemon_id}/${r.harness}`;
 const parseRt = (k: string): Runtime => { const i = k.indexOf('/'); return { daemon_id: k.slice(0, i), harness: k.slice(i + 1) }; };
 const runtimesOf = (daemons: Daemon[] | undefined, userId: string) =>
-  (daemons || []).filter(d => d.user_id === userId).flatMap(d => d.harnesses.map(h => ({ key: rtKey({ daemon_id: d.id, harness: h.harness }), label: `${d.name} · ${h.harness}` })));
+  (daemons || []).filter(d => d.user_id === userId).flatMap(d => d.harnesses.filter(h => h.available && h.enabled).map(h => ({
+    key: rtKey({ daemon_id: d.id, harness: h.harness }),
+    label: `${d.name} · ${h.harness}${d.status === 'online' ? '' : t('agents.offline')}`,
+  })));
 
 function RuntimeSelect({ value, onChange, daemons, userId, className }: { value: string; onChange: (v: string) => void; daemons?: Daemon[]; userId: string; className?: string }) {
   const t = useT();
   const options = runtimesOf(daemons, userId);
+  // 当前选的运行时已经不能用了(harness 被关掉或本机没了):照样显示出来，标成不可用，不能再选
+  const stale = value && daemons && !options.some(o => o.key === value) ? (() => {
+    const rt = parseRt(value);
+    return { key: value, label: `${daemons.find(d => d.id === rt.daemon_id)?.name ?? rt.daemon_id} · ${rt.harness}${t('agents.unavailable')}` };
+  })() : null;
   return <Select value={value} onValueChange={onChange}>
-    <SelectTrigger className={className}><SelectValue placeholder={t('agents.pickRuntime')} /></SelectTrigger>
-    <SelectContent>{options.map(o => <SelectItem key={o.key} value={o.key}>{o.label}</SelectItem>)}</SelectContent>
+    <SelectTrigger className={cn(className, stale && 'text-destructive')} title={stale ? t('agents.unavailableHint') : undefined}><SelectValue placeholder={t('agents.pickRuntime')} /></SelectTrigger>
+    <SelectContent>
+      {stale && <SelectItem value={stale.key} disabled>{stale.label}</SelectItem>}
+      {options.map(o => <SelectItem key={o.key} value={o.key}>{o.label}</SelectItem>)}
+      {!options.length && <p className="px-2 py-1.5 text-sm text-muted-foreground">{t('agents.noRuntimes')}</p>}
+    </SelectContent>
   </Select>;
 }
 
@@ -63,11 +76,13 @@ export function Agents({ me }: { me: User }) {
           <Input className="min-w-48 flex-1" placeholder={t('common.description')} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
           <Button type="submit" disabled={!form.runtime || add.isPending}>{t('common.new')}</Button>
         </form>
+        {add.isError && <div className="mt-2"><ErrorState error={add.error} /></div>}
       </CardContent>
     </Card>
     <Card>
       <CardHeader><CardTitle className="text-base">{t('agents.listTitle')}</CardTitle></CardHeader>
       <CardContent>
+        {swap.isError && <div className="mb-2"><ErrorState error={swap.error} /></div>}
         {agents.isPending ? <Loading /> : agents.isError ? <ErrorState error={agents.error} /> : <Table>
           <TableHeader><TableRow><TableHead>id</TableHead><TableHead>{t('common.name')}</TableHead><TableHead>{t('agents.runtime')}</TableHead><TableHead>{t('common.description')}</TableHead>{me.role === 'admin' && <TableHead>{t('common.user')}</TableHead>}<TableHead /></TableRow></TableHeader>
           <TableBody>

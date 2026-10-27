@@ -89,15 +89,15 @@ func TestHubDispatch(t *testing.T) {
 		t.Fatalf("online: %+v", got)
 	}
 
-	// 空闲时来了活：开启 harness 后被叫醒派出
+	// 空闲时来了活：建会话后被叫醒派出
+	e.code(aliceTok, "PUT", "/api/daemons/"+d.ID+"/harnesses/claude", map[string]bool{"enabled": true})
 	e.st.CreateAgent(ctx, alice.ID, "coder", "c", d.ID, "claude", "")
 	var created struct {
 		Session store.Session `json:"session"`
 		Message store.Message `json:"message"`
 	}
-	e.req(aliceTok, "POST", "/api/sessions", map[string]string{"agent_id": "coder", "prompt": "hi"}, &created)
 	fd.send(protocol.Message{Type: protocol.TypeReady})
-	e.code(aliceTok, "PUT", "/api/daemons/"+d.ID+"/harnesses/claude", map[string]bool{"enabled": true})
+	e.req(aliceTok, "POST", "/api/sessions", map[string]string{"agent_id": "coder", "prompt": "hi"}, &created)
 	m := fd.recv()
 	if m.Type != protocol.TypeMessage || m.Message.ID != created.Message.ID || m.Message.SessionID != created.Session.ID ||
 		m.Message.Harness != "claude" || m.Message.Resume != "" || string(m.Message.Input) != `{"prompt":"hi"}` {

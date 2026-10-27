@@ -51,7 +51,9 @@
 - `agent_id` 必填，可以是任何人的 agent,不存在返回 400;agent 没有运行时(它的 daemon 被删了)也返回 400。会话属于 agent 的主人,`created_by` 是调用者;`daemon_id` 和 `harness` 取 agent 此刻的运行时。
 - 不能指定工作目录,daemon 固定用 `~/.agentuse/work/<session_id>/`。
 - 给 `prompt` 时消息内容是 `{"prompt": …}`;给 `input` 时原样交给 harness,忽略 `prompt`。
-- 返回 201 和 `{"session": …, "message": …}`,会话为 `pending`。只派给 agent 运行时的那台 daemon,要求它在线、这个 harness 可用且开启;不满足就一直排队。
+- agent 运行时上的 harness 没开启、或那台 daemon 最近一次连上时没检测到它，返回 400 并说明原因，不会排队。
+- 返回 201 和 `{"session": …, "message": …}`,会话为 `pending`。只派给 agent 运行时的那台 daemon;daemon 离线就排队等它上线。
+- 排队中的会话，如果它的 harness 之后被关掉、或 daemon 重连时没再上报它，会话直接失败：回到 `idle`,追加一条 `{"ok": false, "error": "原因"}` 的 assistant 消息。
 
 ## POST /api/sessions/{id}/messages
 
@@ -64,6 +66,7 @@
 或 `{"input": {…}}`,规则同上。
 
 - 会话的 daemon 已被删除返回 400(harness 会话在原来那台电脑上，续不上)。
+- `idle` 时，会话的 harness 没开启或不可用，返回 400 并说明原因。
 - `idle` 时返回 201 和 message 对象。只派给这个会话的 daemon,它离线就等它上线。
 - `pending` / `running` / `waiting` 时是[插话](../designs/steer.md)：返回 202 和 steer 对象。插话只收 `prompt`,带 `input` 返回 409。
 
@@ -85,9 +88,12 @@
   "events": [
     { "id": 1, "session_id": "ss_…", "message_id": 1, "daemon_id": "dm_…", "kind": "progress", "payload": { "text": "…" }, "created_at": 1792800043 },
     { "id": 2, "session_id": "ss_…", "message_id": 1, "daemon_id": "dm_…", "kind": "done", "payload": { "ok": true, "output": "…" }, "created_at": 1792800045 }
-  ]
+  ],
+  "daemon_offline": true
 }
 ```
+
+- `daemon_offline`:会话 `pending`、它的 daemon 不在线时为 `true`(在等 daemon 上线),否则不出现。
 
 还有 `questions`,对象见下。`messages`、`steers`、`questions`、`events` 都按时间顺序;它们的 `message_id` 是挂着的那条 `user` 消息。
 

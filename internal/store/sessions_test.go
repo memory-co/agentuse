@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -24,11 +25,20 @@ func TestClaimAndLease(t *testing.T) {
 	if err != nil || d.Name != "host-a" {
 		t.Fatalf("register: %v %+v", err, d)
 	}
-	// 运行时要是 daemon 上报过的 harness
+	// 运行时要是 daemon 上报过、并且开启了的 harness
 	if _, err := s.CreateAgent(ctx, u.ID, "", "写代码", d.ID, "claude", ""); err == nil {
 		t.Fatal("unreported harness should fail")
 	}
-	s.DaemonConnected(ctx, d, []ReportedHarness{{Name: "claude", Version: "1.0"}})
+	ignored, _ := s.DaemonConnected(ctx, d, []ReportedHarness{{Name: "claude", Version: "1.0"}, {Name: "ghost"}})
+	if len(ignored) != 1 || ignored[0] != "ghost" {
+		t.Fatalf("ignored: %v", ignored)
+	}
+	if _, err := s.CreateAgent(ctx, u.ID, "", "写代码", d.ID, "claude", ""); err == nil || !strings.Contains(err.Error(), "没有开启") {
+		t.Fatalf("disabled harness should fail: %v", err)
+	}
+	if err := s.SetDaemonHarnessEnabled(ctx, u, d.ID, "claude", true); err != nil {
+		t.Fatal(err)
+	}
 	ag, err := s.CreateAgent(ctx, u.ID, "", "写代码", d.ID, "claude", "")
 	if err != nil || ag.DaemonID != d.ID {
 		t.Fatalf("create agent: %v %+v", err, ag)
@@ -36,25 +46,37 @@ func TestClaimAndLease(t *testing.T) {
 	if _, _, err := s.CreateSession(ctx, u, "ag_nope", "", json.RawMessage(`{}`)); err == nil {
 		t.Fatal("unknown agent should fail")
 	}
+	// 关掉 harness:排队中的会话直接失败，之后也建不了新会话
+	early, _, _ := s.CreateSession(ctx, u, ag.ID, "x", json.RawMessage(`{"prompt":"x"}`))
+	s.SetDaemonHarnessEnabled(ctx, u, d.ID, "claude", false)
+	if got, _ := s.GetSession(ctx, u, early.ID); got.Status != SessionIdle {
+		t.Fatalf("pending session after disable: %+v", got)
+	}
+	if msgs, _ := s.Messages(ctx, early.ID); len(msgs) != 2 || !strings.Contains(string(msgs[1].Content), "没有开启") {
+		t.Fatalf("failed reply after disable: %+v", msgs)
+	}
+	if _, _, err := s.CreateSession(ctx, u, ag.ID, "x", json.RawMessage(`{}`)); !errors.Is(err, ErrRuntimeUnavailable) {
+		t.Fatalf("create on disabled harness: %v", err)
+	}
+	if _, _, err := s.AddMessage(ctx, u, early.ID, json.RawMessage(`{"prompt":"y"}`)); !errors.Is(err, ErrRuntimeUnavailable) {
+		t.Fatalf("reply on disabled harness: %v", err)
+	}
+	// 重连时没再上报的 harness:排队中的会话也直接失败
+	s.SetDaemonHarnessEnabled(ctx, u, d.ID, "claude", true)
+	gone, _, _ := s.CreateSession(ctx, u, ag.ID, "x", json.RawMessage(`{}`))
+	s.DaemonConnected(ctx, d, nil)
+	if msgs, _ := s.Messages(ctx, gone.ID); len(msgs) != 2 || !strings.Contains(string(msgs[1].Content), "没检测到") {
+		t.Fatalf("failed reply after unreported: %+v", msgs)
+	}
+	s.DaemonConnected(ctx, d, []ReportedHarness{{Name: "claude", Version: "1.0"}})
+	// daemon 离线时照常排队，等它上线
+	s.DaemonDisconnected(ctx, d.ID)
 	ss, m1, _ := s.CreateSession(ctx, u, ag.ID, "x", json.RawMessage(`{"prompt":"x"}`))
 	if ss.AgentID != ag.ID || ss.Harness != "claude" || ss.DaemonID != d.ID || ss.UserID != u.ID {
 		t.Fatalf("session from agent: %+v", ss)
 	}
-
-	// 本机这次没上报 / 没开启都领不到
-	s.DaemonConnected(ctx, d, nil)
-	if _, err := s.ClaimSession(ctx, d, 60); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("claim before report: %v", err)
-	}
-	ignored, _ := s.DaemonConnected(ctx, d, []ReportedHarness{{Name: "claude", Version: "1.0"}, {Name: "ghost"}})
-	if len(ignored) != 1 || ignored[0] != "ghost" {
-		t.Fatalf("ignored: %v", ignored)
-	}
-	if _, err := s.ClaimSession(ctx, d, 60); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("claim before enable: %v", err)
-	}
-	if err := s.SetDaemonHarnessEnabled(ctx, u, d.ID, "claude", true); err != nil {
-		t.Fatal(err)
+	if off, err := s.DaemonOfflineFor(ctx, ss); err != nil || !off {
+		t.Fatalf("daemon offline: %v %v", off, err)
 	}
 	// 重连上报不会丢掉 enabled
 	s.DaemonConnected(ctx, d, []ReportedHarness{{Name: "claude", Version: "1.1"}})

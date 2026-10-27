@@ -38,6 +38,11 @@ func registered(t *testing.T, s *Store, u User, name string, harnesses ...string
 	if _, err := s.DaemonConnected(ctx, d, rep); err != nil {
 		t.Fatal(err)
 	}
+	for _, h := range harnesses {
+		if err := s.SetDaemonHarnessEnabled(ctx, u, d.ID, h, true); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return d
 }
 

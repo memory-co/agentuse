@@ -65,6 +65,7 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
       <Input className="h-8 w-52 font-mono text-xs" list="agent-ids" placeholder={t('session.agentPlaceholder')} value={agent} onChange={e => setAgent(e.target.value)} aria-label="agent" />
       <datalist id="agent-ids">{agents.data?.map(a => <option key={a.id} value={a.id}>{a.name} ({a.harness})</option>)}</datalist>
     </Composer>
+    {add.isError && <div className="text-center"><ErrorState error={add.error} /></div>}
     {agents.isSuccess && !agents.data.length && <p className="text-center text-sm text-muted-foreground">{t('session.noAgents')}</p>}
   </div>;
 }
@@ -100,12 +101,13 @@ export function Conversation({ id, onDeleted }: { id: string; onDeleted: () => v
         {messages.map(m => <MessageView key={m.id} m={m} events={events} steers={steers} questions={questions} sessionId={x.id} />)}
         {x.status !== 'idle' && <div className="flex items-start gap-2 text-sm">
           <StatusBadge tone={STATUS_TONE[x.status]}>{statusLabel(x.status)}</StatusBadge>
-          <span className="min-w-0 break-words text-muted-foreground">{last ? evText(last.payload).slice(0, 300) : ''}</span>
+          <span className="min-w-0 break-words text-muted-foreground">{q.data.daemon_offline ? t('session.daemonOffline') : last ? evText(last.payload).slice(0, 300) : ''}</span>
         </div>}
         <div ref={bottom} />
       </div>
     </div>
     <div className="mx-auto w-full max-w-3xl px-4 pb-4">
+      {reply.isError && <div className="pb-2"><ErrorState error={reply.error} /></div>}
       {x.daemon_id || x.status !== 'idle'
         ? <Composer placeholder={x.status === 'idle' ? t('session.replyPlaceholder') : t('session.busyPlaceholder')} busy={reply.isPending} onSend={p => reply.mutateAsync(p)} />
         : <p className="py-2 text-center text-sm text-muted-foreground">{t('session.daemonGone')}</p>}

@@ -45,7 +45,7 @@ func cleanAgentName(name string) (string, error) {
 	return name, nil
 }
 
-// checkRuntime 确认 (daemonID, harness) 是 userID 自己的 daemon 上报过的 harness,即 daemon_harnesses 里有这一行。
+// checkRuntime 确认 (daemonID, harness) 是 userID 自己的 daemon 上报过、而且现在可用并开启的 harness。
 func (s *Store) checkRuntime(ctx context.Context, userID, daemonID, harness string) error {
 	if daemonID == "" || harness == "" {
 		return errors.New("daemon_id 和 harness 必填")
@@ -57,7 +57,30 @@ func (s *Store) checkRuntime(ctx context.Context, userID, daemonID, harness stri
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("daemon %q 上没有 harness %q(daemon 要是自己的，并且上报过这个 harness)", daemonID, harness)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return runtimeErr(ctx, s.db, daemonID, harness)
+}
+
+// runtimeErr 检查运行时 (daemonID, harness) 现在能不能派活:这台 daemon 上报过这个 harness、最近一次上报里有、用户开启了。
+// 能派返回 nil,否则返回给用户看的原因。daemon 离线不算：上线后会接着派。
+func runtimeErr(ctx context.Context, q querier, daemonID, harness string) error {
+	var available, enabled bool
+	err := q.QueryRowContext(ctx,
+		`SELECT available, enabled FROM daemon_harnesses WHERE daemon_id = ? AND harness = ?`,
+		daemonID, harness).Scan(&available, &enabled)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("%w:daemon %s 上没有 harness %s", ErrRuntimeUnavailable, daemonID, harness)
+	case err != nil:
+		return err
+	case !available:
+		return fmt.Errorf("%w:daemon %s 最近一次连上时没检测到 harness %s,请在那台电脑上装好后重启 daemon", ErrRuntimeUnavailable, daemonID, harness)
+	case !enabled:
+		return fmt.Errorf("%w:daemon %s 上没有开启 harness %s,请先在 daemon 页面打开它", ErrRuntimeUnavailable, daemonID, harness)
+	}
+	return nil
 }
 
 func agentWriteErr(err error, id, name, harness string) error {
