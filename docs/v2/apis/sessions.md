@@ -22,7 +22,7 @@
 }
 ```
 
-- `status`:`idle` / `pending` / `running` / `waiting`(在等用户回答[提问](../designs/question.md))。
+- `status`:`idle` / `pending` / `running` / `waiting`(在等用户回答[提问](../designs/question.md)) / `resolved`(已完成)。
 - `user_id` 是 agent 的主人，会话跑在他的 daemon 上;`created_by` 是发起人，用自己的 agent 时两者相同。
 - `daemon_id`、`harness` 是建会话时 agent 的运行时，之后 agent 切换运行时它们也不变。
 - `work_id` 是所属[工作](works.md),建的时候定，之后不能改;`work_role` 是 `coordinator` / `thread`,两个都是不在工作里时不出现。agent 主人看得到这两个字段，但打不开那个工作。
@@ -72,8 +72,8 @@
 或 `{"input": {…}}`,规则同上。
 
 - 会话的 daemon 已被删除返回 400(harness 会话在原来那台电脑上，续不上)。
-- `idle` 时，会话的 harness 没开启或不可用，返回 400 并说明原因。
-- `idle` 时返回 201 和 message 对象。只派给这个会话的 daemon,它离线就等它上线。
+- `idle` / `resolved` 时，会话的 harness 没开启或不可用，返回 400 并说明原因。
+- `idle` / `resolved` 时返回 201 和 message 对象;`resolved` 的会话就此重新打开。只派给这个会话的 daemon,它离线就等它上线。
 - `pending` / `running` / `waiting` 时是[插话](../designs/steer.md)：返回 202 和 steer 对象。插话只收 `prompt`,带 `input` 返回 409。
 
 ```json
@@ -123,6 +123,14 @@
 ```
 
 `status`:`pending` 等回答(或答案还没送到);`answered` 已送到;`expired` 超时或进程没了。
+
+## POST /api/sessions/{id}/resolve
+
+标记为已完成：`idle` → `resolved`,返回 session 对象。不是 `idle`(`resolved` 除外，重复标记直接返回)返回 409;协调者返回 400。
+
+## POST /api/sessions/{id}/reopen
+
+取消已完成：`resolved` → `idle`,返回 session 对象。不是 `resolved` 返回 409。
 
 ## DELETE /api/sessions/{id}
 

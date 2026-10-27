@@ -73,6 +73,7 @@ agentuse work threads                                      # 这个工作的线�
 agentuse work new --agent code-helper "改 daemon 的重连逻辑"  # 开线程，打印线程 id
 agentuse work send ss_xxx "再补个测试"                       # 给线程发消息(在跑就是插话)
 agentuse work read ss_xxx                                  # 看线程的消息
+agentuse work resolve ss_xxx                               # 标记线程已完成
 ```
 
 给[工作](../designs/work.md)的协调者用：读环境变量 `AGENTUSE_SERVER`、`AGENTUSE_WORK_TOKEN`(daemon 起协调者时设好)调 [works](../apis/works.md#工作令牌wt_) 允许的那几个接口。没有这两个变量时报错退出。输出是给 harness 读的纯文本。

@@ -32,11 +32,15 @@ idle ──用户发消息──▶ pending ──派给 daemon──▶ running
                         └──租约过期 / daemon 掉线─┘
 
 running ──harness 提问──▶ waiting ──答案送到 / 超时──▶ running
+
+idle ──标记完成──▶ resolved ──再发消息──▶ pending
+                     └──取消完成──▶ idle
 ```
 
 - `idle` 时发的是下一条消息;`pending` / `running` / `waiting` 时发的是[插话](steers.md)，能送达就在这一轮里处理，送不到的等这一轮跑完自动变成下一条消息([设计](../designs/steer.md))。
 - `waiting`：harness 向用户[提问](questions.md)，在等回答([设计](../designs/question.md))。和 `running` 一样占着 daemon、续租，租约过期一样收回。
 - 工作目录不存在表里,daemon 固定用 `~/.agentuse/work/<session_id>/`。
+- `resolved`：已完成，事情做完了、不用再管。只有 `idle` 能标记，由人在页面上点，或者工作的协调者用 `agentuse work resolve` 标记线程([设计](../designs/work.md))。协调者自己不能标记。在 `resolved` 的会话里再发消息就重新打开：直接变成 `pending`,和 `idle` 时发消息一样。
 - harness 失败也回到 `idle`,失败信息记在它回的那条消息里，可以接着发。
 
 ```sql
