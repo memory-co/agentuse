@@ -13,9 +13,11 @@ func TestWorksAPI(t *testing.T) {
 	e := newEnv(t, Config{})
 	ctx := context.Background()
 	alice, aliceTok := e.user("alice", store.RoleUser)
-	_, bobTok := e.user("bob", store.RoleUser)
+	bob, bobTok := e.user("bob", store.RoleUser)
 	d := e.daemonWith(alice, "claude")
 	e.st.CreateAgent(ctx, alice.ID, "coder", "写代码", d.ID, "claude", "")
+	bd := e.daemonWith(bob, "claude")
+	e.st.CreateAgent(ctx, bob.ID, "bobbot", "bob 的", bd.ID, "claude", "")
 
 	if c := e.code(aliceTok, "POST", "/api/works", map[string]string{"name": "w"}); c != http.StatusBadRequest {
 		t.Fatalf("没有 agent_id: %d", c)
@@ -62,6 +64,9 @@ func TestWorksAPI(t *testing.T) {
 	}
 	if r := e.req(wt, "POST", "/api/sessions", map[string]string{"agent_id": "coder", "prompt": "y"}, &th); r.StatusCode != http.StatusCreated || th.Session.WorkID != wid || th.Session.WorkRole != store.WorkThread || th.Session.CreatedBy != alice.ID {
 		t.Fatalf("工作令牌开线程: %d %+v", r.StatusCode, th)
+	}
+	if c := e.code(wt, "POST", "/api/sessions", map[string]string{"agent_id": "bobbot", "prompt": "y"}); c != http.StatusForbidden {
+		t.Fatalf("线程不能用别人的 agent: %d", c)
 	}
 	// 普通列表里看不到线程，按 work_id 能看到
 	var list []store.Session

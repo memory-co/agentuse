@@ -466,6 +466,11 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusForbidden, "工作令牌只能在自己的工作里开线程")
 			return
 		}
+		// 线程可以用工作主人名下的任何 agent(跑在哪台 daemon 上都行),别人的 agent 不行
+		if a, err := s.store.GetAgent(r.Context(), currentUser(r), req.AgentID); err != nil || a.UserID != currentUser(r).ID {
+			writeErr(w, http.StatusForbidden, "线程只能用工作主人自己的 agent: "+req.AgentID)
+			return
+		}
 	}
 	content, err := messageContent(req.Input, req.Prompt)
 	if err != nil {
