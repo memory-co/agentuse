@@ -79,7 +79,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/harnesses", s.auth(s.handleListHarnesses))
 	s.mux.HandleFunc("POST /api/harnesses", s.auth(s.handleCreateHarness))
 	s.mux.HandleFunc("DELETE /api/harnesses/{name}", s.auth(s.handleDeleteHarness))
-	s.mux.HandleFunc("GET /api/agents", s.auth(s.handleListAgents))
+	s.mux.HandleFunc("GET /api/agents", s.workAuth(s.handleListAgents))
 	s.mux.HandleFunc("POST /api/agents", s.auth(s.handleCreateAgent))
 	s.mux.HandleFunc("GET /api/agents/{id}", s.auth(s.handleGetAgent))
 	s.mux.HandleFunc("PATCH /api/agents/{id}", s.auth(s.handleUpdateAgent))
@@ -89,11 +89,19 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/daemons/{id}", s.auth(s.handleDeleteDaemon))
 	s.mux.HandleFunc("POST /api/daemons/{id}/reset", s.auth(s.handleResetDaemon))
 	s.mux.HandleFunc("PUT /api/daemons/{id}/harnesses/{harness}", s.auth(s.handleToggleHarness))
-	s.mux.HandleFunc("GET /api/sessions", s.auth(s.handleListSessions))
-	s.mux.HandleFunc("POST /api/sessions", s.auth(s.handleCreateSession))
-	s.mux.HandleFunc("GET /api/sessions/{id}", s.auth(s.handleGetSession))
+	s.mux.HandleFunc("GET /api/works", s.auth(s.handleListWorks))
+	s.mux.HandleFunc("POST /api/works", s.auth(s.handleCreateWork))
+	s.mux.HandleFunc("GET /api/works/{id}", s.auth(s.handleGetWork))
+	s.mux.HandleFunc("PATCH /api/works/{id}", s.auth(s.handleUpdateWork))
+	s.mux.HandleFunc("DELETE /api/works/{id}", s.auth(s.handleDeleteWork))
+	// 带 workAuth 的几个，协调者也能用工作令牌调(docs/v2/apis/works.md)
+	s.mux.HandleFunc("GET /api/sessions", s.workAuth(s.handleListSessions))
+	s.mux.HandleFunc("POST /api/sessions", s.workAuth(s.handleCreateSession))
+	s.mux.HandleFunc("GET /api/sessions/{id}", s.workAuth(s.handleGetSession))
 	s.mux.HandleFunc("DELETE /api/sessions/{id}", s.auth(s.handleDeleteSession))
-	s.mux.HandleFunc("POST /api/sessions/{id}/messages", s.auth(s.handleAddMessage))
+	s.mux.HandleFunc("POST /api/sessions/{id}/messages", s.workAuth(s.handleAddMessage))
+	s.mux.HandleFunc("POST /api/sessions/{id}/resolve", s.workAuth(s.handleResolveSession))
+	s.mux.HandleFunc("POST /api/sessions/{id}/reopen", s.auth(s.handleReopenSession))
 	s.mux.HandleFunc("POST /api/sessions/{id}/questions/{qid}/answer", s.auth(s.handleAnswerQuestion))
 
 	s.mux.HandleFunc("POST "+protocol.RegisterPath, s.handleRegister)
@@ -135,7 +143,7 @@ func (s *Server) storeErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusNotFound, "不存在")
 		return
 	}
-	if errors.Is(err, store.ErrSessionBusy) || errors.Is(err, store.ErrQuestionClosed) {
+	if errors.Is(err, store.ErrSessionBusy) || errors.Is(err, store.ErrQuestionClosed) || errors.Is(err, store.ErrSessionState) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}

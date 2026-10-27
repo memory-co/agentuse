@@ -4,6 +4,9 @@ description: OpenAI Codex CLI(codex exec)
 
 command: codex
 
+# 会话在工作里时，工作的说明写成这个文件(docs/v2/designs/work.md)
+instructions: AGENTS.md
+
 detect:
   version: [--version]
 

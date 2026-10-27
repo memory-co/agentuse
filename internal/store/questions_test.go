@@ -81,9 +81,9 @@ func TestQuestions(t *testing.T) {
 	s.AddEvent(ctx, d.ID, m.ID, EventQuestion, json.RawMessage(strings.Replace(askPayload, "t1", "t2", 1)), 60)
 	qs, _ = s.Questions(ctx, ss.ID)
 	s.AnswerQuestion(ctx, alice, ss.ID, qs[1].ID, map[string]string{"语言？": "Python"})
-	steers, err := s.ReportEvent(ctx, d.ID, m.ID, EventQuestionExpired, json.RawMessage(`{"tool_use_id":"t2"}`), 60)
-	if err != nil || len(steers) != 1 || !strings.Contains(steers[0].Prompt, "语言？ → Python") || steers[0].MessageID != m.ID {
-		t.Fatalf("expired: %v %+v", err, steers)
+	rep, err := s.ReportEvent(ctx, d.ID, m.ID, EventQuestionExpired, json.RawMessage(`{"tool_use_id":"t2"}`), 60)
+	if err != nil || len(rep.Steers) != 1 || !strings.Contains(rep.Steers[0].Prompt, "语言？ → Python") || rep.Steers[0].MessageID != m.ID {
+		t.Fatalf("expired: %v %+v", err, rep.Steers)
 	}
 	got, _ = s.GetSession(ctx, alice, ss.ID)
 	qs, _ = s.Questions(ctx, ss.ID)

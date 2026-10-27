@@ -49,6 +49,7 @@ agentuse 服务用 **SQLite** 存数据，一个文件、不依赖外部数据�
 | [daemons](../tables/daemons.md) | 登记过的 daemon 及其在线状态 |
 | [daemon_harnesses](../tables/daemon_harnesses.md) | 每个 daemon 能用哪些 CLI harness |
 | [works](../tables/works.md) | 工作：协调者会话 + 线程会话 + 共用说明，照 Claude Projects 的样子 |
+| [work_tokens](../tables/work_tokens.md) | 协调者跑的时候用来开线程的工作令牌 |
 | [sessions](../tables/sessions.md) | 会话，用某个 agent 开，对齐 harness 的 session,多轮对话 |
 | [messages](../tables/messages.md) | 会话里的消息，用户发的和 harness 回的 |
 | [session_events](../tables/session_events.md) | daemon 回报的进度和结果，按时间追加 |

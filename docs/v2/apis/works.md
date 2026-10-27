@@ -55,3 +55,4 @@
 
 - 身份是工作的主人，只在这条消息还没结束时有效。
 - 只能调这些，别的一律 403:`GET /api/agents`、`GET /api/sessions?work_id=<本工作>`、`POST /api/sessions`(`work_id` 必须是本工作，开的就是线程)、`GET /api/sessions/{线程}`、`POST /api/sessions/{线程}/messages`、`POST /api/sessions/{线程}/resolve`。
+- 用工作令牌时 `GET /api/sessions`、`POST /api/sessions` 不带 `work_id` 就是本工作;令牌过期返回 401。

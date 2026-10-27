@@ -55,11 +55,13 @@ export interface Session {
   user_id: string;
   created_by: string;
   agent_id?: string;
+  work_id?: string;
+  work_role?: "coordinator" | "thread";
   harness: string;
   daemon_id?: string;
   harness_session_id?: string;
   title: string;
-  status: "idle" | "pending" | "running" | "waiting";
+  status: "idle" | "pending" | "running" | "waiting" | "resolved";
   lease_until?: number;
   created_at: number;
   updated_at: number;
@@ -71,6 +73,17 @@ export interface Message {
   role: "user" | "assistant";
   content: any;
   created_at: number;
+}
+
+export interface Work {
+  id: string;
+  user_id: string;
+  name: string;
+  instructions: string;
+  coordinator_id: string;
+  thread_count: number;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface SessionEvent {
@@ -146,12 +159,20 @@ export declare class Client {
   deleteDaemon(user: UserId, daemonId: string): Promise<void>;
 
   listSessions(user: UserId): Promise<Session[]>;
-  createSession(user: UserId, req: MessageInput & { agent_id: string }): Promise<{ session: Session; message: Message }>;
+  createSession(user: UserId, req: MessageInput & { agent_id: string; work_id?: string }): Promise<{ session: Session; message: Message }>;
   /** 会话 idle 时返回 Message;忙时是插话，返回 Steer。 */
   sendMessage(user: UserId, sessionId: string, req: MessageInput): Promise<Message | Steer>;
   getSession(user: UserId, sessionId: string): Promise<SessionDetail>;
   /** 回答 harness 的提问(会话 waiting 时)。answers 是 { 问题: 答案 }。 */
   answerQuestion(user: UserId, sessionId: string, questionId: number, answers: Record<string, string>): Promise<Question>;
   deleteSession(user: UserId, sessionId: string): Promise<void>;
+  resolveSession(user: UserId, sessionId: string): Promise<Session>;
+  reopenSession(user: UserId, sessionId: string): Promise<Session>;
+  listWorks(user: UserId): Promise<Work[]>;
+  createWork(user: UserId, req: { name: string; agent_id: string; instructions?: string }): Promise<{ work: Work; coordinator: Session }>;
+  getWork(user: UserId, workId: string): Promise<Work>;
+  updateWork(user: UserId, workId: string, patch: { name?: string; instructions?: string }): Promise<Work>;
+  deleteWork(user: UserId, workId: string): Promise<void>;
+  listWorkSessions(user: UserId, workId: string): Promise<Session[]>;
   waitSession(user: UserId, sessionId: string, opts?: { interval?: number; timeout?: number }): Promise<SessionDetail>;
 }

@@ -12,11 +12,14 @@ export interface Daemon {
   setup_command?: string; last_seen_at: number | null; created_at: number; harnesses: DaemonHarness[];
 }
 
-export type SessionStatus = 'idle' | 'pending' | 'running' | 'waiting';
+export type SessionStatus = 'idle' | 'pending' | 'running' | 'waiting' | 'resolved';
 export interface Session {
-  id: string; user_id: string; created_by: string; agent_id?: string; harness: string; daemon_id?: string; harness_session_id?: string;
+  id: string; user_id: string; created_by: string; agent_id?: string; work_id?: string; work_role?: 'coordinator' | 'thread';
+  harness: string; daemon_id?: string; harness_session_id?: string;
   title: string; status: SessionStatus; created_at: number; updated_at: number;
 }
+// 工作：协调者 + 线程 + 共用说明(docs/v2/designs/work.md)
+export interface Work { id: string; user_id: string; name: string; instructions: string; coordinator_id: string; thread_count: number; created_at: number; updated_at: number }
 export interface Message { id: number; session_id: string; role: 'user' | 'assistant'; content: any; created_at: number }
 export interface SessionEvent { id: number; session_id: string; message_id: number; daemon_id: string; kind: string; payload?: any; created_at: number }
 export interface Steer { id: number; session_id: string; message_id: number; created_by: string; prompt: string; status: 'pending' | 'delivered' | 'queued'; created_at: number }

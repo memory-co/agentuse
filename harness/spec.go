@@ -33,6 +33,8 @@ type Spec struct {
 	Ask string `yaml:"ask"`
 	// Workdir:本目录下的子目录 → 会话目录里的相对路径，起进程前拷过去。
 	Workdir map[string]string `yaml:"workdir"`
+	// Instructions 是工作的说明写到会话目录里的哪个文件(如 CLAUDE.md),空 = 不写。见 docs/v2/designs/work.md。
+	Instructions string `yaml:"instructions"`
 	Output  Output            `yaml:"output"`
 	Finish  Finish            `yaml:"finish"`
 }

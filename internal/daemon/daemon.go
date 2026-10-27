@@ -253,6 +253,7 @@ type runningMsg struct {
 func (d *Daemon) startMessage(m protocol.Dispatch) {
 	d.mu.Lock()
 	la, ok := d.harnesses[m.Harness]
+	la.Env = workEnv(d.cfg.Server, m)
 	tctx, cancel := context.WithCancel(context.Background())
 	in := &inbox{steers: &steerQueue{}, asks: newAskBox(d.cfg.askTimeout())}
 	d.running[m.ID] = &runningMsg{cancel: cancel, in: in}

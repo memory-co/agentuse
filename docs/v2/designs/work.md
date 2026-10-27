@@ -45,7 +45,9 @@ agentuse work read ss_xxx                    # 看线程的消息
 agentuse work resolve ss_xxx                 # 线程的活做完了，标记已完成
 ```
 
-协调者的会话目录里多拷一个 `agentuse-work` skill,教它这些命令和「开完线程就结束这一轮，等结果回来」。
+daemon 还把自己所在的目录放到 PATH 最前面，保证找得到 `agentuse`;协调者的说明文件(见下)末尾追加一段固定的用法，教它这些命令和「开完线程就结束这一轮，等结果回来」。codex、自定义 harness 也一样适用，所以不做成 claude 专用的 skill。
+
+工作令牌存在 [work_tokens](../tables/work_tokens.md) 里，派活给协调者时生成，这一轮结束时删掉。
 
 **结果回到协调者**:线程每回完一条(`done` / `failed`),服务给协调者追加一条消息，内容是:
 
@@ -57,7 +59,7 @@ agentuse work resolve ss_xxx                 # 线程的活做完了，标记已
 
 ## 说明怎么交给 harness
 
-派活时，会话在工作里(协调者和线程都算),服务就把工作的 `instructions` 放进 daemon 收到的 `message` 里([apis/daemon](../apis/daemon.md)),没有就不带。daemon 每次起进程前在会话目录里写好:
+派活时，会话在工作里(协调者和线程都算),服务就把工作的 `instructions` 放进 daemon 收到的 `message` 里([apis/daemon](../apis/daemon.md)),没有就不带。daemon 每次起进程前在会话目录里写好(协调者的再追加上面那段用法):
 
 | harness | 写到哪 |
 |---|---|

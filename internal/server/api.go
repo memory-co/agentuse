@@ -19,7 +19,16 @@ const actAsHeader = "X-Agentuse-User"
 
 type userKey struct{}
 
+// workKey:请求用的是工作令牌(wt_)时，放着它能动的那个工作。
+type workKey struct{}
+
 func currentUser(r *http.Request) store.User { return r.Context().Value(userKey{}).(store.User) }
+
+// workScope 是工作令牌限定的工作;用户令牌时返回 nil。
+func workScope(r *http.Request) *store.Work {
+	w, _ := r.Context().Value(workKey{}).(*store.Work)
+	return w
+}
 
 func requestToken(r *http.Request) string {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
@@ -32,11 +41,31 @@ func requestToken(r *http.Request) string {
 }
 
 // auth 要求登录：网页用 cookie,脚本用 Authorization: Bearer <用户令牌>。admin 可以再带 X-Agentuse-User 代为某个用户。
-func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
+func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc { return s.authWith(h, false) }
+
+// workAuth 同 auth,另外收工作令牌(wt_):协调者跑的时候用它开线程、看线程(docs/v2/apis/works.md)。
+// 用工作令牌时身份是工作的主人，handler 里再用 workScope 限定只能动这个工作的线程。
+func (s *Server) workAuth(h http.HandlerFunc) http.HandlerFunc { return s.authWith(h, true) }
+
+func (s *Server) authWith(h http.HandlerFunc, allowWork bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok := requestToken(r)
 		if tok == "" {
 			writeErr(w, http.StatusUnauthorized, "未登录")
+			return
+		}
+		if strings.HasPrefix(tok, "wt_") {
+			if !allowWork {
+				writeErr(w, http.StatusForbidden, "工作令牌不能调这个接口")
+				return
+			}
+			wk, u, err := s.store.WorkByToken(r.Context(), tok)
+			if err != nil {
+				writeErr(w, http.StatusUnauthorized, "工作令牌无效或已过期(只在协调者这条消息还在跑时有效)")
+				return
+			}
+			ctx := context.WithValue(r.Context(), userKey{}, u)
+			h(w, r.WithContext(context.WithValue(ctx, workKey{}, &wk)))
 			return
 		}
 		u, err := s.store.UserByToken(r.Context(), tok)
@@ -371,8 +400,25 @@ func (s *Server) handleToggleHarness(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.view(r, d))
 }
 
+// handleListSessions:不带 work_id 列普通会话，带了列那个工作的线程。工作令牌只能列自己工作的(不带就是它)。
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, err := s.store.ListSessions(r.Context(), currentUser(r), 100)
+	workID := r.URL.Query().Get("work_id")
+	if sc := workScope(r); sc != nil {
+		if workID == "" {
+			workID = sc.ID
+		}
+		if workID != sc.ID {
+			writeErr(w, http.StatusForbidden, "工作令牌只能看自己工作的线程")
+			return
+		}
+	}
+	var sessions []store.Session
+	var err error
+	if workID != "" {
+		sessions, err = s.store.ListWorkSessions(r.Context(), currentUser(r), workID, 100)
+	} else {
+		sessions, err = s.store.ListSessions(r.Context(), currentUser(r), 100)
+	}
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -395,6 +441,7 @@ func messageContent(input json.RawMessage, prompt string) (json.RawMessage, erro
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AgentID string          `json:"agent_id"`
+		WorkID  string          `json:"work_id"`
 		Input   json.RawMessage `json:"input"`
 		Prompt  string          `json:"prompt"`
 	}
@@ -406,6 +453,15 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "agent_id 必填")
 		return
 	}
+	if sc := workScope(r); sc != nil {
+		if req.WorkID == "" {
+			req.WorkID = sc.ID
+		}
+		if req.WorkID != sc.ID {
+			writeErr(w, http.StatusForbidden, "工作令牌只能在自己的工作里开线程")
+			return
+		}
+	}
 	content, err := messageContent(req.Input, req.Prompt)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -415,7 +471,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	if len(req.Input) == 0 {
 		title = firstRunes(strings.TrimSpace(req.Prompt), 50)
 	}
-	ss, m, err := s.store.CreateSession(r.Context(), currentUser(r), req.AgentID, title, content)
+	ss, m, err := s.store.CreateSessionIn(r.Context(), currentUser(r), req.WorkID, req.AgentID, title, content)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -440,6 +496,9 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u, id := currentUser(r), r.PathValue("id")
+	if !s.threadInScope(w, r, id) {
+		return
+	}
 	// 空闲时发下一条消息;忙时插话(docs/v2/designs/steer.md)。两次之间状态可能刚好变了，所以最多试两轮。
 	for range 2 {
 		ss, m, err := s.store.AddMessage(r.Context(), u, id, content)
@@ -474,6 +533,9 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
+	if !s.threadInScope(w, r, r.PathValue("id")) {
+		return
+	}
 	ss, err := s.store.GetSession(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
@@ -532,6 +594,108 @@ func (s *Server) handleAnswerQuestion(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.pushAnswer(ss.DaemonID, q)
 	writeJSON(w, http.StatusAccepted, q)
+}
+
+// threadInScope:用工作令牌时，只能动它那个工作的线程;不在范围里写 403 并返回 false。用户令牌一律放行。
+func (s *Server) threadInScope(w http.ResponseWriter, r *http.Request, id string) bool {
+	sc := workScope(r)
+	if sc == nil {
+		return true
+	}
+	ss, err := s.store.GetSession(r.Context(), currentUser(r), id)
+	if err != nil {
+		s.storeErr(w, err)
+		return false
+	}
+	if ss.WorkID != sc.ID || ss.WorkRole != store.WorkThread {
+		writeErr(w, http.StatusForbidden, "工作令牌只能动自己工作的线程")
+		return false
+	}
+	return true
+}
+
+// handleResolveSession 标记已完成;handleReopenSession 取消已完成。
+func (s *Server) handleResolveSession(w http.ResponseWriter, r *http.Request) {
+	if !s.threadInScope(w, r, r.PathValue("id")) {
+		return
+	}
+	ss, err := s.store.ResolveSession(r.Context(), currentUser(r), r.PathValue("id"))
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ss)
+}
+
+func (s *Server) handleReopenSession(w http.ResponseWriter, r *http.Request) {
+	ss, err := s.store.ReopenSession(r.Context(), currentUser(r), r.PathValue("id"))
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ss)
+}
+
+func (s *Server) handleListWorks(w http.ResponseWriter, r *http.Request) {
+	works, err := s.store.ListWorks(r.Context(), currentUser(r))
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, works)
+}
+
+// handleCreateWork 建工作，同时建出协调者会话。
+func (s *Server) handleCreateWork(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name         string `json:"name"`
+		AgentID      string `json:"agent_id"`
+		Instructions string `json:"instructions"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	wk, coord, err := s.store.CreateWork(r.Context(), currentUser(r), req.Name, req.AgentID, req.Instructions)
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"work": wk, "coordinator": coord})
+}
+
+func (s *Server) handleGetWork(w http.ResponseWriter, r *http.Request) {
+	wk, err := s.store.GetWork(r.Context(), currentUser(r), r.PathValue("id"))
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, wk)
+}
+
+func (s *Server) handleUpdateWork(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name         *string `json:"name"`
+		Instructions *string `json:"instructions"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	wk, err := s.store.UpdateWork(r.Context(), currentUser(r), r.PathValue("id"), store.WorkPatch{Name: req.Name, Instructions: req.Instructions})
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, wk)
+}
+
+func (s *Server) handleDeleteWork(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteWork(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {

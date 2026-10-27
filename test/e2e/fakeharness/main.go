@@ -7,7 +7,9 @@
 //	fakeharness(其它)                        → 自定义 harness:stdin 读 {session_id,resume,input},stdout 写 progress / result
 //
 // 回复内容都带上 prompt、续接的会话 id 和工作目录名，测试据此确认 daemon 传对了参数、在对的目录里跑。
-// prompt 为 "fail" 时按各自的格式报失败;claude 模式下 "ask" 会用 AskUserQuestion 提问，等 daemon 回答。
+// prompt 为 "fail" 时按各自的格式报失败;claude 模式下 "ask" 会用 AskUserQuestion 提问，等 daemon 回答;
+// "spawn <agent> <要做的事>" 像工作的协调者一样用 agentuse work new 开线程(docs/v2/designs/work.md)。
+// claude 模式下会话目录里有 CLAUDE.md(工作的说明)时，回复带上它的第一行。
 package main
 
 import (
@@ -16,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -102,6 +105,17 @@ func claude(args []string) int {
 		return 1
 	}
 	out := reply("claude", prompt, resume)
+	if b, err := os.ReadFile("CLAUDE.md"); err == nil {
+		first, _, _ := strings.Cut(string(b), "\n")
+		out += " claude.md=" + first
+	}
+	if f := strings.SplitN(prompt, " ", 3); len(f) == 3 && f[0] == "spawn" {
+		b, err := exec.Command("agentuse", "work", "new", "--agent", f[1], f[2]).CombinedOutput()
+		out += " spawned=" + strings.TrimSpace(string(b))
+		if err != nil {
+			out += " err=" + err.Error()
+		}
+	}
 	if prompt == "wait-steer" {
 		// 每 100ms 发一次 PreToolUse 回调，直到 daemon 塞来插话，最多 10 秒
 		for i := 0; i < 100; i++ {

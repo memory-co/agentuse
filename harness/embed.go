@@ -79,6 +79,9 @@ func (s Spec) validate(fsys fs.FS, dir string) error {
 			return fmt.Errorf("workdir: %q 必须是会话目录里的相对路径", dst)
 		}
 	}
+	if s.Instructions != "" && (strings.ContainsAny(s.Instructions, `/\`) || strings.HasPrefix(s.Instructions, ".")) {
+		return fmt.Errorf("instructions: %q 必须是会话目录里的文件名", s.Instructions)
+	}
 	switch {
 	case s.Input.Format != "" && s.Input.Format != "stream-json":
 		return fmt.Errorf("不支持的 input.format %q", s.Input.Format)

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowUp, Check, ChevronRight, Circle, LoaderCircle, Trash2 } from 'lucide-react';
+import { ArrowUp, Check, ChevronRight, Circle, CircleCheck, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -12,10 +12,15 @@ import type { Message, Question, Session, SessionDetail as Detail, SessionEvent,
 import { cn, fmtTime } from '@/lib/utils';
 import { t, useT } from '@/lib/i18n';
 
-export const STATUS_TONE: Record<SessionStatus, 'ok' | 'warn' | 'run'> = { idle: 'ok', pending: 'warn', running: 'run', waiting: 'warn' };
+export const STATUS_TONE: Record<SessionStatus, 'ok' | 'warn' | 'run' | 'muted'> = { idle: 'ok', pending: 'warn', running: 'run', waiting: 'warn', resolved: 'muted' };
 export const statusLabel = (s: SessionStatus) => t(`session.status.${s}`);
+/** 侧栏「会话」tab:不在工作里的会话。 */
 export const useSessions = () => useQuery({ queryKey: ['sessions'], queryFn: () => api<Session[]>('/api/sessions'), refetchInterval: 3000 });
-const refresh = () => queryClient.invalidateQueries({ queryKey: ['sessions'] });
+/** 某个工作的线程(不含协调者)。 */
+export const useWorkSessions = (workId: string, enabled = true) => useQuery({
+  queryKey: ['sessions', 'work', workId], queryFn: () => api<Session[]>(`/api/sessions?work_id=${encodeURIComponent(workId)}`), refetchInterval: 3000, enabled,
+});
+const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['sessions'] }), queryClient.invalidateQueries({ queryKey: ['works'] })]);
 // progress 回报只有 {text} 时直接显示文字，否则显示 JSON。
 const evText = (p: any) => (p && typeof p === 'object' && Object.keys(p).length === 1 && 'text' in p ? String(p.text) : JSON.stringify(p ?? ''));
 
@@ -46,20 +51,20 @@ function Composer({ placeholder, disabled, busy, onSend, children }: {
   </form>;
 }
 
-/** 新会话：选 agent,写第一句话。 */
-export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
+/** 新会话：选 agent,写第一句话。给了 work 时是在这个工作里手动开线程。 */
+export function NewSession({ onCreated, work }: { onCreated: (id: string) => void; work?: { id: string; name: string } }) {
   const t = useT();
   const agents = useAgents();
   const [agent, setAgent] = useState('');
   useEffect(() => { if (!agent && agents.data?.length) setAgent(agents.data[0].id); }, [agent, agents.data]);
   const add = useMutation({
-    mutationFn: (prompt: string) => api<{ session: Session }>('/api/sessions', { method: 'POST', body: { agent_id: agent.trim(), prompt } }),
+    mutationFn: (prompt: string) => api<{ session: Session }>('/api/sessions', { method: 'POST', body: { agent_id: agent.trim(), prompt, ...(work ? { work_id: work.id } : {}) } }),
     onSuccess: r => { void refresh(); onCreated(r.session.id); },
   });
   return <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-6 px-4 py-10">
     <div className="grid gap-1 text-center">
-      <h1 className="text-2xl font-semibold">{t('session.ask')}</h1>
-      <p className="text-sm text-muted-foreground">{t('session.askText')}</p>
+      <h1 className="text-2xl font-semibold">{work ? t('work.newThread') : t('session.ask')}</h1>
+      <p className="text-sm text-muted-foreground">{work ? t('work.newThreadText', { name: work.name }) : t('session.askText')}</p>
     </div>
     <Composer placeholder={t('session.taskPlaceholder')} disabled={!agent.trim()} busy={add.isPending} onSend={p => add.mutateAsync(p)}>
       <Input className="h-8 w-52 font-mono text-xs" list="agent-ids" placeholder={t('session.agentPlaceholder')} value={agent} onChange={e => setAgent(e.target.value)} aria-label="agent" />
@@ -70,8 +75,8 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
   </div>;
 }
 
-/** 会话页：上面是消息流，下面是回复框。 */
-export function Conversation({ id, onDeleted }: { id: string; onDeleted: () => void }) {
+/** 会话页：上面是消息流，下面是回复框。工作页里协调者的对话也用它(placeholder 换掉，不能删、不能标记完成)。 */
+export function Conversation({ id, onDeleted, placeholder }: { id: string; onDeleted: () => void; placeholder?: string }) {
   const t = useT();
   const q = useQuery({ queryKey: ['sessions', id], queryFn: () => api<Detail>(`/api/sessions/${id}`), refetchInterval: 3000 });
   const reply = useMutation({
@@ -79,6 +84,7 @@ export function Conversation({ id, onDeleted }: { id: string; onDeleted: () => v
     onSuccess: () => { void refresh(); },
   });
   const del = useMutation({ mutationFn: () => api(`/api/sessions/${id}`, { method: 'DELETE' }), onSuccess: () => { void refresh(); onDeleted(); } });
+  const resolve = useMutation({ mutationFn: (done: boolean) => api(`/api/sessions/${id}/${done ? 'resolve' : 'reopen'}`, { method: 'POST' }), onSuccess: () => { void refresh(); } });
   const bottom = useRef<HTMLDivElement>(null);
   const count = (q.data?.messages.length ?? 0) + (q.data?.events.length ?? 0);
   useEffect(() => { bottom.current?.scrollIntoView({ block: 'end' }); }, [count]);
@@ -89,17 +95,22 @@ export function Conversation({ id, onDeleted }: { id: string; onDeleted: () => v
   const questions = q.data.questions ?? [];
   const meta = [x.agent_id, t('session.metaHarness', { harness: x.harness }), x.created_by !== x.user_id && t('session.metaOnBehalf', { by: x.created_by, owner: x.user_id }), x.daemon_id && t('session.metaDaemon', { id: x.daemon_id }), x.harness_session_id && t('session.metaHarnessSession', { id: x.harness_session_id })].filter(Boolean).join(' · ');
   const last = events.filter(e => e.kind === 'progress').pop();
+  const coordinator = x.work_role === 'coordinator';
+  const settled = x.status === 'idle' || x.status === 'resolved';
   return <div className="flex min-h-0 flex-1 flex-col">
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto grid w-full max-w-3xl gap-6 px-4 py-6">
         <div className="flex items-start gap-2 border-b pb-3">
           <p className="min-w-0 flex-1 break-all font-mono text-xs text-muted-foreground">{meta}</p>
-          {x.status !== 'running' && x.status !== 'waiting' && <Confirm title={t('session.deleteTitle')} description={t('session.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
+          {!coordinator && settled && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" disabled={resolve.isPending} onClick={() => resolve.mutate(x.status === 'idle')}>
+            {x.status === 'idle' ? <><CircleCheck />{t('session.resolve')}</> : <><RotateCcw />{t('session.reopen')}</>}
+          </Button>}
+          {!coordinator && x.status !== 'running' && x.status !== 'waiting' && <Confirm title={t('session.deleteTitle')} description={t('session.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
             <Button variant="ghost" size="icon" className="size-7 text-destructive" aria-label={t('session.delete')}><Trash2 /></Button>
           </Confirm>}
         </div>
         {messages.map(m => <MessageView key={m.id} m={m} events={events} steers={steers} questions={questions} sessionId={x.id} />)}
-        {x.status !== 'idle' && <div className="flex items-start gap-2 text-sm">
+        {!settled && <div className="flex items-start gap-2 text-sm">
           <StatusBadge tone={STATUS_TONE[x.status]}>{statusLabel(x.status)}</StatusBadge>
           <span className="min-w-0 break-words text-muted-foreground">{q.data.daemon_offline ? t('session.daemonOffline') : last ? evText(last.payload).slice(0, 300) : ''}</span>
         </div>}
@@ -109,7 +120,7 @@ export function Conversation({ id, onDeleted }: { id: string; onDeleted: () => v
     <div className="mx-auto w-full max-w-3xl px-4 pb-4">
       {reply.isError && <div className="pb-2"><ErrorState error={reply.error} /></div>}
       {x.daemon_id || x.status !== 'idle'
-        ? <Composer placeholder={x.status === 'idle' ? t('session.replyPlaceholder') : t('session.busyPlaceholder')} busy={reply.isPending} onSend={p => reply.mutateAsync(p)} />
+        ? <Composer placeholder={settled ? placeholder ?? t('session.replyPlaceholder') : t('session.busyPlaceholder')} busy={reply.isPending} onSend={p => reply.mutateAsync(p)} />
         : <p className="py-2 text-center text-sm text-muted-foreground">{t('session.daemonGone')}</p>}
     </div>
   </div>;
@@ -125,7 +136,8 @@ function MessageView({ m, events, steers, questions, sessionId }: { m: Message; 
     // 插话：转成下一条消息的(queued)不再单独显示
     const mine = steers.filter(s => s.message_id === m.id && s.status !== 'queued');
     return <div className="grid gap-3">
-      <div className="ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-2.5 text-sm" title={fmtTime(m.created_at)}>{text}</div>
+      {typeof c.from_session === 'string' ? <ThreadNote m={m} />
+        : <div className="ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-2.5 text-sm" title={fmtTime(m.created_at)}>{text}</div>}
       {mine.map(s => <div key={s.id} className="ml-auto grid max-w-[75%] justify-items-end gap-0.5" title={fmtTime(s.created_at)}>
         <div className="whitespace-pre-wrap break-words rounded-2xl border border-dashed px-3 py-1.5 text-xs">{s.prompt}</div>
         <span className="text-[11px] text-muted-foreground">{t(s.status === 'delivered' ? 'session.steerDelivered' : 'session.steerPending')}</span>
@@ -143,6 +155,19 @@ function MessageView({ m, events, steers, questions, sessionId }: { m: Message; 
     {!c.ok && <div><StatusBadge tone="bad">{t('session.failed')}</StatusBadge></div>}
     <div className={cn('whitespace-pre-wrap break-words text-sm leading-7', !c.ok && 'text-destructive')}>{out}</div>
   </div>;
+}
+
+/** 线程回完后发给协调者的消息：显示成一张小卡片，点了进线程(docs/v2/designs/work.md)。 */
+function ThreadNote({ m }: { m: Message }) {
+  const t = useT();
+  const prompt = String(m.content.prompt ?? '');
+  const nl = prompt.indexOf('\n');
+  const title = /「(.*)」/.exec(nl < 0 ? prompt : prompt.slice(0, nl))?.[1] || m.content.from_session;
+  return <a href={`#/s/${encodeURIComponent(m.content.from_session)}`} title={fmtTime(m.created_at)}
+    className="mr-auto grid max-w-[85%] gap-1 rounded-lg border bg-muted/40 px-3 py-2 text-sm hover:bg-muted">
+    <span className="text-xs font-medium text-muted-foreground">{t('session.threadReplied', { title })}</span>
+    <span className="line-clamp-3 whitespace-pre-wrap break-words">{nl < 0 ? '' : prompt.slice(nl + 1)}</span>
+  </a>;
 }
 
 type Step = { text: string; status: string };
