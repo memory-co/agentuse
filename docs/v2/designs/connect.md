@@ -56,7 +56,7 @@ daemon 连上 WebSocket,上报本机 harness ──▶ 页面上出现这台电�
 | harness | 第一条 | 之后 |
 |---|---|---|
 | `claude` | `claude -p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions --permission-prompt-tool stdio [args…]`,prompt 作为一行 `{"type":"user",…}` 写进 stdin | 加 `--resume <id>` |
-| `codex` | `codex exec --json --skip-git-repo-check [args…] <prompt>` | `codex exec --json --skip-git-repo-check [args…] resume <id> <prompt>` |
+| `codex` | `codex exec --json --skip-git-repo-check -c sandbox_mode=workspace-write -c sandbox_workspace_write.network_access=true [args…] <prompt>`(沙箱可写、能联网;args 里给 `-s` 时以它为准) | 同上，`[args…]` 后面加 `resume <id> <prompt>` |
 | 自定义 | `<command> [args…]`,stdin 写入 `{"session_id":"ss_…","resume":"…","instructions":"…","input":…}`(`instructions` 是[工作](work.md)的说明，没有就不带);stdout 的 `{"type":"progress",…}` 行是进度,`{"type":"result","ok":…,"output":…,"session_id":…}` 行是结果，没有就按退出码 | 同左,`resume` 有值 |
 
 会话固定在 `~/.agentuse/work/<session_id>/` 里跑，用户不能指定，每次都是同一个目录(Claude Code 按目录找会话)。起进程前 daemon 把 harness 自带的 skills 拷进去([设计](harness.md#工作目录))。本机的启动命令和追加参数在 `~/.agentuse/daemon.json` 里配:

@@ -40,13 +40,13 @@ func TestRunCodexResume(t *testing.T) {
 		t.Fatalf("first: %+v %v", res, progress)
 	}
 	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
-	if got := strings.TrimSpace(string(args)); got != "exec --json --skip-git-repo-check -s workspace-write hi" {
+	if got := strings.TrimSpace(string(args)); got != "exec --json --skip-git-repo-check -c sandbox_mode=workspace-write -c sandbox_workspace_write.network_access=true -s workspace-write hi" {
 		t.Fatalf("args: %q", got)
 	}
 
 	res = runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Resume: "th-1", Input: json.RawMessage(`{"prompt":"again"}`)}, dir, nil, report)
 	args, _ = os.ReadFile(filepath.Join(dir, "args.txt"))
-	if got := strings.TrimSpace(string(args)); !res.OK || got != "exec --json --skip-git-repo-check -s workspace-write resume th-1 again" {
+	if got := strings.TrimSpace(string(args)); !res.OK || got != "exec --json --skip-git-repo-check -c sandbox_mode=workspace-write -c sandbox_workspace_write.network_access=true -s workspace-write resume th-1 again" {
 		t.Fatalf("resume: %+v %q", res, got)
 	}
 }

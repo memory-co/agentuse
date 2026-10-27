@@ -25,7 +25,7 @@ func TestLoad(t *testing.T) {
 func TestArgs(t *testing.T) {
 	sp, _ := Get("codex")
 	got, _ := sp.Args("hi", "th-1", []string{"-s", "x"})
-	if strings.Join(got, " ") != "exec --json --skip-git-repo-check -s x resume th-1 hi" {
+	if strings.Join(got, " ") != "exec --json --skip-git-repo-check -c sandbox_mode=workspace-write -c sandbox_workspace_write.network_access=true -s x resume th-1 hi" {
 		t.Fatalf("codex resume: %q", got)
 	}
 	sp, _ = Get("claude")

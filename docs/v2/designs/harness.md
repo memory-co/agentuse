@@ -99,8 +99,8 @@ detect:
   version: [--version]
 
 run:
-  new:    [exec, --json, --skip-git-repo-check, "{args}", "{prompt}"]
-  resume: [exec, --json, --skip-git-repo-check, "{args}", resume, "{resume}", "{prompt}"]
+  new:    [exec, --json, --skip-git-repo-check, -c, sandbox_mode=workspace-write, -c, sandbox_workspace_write.network_access=true, "{args}", "{prompt}"]
+  resume: [exec, --json, --skip-git-repo-check, -c, sandbox_mode=workspace-write, -c, sandbox_workspace_write.network_access=true, "{args}", resume, "{resume}", "{prompt}"]
 
 output:
   format: jsonl
