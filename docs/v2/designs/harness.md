@@ -213,6 +213,7 @@ codex 暂时不拷东西，只是也在锁定的目录里跑。
 ## 以后
 
 - **插话**:已单独设计，见 [steer](steer.md)。harness.yaml 用 `steer: claude-hooks` 打开。
+- **提问**:已单独设计，见 [question](question.md)。harness.yaml 用 `ask: claude-permission` 打开，claude 的参数里 `--disallowedTools AskUserQuestion` 换成 `--permission-prompt-tool stdio`。
 - **hook / plugin**:放在 `harness/<name>/` 下对应的子目录里，跑时带上;回调式 hook 由 daemon 在 stdin 注册，需要落盘的再通过 `workdir` 拷进去。
 - **用户自己的目录**:允许 daemon 读 `~/.agentuse/harness/<name>/harness.yaml`,让手搓的 harness 不用改成 agentuse 的 stdin/stdout 约定。先不做。
 
