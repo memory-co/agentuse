@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -24,6 +25,8 @@ type Spec struct {
 		Resume []string `yaml:"resume"`
 	} `yaml:"run"`
 	Input Input `yaml:"input"`
+	// Env 是起进程时追加的环境变量，值里的 {message_id} {session_id} 会被替换。
+	Env map[string]string `yaml:"env"`
 	// Steer 是插话的实现，空 = 不能插话。见 docs/v2/designs/steer.md。
 	Steer string `yaml:"steer"`
 	// Workdir:本目录下的子目录 → 会话目录里的相对路径，起进程前拷过去。
@@ -154,6 +157,21 @@ func fill(v any, prompt string) any {
 	default:
 		return v
 	}
+}
+
+// Environ 按 env 生成要追加的环境变量(KEY=VALUE),按 key 排序。
+func (s Spec) Environ(messageID int64, sessionID string) []string {
+	keys := make([]string, 0, len(s.Env))
+	for k := range s.Env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	r := strings.NewReplacer("{message_id}", strconv.FormatInt(messageID, 10), "{session_id}", sessionID)
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, k+"="+r.Replace(s.Env[k]))
+	}
+	return out
 }
 
 // State 是读输出过程中攒下的结果。

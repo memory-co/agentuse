@@ -21,7 +21,13 @@ harness 回一条消息时，把它自己列的步骤清单(哪些做完了、�
 | `TodoWrite`(老) | 每次调用都带**整份**清单:`input.todos = [{content, status, activeForm}]` | 直接换成这一份 |
 | `TaskCreate` / `TaskUpdate`(新) | 一次建一步:`TaskCreate {subject, …}`;改状态:`TaskUpdate {taskId, status}` | daemon 在这次运行里攒着：建一步就追加，id 按建的顺序从 `1` 编;`TaskUpdate` 按 id 改状态,`deleted` 就删掉这一步 |
 
-`status` 只有 `pending` / `in_progress` / `completed` 三种，原样用。新工具的 id 编法以实现时对真实 Claude Code 的验证为准，对不上就改成从 tool_result 里读 id。
+`status` 只有 `pending` / `in_progress` / `completed` 三种，原样用。新工具的 id 按建的顺序编，已经对真实 Claude Code 验证过(见下)。
+
+2026-10-27 用 Claude Code 2.1.311 实测：
+
+- 这个版本已经没有 `TodoWrite`;`-p` 模式默认也没有 `TaskCreate` / `TaskUpdate`,要设 `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` 才有。
+- 任务清单默认跟着 Claude 会话走，续接时编号接着上次的(第二条消息从 `#4` 开始)。所以 daemon 给每次运行设 `CLAUDE_CODE_TASK_LIST_ID=agentuse-<message_id>`,编号从 `1` 开始，和"按建的顺序编"对得上。
+- 这两个环境变量写在 claude 的 harness.yaml 的 `env` 里。
 
 一份清单只属于这一次运行(回一条 `user` 消息)。下一条消息 Claude 会重新列，不跨消息合并。
 

@@ -49,6 +49,18 @@ func TestStdin(t *testing.T) {
 	}
 }
 
+func TestEnviron(t *testing.T) {
+	sp, _ := Get("claude")
+	got := sp.Environ(7, "ss_1")
+	want := []string{"CLAUDE_CODE_ENABLE_TODO_TOOLS=1", "CLAUDE_CODE_TASK_LIST_ID=agentuse-7"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("claude env: %q", got)
+	}
+	if sp, _ := Get("codex"); len(sp.Environ(7, "ss_1")) != 0 {
+		t.Fatal("codex 没有 env")
+	}
+}
+
 func TestPrepare(t *testing.T) {
 	sp, _ := Get("claude")
 	dir := t.TempDir()
