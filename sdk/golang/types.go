@@ -89,14 +89,16 @@ type DaemonHarness struct {
 
 type Session struct {
 	ID               string `json:"id"`
-	UserID           string `json:"user_id"`            // agent 的主人，会话跑在他的 daemon 上
-	CreatedBy        string `json:"created_by"`         // 发起人
-	AgentID          string `json:"agent_id,omitempty"` // agent 删除后为空
-	Harness          string `json:"harness"`            // 建会话时 agent 运行时的 harness,之后不变
+	UserID           string `json:"user_id"`             // agent 的主人，会话跑在他的 daemon 上
+	CreatedBy        string `json:"created_by"`          // 发起人
+	AgentID          string `json:"agent_id,omitempty"`  // agent 删除后为空
+	WorkID           string `json:"work_id,omitempty"`   // 所属工作，建的时候定，之后不变
+	WorkRole         string `json:"work_role,omitempty"` // coordinator / thread,不在工作里时为空
+	Harness          string `json:"harness"`             // 建会话时 agent 运行时的 harness,之后不变
 	DaemonID         string `json:"daemon_id,omitempty"`
 	HarnessSessionID string `json:"harness_session_id,omitempty"`
 	Title            string `json:"title"`
-	Status           string `json:"status"` // idle / pending / running / waiting(在等用户回答提问)
+	Status           string `json:"status"` // idle / pending / running / waiting(在等用户回答提问) / resolved(已完成)
 	LeaseUntil       *int64 `json:"lease_until,omitempty"`
 	CreatedAt        int64  `json:"created_at"`
 	UpdatedAt        int64  `json:"updated_at"`
@@ -185,4 +187,33 @@ type QuestionOption struct {
 type Reply struct {
 	Message *Message
 	Steer   *Steer
+}
+
+// Work 是工作：协调者会话 + 若干线程会话 + 一份共用说明，见 docs/v2/apis/works.md。
+type Work struct {
+	ID            string `json:"id"`
+	UserID        string `json:"user_id"`
+	Name          string `json:"name"`
+	Instructions  string `json:"instructions"`
+	CoordinatorID string `json:"coordinator_id"`
+	ThreadCount   int    `json:"thread_count"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+}
+
+type CreateWorkRequest struct {
+	Name         string `json:"name"`
+	AgentID      string `json:"agent_id"` // 协调者用的 agent
+	Instructions string `json:"instructions,omitempty"`
+}
+
+type CreateWorkResponse struct {
+	Work        Work    `json:"work"`
+	Coordinator Session `json:"coordinator"`
+}
+
+// WorkPatch 只改非 nil 的字段。
+type WorkPatch struct {
+	Name         *string `json:"name,omitempty"`
+	Instructions *string `json:"instructions,omitempty"`
 }

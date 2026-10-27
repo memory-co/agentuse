@@ -152,12 +152,42 @@ class Client:
     def delete_session(self, user, session_id):
         self._request("DELETE", f"/api/sessions/{_q(session_id)}", user)
 
+    def resolve_session(self, user, session_id):
+        """把 idle 的会话标记为已完成;再发消息就重新打开。"""
+        return self._request("POST", f"/api/sessions/{_q(session_id)}/resolve", user)
+
+    def reopen_session(self, user, session_id):
+        return self._request("POST", f"/api/sessions/{_q(session_id)}/reopen", user)
+
+    # works:协调者 + 线程 + 共用说明
+
+    def list_works(self, user):
+        return self._request("GET", "/api/works", user)
+
+    def create_work(self, user, name, agent_id, instructions=None):
+        """建工作，同时建出协调者会话，返回 {"work": …, "coordinator": …}。给协调者发消息用 send_message。"""
+        return self._request("POST", "/api/works", user, _drop_none(name=name, agent_id=agent_id, instructions=instructions))
+
+    def get_work(self, user, work_id):
+        return self._request("GET", f"/api/works/{_q(work_id)}", user)
+
+    def update_work(self, user, work_id, name=None, instructions=None):
+        return self._request("PATCH", f"/api/works/{_q(work_id)}", user, _drop_none(name=name, instructions=instructions))
+
+    def delete_work(self, user, work_id):
+        """连协调者和所有线程一起删。"""
+        self._request("DELETE", f"/api/works/{_q(work_id)}", user)
+
+    def list_work_sessions(self, user, work_id):
+        """列工作的线程(不含协调者)。"""
+        return self._request("GET", f"/api/sessions?work_id={_q(work_id)}", user)
+
     def wait_session(self, user, session_id, interval=2, timeout=None):
-        """轮询直到会话回到 idle 或在等回答提问(waiting),返回最后一次 get_session 的结果。超时抛 TimeoutError。"""
+        """轮询直到会话回到 idle(或已完成)或在等回答提问(waiting),返回最后一次 get_session 的结果。超时抛 TimeoutError。"""
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             detail = self.get_session(user, session_id)
-            if detail["session"]["status"] in ("idle", "waiting"):
+            if detail["session"]["status"] in ("idle", "waiting", "resolved"):
                 return detail
             if deadline is not None and time.monotonic() >= deadline:
                 raise TimeoutError(f"agentuse: session {session_id} still {detail['session']['status']}")

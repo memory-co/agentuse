@@ -22,6 +22,8 @@ type localHarness struct {
 	Args    []string
 	Version string
 	Spec    *harness.Spec
+	// Env 是这一次起进程要多带的环境变量(协调者的工作令牌等),跟着消息变。
+	Env []string
 }
 
 // detectHarnesses 找出本机可用的 harness:内置的(harness/*/harness.yaml)按默认命令探测，配置文件里的按配置。
@@ -101,8 +103,12 @@ type reportFn func(kind string, payload any)
 // in 是这条消息收到的插话和提问答案，harness 能插话、能提问时从里面取。
 func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir string, in *inbox, report reportFn) Result {
 	if la.Spec == nil {
-		in, _ := json.Marshal(protocol.HarnessInput{SessionID: m.SessionID, Resume: m.Resume, Input: m.Input})
-		return withSession(runCustomHarness(ctx, exec.CommandContext(ctx, la.Path, la.Args...), in, dir, report), m.Resume)
+		in, _ := json.Marshal(protocol.HarnessInput{SessionID: m.SessionID, Resume: m.Resume, Instructions: instructionsFor(m), Input: m.Input})
+		cmd := exec.CommandContext(ctx, la.Path, la.Args...)
+		if len(la.Env) > 0 {
+			cmd.Env = append(os.Environ(), la.Env...)
+		}
+		return withSession(runCustomHarness(ctx, cmd, in, dir, report), m.Resume)
 	}
 	var pi protocol.PromptInput
 	_ = json.Unmarshal(m.Input, &pi)
@@ -113,8 +119,11 @@ func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir s
 	if err := la.Spec.Prepare(dir); err != nil {
 		return Result{Error: "准备工作目录: " + err.Error()}
 	}
+	if err := writeInstructions(dir, la.Spec.Instructions, instructionsFor(m)); err != nil {
+		return Result{Error: "写工作说明: " + err.Error()}
+	}
 	cmd := exec.CommandContext(ctx, la.Path, args...)
-	if env := la.Spec.Environ(m.ID, m.SessionID); len(env) > 0 {
+	if env := append(la.Spec.Environ(m.ID, m.SessionID), la.Env...); len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
 	return withSession(runSpec(ctx, *la.Spec, cmd, la.Spec.Stdin(pi.Prompt), dir, in, report), m.Resume)

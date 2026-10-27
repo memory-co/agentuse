@@ -71,6 +71,8 @@ func (h *flagsHolder) client() (*apiClient, error) {
 type apiClient struct {
 	server, token string
 	http          http.Client
+	// unauthorized 是 401 时给的提示，空就用默认的(让管理员重新 login)。
+	unauthorized string
 }
 
 type tokenResult struct {
@@ -108,8 +110,12 @@ func (c *apiClient) do(ctx context.Context, method, path string, body, out any) 
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&e)
 		switch {
+		case resp.StatusCode == http.StatusUnauthorized && c.unauthorized != "":
+			return errors.New(c.unauthorized)
 		case resp.StatusCode == http.StatusUnauthorized:
 			return errors.New("令牌无效，请重新 agentuse-server login")
+		case resp.StatusCode == http.StatusForbidden && e.Error != "":
+			return errors.New(e.Error)
 		case resp.StatusCode == http.StatusForbidden:
 			return errors.New("需要管理员令牌")
 		case e.Error != "":

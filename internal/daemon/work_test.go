@@ -1,0 +1,60 @@
+package daemon
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/memory-co/agentuse/harness"
+	"github.com/memory-co/agentuse/internal/protocol"
+)
+
+func TestWorkInstructions(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "codex")
+	// 假 codex:顺便把 AGENTS.md 和工作令牌打出来
+	os.WriteFile(bin, []byte(fakeCodex+"cat AGENTS.md > seen.txt 2>/dev/null; echo \"token=$AGENTUSE_WORK_TOKEN\" >> seen.txt\n"), 0o755)
+	sp, _ := harness.Get("codex")
+	if sp.Instructions != "AGENTS.md" {
+		t.Fatalf("codex instructions: %q", sp.Instructions)
+	}
+	run := func(m protocol.Dispatch) string {
+		t.Helper()
+		m.SessionID, m.Input = "ss_1", json.RawMessage(`{"prompt":"hi"}`)
+		la := localHarness{Name: "codex", Path: bin, Spec: &sp, Env: workEnv("http://srv", m)}
+		if res := runHarness(context.Background(), la, m, dir, nil, func(string, any) {}); !res.OK {
+			t.Fatalf("run: %+v", res)
+		}
+		b, _ := os.ReadFile(filepath.Join(dir, "seen.txt"))
+		return string(b)
+	}
+
+	// 线程：只有工作的说明，没有令牌
+	if got := run(protocol.Dispatch{Instructions: "先读 README"}); got != "先读 README\ntoken=\n" {
+		t.Fatalf("thread: %q", got)
+	}
+	// 协调者：说明后面加上 agentuse work 的用法，带令牌
+	if got := run(protocol.Dispatch{Instructions: "先读 README", WorkToken: "wt_x"}); !strings.HasPrefix(got, "先读 README\n\n# 你是这个工作的协调者") || !strings.Contains(got, "agentuse work new") || !strings.HasSuffix(got, "token=wt_x\n") {
+		t.Fatalf("coordinator: %q", got)
+	}
+	// 不在工作里：说明文件删掉
+	if got := run(protocol.Dispatch{}); got != "token=\n" {
+		t.Fatalf("plain: %q", got)
+	}
+}
+
+func TestWorkCustomHarness(t *testing.T) {
+	m := dispatch("hi", "")
+	m.Instructions, m.WorkToken = "说明", "wt_y"
+	la := custom(t, `sed 's/^/in /'; echo "$AGENTUSE_SERVER $AGENTUSE_WORK_TOKEN"`)
+	la.Env = workEnv("http://srv", m)
+	res := runHarness(context.Background(), la, m, t.TempDir(), nil, func(string, any) {})
+	var in protocol.HarnessInput
+	first, last, _ := strings.Cut(res.Output, "\n")
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(first, "in ")), &in); err != nil || !strings.HasPrefix(in.Instructions, "说明\n\n# 你是这个工作的协调者") || last != "http://srv wt_y" {
+		t.Fatalf("custom: %+v %q", in, res.Output)
+	}
+}

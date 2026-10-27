@@ -119,12 +119,20 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 				}
 			}
 		case protocol.TypeEvent:
-			steers, err := st.ReportEvent(ctx, c.d.ID, m.MessageID, m.Kind, m.Payload, protocol.LeaseSeconds)
+			rep, err := st.ReportEvent(ctx, c.d.ID, m.MessageID, m.Kind, m.Payload, protocol.LeaseSeconds)
 			if err != nil {
 				h.reportStale(ctx, c, m.MessageID, err)
 			}
-			for _, s := range steers {
+			for _, s := range rep.Steers {
 				_ = c.send(ctx, steerMessage(s))
+			}
+			// 线程回完了，结果发给了协调者(docs/v2/designs/work.md)
+			if n := rep.Coordinator; n != nil {
+				if n.Steer != nil && n.Session.Status != store.SessionPending {
+					h.pushSteer(n.Session.DaemonID, *n.Steer)
+				} else if n.Steer == nil {
+					h.kickUser(n.Session.UserID)
+				}
 			}
 		default:
 			_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, Error: "unknown message type " + m.Type})
@@ -158,6 +166,7 @@ func (h *hub) dispatch(ctx context.Context, c *daemonConn) {
 	ss := cl.Session
 	msg := protocol.Message{Type: protocol.TypeMessage, Message: &protocol.Dispatch{
 		ID: cl.Message.ID, SessionID: ss.ID, Harness: ss.Harness, Resume: ss.HarnessSessionID, Input: cl.Message.Content,
+		Instructions: cl.Instructions, WorkToken: cl.WorkToken,
 	}}
 	if err := c.send(ctx, msg); err != nil {
 		// 没送到:等租约过期自动收回。

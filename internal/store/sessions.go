@@ -15,6 +15,12 @@ const (
 	SessionPending = "pending"
 	SessionRunning = "running"
 	SessionWaiting = "waiting" // harness 在等用户回答提问，见 docs/v2/designs/question.md
+	// SessionResolved:已完成，见 docs/v2/designs/work.md。再发消息就重新打开。
+	SessionResolved = "resolved"
+
+	// 工作里的角色，见 docs/v2/designs/work.md
+	WorkCoordinator = "coordinator"
+	WorkThread      = "thread"
 
 	RoleUserMsg      = "user"
 	RoleAssistantMsg = "assistant"
@@ -35,6 +41,8 @@ type Session struct {
 	UserID           string `json:"user_id"`
 	CreatedBy        string `json:"created_by"`
 	AgentID          string `json:"agent_id,omitempty"`
+	WorkID           string `json:"work_id,omitempty"`
+	WorkRole         string `json:"work_role,omitempty"` // coordinator / thread,不在工作里时为空
 	Harness          string `json:"harness"`
 	DaemonID         string `json:"daemon_id,omitempty"`
 	HarnessSessionID string `json:"harness_session_id,omitempty"`
@@ -64,9 +72,12 @@ type SessionEvent struct {
 }
 
 // Claimed 是 daemon 领到的活：会话和它最后一条用户消息。
+// 会话在工作里时带上工作的说明;是协调者时再带一个这条消息专用的工作令牌。
 type Claimed struct {
-	Session Session
-	Message Message
+	Session      Session
+	Message      Message
+	Instructions string
+	WorkToken    string
 }
 
 var (
@@ -80,12 +91,21 @@ var (
 	ErrSessionOrphaned = errors.New("会话原来的 daemon 已删除，不能继续")
 	// ErrRuntimeUnavailable 表示会话的运行时(daemon 上的 harness)没开启或不可用，派不出去。
 	ErrRuntimeUnavailable = errors.New("harness 不可用")
+	// ErrSessionState 表示会话当前的状态不能做这个操作(如标记完成时不是 idle)。
+	ErrSessionState = errors.New("会话状态不对")
+	// ErrCoordinator 表示这个操作不能对工作的协调者做。
+	ErrCoordinator = errors.New("这是工作的协调者，不能单独操作，请操作整个工作")
 )
 
 // CreateSession 用一个 agent 建会话并写入第一条用户消息，会话为 pending。
 // agent_id 由调用方指定，可以是任何人的 agent:会话属于 agent 的主人,created_by 记发起人;
 // daemon_id 和 harness 取 agent 此刻的运行时，之后不再跟着 agent 变。
 func (s *Store) CreateSession(ctx context.Context, u User, agentID, title string, content json.RawMessage) (Session, Message, error) {
+	return s.CreateSessionIn(ctx, u, "", agentID, title, content)
+}
+
+// CreateSessionIn 同 CreateSession,workID 不为空时在调用者的这个工作里开一个线程(work_id 之后不能改)。
+func (s *Store) CreateSessionIn(ctx context.Context, u User, workID, agentID, title string, content json.RawMessage) (Session, Message, error) {
 	if !json.Valid(content) {
 		return Session{}, Message{}, errors.New("input 必须是 JSON")
 	}
@@ -94,35 +114,26 @@ func (s *Store) CreateSession(ctx context.Context, u User, agentID, title string
 		return Session{}, Message{}, err
 	}
 	defer tx.Rollback()
-	a, err := scanAgent(tx.QueryRowContext(ctx, agentCols+` WHERE id = ?`, agentID))
-	if errors.Is(err, ErrNotFound) {
-		return Session{}, Message{}, fmt.Errorf("agent %q 不存在", agentID)
+	if workID != "" {
+		if _, err := getWork(ctx, tx, u, workID); err != nil {
+			return Session{}, Message{}, err
+		}
 	}
+	ss, err := s.insertSession(ctx, tx, u, workID, agentID, title, SessionPending)
 	if err != nil {
 		return Session{}, Message{}, err
 	}
-	if a.DaemonID == "" {
-		return Session{}, Message{}, fmt.Errorf("agent %q 没有运行时(它的 daemon 已删除),请先切换运行时", agentID)
+	if workID != "" {
+		ss.WorkRole = WorkThread
 	}
-	if err := runtimeErr(ctx, tx, a.DaemonID, a.Harness); err != nil {
-		return Session{}, Message{}, err
-	}
-	now := s.unix()
-	ss := Session{ID: randomID("ss_"), UserID: a.UserID, CreatedBy: u.ID, AgentID: a.ID, Harness: a.Harness, DaemonID: a.DaemonID, Title: title, Status: SessionPending, CreatedAt: now, UpdatedAt: now}
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO sessions (id, user_id, created_by, agent_id, harness, daemon_id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		ss.ID, ss.UserID, ss.CreatedBy, ss.AgentID, ss.Harness, ss.DaemonID, title, ss.Status, now, now)
-	if err != nil {
-		return Session{}, Message{}, err
-	}
-	m, err := insertMessage(ctx, tx, ss.ID, RoleUserMsg, content, now)
+	m, err := insertMessage(ctx, tx, ss.ID, RoleUserMsg, content, ss.CreatedAt)
 	if err != nil {
 		return Session{}, Message{}, err
 	}
 	return ss, m, tx.Commit()
 }
 
-// AddMessage 在 idle 的会话里发下一条用户消息，会话回到 pending。会话忙时返回 ErrSessionBusy,改用 AddSteer。
+// AddMessage 在 idle(或已完成)的会话里发下一条用户消息，会话回到 pending。会话忙时返回 ErrSessionBusy,改用 AddSteer。
 func (s *Store) AddMessage(ctx context.Context, u User, sessionID string, content json.RawMessage) (Session, Message, error) {
 	if !json.Valid(content) {
 		return Session{}, Message{}, errors.New("input 必须是 JSON")
@@ -136,10 +147,10 @@ func (s *Store) AddMessage(ctx context.Context, u User, sessionID string, conten
 	if err != nil {
 		return Session{}, Message{}, err
 	}
-	if ss.Status != SessionIdle {
+	if ss.Status != SessionIdle && ss.Status != SessionResolved {
 		return Session{}, Message{}, ErrSessionBusy
 	}
-	// idle 的会话一定被 daemon 跑过;daemon_id 为空说明那台 daemon 被删了。
+	// 会话建的时候就定了 daemon;daemon_id 为空说明那台 daemon 被删了。
 	if ss.DaemonID == "" {
 		return Session{}, Message{}, ErrSessionOrphaned
 	}
@@ -156,6 +167,29 @@ func (s *Store) AddMessage(ctx context.Context, u User, sessionID string, conten
 	}
 	ss.Status, ss.UpdatedAt = SessionPending, now
 	return ss, m, tx.Commit()
+}
+
+// insertSession 用 agent 此刻的运行时建一个会话(还没有消息)。
+func (s *Store) insertSession(ctx context.Context, tx *sql.Tx, u User, workID, agentID, title, status string) (Session, error) {
+	a, err := scanAgent(tx.QueryRowContext(ctx, agentCols+` WHERE id = ?`, agentID))
+	if errors.Is(err, ErrNotFound) {
+		return Session{}, fmt.Errorf("agent %q 不存在", agentID)
+	}
+	if err != nil {
+		return Session{}, err
+	}
+	if a.DaemonID == "" {
+		return Session{}, fmt.Errorf("agent %q 没有运行时(它的 daemon 已删除),请先切换运行时", agentID)
+	}
+	if err := runtimeErr(ctx, tx, a.DaemonID, a.Harness); err != nil {
+		return Session{}, err
+	}
+	now := s.unix()
+	ss := Session{ID: randomID("ss_"), UserID: a.UserID, CreatedBy: u.ID, AgentID: a.ID, WorkID: workID, Harness: a.Harness, DaemonID: a.DaemonID, Title: title, Status: status, CreatedAt: now, UpdatedAt: now}
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO sessions (id, user_id, created_by, agent_id, work_id, harness, daemon_id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		ss.ID, ss.UserID, ss.CreatedBy, ss.AgentID, nullIfEmpty(workID), ss.Harness, ss.DaemonID, title, ss.Status, now, now)
+	return ss, err
 }
 
 func insertMessage(ctx context.Context, tx *sql.Tx, sessionID, role string, content json.RawMessage, now int64) (Message, error) {
@@ -206,7 +240,21 @@ func (s *Store) ClaimSession(ctx context.Context, d Daemon, leaseSeconds int64) 
 	if err != nil {
 		return Claimed{}, err
 	}
-	return Claimed{Session: ss, Message: m}, tx.Commit()
+	cl := Claimed{Session: ss, Message: m}
+	if ss.WorkID != "" {
+		if err := tx.QueryRowContext(ctx, `SELECT instructions FROM works WHERE id = ?`, ss.WorkID).Scan(&cl.Instructions); err != nil {
+			return Claimed{}, err
+		}
+	}
+	if ss.WorkRole == WorkCoordinator {
+		cl.WorkToken = RandomToken("wt_")
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO work_tokens (token_hash, work_id, message_id, created_at) VALUES (?, ?, ?, ?)`,
+			HashSecret(cl.WorkToken), ss.WorkID, m.ID, now); err != nil {
+			return Claimed{}, err
+		}
+	}
+	return cl, tx.Commit()
 }
 
 // runningWhere 匹配「这台 daemon 正在回这条用户消息」的会话:running / waiting、归这台 daemon、消息是最后一条用户消息。
@@ -235,18 +283,32 @@ func (s *Store) AddEvent(ctx context.Context, daemonID string, messageID int64, 
 	return err
 }
 
-// ReportEvent 同 AddEvent,另外返回这次新建、要推给 daemon 的插话(提问超时时没送到的答案)。
-func (s *Store) ReportEvent(ctx context.Context, daemonID string, messageID int64, kind string, payload json.RawMessage, leaseSeconds int64) ([]Steer, error) {
+// Reported 是一条回报引起的、要服务接着做的事。
+type Reported struct {
+	// Steers 是这次新建、要推给这台 daemon 的插话(提问超时时没送到的答案)。
+	Steers []Steer
+	// Coordinator 不为空时，线程回完一条，结果已经发给了工作的协调者(见 docs/v2/designs/work.md):
+	// 协调者原来空闲就变成了 pending(要叫醒它的 daemon),在跑就是一条插话(要推过去)。
+	Coordinator *CoordinatorNote
+}
+
+type CoordinatorNote struct {
+	Session Session
+	Steer   *Steer
+}
+
+// ReportEvent 同 AddEvent,另外返回要服务接着做的事。
+func (s *Store) ReportEvent(ctx context.Context, daemonID string, messageID int64, kind string, payload json.RawMessage, leaseSeconds int64) (Reported, error) {
 	switch kind {
 	case EventProgress, EventPlan, EventSteered, EventQuestion, EventAnswered, EventQuestionExpired, EventDone, EventFailed:
 	default:
-		return nil, fmt.Errorf("未知回报类型 %q", kind)
+		return Reported{}, fmt.Errorf("未知回报类型 %q", kind)
 	}
 	if len(payload) == 0 {
 		payload = json.RawMessage("null")
 	}
 	if !json.Valid(payload) {
-		return nil, errors.New("payload 必须是 JSON")
+		return Reported{}, errors.New("payload 必须是 JSON")
 	}
 	var q struct {
 		ToolUseID string          `json:"tool_use_id"`
@@ -254,11 +316,11 @@ func (s *Store) ReportEvent(ctx context.Context, daemonID string, messageID int6
 	}
 	_ = json.Unmarshal(payload, &q)
 	if kind == EventQuestion && (q.ToolUseID == "" || len(q.Questions) == 0 || q.Questions[0] != '[') {
-		return nil, errors.New("question 回报要带 tool_use_id 和 questions 数组")
+		return Reported{}, errors.New("question 回报要带 tool_use_id 和 questions 数组")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return Reported{}, err
 	}
 	defer tx.Rollback()
 	now := s.unix()
@@ -289,12 +351,13 @@ func (s *Store) ReportEvent(ctx context.Context, daemonID string, messageID int6
 			now+leaseSeconds, daemonID, messageID, messageID).Scan(&sessionID)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrStaleMessage
+		return Reported{}, ErrStaleMessage
 	}
 	if err != nil {
-		return nil, err
+		return Reported{}, err
 	}
 	var steers []Steer
+	var note *CoordinatorNote
 	switch kind {
 	case EventSteered:
 		var r struct {
@@ -304,7 +367,7 @@ func (s *Store) ReportEvent(ctx context.Context, daemonID string, messageID int6
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE steers SET status = 'delivered', updated_at = ? WHERE id = ? AND message_id = ? AND status = 'pending'`,
 			now, r.SteerID, messageID); err != nil {
-			return nil, err
+			return Reported{}, err
 		}
 	case EventQuestion:
 		// 同一个 tool_use_id 报两次(重连后重发)只记一次
@@ -312,38 +375,44 @@ func (s *Store) ReportEvent(ctx context.Context, daemonID string, messageID int6
 			`INSERT INTO questions (session_id, message_id, tool_use_id, questions, status, created_at, updated_at)
 			 VALUES (?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT (message_id, tool_use_id) DO NOTHING`,
 			sessionID, messageID, q.ToolUseID, string(q.Questions), now, now); err != nil {
-			return nil, err
+			return Reported{}, err
 		}
 	case EventAnswered:
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE questions SET status = 'answered', updated_at = ? WHERE message_id = ? AND tool_use_id = ? AND status = 'pending'`,
 			now, messageID, q.ToolUseID); err != nil {
-			return nil, err
+			return Reported{}, err
 		}
 	case EventQuestionExpired:
 		if steers, err = expireQuestions(ctx, tx, `message_id = ? AND tool_use_id = ?`, now, messageID, q.ToolUseID); err != nil {
-			return nil, err
+			return Reported{}, err
 		}
 	}
 	if finished {
 		if _, err := insertMessage(ctx, tx, sessionID, RoleAssistantMsg, payload, now); err != nil {
-			return nil, err
+			return Reported{}, err
 		}
 		// 进程都结束了，还在等的提问作废;答了没送到的答案和插话一起转成下一条消息
 		if _, err := expireQuestions(ctx, tx, `message_id = ?`, now, messageID); err != nil {
-			return nil, err
+			return Reported{}, err
 		}
 		if err := queueSteers(ctx, tx, sessionID, messageID, now); err != nil {
-			return nil, err
+			return Reported{}, err
 		}
 		steers = nil
+		if _, err := tx.ExecContext(ctx, `DELETE FROM work_tokens WHERE message_id = ?`, messageID); err != nil {
+			return Reported{}, err
+		}
+		if note, err = s.notifyCoordinator(ctx, tx, sessionID, payload, now); err != nil {
+			return Reported{}, err
+		}
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO session_events (session_id, message_id, daemon_id, kind, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		sessionID, messageID, daemonID, kind, string(payload), now); err != nil {
-		return nil, err
+		return Reported{}, err
 	}
-	return steers, tx.Commit()
+	return Reported{Steers: steers, Coordinator: note}, tx.Commit()
 }
 
 // RequeueExpired 把租约过期的会话放回 pending(还是给同一台 daemon),返回受影响的用户 id(用来叫醒他们的 daemon)。
@@ -490,20 +559,25 @@ func (s *Store) failSessions(ctx context.Context, tx *sql.Tx, where, reason stri
 	return nil
 }
 
-const sessionCols = `SELECT id, user_id, created_by, agent_id, harness, daemon_id, harness_session_id, title, status, lease_until, created_at, updated_at FROM sessions`
+// work_role 是算出来的：工作的 coordinator_id 指着它就是协调者，否则在工作里就是线程。
+const sessionCols = `SELECT id, user_id, created_by, agent_id, work_id,
+  CASE WHEN work_id IS NULL THEN ''
+       WHEN EXISTS (SELECT 1 FROM works w WHERE w.coordinator_id = sessions.id) THEN 'coordinator'
+       ELSE 'thread' END,
+  harness, daemon_id, harness_session_id, title, status, lease_until, created_at, updated_at FROM sessions`
 
 func (s *Store) scanSession(row scanner) (Session, error) {
 	var ss Session
-	var agent, daemon, harness sql.NullString
+	var agent, work, daemon, harness sql.NullString
 	var lease sql.NullInt64
-	err := row.Scan(&ss.ID, &ss.UserID, &ss.CreatedBy, &agent, &ss.Harness, &daemon, &harness, &ss.Title, &ss.Status, &lease, &ss.CreatedAt, &ss.UpdatedAt)
+	err := row.Scan(&ss.ID, &ss.UserID, &ss.CreatedBy, &agent, &work, &ss.WorkRole, &ss.Harness, &daemon, &harness, &ss.Title, &ss.Status, &lease, &ss.CreatedAt, &ss.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, ErrNotFound
 	}
 	if err != nil {
 		return Session{}, err
 	}
-	ss.AgentID, ss.DaemonID, ss.HarnessSessionID = agent.String, daemon.String, harness.String
+	ss.AgentID, ss.WorkID, ss.DaemonID, ss.HarnessSessionID = agent.String, work.String, daemon.String, harness.String
 	ss.LeaseUntil = nullInt(lease)
 	return ss, nil
 }
@@ -539,14 +613,27 @@ func (s *Store) GetSession(ctx context.Context, u User, id string) (Session, err
 	return s.getSession(ctx, s.db, u, id)
 }
 
-// ListSessions 列最近的会话：自己的 agent 上的、和自己发起的;admin 看所有人的。
+// ListSessions 列最近的普通会话(不在工作里的):自己的 agent 上的、和自己发起的;admin 看所有人的。
 func (s *Store) ListSessions(ctx context.Context, u User, limit int) ([]Session, error) {
-	q := sessionCols
+	q := sessionCols + ` WHERE work_id IS NULL`
 	var args []any
 	if !u.IsAdmin() {
-		q += ` WHERE user_id = ? OR created_by = ?`
+		q += ` AND (user_id = ? OR created_by = ?)`
 		args = append(args, u.ID, u.ID)
 	}
+	return s.listSessions(ctx, q, limit, args...)
+}
+
+// ListWorkSessions 列工作里的线程(不含协调者)。工作看不到返回 ErrNotFound。
+func (s *Store) ListWorkSessions(ctx context.Context, u User, workID string, limit int) ([]Session, error) {
+	w, err := getWork(ctx, s.db, u, workID)
+	if err != nil {
+		return nil, err
+	}
+	return s.listSessions(ctx, sessionCols+` WHERE work_id = ? AND id != ?`, limit, w.ID, w.CoordinatorID)
+}
+
+func (s *Store) listSessions(ctx context.Context, q string, limit int, args ...any) ([]Session, error) {
 	q += ` ORDER BY updated_at DESC, id DESC LIMIT ?`
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -578,6 +665,9 @@ func (s *Store) DeleteSession(ctx context.Context, u User, id string) error {
 	}
 	if ss.Status == SessionRunning || ss.Status == SessionWaiting {
 		return ErrSessionBusy
+	}
+	if ss.WorkRole == WorkCoordinator {
+		return ErrCoordinator
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, id); err != nil {
 		return err
@@ -663,7 +753,7 @@ func (s *Store) AddSteer(ctx context.Context, u User, sessionID, prompt string) 
 	if err != nil {
 		return Session{}, Steer{}, err
 	}
-	if ss.Status == SessionIdle {
+	if ss.Status == SessionIdle || ss.Status == SessionResolved {
 		return Session{}, Steer{}, ErrSessionIdle
 	}
 	if ss.DaemonID == "" {

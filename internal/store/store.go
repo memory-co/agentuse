@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   user_id            TEXT NOT NULL REFERENCES users(id),
   created_by         TEXT NOT NULL REFERENCES users(id),
   agent_id           TEXT REFERENCES agents(id) ON DELETE SET NULL,
+  work_id            TEXT REFERENCES works(id),
   harness            TEXT NOT NULL REFERENCES harnesses(name),
   daemon_id          TEXT REFERENCES daemons(id) ON DELETE SET NULL,
   harness_session_id TEXT,
@@ -90,6 +91,25 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS sessions_status ON sessions(status, updated_at);
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS sessions_created_by ON sessions(created_by, updated_at);
+
+CREATE TABLE IF NOT EXISTS works (
+  id             TEXT PRIMARY KEY,
+  user_id        TEXT NOT NULL REFERENCES users(id),
+  name           TEXT NOT NULL,
+  instructions   TEXT NOT NULL DEFAULT '',
+  coordinator_id TEXT NOT NULL UNIQUE,
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS works_user ON works(user_id, updated_at);
+
+CREATE TABLE IF NOT EXISTS work_tokens (
+  token_hash TEXT PRIMARY KEY,
+  work_id    TEXT NOT NULL REFERENCES works(id) ON DELETE CASCADE,
+  message_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS work_tokens_message ON work_tokens(message_id);
 
 CREATE TABLE IF NOT EXISTS messages (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -161,6 +181,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("store: migrate: %w", err)
 	}
+	if err := addWorkColumn(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("store: migrate: %w", err)
+	}
 	s := &Store{db: db, now: time.Now}
 	if err := s.seedBuiltinHarnesses(context.Background()); err != nil {
 		db.Close()
@@ -215,3 +239,18 @@ func nullInt(v sql.NullInt64) *int64 {
 }
 
 func nullStr(v sql.NullString) string { return v.String }
+
+// addWorkColumn 给老库的 sessions 补上 work_id(建表语句里已有，新库什么都不做),再建它的索引。
+func addWorkColumn(db *sql.DB) error {
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'work_id'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := db.Exec(`ALTER TABLE sessions ADD COLUMN work_id TEXT REFERENCES works(id)`); err != nil {
+			return err
+		}
+	}
+	_, err := db.Exec(`CREATE INDEX IF NOT EXISTS sessions_work ON sessions(work_id, updated_at)`)
+	return err
+}

@@ -88,13 +88,27 @@ export class Client {
     return this._request("POST", `/api/sessions/${q(sessionId)}/questions/${q(questionId)}/answer`, user, { answers });
   }
   async deleteSession(user, sessionId) { await this._request("DELETE", `/api/sessions/${q(sessionId)}`, user); }
+  // 把 idle 的会话标记为已完成;再发消息就重新打开。
+  resolveSession(user, sessionId) { return this._request("POST", `/api/sessions/${q(sessionId)}/resolve`, user); }
+  reopenSession(user, sessionId) { return this._request("POST", `/api/sessions/${q(sessionId)}/reopen`, user); }
 
-  // 轮询直到会话回到 idle 或在等回答提问(waiting),返回最后一次 getSession 的结果。超时抛错。
+  // works:协调者 + 线程 + 共用说明
+  listWorks(user) { return this._request("GET", "/api/works", user); }
+  // { name, agent_id, instructions? } → { work, coordinator }。给协调者发消息用 sendMessage。
+  createWork(user, req) { return this._request("POST", "/api/works", user, req); }
+  getWork(user, workId) { return this._request("GET", `/api/works/${q(workId)}`, user); }
+  updateWork(user, workId, patch) { return this._request("PATCH", `/api/works/${q(workId)}`, user, patch); }
+  // 连协调者和所有线程一起删。
+  async deleteWork(user, workId) { await this._request("DELETE", `/api/works/${q(workId)}`, user); }
+  // 工作的线程(不含协调者)
+  listWorkSessions(user, workId) { return this._request("GET", `/api/sessions?work_id=${q(workId)}`, user); }
+
+  // 轮询直到会话回到 idle(或已完成)或在等回答提问(waiting),返回最后一次 getSession 的结果。超时抛错。
   async waitSession(user, sessionId, { interval = 2000, timeout } = {}) {
     const deadline = timeout === undefined ? Infinity : Date.now() + timeout;
     for (;;) {
       const detail = await this.getSession(user, sessionId);
-      if (detail.session.status === "idle" || detail.session.status === "waiting") return detail;
+      if (["idle", "waiting", "resolved"].includes(detail.session.status)) return detail;
       if (Date.now() >= deadline) {
         throw new Error(`agentuse: session ${sessionId} still ${detail.session.status}`);
       }

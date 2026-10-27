@@ -232,6 +232,52 @@ func (c *Client) DeleteSession(ctx context.Context, user, sessionID string) erro
 	return c.do(ctx, user, "DELETE", "/api/sessions/"+esc(sessionID), nil, nil)
 }
 
+// ResolveSession 把 idle 的会话标记为已完成;再发消息就重新打开。
+func (c *Client) ResolveSession(ctx context.Context, user, sessionID string) (*Session, error) {
+	var s Session
+	return &s, c.do(ctx, user, "POST", "/api/sessions/"+esc(sessionID)+"/resolve", nil, &s)
+}
+
+// ReopenSession 取消已完成，回到 idle。
+func (c *Client) ReopenSession(ctx context.Context, user, sessionID string) (*Session, error) {
+	var s Session
+	return &s, c.do(ctx, user, "POST", "/api/sessions/"+esc(sessionID)+"/reopen", nil, &s)
+}
+
+// ---- works ----
+
+func (c *Client) ListWorks(ctx context.Context, user string) ([]Work, error) {
+	var ws []Work
+	return ws, c.do(ctx, user, "GET", "/api/works", nil, &ws)
+}
+
+// CreateWork 建工作，同时建出协调者会话(idle)。给协调者发消息用 SendMessage(CoordinatorID)。
+func (c *Client) CreateWork(ctx context.Context, user string, req CreateWorkRequest) (*CreateWorkResponse, error) {
+	var r CreateWorkResponse
+	return &r, c.do(ctx, user, "POST", "/api/works", req, &r)
+}
+
+func (c *Client) GetWork(ctx context.Context, user, workID string) (*Work, error) {
+	var w Work
+	return &w, c.do(ctx, user, "GET", "/api/works/"+esc(workID), nil, &w)
+}
+
+func (c *Client) UpdateWork(ctx context.Context, user, workID string, patch WorkPatch) (*Work, error) {
+	var w Work
+	return &w, c.do(ctx, user, "PATCH", "/api/works/"+esc(workID), patch, &w)
+}
+
+// DeleteWork 连协调者和所有线程一起删。
+func (c *Client) DeleteWork(ctx context.Context, user, workID string) error {
+	return c.do(ctx, user, "DELETE", "/api/works/"+esc(workID), nil, nil)
+}
+
+// ListWorkSessions 列工作的线程(不含协调者)。
+func (c *Client) ListWorkSessions(ctx context.Context, user, workID string) ([]Session, error) {
+	var ss []Session
+	return ss, c.do(ctx, user, "GET", "/api/sessions?work_id="+url.QueryEscape(workID), nil, &ss)
+}
+
 // AnswerQuestion 回答 harness 的提问(会话 waiting 时，见 SessionDetail.Questions)。
 // answers 是问题 → 答案，答案可以是选项的 label,也可以是自己写的话;多选用 ", " 拼起来。
 // 问题已经答过或过期返回 409。
@@ -244,7 +290,7 @@ func (c *Client) AnswerQuestion(ctx context.Context, user, sessionID string, que
 	return &q, nil
 }
 
-// WaitSession 每隔 interval 轮询一次，直到会话回到 idle,或者在等用户回答提问(waiting),
+// WaitSession 每隔 interval 轮询一次，直到会话回到 idle(或已完成),或者在等用户回答提问(waiting),
 // 返回最后一次 GetSession 的结果。用 ctx 控制超时。
 func (c *Client) WaitSession(ctx context.Context, user, sessionID string, interval time.Duration) (*SessionDetail, error) {
 	if interval <= 0 {
@@ -257,7 +303,7 @@ func (c *Client) WaitSession(ctx context.Context, user, sessionID string, interv
 		if err != nil {
 			return nil, err
 		}
-		if d.Session.Status == "idle" || d.Session.Status == "waiting" {
+		if d.Session.Status == "idle" || d.Session.Status == "waiting" || d.Session.Status == "resolved" {
 			return d, nil
 		}
 		select {

@@ -40,6 +40,9 @@ ask: claude-permission
 workdir:
   skills: .claude/skills
 
+# 会话在工作里时，工作的说明写成这个文件(docs/v2/designs/work.md);每条消息都重写，没有说明就删掉
+instructions: CLAUDE.md
+
 # stdout 每行一个 JSON,按规则从上往下匹配
 output:
   format: jsonl
