@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowLeftRight, Bot, Boxes, Check, ChevronRight, Languages, LogOut, Menu, MonitorSmartphone, Plus, SquarePen, Users as UsersIcon, X } from 'lucide-react';
+import { ArrowLeftRight, Bot, Boxes, Check, ChevronRight, Languages, LogOut, Menu, MonitorSmartphone, Plus, Users as UsersIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Loading, StatusBadge } from '@/components/Shared';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
@@ -162,8 +162,8 @@ function SidebarBody({ me, pages, route, workId, sessions, works, onNavigate, on
   const admin = me.role === 'admin';
   const nav = (r: Route) => { go(r); onNavigate(); };
   const [tab, setTab] = useSidebarTab();
-  // 进了某个工作(工作页、线程)就切到「工作」tab
-  useEffect(() => { if (workId || route.page === 'workNew') setTab('works'); }, [workId, route.page, setTab]);
+  // 进了某个工作(工作页、线程)就切到「工作」tab,新会话页切到「会话」tab
+  useEffect(() => { if (workId || route.page === 'workNew') setTab('works'); else if (route.page === 'new') setTab('sessions'); }, [workId, route.page, setTab]);
   const logout = useMutation({
     mutationFn: () => api('/api/logout', { method: 'POST' }),
     onSuccess: () => { setActAs(''); queryClient.clear(); queryClient.setQueryData(['me'], null); },
@@ -182,7 +182,6 @@ function SidebarBody({ me, pages, route, workId, sessions, works, onNavigate, on
     </SidebarHeader>
     <SidebarContent>
       <SidebarGroup><SidebarGroupContent><SidebarMenu>
-        <SidebarMenuItem><SidebarMenuButton isActive={route.page === 'new'} onClick={() => nav({ page: 'new' })} tooltip={t('nav.new')}><SquarePen /><span>{t('nav.new')}</span></SidebarMenuButton></SidebarMenuItem>
         {pages.map(p => <SidebarMenuItem key={p.key}>
           <SidebarMenuButton isActive={route.page === p.key} onClick={() => nav({ page: p.key })} tooltip={t(p.label)}><p.icon /><span>{t(p.label)}</span></SidebarMenuButton>
         </SidebarMenuItem>)}
@@ -196,12 +195,7 @@ function SidebarBody({ me, pages, route, workId, sessions, works, onNavigate, on
           </button>)}
         </div>
         {tab === 'sessions'
-          ? <SidebarGroupContent><SidebarMenu>
-            {sessions.isPending ? [1, 2, 3].map(i => <SidebarMenuItem key={i}><SidebarMenuSkeleton /></SidebarMenuItem>)
-              : sessions.isError ? <p className="px-2 text-xs text-destructive">{t('nav.sessionsFailed')}</p>
-              : sessions.data.length ? <SessionItems list={sessions.data} route={route} nav={nav} />
-              : <p className="px-2 py-1 text-xs text-muted-foreground">{t('nav.noSessions')}</p>}
-          </SidebarMenu></SidebarGroupContent>
+          ? <SessionList sessions={sessions} route={route} nav={nav} />
           : <WorkList works={works} route={route} workId={workId} nav={nav} />}
       </SidebarGroup>
     </SidebarContent>
@@ -226,6 +220,21 @@ function useSidebarTab() {
 }
 
 const dotClass = (s: Session['status']) => s === 'running' ? 'animate-pulse bg-sky-500' : s === 'waiting' ? 'animate-pulse bg-amber-500' : 'bg-amber-500';
+
+/** 「会话」tab:新会话 + 会话列表，和「工作」tab 一样：一个都没有时是虚线框空状态。 */
+function SessionList({ sessions, route, nav }: { sessions: ReturnType<typeof useSessions>; route: Route; nav: (r: Route) => void }) {
+  const t = useT();
+  if (sessions.isPending) return <SidebarMenu>{[1, 2, 3].map(i => <SidebarMenuItem key={i}><SidebarMenuSkeleton /></SidebarMenuItem>)}</SidebarMenu>;
+  if (sessions.isError) return <p className="px-2 text-xs text-destructive">{t('nav.sessionsFailed')}</p>;
+  if (!sessions.data.length) return <div className="m-2 grid justify-items-center gap-3 rounded-xl border border-dashed px-3 py-6 text-center">
+    <p className="text-sm text-muted-foreground">{t('nav.noSessions')}</p>
+    <Button variant="secondary" size="sm" className="rounded-full" onClick={() => nav({ page: 'new' })}><Plus />{t('nav.new')}</Button>
+  </div>;
+  return <SidebarMenu>
+    <SidebarMenuItem><SidebarMenuButton isActive={route.page === 'new'} onClick={() => nav({ page: 'new' })} className="text-muted-foreground"><Plus /><span>{t('nav.new')}</span></SidebarMenuButton></SidebarMenuItem>
+    <SessionItems list={sessions.data} route={route} nav={nav} />
+  </SidebarMenu>;
+}
 
 /** 会话列表：没完成的在上面，已完成的收在最下面的「已完成 (n)」里，默认折叠。 */
 function SessionItems({ list, route, nav }: { list: Session[]; route: Route; nav: (r: Route) => void }) {
