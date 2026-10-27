@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/memory-co/agentuse/internal/protocol"
@@ -463,7 +464,7 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 			s.storeErr(w, err)
 			return
 		}
-		if ss.Status == store.SessionRunning {
+		if ss.Status != store.SessionPending {
 			s.hub.pushSteer(ss.DaemonID, st)
 		}
 		writeJSON(w, http.StatusAccepted, st)
@@ -493,7 +494,35 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"session": ss, "messages": msgs, "steers": steers, "events": events})
+	questions, err := s.store.Questions(r.Context(), ss.ID)
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": ss, "messages": msgs, "steers": steers, "questions": questions, "events": events})
+}
+
+// handleAnswerQuestion 回答 harness 的提问，答案推给正在等的 daemon(docs/v2/designs/question.md)。
+func (s *Server) handleAnswerQuestion(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Answers map[string]string `json:"answers"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	qid, err := strconv.ParseInt(r.PathValue("qid"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "不存在")
+		return
+	}
+	ss, q, err := s.store.AnswerQuestion(r.Context(), currentUser(r), r.PathValue("id"), qid, req.Answers)
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	s.hub.pushAnswer(ss.DaemonID, q)
+	writeJSON(w, http.StatusAccepted, q)
 }
 
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {

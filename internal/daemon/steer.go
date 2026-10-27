@@ -99,22 +99,42 @@ func steerText(steers []protocol.Steer) string {
 }
 
 // claudeControl 处理 stdout 的一行:是 control_request 就回 control_response 并返回 true。
-// 每个 control_request 都必须回，不然 claude 会一直等。
-func claudeControl(line string, w *stdinWriter, steers *steerQueue, report reportFn) bool {
+// 每个 control_request 都必须回，不然 claude 会一直等。提问(can_use_tool + AskUserQuestion)在后台等答案再回。
+func claudeControl(line string, w *stdinWriter, in *inbox, report reportFn) bool {
 	var m struct {
 		Type      string `json:"type"`
 		RequestID string `json:"request_id"`
 		Request   struct {
-			Subtype    string `json:"subtype"`
-			CallbackID string `json:"callback_id"`
+			Subtype    string          `json:"subtype"`
+			CallbackID string          `json:"callback_id"`
+			ToolName   string          `json:"tool_name"`
+			ToolUseID  string          `json:"tool_use_id"`
+			Input      json.RawMessage `json:"input"`
 		} `json:"request"`
 	}
 	if json.Unmarshal([]byte(line), &m) != nil || m.Type != "control_request" {
 		return false
 	}
-	out := map[string]any{}
+	steers := in.steerQueue()
+	var out any = map[string]any{}
 	var sent []protocol.Steer
-	if m.Request.Subtype == "hook_callback" {
+	switch m.Request.Subtype {
+	case "can_use_tool":
+		// bypassPermissions 下只有要人回答的工具会来问;别的直接放行
+		switch {
+		case m.Request.ToolName != "AskUserQuestion":
+			input := m.Request.Input
+			if len(input) == 0 {
+				input = json.RawMessage(`{}`)
+			}
+			out = map[string]any{"behavior": "allow", "updatedInput": input}
+		case in.askBox() != nil:
+			in.askBox().ask(m.RequestID, m.Request.ToolUseID, m.Request.Input, w, report)
+			return true
+		default:
+			out = deny("没有人能回答提问，请自己做出合理的判断，继续完成任务。")
+		}
+	case "hook_callback":
 		switch m.Request.CallbackID {
 		case hookPre:
 			if sent = steers.take(); len(sent) > 0 {
@@ -127,9 +147,7 @@ func claudeControl(line string, w *stdinWriter, steers *steerQueue, report repor
 			}
 		}
 	}
-	err := w.writeJSON(map[string]any{"type": "control_response", "response": map[string]any{
-		"subtype": "success", "request_id": m.RequestID, "response": out}})
-	if err != nil {
+	if err := writeControl(w, m.RequestID, out); err != nil {
 		// 没塞进去:放回去，这一轮结束时服务会把它们转成下一条消息
 		for _, s := range sent {
 			steers.push(s)

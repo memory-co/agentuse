@@ -45,12 +45,12 @@ detect:
   version: [--version]
 
 # 每条消息起一次进程。{prompt} {resume} {args} 是占位符，见下文
-# prompt 不走参数，走 stdin(见 input)。不让它弹权限确认，也不让它向人提问(没人能答)
+# prompt 不走参数，走 stdin(见 input)。不让它弹权限确认;提问走 can_use_tool(见 question.md)
 run:
   new:    [-p, --input-format, stream-json, --output-format, stream-json, --verbose,
-           --permission-mode, bypassPermissions, --disallowedTools, AskUserQuestion, "{args}"]
+           --permission-mode, bypassPermissions, --permission-prompt-tool, stdio, "{args}"]
   resume: [-p, --input-format, stream-json, --output-format, stream-json, --verbose,
-           --permission-mode, bypassPermissions, --disallowedTools, AskUserQuestion,
+           --permission-mode, bypassPermissions, --permission-prompt-tool, stdio,
            --resume, "{resume}", "{args}"]
 
 # stdin 写一行 JSON 作为这条消息;看到 result 行后关掉 stdin,进程退出

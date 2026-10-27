@@ -55,7 +55,7 @@ daemon 连上 WebSocket,上报本机 harness ──▶ 页面上出现这台电�
 
 | harness | 第一条 | 之后 |
 |---|---|---|
-| `claude` | `claude -p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions --disallowedTools AskUserQuestion [args…]`,prompt 作为一行 `{"type":"user",…}` 写进 stdin | 加 `--resume <id>` |
+| `claude` | `claude -p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions --permission-prompt-tool stdio [args…]`,prompt 作为一行 `{"type":"user",…}` 写进 stdin | 加 `--resume <id>` |
 | `codex` | `codex exec --json --skip-git-repo-check [args…] <prompt>` | `codex exec --json --skip-git-repo-check [args…] resume <id> <prompt>` |
 | 自定义 | `<command> [args…]`,stdin 写入 `{"session_id":"ss_…","resume":"…","input":…}`;stdout 的 `{"type":"progress",…}` 行是进度,`{"type":"result","ok":…,"output":…,"session_id":…}` 行是结果，没有就按退出码 | 同左,`resume` 有值 |
 

@@ -29,6 +29,8 @@ type Spec struct {
 	Env map[string]string `yaml:"env"`
 	// Steer 是插话的实现，空 = 不能插话。见 docs/v2/designs/steer.md。
 	Steer string `yaml:"steer"`
+	// Ask 是提问的实现，空 = 不能提问。见 docs/v2/designs/question.md。
+	Ask string `yaml:"ask"`
 	// Workdir:本目录下的子目录 → 会话目录里的相对路径，起进程前拷过去。
 	Workdir map[string]string `yaml:"workdir"`
 	Output  Output            `yaml:"output"`
@@ -37,6 +39,9 @@ type Spec struct {
 
 // SteerClaudeHooks:Claude Code stream-json 的 control 协议注册 hook,回调时塞插话。
 const SteerClaudeHooks = "claude-hooks"
+
+// AskClaudePermission:Claude Code 的 can_use_tool 请求里等用户回答 AskUserQuestion。
+const AskClaudePermission = "claude-permission"
 
 // Input 描述 stdin。Format 为空时 stdin 为空,prompt 只能放进参数。
 type Input struct {

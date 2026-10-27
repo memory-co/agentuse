@@ -59,7 +59,7 @@ export interface Session {
   daemon_id?: string;
   harness_session_id?: string;
   title: string;
-  status: "idle" | "pending" | "running";
+  status: "idle" | "pending" | "running" | "waiting";
   lease_until?: number;
   created_at: number;
   updated_at: number;
@@ -93,7 +93,19 @@ export interface Steer {
   created_at: number;
 }
 
-export interface SessionDetail { session: Session; messages: Message[]; steers: Steer[]; events: SessionEvent[]; }
+export interface Question {
+  id: number;
+  session_id: string;
+  message_id: number;
+  tool_use_id: string;
+  questions: { question: string; header?: string; multi_select?: boolean; options?: { label: string; description?: string }[] }[];
+  answers?: Record<string, string>;
+  answered_by?: string;
+  status: "pending" | "answered" | "expired";
+  created_at: number;
+}
+
+export interface SessionDetail { session: Session; messages: Message[]; steers: Steer[]; questions: Question[]; events: SessionEvent[]; }
 
 // 网站的 user id;null 表示 admin 本身。
 export type UserId = string | null;
@@ -138,6 +150,8 @@ export declare class Client {
   /** 会话 idle 时返回 Message;忙时是插话，返回 Steer。 */
   sendMessage(user: UserId, sessionId: string, req: MessageInput): Promise<Message | Steer>;
   getSession(user: UserId, sessionId: string): Promise<SessionDetail>;
+  /** 回答 harness 的提问(会话 waiting 时)。answers 是 { 问题: 答案 }。 */
+  answerQuestion(user: UserId, sessionId: string, questionId: number, answers: Record<string, string>): Promise<Question>;
   deleteSession(user: UserId, sessionId: string): Promise<void>;
   waitSession(user: UserId, sessionId: string, opts?: { interval?: number; timeout?: number }): Promise<SessionDetail>;
 }

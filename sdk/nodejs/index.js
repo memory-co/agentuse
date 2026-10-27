@@ -81,16 +81,20 @@ export class Client {
   // 回复:{ prompt? , input? }。会话不是 idle 时抛 AgentuseError(409)。
   // 会话 idle 时返回 message;忙时是插话，返回 steer。
   sendMessage(user, sessionId, req) { return this._request("POST", `/api/sessions/${q(sessionId)}/messages`, user, req); }
-  // → { session, messages, steers, events }
+  // → { session, messages, steers, questions, events }
   getSession(user, sessionId) { return this._request("GET", `/api/sessions/${q(sessionId)}`, user); }
+  // 回答 harness 的提问(会话 waiting 时):answers 是 { 问题: 答案 },多选用 ", " 拼起来。已答过或过期抛 409。
+  answerQuestion(user, sessionId, questionId, answers) {
+    return this._request("POST", `/api/sessions/${q(sessionId)}/questions/${q(questionId)}/answer`, user, { answers });
+  }
   async deleteSession(user, sessionId) { await this._request("DELETE", `/api/sessions/${q(sessionId)}`, user); }
 
-  // 轮询直到会话回到 idle,返回最后一次 getSession 的结果。超时抛错。
+  // 轮询直到会话回到 idle 或在等回答提问(waiting),返回最后一次 getSession 的结果。超时抛错。
   async waitSession(user, sessionId, { interval = 2000, timeout } = {}) {
     const deadline = timeout === undefined ? Infinity : Date.now() + timeout;
     for (;;) {
       const detail = await this.getSession(user, sessionId);
-      if (detail.session.status === "idle") return detail;
+      if (detail.session.status === "idle" || detail.session.status === "waiting") return detail;
       if (Date.now() >= deadline) {
         throw new Error(`agentuse: session ${sessionId} still ${detail.session.status}`);
       }

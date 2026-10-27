@@ -95,6 +95,14 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 			if err := c.send(ctx, protocol.Message{Type: protocol.TypeWelcome, DaemonID: c.d.ID, Name: c.d.Name, Ignored: ignored}); err != nil {
 				return err
 			}
+			// 断线期间答了的提问，再推一遍
+			answers, err := st.PendingAnswers(ctx, c.d.ID)
+			if err != nil {
+				return err
+			}
+			for _, q := range answers {
+				_ = c.send(ctx, answerMessage(q))
+			}
 			for _, u := range users {
 				h.kickUser(u)
 			}
@@ -111,8 +119,12 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 				}
 			}
 		case protocol.TypeEvent:
-			if err := st.AddEvent(ctx, c.d.ID, m.MessageID, m.Kind, m.Payload, protocol.LeaseSeconds); err != nil {
+			steers, err := st.ReportEvent(ctx, c.d.ID, m.MessageID, m.Kind, m.Payload, protocol.LeaseSeconds)
+			if err != nil {
 				h.reportStale(ctx, c, m.MessageID, err)
+			}
+			for _, s := range steers {
+				_ = c.send(ctx, steerMessage(s))
 			}
 		default:
 			_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, Error: "unknown message type " + m.Type})
@@ -174,6 +186,20 @@ func (h *hub) pushSteer(daemonID string, st store.Steer) {
 	h.mu.Unlock()
 	if c != nil {
 		_ = c.send(context.Background(), steerMessage(st))
+	}
+}
+
+func answerMessage(q store.Question) protocol.Message {
+	return protocol.Message{Type: protocol.TypeAnswer, Answer: &protocol.Answer{MessageID: q.MessageID, ToolUseID: q.ToolUseID, Answers: q.Answers}}
+}
+
+// pushAnswer 把答案推给正在等的 daemon;它不在线就等它重连时再推。
+func (h *hub) pushAnswer(daemonID string, q store.Question) {
+	h.mu.Lock()
+	c := h.conns[daemonID]
+	h.mu.Unlock()
+	if c != nil {
+		_ = c.send(context.Background(), answerMessage(q))
 	}
 }
 

@@ -28,6 +28,11 @@ s = agentuse.create_session(uid, a["id"], prompt="修一下 README 的错别字"
 detail = agentuse.wait_session(uid, s["id"], interval=2, timeout=600)
 print(detail["messages"][-1]["content"])
 
+# harness 向用户提问时会话是 waiting,wait_session 也会返回;回答后它在同一轮里接着做
+if detail["session"]["status"] == "waiting":
+    q = detail["questions"][-1]["questions"][0]
+    agentuse.answer_question(uid, s["id"], detail["questions"][-1]["id"], {q["question"]: q["options"][0]["label"]})
+
 # 接着回复;harness 还在跑时是插话(返回 steer),会在它下一步之前送达
 r = agentuse.send_message(uid, s["id"], prompt="再把 CHANGELOG 也改一下")
 if "status" in r:

@@ -23,11 +23,17 @@ _, err = c.SetDaemonHarness(ctx, uid, d.ID, "claude", true)
 a, err := c.CreateAgent(ctx, uid, agentuse.CreateAgentRequest{ID: "code-helper", Name: "写代码", DaemonID: d.ID, Harness: "claude"})
 
 // 用这个 agent 发起任务，等它回完(用 ctx 控制超时)
-r, err := c.CreateSession(ctx, uid, agentuse.CreateSessionRequest{AgentID: a.ID, Prompt: "修一下 README 的错别字", Cwd: "~/code/x"})
+r, err := c.CreateSession(ctx, uid, agentuse.CreateSessionRequest{AgentID: a.ID, Prompt: "修一下 README 的错别字"})
 wctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 defer cancel()
 detail, err := c.WaitSession(wctx, uid, r.Session.ID, 2*time.Second)
 fmt.Println(string(detail.Messages[len(detail.Messages)-1].Content))
+
+// harness 向用户提问时会话是 waiting,WaitSession 也会返回;回答后它在同一轮里接着做
+if detail.Session.Status == "waiting" {
+	q := detail.Questions[len(detail.Questions)-1]
+	_, err = c.AnswerQuestion(ctx, uid, r.Session.ID, q.ID, map[string]string{q.Questions[0].Question: q.Questions[0].Options[0].Label})
+}
 
 // 接着回复;harness 还在跑时是插话(reply.Steer),会在它下一步之前送达
 reply, err := c.SendMessage(ctx, uid, r.Session.ID, agentuse.MessageRequest{Prompt: "再把 CHANGELOG 也改一下"})

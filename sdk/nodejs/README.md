@@ -29,6 +29,12 @@ const { session } = await agentuse.createSession(uid, { agent_id: agent.id, prom
 const detail = await agentuse.waitSession(uid, session.id, { interval: 2000, timeout: 600_000 });
 console.log(detail.messages.at(-1).content);
 
+// harness 向用户提问时会话是 waiting,waitSession 也会返回;回答后它在同一轮里接着做
+if (detail.session.status === "waiting") {
+  const q = detail.questions.at(-1);
+  await agentuse.answerQuestion(uid, session.id, q.id, { [q.questions[0].question]: q.questions[0].options[0].label });
+}
+
 // 接着回复;harness 还在跑时是插话(返回 steer),会在它下一步之前送达
 const r = await agentuse.sendMessage(uid, session.id, { prompt: "再把 CHANGELOG 也改一下" });
 if ("status" in r) console.log("插话:", r.status);

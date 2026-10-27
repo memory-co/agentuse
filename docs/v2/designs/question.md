@@ -123,9 +123,12 @@ daemon 不在跑这条消息，或者已经不在等这个 `tool_use_id` 时，�
 ## SDK
 
 - 会话状态多一个 `waiting`，`SessionDetail` 加 `questions`。
-- 加一个方法 `AnswerQuestion(ctx, user, sessionID, questionID, answers)`。Python 和 Node 同名。
+- 加一个方法 `AnswerQuestion(ctx, user, sessionID, questionID, answers)`，Python 和 Node 里同名。
+- `WaitSession` 在会话回到 `idle` 或变成 `waiting` 时都返回，调用方看状态决定要不要回答。
 
 ## 实现步骤
+
+已完成。用真实的 Claude Code 2.1.311 跑通过：提问、回答、在同一回合里接着做。
 
 1. 新表 `questions`。store 增加：建问题、记答案、标记 answered / expired，以及 `waiting` 状态和过期时把答案转成插话。
 2. 回答接口；`GET` 返回 `questions`；SDK 加类型和方法。

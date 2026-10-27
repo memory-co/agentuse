@@ -88,6 +88,10 @@ func (s Spec) validate(fsys fs.FS, dir string) error {
 		return fmt.Errorf("不支持的 steer %q", s.Steer)
 	case s.Steer == SteerClaudeHooks && s.Input.Format != "stream-json":
 		return fmt.Errorf("steer: claude-hooks 要求 input.format: stream-json")
+	case s.Ask != "" && s.Ask != AskClaudePermission:
+		return fmt.Errorf("不支持的 ask %q", s.Ask)
+	case s.Ask == AskClaudePermission && s.Input.Format != "stream-json":
+		return fmt.Errorf("ask: claude-permission 要求 input.format: stream-json")
 	case !nameRe.MatchString(s.Name):
 		return fmt.Errorf("name %q 只能用小写字母、数字和 -", s.Name)
 	case s.Name != dir:

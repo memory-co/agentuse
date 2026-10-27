@@ -226,6 +226,33 @@ func TestSession(t *testing.T) {
 		}
 	})
 
+	// 提问:claude 用 AskUserQuestion 提问，会话变成 waiting;回答后同一轮里接着做
+	t.Run("ask", func(t *testing.T) {
+		cs, err := c.CreateSession(ctx, alice, agentuse.CreateSessionRequest{AgentID: "alice-claude", Prompt: "ask"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		d := wait(t, c, alice, cs.Session.ID)
+		if d.Session.Status != "waiting" || len(d.Questions) != 1 || d.Questions[0].Status != "pending" ||
+			d.Questions[0].Questions[0].Question != "用哪种语言？" || d.Questions[0].Questions[0].Options[1].Label != "Python" {
+			t.Fatalf("提问: %+v %+v", d.Session, d.Questions)
+		}
+		q := d.Questions[0]
+		if _, err := c.AnswerQuestion(ctx, alice, cs.Session.ID, q.ID, map[string]string{}); !agentuse.IsStatus(err, 400) {
+			t.Fatalf("缺答案应该 400: %v", err)
+		}
+		if _, err := c.AnswerQuestion(ctx, alice, cs.Session.ID, q.ID, map[string]string{"用哪种语言？": "Python"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.AnswerQuestion(ctx, alice, cs.Session.ID, q.ID, map[string]string{"用哪种语言？": "Go"}); !agentuse.IsStatus(err, 409) {
+			t.Fatalf("答两次应该 409: %v", err)
+		}
+		d = wait(t, c, alice, cs.Session.ID)
+		if r := lastResult(t, d); d.Session.Status != "idle" || !r.OK || !strings.HasSuffix(r.Output, " answer=Python") || d.Questions[0].Status != "answered" {
+			t.Fatalf("回答后: %+v %+v %+v", d.Session, r, d.Questions)
+		}
+	})
+
 	// bob 用 alice 的 agent:跑在 alice 的设备上,bob 看得到;别人看不到
 	at, err := c.CreateSession(ctx, bob, agentuse.CreateSessionRequest{AgentID: "alice-fake", Prompt: "from bob"})
 	if err != nil || at.Session.UserID != alice || at.Session.CreatedBy != bob {

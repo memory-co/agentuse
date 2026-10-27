@@ -96,7 +96,7 @@ type Session struct {
 	DaemonID         string `json:"daemon_id,omitempty"`
 	HarnessSessionID string `json:"harness_session_id,omitempty"`
 	Title            string `json:"title"`
-	Status           string `json:"status"` // idle / pending / running
+	Status           string `json:"status"` // idle / pending / running / waiting(在等用户回答提问)
 	LeaseUntil       *int64 `json:"lease_until,omitempty"`
 	CreatedAt        int64  `json:"created_at"`
 	UpdatedAt        int64  `json:"updated_at"`
@@ -138,10 +138,11 @@ type CreateSessionResponse struct {
 }
 
 type SessionDetail struct {
-	Session  Session        `json:"session"`
-	Messages []Message      `json:"messages"`
-	Steers   []Steer        `json:"steers"`
-	Events   []SessionEvent `json:"events"`
+	Session   Session        `json:"session"`
+	Messages  []Message      `json:"messages"`
+	Steers    []Steer        `json:"steers"`
+	Questions []Question     `json:"questions"`
+	Events    []SessionEvent `json:"events"`
 }
 
 // Steer 是一条插话：会话忙时发的消息。见 docs/v2/designs/steer.md。
@@ -153,6 +154,31 @@ type Steer struct {
 	Prompt    string `json:"prompt"`
 	Status    string `json:"status"` // pending / delivered / queued
 	CreatedAt int64  `json:"created_at"`
+}
+
+// Question 是 harness 向用户的一次提问，见 docs/v2/designs/question.md。用 AnswerQuestion 回答。
+type Question struct {
+	ID         int64             `json:"id"`
+	SessionID  string            `json:"session_id"`
+	MessageID  int64             `json:"message_id"`
+	ToolUseID  string            `json:"tool_use_id"`
+	Questions  []QuestionItem    `json:"questions"`
+	Answers    map[string]string `json:"answers,omitempty"`
+	AnsweredBy string            `json:"answered_by,omitempty"`
+	Status     string            `json:"status"` // pending / answered / expired
+	CreatedAt  int64             `json:"created_at"`
+}
+
+type QuestionItem struct {
+	Question    string           `json:"question"`
+	Header      string           `json:"header,omitempty"`
+	MultiSelect bool             `json:"multi_select,omitempty"`
+	Options     []QuestionOption `json:"options,omitempty"`
+}
+
+type QuestionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
 }
 
 // Reply 是 SendMessage 的结果：会话 idle 时是 Message,忙时是 Steer。

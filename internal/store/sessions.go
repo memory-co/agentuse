@@ -14,6 +14,7 @@ const (
 	SessionIdle    = "idle"
 	SessionPending = "pending"
 	SessionRunning = "running"
+	SessionWaiting = "waiting" // harness 在等用户回答提问，见 docs/v2/designs/question.md
 
 	RoleUserMsg      = "user"
 	RoleAssistantMsg = "assistant"
@@ -21,8 +22,12 @@ const (
 	EventProgress = "progress"
 	EventPlan     = "plan"
 	EventSteered  = "steered"
-	EventDone     = "done"
-	EventFailed   = "failed"
+	// 提问，见 docs/v2/designs/question.md
+	EventQuestion        = "question"
+	EventAnswered        = "answered"
+	EventQuestionExpired = "question_expired"
+	EventDone            = "done"
+	EventFailed          = "failed"
 )
 
 type Session struct {
@@ -196,8 +201,8 @@ func (s *Store) ClaimSession(ctx context.Context, d Daemon, leaseSeconds int64) 
 	return Claimed{Session: ss, Message: m}, tx.Commit()
 }
 
-// runningWhere 匹配「这台 daemon 正在回这条用户消息」的会话:running、归这台 daemon、消息是最后一条用户消息。
-const runningWhere = `status = 'running' AND daemon_id = ?
+// runningWhere 匹配「这台 daemon 正在回这条用户消息」的会话:running / waiting、归这台 daemon、消息是最后一条用户消息。
+const runningWhere = `status IN ('running', 'waiting') AND daemon_id = ?
 	AND id = (SELECT session_id FROM messages WHERE id = ? AND role = 'user')
 	AND ? = (SELECT MAX(m.id) FROM messages m WHERE m.session_id = sessions.id AND m.role = 'user')`
 
@@ -218,30 +223,41 @@ func (s *Store) RenewLease(ctx context.Context, daemonID string, messageID int64
 // AddEvent 记一条 daemon 回报，并续租;done / failed 时追加 assistant 消息、会话回到 idle,
 // payload 里带了 session_id 就记成 harness 的会话 id。
 func (s *Store) AddEvent(ctx context.Context, daemonID string, messageID int64, kind string, payload json.RawMessage, leaseSeconds int64) error {
+	_, err := s.ReportEvent(ctx, daemonID, messageID, kind, payload, leaseSeconds)
+	return err
+}
+
+// ReportEvent 同 AddEvent,另外返回这次新建、要推给 daemon 的插话(提问超时时没送到的答案)。
+func (s *Store) ReportEvent(ctx context.Context, daemonID string, messageID int64, kind string, payload json.RawMessage, leaseSeconds int64) ([]Steer, error) {
 	switch kind {
-	case EventProgress, EventPlan, EventSteered, EventDone, EventFailed:
+	case EventProgress, EventPlan, EventSteered, EventQuestion, EventAnswered, EventQuestionExpired, EventDone, EventFailed:
 	default:
-		return fmt.Errorf("未知回报类型 %q", kind)
+		return nil, fmt.Errorf("未知回报类型 %q", kind)
 	}
 	if len(payload) == 0 {
 		payload = json.RawMessage("null")
 	}
 	if !json.Valid(payload) {
-		return errors.New("payload 必须是 JSON")
+		return nil, errors.New("payload 必须是 JSON")
+	}
+	var q struct {
+		ToolUseID string          `json:"tool_use_id"`
+		Questions json.RawMessage `json:"questions"`
+	}
+	_ = json.Unmarshal(payload, &q)
+	if kind == EventQuestion && (q.ToolUseID == "" || len(q.Questions) == 0 || q.Questions[0] != '[') {
+		return nil, errors.New("question 回报要带 tool_use_id 和 questions 数组")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback()
 	now := s.unix()
 	var sessionID string
-	running := kind == EventProgress || kind == EventPlan || kind == EventSteered // 跑的过程中的回报：只续租
-	if running {
-		err = tx.QueryRowContext(ctx,
-			`UPDATE sessions SET lease_until = ? WHERE `+runningWhere+` RETURNING id`,
-			now+leaseSeconds, daemonID, messageID, messageID).Scan(&sessionID)
-	} else {
+	finished := kind == EventDone || kind == EventFailed
+	switch kind {
+	case EventDone, EventFailed:
 		var r struct {
 			SessionID string `json:"session_id"`
 		}
@@ -251,14 +267,28 @@ func (s *Store) AddEvent(ctx context.Context, daemonID string, messageID int64, 
 			   harness_session_id = COALESCE(NULLIF(?, ''), harness_session_id)
 			 WHERE `+runningWhere+` RETURNING id`,
 			now, r.SessionID, daemonID, messageID, messageID).Scan(&sessionID)
+	case EventQuestion, EventAnswered, EventQuestionExpired:
+		status := SessionRunning
+		if kind == EventQuestion {
+			status = SessionWaiting
+		}
+		err = tx.QueryRowContext(ctx,
+			`UPDATE sessions SET status = ?, lease_until = ?, updated_at = ? WHERE `+runningWhere+` RETURNING id`,
+			status, now+leaseSeconds, now, daemonID, messageID, messageID).Scan(&sessionID)
+	default: // 跑的过程中的回报：只续租
+		err = tx.QueryRowContext(ctx,
+			`UPDATE sessions SET lease_until = ? WHERE `+runningWhere+` RETURNING id`,
+			now+leaseSeconds, daemonID, messageID, messageID).Scan(&sessionID)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrStaleMessage
+		return nil, ErrStaleMessage
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if kind == EventSteered {
+	var steers []Steer
+	switch kind {
+	case EventSteered:
 		var r struct {
 			SteerID int64 `json:"steer_id"`
 		}
@@ -266,34 +296,57 @@ func (s *Store) AddEvent(ctx context.Context, daemonID string, messageID int64, 
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE steers SET status = 'delivered', updated_at = ? WHERE id = ? AND message_id = ? AND status = 'pending'`,
 			now, r.SteerID, messageID); err != nil {
-			return err
+			return nil, err
+		}
+	case EventQuestion:
+		// 同一个 tool_use_id 报两次(重连后重发)只记一次
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO questions (session_id, message_id, tool_use_id, questions, status, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT (message_id, tool_use_id) DO NOTHING`,
+			sessionID, messageID, q.ToolUseID, string(q.Questions), now, now); err != nil {
+			return nil, err
+		}
+	case EventAnswered:
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE questions SET status = 'answered', updated_at = ? WHERE message_id = ? AND tool_use_id = ? AND status = 'pending'`,
+			now, messageID, q.ToolUseID); err != nil {
+			return nil, err
+		}
+	case EventQuestionExpired:
+		if steers, err = expireQuestions(ctx, tx, `message_id = ? AND tool_use_id = ?`, now, messageID, q.ToolUseID); err != nil {
+			return nil, err
 		}
 	}
-	if !running {
+	if finished {
 		if _, err := insertMessage(ctx, tx, sessionID, RoleAssistantMsg, payload, now); err != nil {
-			return err
+			return nil, err
+		}
+		// 进程都结束了，还在等的提问作废;答了没送到的答案和插话一起转成下一条消息
+		if _, err := expireQuestions(ctx, tx, `message_id = ?`, now, messageID); err != nil {
+			return nil, err
 		}
 		if err := queueSteers(ctx, tx, sessionID, messageID, now); err != nil {
-			return err
+			return nil, err
 		}
+		steers = nil
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO session_events (session_id, message_id, daemon_id, kind, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		sessionID, messageID, daemonID, kind, string(payload), now); err != nil {
-		return err
+		return nil, err
 	}
-	return tx.Commit()
+	return steers, tx.Commit()
 }
 
 // RequeueExpired 把租约过期的会话放回 pending(还是给同一台 daemon),返回受影响的用户 id(用来叫醒他们的 daemon)。
 func (s *Store) RequeueExpired(ctx context.Context) ([]string, error) {
-	return s.requeue(ctx, `status = 'running' AND lease_until < ?`, s.unix())
+	return s.requeue(ctx, `status IN ('running', 'waiting') AND lease_until < ?`, s.unix())
 }
 
 // RequeueDaemonSessions 把某台 daemon 名下 running、但最后一条用户消息不在 keep 里的会话放回 pending。
 // daemon 重连时调用:它没在跑的就不该还是 running。
 func (s *Store) RequeueDaemonSessions(ctx context.Context, daemonID string, keep []int64) ([]string, error) {
-	where := `status = 'running' AND daemon_id = ?`
+	where := `status IN ('running', 'waiting') AND daemon_id = ?`
 	args := []any{daemonID}
 	if len(keep) > 0 {
 		where += ` AND (SELECT MAX(m.id) FROM messages m WHERE m.session_id = sessions.id AND m.role = 'user') NOT IN (?` +
@@ -306,26 +359,43 @@ func (s *Store) RequeueDaemonSessions(ctx context.Context, daemonID string, keep
 }
 
 func (s *Store) requeue(ctx context.Context, where string, args ...any) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`UPDATE sessions SET status = 'pending', lease_until = NULL, updated_at = ?
-		 WHERE `+where+` RETURNING user_id`, append([]any{s.unix()}, args...)...)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer tx.Rollback()
+	now := s.unix()
+	rows, err := tx.QueryContext(ctx,
+		`UPDATE sessions SET status = 'pending', lease_until = NULL, updated_at = ?
+		 WHERE `+where+` RETURNING id, user_id`, append([]any{now}, args...)...)
+	if err != nil {
+		return nil, err
+	}
 	seen := map[string]bool{}
-	var users []string
+	var users, ids []string
 	for rows.Next() {
-		var u string
-		if err := rows.Scan(&u); err != nil {
+		var id, u string
+		if err := rows.Scan(&id, &u); err != nil {
+			rows.Close()
 			return nil, err
 		}
+		ids = append(ids, id)
 		if !seen[u] {
 			seen[u] = true
 			users = append(users, u)
 		}
 	}
-	return users, rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// 进程没了，还在等的提问作废;答了没送到的答案转成插话，重新派出时推过去
+	for _, id := range ids {
+		if _, err := expireQuestions(ctx, tx, `session_id = ?`, now, id); err != nil {
+			return nil, err
+		}
+	}
+	return users, tx.Commit()
 }
 
 // failDaemonSessions 在删除 daemon 前调用：它名下还没回完的会话回到 idle,并追加一条失败的 assistant 消息。
@@ -333,7 +403,7 @@ func (s *Store) failDaemonSessions(ctx context.Context, tx *sql.Tx, daemonID str
 	now := s.unix()
 	rows, err := tx.QueryContext(ctx,
 		`UPDATE sessions SET status = 'idle', lease_until = NULL, updated_at = ?
-		 WHERE daemon_id = ? AND status IN ('pending', 'running') RETURNING id`, now, daemonID)
+		 WHERE daemon_id = ? AND status IN ('pending', 'running', 'waiting') RETURNING id`, now, daemonID)
 	if err != nil {
 		return err
 	}
@@ -353,6 +423,9 @@ func (s *Store) failDaemonSessions(ctx context.Context, tx *sql.Tx, daemonID str
 	content := json.RawMessage(`{"ok":false,"error":"daemon 已删除"}`)
 	for _, id := range ids {
 		if _, err := insertMessage(ctx, tx, id, RoleAssistantMsg, content, now); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE questions SET status = 'expired', updated_at = ? WHERE session_id = ? AND status = 'pending'`, now, id); err != nil {
 			return err
 		}
 	}
@@ -434,7 +507,7 @@ func (s *Store) ListSessions(ctx context.Context, u User, limit int) ([]Session,
 	return out, rows.Err()
 }
 
-// DeleteSession 删除会话和它的消息、回报。running 时返回 ErrSessionBusy。
+// DeleteSession 删除会话和它的消息、回报。running / waiting 时返回 ErrSessionBusy。
 func (s *Store) DeleteSession(ctx context.Context, u User, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -445,7 +518,7 @@ func (s *Store) DeleteSession(ctx context.Context, u User, id string) error {
 	if err != nil {
 		return err
 	}
-	if ss.Status == SessionRunning {
+	if ss.Status == SessionRunning || ss.Status == SessionWaiting {
 		return ErrSessionBusy
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, id); err != nil {
@@ -517,7 +590,7 @@ const (
 	SteerQueued    = "queued"
 )
 
-// AddSteer 在 pending / running 的会话里插话，挂在当时最后一条用户消息上。
+// AddSteer 在 pending / running / waiting 的会话里插话，挂在当时最后一条用户消息上。
 // 会话 idle 时返回 ErrSessionIdle,改用 AddMessage。
 func (s *Store) AddSteer(ctx context.Context, u User, sessionID, prompt string) (Session, Steer, error) {
 	if strings.TrimSpace(prompt) == "" {
