@@ -78,6 +78,8 @@ var (
 	ErrSessionIdle = errors.New("会话空闲，直接发消息")
 	// ErrSessionOrphaned 表示会话的 daemon 已删除，续不上了。
 	ErrSessionOrphaned = errors.New("会话原来的 daemon 已删除，不能继续")
+	// ErrRuntimeUnavailable 表示会话的运行时(daemon 上的 harness)没开启或不可用，派不出去。
+	ErrRuntimeUnavailable = errors.New("harness 不可用")
 )
 
 // CreateSession 用一个 agent 建会话并写入第一条用户消息，会话为 pending。
@@ -101,6 +103,9 @@ func (s *Store) CreateSession(ctx context.Context, u User, agentID, title string
 	}
 	if a.DaemonID == "" {
 		return Session{}, Message{}, fmt.Errorf("agent %q 没有运行时(它的 daemon 已删除),请先切换运行时", agentID)
+	}
+	if err := runtimeErr(ctx, tx, a.DaemonID, a.Harness); err != nil {
+		return Session{}, Message{}, err
 	}
 	now := s.unix()
 	ss := Session{ID: randomID("ss_"), UserID: a.UserID, CreatedBy: u.ID, AgentID: a.ID, Harness: a.Harness, DaemonID: a.DaemonID, Title: title, Status: SessionPending, CreatedAt: now, UpdatedAt: now}
@@ -137,6 +142,9 @@ func (s *Store) AddMessage(ctx context.Context, u User, sessionID string, conten
 	// idle 的会话一定被 daemon 跑过;daemon_id 为空说明那台 daemon 被删了。
 	if ss.DaemonID == "" {
 		return Session{}, Message{}, ErrSessionOrphaned
+	}
+	if err := runtimeErr(ctx, tx, ss.DaemonID, ss.Harness); err != nil {
+		return Session{}, Message{}, err
 	}
 	now := s.unix()
 	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ?`, now, ss.ID); err != nil {
@@ -400,10 +408,54 @@ func (s *Store) requeue(ctx context.Context, where string, args ...any) ([]strin
 
 // failDaemonSessions 在删除 daemon 前调用：它名下还没回完的会话回到 idle,并追加一条失败的 assistant 消息。
 func (s *Store) failDaemonSessions(ctx context.Context, tx *sql.Tx, daemonID string) error {
+	return s.failSessions(ctx, tx, `daemon_id = ? AND status IN ('pending', 'running', 'waiting')`, "daemon 已删除", daemonID)
+}
+
+// failUnrunnable 把这台 daemon 名下排队中、但运行时已经派不出去(harness 关了或不可用)的会话判失败，
+// 免得一直排队。只动 pending 的:已经在跑的由 daemon 跑完。
+func (s *Store) failUnrunnable(ctx context.Context, tx *sql.Tx, daemonID string) error {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT DISTINCT harness FROM sessions s WHERE daemon_id = ? AND status = 'pending'
+		  AND NOT EXISTS (SELECT 1 FROM daemon_harnesses da
+		                  WHERE da.daemon_id = s.daemon_id AND da.harness = s.harness
+		                    AND da.available = 1 AND da.enabled = 1)`, daemonID)
+	if err != nil {
+		return err
+	}
+	var harnesses []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			rows.Close()
+			return err
+		}
+		harnesses = append(harnesses, h)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, h := range harnesses {
+		msg := runtimeErr(ctx, tx, daemonID, h)
+		if msg == nil {
+			continue
+		}
+		if !errors.Is(msg, ErrRuntimeUnavailable) {
+			return msg
+		}
+		if err := s.failSessions(ctx, tx, `daemon_id = ? AND harness = ? AND status = 'pending'`, msg.Error(), daemonID, h); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// failSessions 让 where 选中的会话回到 idle,追加一条 {"ok":false,"error":reason} 的 assistant 消息，还在等的提问作废。
+func (s *Store) failSessions(ctx context.Context, tx *sql.Tx, where, reason string, args ...any) error {
 	now := s.unix()
 	rows, err := tx.QueryContext(ctx,
 		`UPDATE sessions SET status = 'idle', lease_until = NULL, updated_at = ?
-		 WHERE daemon_id = ? AND status IN ('pending', 'running', 'waiting') RETURNING id`, now, daemonID)
+		 WHERE `+where+` RETURNING id`, append([]any{now}, args...)...)
 	if err != nil {
 		return err
 	}
@@ -420,7 +472,13 @@ func (s *Store) failDaemonSessions(ctx context.Context, tx *sql.Tx, daemonID str
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	content := json.RawMessage(`{"ok":false,"error":"daemon 已删除"}`)
+	content, err := json.Marshal(struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}{false, reason})
+	if err != nil {
+		return err
+	}
 	for _, id := range ids {
 		if _, err := insertMessage(ctx, tx, id, RoleAssistantMsg, content, now); err != nil {
 			return err
@@ -690,4 +748,17 @@ func (s *Store) Steers(ctx context.Context, sessionID string) ([]Steer, error) {
 // PendingSteers 列挂在某条消息上、还没送达的插话(派出消息后推给 daemon)。
 func (s *Store) PendingSteers(ctx context.Context, messageID int64) ([]Steer, error) {
 	return s.querySteers(ctx, `message_id = ? AND status = 'pending'`, messageID)
+}
+
+// DaemonOfflineFor 说明排队中的会话是不是在等它的 daemon 上线:会话 pending、daemon 不在线时返回 true。
+func (s *Store) DaemonOfflineFor(ctx context.Context, ss Session) (bool, error) {
+	if ss.Status != SessionPending || ss.DaemonID == "" {
+		return false, nil
+	}
+	var status string
+	err := s.db.QueryRowContext(ctx, `SELECT status FROM daemons WHERE id = ?`, ss.DaemonID).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil && status != DaemonOnline, err
 }

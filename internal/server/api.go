@@ -499,7 +499,16 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"session": ss, "messages": msgs, "steers": steers, "questions": questions, "events": events})
+	offline, err := s.store.DaemonOfflineFor(r.Context(), ss)
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	out := map[string]any{"session": ss, "messages": msgs, "steers": steers, "questions": questions, "events": events}
+	if offline {
+		out["daemon_offline"] = true
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleAnswerQuestion 回答 harness 的提问，答案推给正在等的 daemon(docs/v2/designs/question.md)。

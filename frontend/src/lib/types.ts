@@ -25,4 +25,4 @@ export interface Question {
   id: number; session_id: string; message_id: number; tool_use_id: string; questions: QuestionItem[];
   answers?: Record<string, string>; answered_by?: string; status: 'pending' | 'answered' | 'expired'; created_at: number;
 }
-export interface SessionDetail { session: Session; messages: Message[]; steers: Steer[]; questions?: Question[]; events: SessionEvent[] }
+export interface SessionDetail { session: Session; messages: Message[]; steers: Steer[]; questions?: Question[]; events: SessionEvent[]; daemon_offline?: boolean }
