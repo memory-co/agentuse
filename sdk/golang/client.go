@@ -206,10 +206,21 @@ func (c *Client) CreateSession(ctx context.Context, user string, req CreateSessi
 	return &r, c.do(ctx, user, "POST", "/api/sessions", req, &r)
 }
 
-// SendMessage 回复。会话不是 idle 时返回 409(用 IsStatus(err, 409) 判断)。
-func (c *Client) SendMessage(ctx context.Context, user, sessionID string, req MessageRequest) (*Message, error) {
-	var m Message
-	return &m, c.do(ctx, user, "POST", "/api/sessions/"+esc(sessionID)+"/messages", req, &m)
+// SendMessage 回复。会话 idle 时是下一条消息(Reply.Message);pending / running 时是插话(Reply.Steer),
+// 插话只收 Prompt,带 Input 返回 409(用 IsStatus(err, 409) 判断)。
+func (c *Client) SendMessage(ctx context.Context, user, sessionID string, req MessageRequest) (*Reply, error) {
+	var raw map[string]json.RawMessage
+	if err := c.do(ctx, user, "POST", "/api/sessions/"+esc(sessionID)+"/messages", req, &raw); err != nil {
+		return nil, err
+	}
+	b, _ := json.Marshal(raw)
+	var r Reply
+	if _, ok := raw["role"]; ok {
+		r.Message = &Message{}
+		return &r, json.Unmarshal(b, r.Message)
+	}
+	r.Steer = &Steer{}
+	return &r, json.Unmarshal(b, r.Steer)
 }
 
 func (c *Client) GetSession(ctx context.Context, user, sessionID string) (*SessionDetail, error) {

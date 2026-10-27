@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -32,7 +33,7 @@ func TestRunCodexResume(t *testing.T) {
 	var progress []string
 	report := func(_ string, p any) { b, _ := json.Marshal(p); progress = append(progress, string(b)) }
 
-	res := runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, report)
+	res := runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, nil, report)
 	if !res.OK || res.Output != "done!" || res.SessionID != "th-1" || len(progress) != 2 {
 		t.Fatalf("first: %+v %v", res, progress)
 	}
@@ -41,7 +42,7 @@ func TestRunCodexResume(t *testing.T) {
 		t.Fatalf("args: %q", got)
 	}
 
-	res = runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Resume: "th-1", Input: json.RawMessage(`{"prompt":"again"}`)}, dir, report)
+	res = runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Resume: "th-1", Input: json.RawMessage(`{"prompt":"again"}`)}, dir, nil, report)
 	args, _ = os.ReadFile(filepath.Join(dir, "args.txt"))
 	if got := strings.TrimSpace(string(args)); !res.OK || got != "exec --json --skip-git-repo-check -s workspace-write resume th-1 again" {
 		t.Fatalf("resume: %+v %q", res, got)
@@ -52,6 +53,7 @@ func TestRunCodexResume(t *testing.T) {
 // 之后像真的 claude 一样等 stdin 关掉才退出。
 const fakeClaude = `#!/bin/sh
 echo "$@" > args.txt
+read init; echo "$init" > init.txt
 read line; echo "$line" > stdin.txt
 echo '{"type":"system","subtype":"init","session_id":"s-1"}'
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}'
@@ -65,7 +67,7 @@ func TestRunClaudeResume(t *testing.T) {
 	os.WriteFile(bin, []byte(fakeClaude), 0o755)
 	sp, _ := harness.Get("claude")
 	la := localHarness{Name: "claude", Path: bin, Spec: &sp}
-	res := runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Resume: "s-1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, func(string, any) {})
+	res := runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Resume: "s-1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, nil, func(string, any) {})
 	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
 	if got := strings.TrimSpace(string(args)); !res.OK || res.Output != "ok!" || res.SessionID != "s-1" ||
 		got != "-p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions --disallowedTools AskUserQuestion --resume s-1" {
@@ -81,7 +83,7 @@ func TestRunClaudeResume(t *testing.T) {
 
 	// 没有 result 行 → 失败
 	os.WriteFile(bin, []byte("#!/bin/sh\necho '{\"type\":\"system\"}'\n"), 0o755)
-	if res = runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, func(string, any) {}); res.OK || res.Error == "" {
+	if res = runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, nil, func(string, any) {}); res.OK || res.Error == "" {
 		t.Fatalf("no result: %+v", res)
 	}
 }
@@ -118,7 +120,7 @@ func TestRunCustomHarness(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var progress []string
-			res := runHarness(ctx, custom(t, c.script), dispatch("hi", "h-1"), dir, func(kind string, p any) {
+			res := runHarness(ctx, custom(t, c.script), dispatch("hi", "h-1"), dir, nil, func(kind string, p any) {
 				b, _ := json.Marshal(p)
 				if kind != "progress" {
 					b = append([]byte(kind+" "), b...)
@@ -132,12 +134,12 @@ func TestRunCustomHarness(t *testing.T) {
 	}
 
 	// 跑在会话目录里
-	res := runHarness(ctx, custom(t, "cat >/dev/null; pwd"), dispatch("hi", ""), dir, func(string, any) {})
+	res := runHarness(ctx, custom(t, "cat >/dev/null; pwd"), dispatch("hi", ""), dir, nil, func(string, any) {})
 	if wd, _ := filepath.EvalSymlinks(dir); !res.OK || (res.Output != dir && res.Output != wd) {
 		t.Fatalf("cwd: %+v", res)
 	}
 	// 可执行文件没了
-	if res := runHarness(ctx, localHarness{Name: "x", Path: filepath.Join(dir, "missing")}, dispatch("hi", ""), dir, func(string, any) {}); res.OK || res.Error == "" {
+	if res := runHarness(ctx, localHarness{Name: "x", Path: filepath.Join(dir, "missing")}, dispatch("hi", ""), dir, nil, func(string, any) {}); res.OK || res.Error == "" {
 		t.Fatalf("missing binary: %+v", res)
 	}
 }
@@ -147,7 +149,7 @@ func TestRunCancelled(t *testing.T) {
 	started := make(chan struct{})
 	go func() { <-started; cancel() }()
 	// exec:让 sleep 顶替 shell。harness 的子进程如果还拿着 stdout,取消要等它退出(见 PR 说明)
-	res := runHarness(ctx, custom(t, "cat >/dev/null; echo started; exec sleep 10"), dispatch("hi", ""), t.TempDir(), func(string, any) { close(started) })
+	res := runHarness(ctx, custom(t, "cat >/dev/null; echo started; exec sleep 10"), dispatch("hi", ""), t.TempDir(), nil, func(string, any) { close(started) })
 	if res.OK || res.Error != "已取消" {
 		t.Fatalf("%+v", res)
 	}
@@ -160,7 +162,7 @@ func TestRunSpecFinish(t *testing.T) {
 	claude, _ := harness.Get("claude")
 	run := func(sp harness.Spec, script string) Result {
 		la := localHarness{Name: sp.Name, Path: fakeBin(t, t.TempDir(), sp.Name, script), Spec: &sp}
-		return runHarness(ctx, la, dispatch("hi", ""), dir, func(string, any) {})
+		return runHarness(ctx, la, dispatch("hi", ""), dir, nil, func(string, any) {})
 	}
 
 	// codex(require_ok):turn.failed 的错误 + 退出码都报出来
@@ -182,7 +184,7 @@ func TestRunSpecFinish(t *testing.T) {
 	}
 	// 空 prompt 不起进程
 	la := localHarness{Name: "claude", Path: "/nonexistent", Spec: &claude}
-	if res = runHarness(ctx, la, protocol.Dispatch{Input: json.RawMessage(`{}`)}, dir, func(string, any) {}); res.OK || !strings.Contains(res.Error, "prompt") {
+	if res = runHarness(ctx, la, protocol.Dispatch{Input: json.RawMessage(`{}`)}, dir, nil, func(string, any) {}); res.OK || !strings.Contains(res.Error, "prompt") {
 		t.Fatalf("empty prompt: %+v", res)
 	}
 	// 都不写 finish:按退出码
@@ -214,3 +216,88 @@ func TestHelpers(t *testing.T) {
 		t.Fatalf("tail keeps the last %d bytes: %d", maxOutput, len(s))
 	}
 }
+
+// 假 claude:先后发 PreToolUse、Stop 两个 hook 回调，把 daemon 回的 control_response 记下来。
+const fakeClaudeHooks = `#!/bin/sh
+read init; echo "$init" > init.txt
+read line
+echo '{"type":"system","subtype":"init","session_id":"s-1"}'
+echo '{"type":"control_request","request_id":"r1","request":{"subtype":"hook_callback","callback_id":"agentuse-pre","input":{}}}'
+read -r resp; printf "%s\n" "$resp" > pre.txt
+echo '{"type":"control_request","request_id":"r2","request":{"subtype":"hook_callback","callback_id":"agentuse-stop","input":{}}}'
+read -r resp; printf "%s\n" "$resp" > stop.txt
+echo '{"type":"control_request","request_id":"r3","request":{"subtype":"something_else"}}'
+read -r resp; printf "%s\n" "$resp" > other.txt
+echo '{"type":"result","subtype":"success","is_error":false,"result":"ok!","session_id":"s-1"}'
+cat >/dev/null
+`
+
+func TestRunClaudeSteer(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "claude")
+	os.WriteFile(bin, []byte(fakeClaudeHooks), 0o755)
+	sp, _ := harness.Get("claude")
+	la := localHarness{Name: "claude", Path: bin, Spec: &sp}
+	steers := &steerQueue{}
+	steers.push(protocol.Steer{ID: 7, MessageID: 1, Prompt: "顺便改 CHANGELOG"})
+	steers.push(protocol.Steer{ID: 8, MessageID: 1, Prompt: "还有 README"})
+	var reports []string
+	res := runHarness(context.Background(), la, protocol.Dispatch{ID: 1, SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, steers, func(kind string, p any) {
+		if kind == "steered" {
+			b, _ := json.Marshal(p)
+			reports = append(reports, string(b))
+		}
+	})
+	if !res.OK || res.Output != "ok!" {
+		t.Fatalf("%+v", res)
+	}
+	read := func(name string) string {
+		b, _ := os.ReadFile(filepath.Join(dir, name))
+		return strings.TrimSpace(string(b))
+	}
+	if init := read("init.txt"); !strings.Contains(init, `"subtype":"initialize"`) || !strings.Contains(init, `"agentuse-pre"`) || !strings.Contains(init, `"agentuse-stop"`) {
+		t.Fatalf("init: %s", init)
+	}
+	want := `{"response":{"request_id":"r1","response":{"hookSpecificOutput":{"additionalContext":"[用户插话] 用户在你工作时补充了下面的话。这是对原任务的补充，不是替换原任务：\n顺便改 CHANGELOG\n\n还有 README","hookEventName":"PreToolUse"}},"subtype":"success"},"type":"control_response"}`
+	if got := read("pre.txt"); got != want {
+		t.Fatalf("pre:\n%s\n%s", got, want)
+	}
+	// 插话已经在 PreToolUse 送出去了,Stop 不再拦
+	if got := read("stop.txt"); got != `{"response":{"request_id":"r2","response":{},"subtype":"success"},"type":"control_response"}` {
+		t.Fatalf("stop: %s", got)
+	}
+	if got := read("other.txt"); got != `{"response":{"request_id":"r3","response":{},"subtype":"success"},"type":"control_response"}` {
+		t.Fatalf("other: %s", got)
+	}
+	if !reflect.DeepEqual(reports, []string{`{"steer_id":7}`, `{"steer_id":8}`}) {
+		t.Fatalf("steered: %v", reports)
+	}
+}
+
+func TestClaudeControlStop(t *testing.T) {
+	var buf strings.Builder
+	w := &stdinWriter{w: nopCloser{&buf}}
+	steers := &steerQueue{}
+	steers.push(protocol.Steer{ID: 1, Prompt: "再加个测试"})
+	var n int
+	if !claudeControl(`{"type":"control_request","request_id":"r","request":{"subtype":"hook_callback","callback_id":"agentuse-stop"}}`, w, steers, func(string, any) { n++ }) {
+		t.Fatal("应该处理 control_request")
+	}
+	if !strings.Contains(buf.String(), `"decision":"block"`) || !strings.Contains(buf.String(), "再加个测试") || n != 1 {
+		t.Fatalf("stop: %s %d", buf.String(), n)
+	}
+	if claudeControl(`{"type":"assistant"}`, w, steers, func(string, any) {}) {
+		t.Fatal("不是 control_request")
+	}
+	// stdin 关了：插话放回队列，不算送达
+	w.close()
+	steers.push(protocol.Steer{ID: 2, Prompt: "x"})
+	claudeControl(`{"type":"control_request","request_id":"r","request":{"subtype":"hook_callback","callback_id":"agentuse-pre"}}`, w, steers, func(string, any) { n++ })
+	if got := steers.take(); len(got) != 1 || n != 1 {
+		t.Fatalf("closed: %+v %d", got, n)
+	}
+}
+
+type nopCloser struct{ io.Writer }
+
+func (nopCloser) Close() error { return nil }

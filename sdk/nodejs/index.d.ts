@@ -83,7 +83,17 @@ export interface SessionEvent {
   created_at: number;
 }
 
-export interface SessionDetail { session: Session; messages: Message[]; events: SessionEvent[]; }
+export interface Steer {
+  id: number;
+  session_id: string;
+  message_id: number;
+  created_by: string;
+  prompt: string;
+  status: "pending" | "delivered" | "queued";
+  created_at: number;
+}
+
+export interface SessionDetail { session: Session; messages: Message[]; steers: Steer[]; events: SessionEvent[]; }
 
 // 网站的 user id;null 表示 admin 本身。
 export type UserId = string | null;
@@ -125,7 +135,8 @@ export declare class Client {
 
   listSessions(user: UserId): Promise<Session[]>;
   createSession(user: UserId, req: MessageInput & { agent_id: string }): Promise<{ session: Session; message: Message }>;
-  sendMessage(user: UserId, sessionId: string, req: MessageInput): Promise<Message>;
+  /** 会话 idle 时返回 Message;忙时是插话，返回 Steer。 */
+  sendMessage(user: UserId, sessionId: string, req: MessageInput): Promise<Message | Steer>;
   getSession(user: UserId, sessionId: string): Promise<SessionDetail>;
   deleteSession(user: UserId, sessionId: string): Promise<void>;
   waitSession(user: UserId, sessionId: string, opts?: { interval?: number; timeout?: number }): Promise<SessionDetail>;

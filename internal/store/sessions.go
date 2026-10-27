@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -19,6 +20,7 @@ const (
 
 	EventProgress = "progress"
 	EventPlan     = "plan"
+	EventSteered  = "steered"
 	EventDone     = "done"
 	EventFailed   = "failed"
 )
@@ -67,6 +69,8 @@ var (
 	ErrStaleMessage = errors.New("store: message is not running on this daemon")
 	// ErrSessionBusy 表示会话还在等 harness 回复，不能再发消息。
 	ErrSessionBusy = errors.New("会话还在等 harness 回复")
+	// ErrSessionIdle 表示会话空闲，应该发下一条消息而不是插话。
+	ErrSessionIdle = errors.New("会话空闲，直接发消息")
 	// ErrSessionOrphaned 表示会话的 daemon 已删除，续不上了。
 	ErrSessionOrphaned = errors.New("会话原来的 daemon 已删除，不能继续")
 )
@@ -108,8 +112,7 @@ func (s *Store) CreateSession(ctx context.Context, u User, agentID, title string
 	return ss, m, tx.Commit()
 }
 
-// AddMessage 在 idle 的会话里发下一条用户消息，会话回到 pending。
-// TODO: 插话(harness 还在跑时追加消息)以后用 harness 的 hook 来做。
+// AddMessage 在 idle 的会话里发下一条用户消息，会话回到 pending。会话忙时返回 ErrSessionBusy,改用 AddSteer。
 func (s *Store) AddMessage(ctx context.Context, u User, sessionID string, content json.RawMessage) (Session, Message, error) {
 	if !json.Valid(content) {
 		return Session{}, Message{}, errors.New("input 必须是 JSON")
@@ -216,7 +219,7 @@ func (s *Store) RenewLease(ctx context.Context, daemonID string, messageID int64
 // payload 里带了 session_id 就记成 harness 的会话 id。
 func (s *Store) AddEvent(ctx context.Context, daemonID string, messageID int64, kind string, payload json.RawMessage, leaseSeconds int64) error {
 	switch kind {
-	case EventProgress, EventPlan, EventDone, EventFailed:
+	case EventProgress, EventPlan, EventSteered, EventDone, EventFailed:
 	default:
 		return fmt.Errorf("未知回报类型 %q", kind)
 	}
@@ -233,7 +236,7 @@ func (s *Store) AddEvent(ctx context.Context, daemonID string, messageID int64, 
 	defer tx.Rollback()
 	now := s.unix()
 	var sessionID string
-	running := kind == EventProgress || kind == EventPlan // 跑的过程中的回报：只续租
+	running := kind == EventProgress || kind == EventPlan || kind == EventSteered // 跑的过程中的回报：只续租
 	if running {
 		err = tx.QueryRowContext(ctx,
 			`UPDATE sessions SET lease_until = ? WHERE `+runningWhere+` RETURNING id`,
@@ -255,8 +258,22 @@ func (s *Store) AddEvent(ctx context.Context, daemonID string, messageID int64, 
 	if err != nil {
 		return err
 	}
+	if kind == EventSteered {
+		var r struct {
+			SteerID int64 `json:"steer_id"`
+		}
+		_ = json.Unmarshal(payload, &r)
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE steers SET status = 'delivered', updated_at = ? WHERE id = ? AND message_id = ? AND status = 'pending'`,
+			now, r.SteerID, messageID); err != nil {
+			return err
+		}
+	}
 	if !running {
 		if _, err := insertMessage(ctx, tx, sessionID, RoleAssistantMsg, payload, now); err != nil {
+			return err
+		}
+		if err := queueSteers(ctx, tx, sessionID, messageID, now); err != nil {
 			return err
 		}
 	}
@@ -481,4 +498,123 @@ func nullIfEmpty(v string) any {
 		return nil
 	}
 	return v
+}
+
+// Steer 是一条插话，见 docs/v2/designs/steer.md。
+type Steer struct {
+	ID        int64  `json:"id"`
+	SessionID string `json:"session_id"`
+	MessageID int64  `json:"message_id"`
+	CreatedBy string `json:"created_by"`
+	Prompt    string `json:"prompt"`
+	Status    string `json:"status"` // pending / delivered / queued
+	CreatedAt int64  `json:"created_at"`
+}
+
+const (
+	SteerPending   = "pending"
+	SteerDelivered = "delivered"
+	SteerQueued    = "queued"
+)
+
+// AddSteer 在 pending / running 的会话里插话，挂在当时最后一条用户消息上。
+// 会话 idle 时返回 ErrSessionIdle,改用 AddMessage。
+func (s *Store) AddSteer(ctx context.Context, u User, sessionID, prompt string) (Session, Steer, error) {
+	if strings.TrimSpace(prompt) == "" {
+		return Session{}, Steer{}, errors.New("prompt 不能为空")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Session{}, Steer{}, err
+	}
+	defer tx.Rollback()
+	ss, err := s.getSession(ctx, tx, u, sessionID)
+	if err != nil {
+		return Session{}, Steer{}, err
+	}
+	if ss.Status == SessionIdle {
+		return Session{}, Steer{}, ErrSessionIdle
+	}
+	if ss.DaemonID == "" {
+		return Session{}, Steer{}, ErrSessionOrphaned
+	}
+	st := Steer{SessionID: ss.ID, CreatedBy: u.ID, Prompt: prompt, Status: SteerPending, CreatedAt: s.unix()}
+	if err := tx.QueryRowContext(ctx, `SELECT MAX(id) FROM messages WHERE session_id = ? AND role = 'user'`, ss.ID).Scan(&st.MessageID); err != nil {
+		return Session{}, Steer{}, err
+	}
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO steers (session_id, message_id, created_by, prompt, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		st.SessionID, st.MessageID, st.CreatedBy, st.Prompt, st.Status, st.CreatedAt, st.CreatedAt)
+	if err != nil {
+		return Session{}, Steer{}, err
+	}
+	st.ID, _ = res.LastInsertId()
+	return ss, st, tx.Commit()
+}
+
+// queueSteers:这一轮结束时还没送达的插话转成 queued,prompt 用空行拼成下一条用户消息，会话回到 pending。
+func queueSteers(ctx context.Context, tx *sql.Tx, sessionID string, messageID, now int64) error {
+	rows, err := tx.QueryContext(ctx,
+		`UPDATE steers SET status = 'queued', updated_at = ? WHERE message_id = ? AND status = 'pending' RETURNING id, prompt`, now, messageID)
+	if err != nil {
+		return err
+	}
+	type row struct {
+		id     int64
+		prompt string
+	}
+	var queued []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.prompt); err != nil {
+			rows.Close()
+			return err
+		}
+		queued = append(queued, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil || len(queued) == 0 {
+		return err
+	}
+	// RETURNING 不保证顺序，按 id 排
+	sort.Slice(queued, func(i, j int) bool { return queued[i].id < queued[j].id })
+	prompts := make([]string, len(queued))
+	for i, r := range queued {
+		prompts[i] = r.prompt
+	}
+	content, _ := json.Marshal(map[string]string{"prompt": strings.Join(prompts, "\n\n")})
+	if _, err := insertMessage(ctx, tx, sessionID, RoleUserMsg, content, now); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ?`, now, sessionID)
+	return err
+}
+
+const steerCols = `SELECT id, session_id, message_id, created_by, prompt, status, created_at FROM steers`
+
+func (s *Store) querySteers(ctx context.Context, where string, args ...any) ([]Steer, error) {
+	rows, err := s.db.QueryContext(ctx, steerCols+` WHERE `+where+` ORDER BY id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Steer{}
+	for rows.Next() {
+		var st Steer
+		if err := rows.Scan(&st.ID, &st.SessionID, &st.MessageID, &st.CreatedBy, &st.Prompt, &st.Status, &st.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, st)
+	}
+	return out, rows.Err()
+}
+
+// Steers 列会话里的所有插话。
+func (s *Store) Steers(ctx context.Context, sessionID string) ([]Steer, error) {
+	return s.querySteers(ctx, `session_id = ?`, sessionID)
+}
+
+// PendingSteers 列挂在某条消息上、还没送达的插话(派出消息后推给 daemon)。
+func (s *Store) PendingSteers(ctx context.Context, messageID int64) ([]Steer, error) {
+	return s.querySteers(ctx, `message_id = ? AND status = 'pending'`, messageID)
 }

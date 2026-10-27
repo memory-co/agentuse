@@ -29,10 +29,10 @@ defer cancel()
 detail, err := c.WaitSession(wctx, uid, r.Session.ID, 2*time.Second)
 fmt.Println(string(detail.Messages[len(detail.Messages)-1].Content))
 
-// 接着回复
-_, err = c.SendMessage(ctx, uid, r.Session.ID, agentuse.MessageRequest{Prompt: "再把 CHANGELOG 也改一下"})
-if agentuse.IsStatus(err, 409) {
-	// harness 还没回完
+// 接着回复;harness 还在跑时是插话(reply.Steer),会在它下一步之前送达
+reply, err := c.SendMessage(ctx, uid, r.Session.ID, agentuse.MessageRequest{Prompt: "再把 CHANGELOG 也改一下"})
+if err == nil && reply.Steer != nil {
+	fmt.Println("插话:", reply.Steer.Status)
 }
 ```
 
