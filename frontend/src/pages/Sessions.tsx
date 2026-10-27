@@ -51,20 +51,20 @@ function Composer({ placeholder, disabled, busy, onSend, children }: {
   </form>;
 }
 
-/** 新会话：选 agent,写第一句话。给了 work 时是在这个工作里手动开线程。 */
-export function NewSession({ onCreated, work }: { onCreated: (id: string) => void; work?: { id: string; name: string } }) {
+/** 新会话：选 agent,写第一句话。 */
+export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
   const t = useT();
   const agents = useAgents();
   const [agent, setAgent] = useState('');
   useEffect(() => { if (!agent && agents.data?.length) setAgent(agents.data[0].id); }, [agent, agents.data]);
   const add = useMutation({
-    mutationFn: (prompt: string) => api<{ session: Session }>('/api/sessions', { method: 'POST', body: { agent_id: agent.trim(), prompt, ...(work ? { work_id: work.id } : {}) } }),
+    mutationFn: (prompt: string) => api<{ session: Session }>('/api/sessions', { method: 'POST', body: { agent_id: agent.trim(), prompt } }),
     onSuccess: r => { void refresh(); onCreated(r.session.id); },
   });
   return <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-6 px-4 py-10">
     <div className="grid gap-1 text-center">
-      <h1 className="text-2xl font-semibold">{work ? t('work.newThread') : t('session.ask')}</h1>
-      <p className="text-sm text-muted-foreground">{work ? t('work.newThreadText', { name: work.name }) : t('session.askText')}</p>
+      <h1 className="text-2xl font-semibold">{t('session.ask')}</h1>
+      <p className="text-sm text-muted-foreground">{t('session.askText')}</p>
     </div>
     <Composer placeholder={t('session.taskPlaceholder')} disabled={!agent.trim()} busy={add.isPending} onSend={p => add.mutateAsync(p)}>
       <Input className="h-8 w-52 font-mono text-xs" list="agent-ids" placeholder={t('session.agentPlaceholder')} value={agent} onChange={e => setAgent(e.target.value)} aria-label="agent" />

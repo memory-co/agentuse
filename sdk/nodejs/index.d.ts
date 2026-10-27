@@ -159,7 +159,7 @@ export declare class Client {
   deleteDaemon(user: UserId, daemonId: string): Promise<void>;
 
   listSessions(user: UserId): Promise<Session[]>;
-  createSession(user: UserId, req: MessageInput & { agent_id: string; work_id?: string }): Promise<{ session: Session; message: Message }>;
+  createSession(user: UserId, req: MessageInput & { agent_id: string }): Promise<{ session: Session; message: Message }>;
   /** 会话 idle 时返回 Message;忙时是插话，返回 Steer。 */
   sendMessage(user: UserId, sessionId: string, req: MessageInput): Promise<Message | Steer>;
   getSession(user: UserId, sessionId: string): Promise<SessionDetail>;

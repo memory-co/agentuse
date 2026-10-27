@@ -36,13 +36,34 @@ func TestWorksAPI(t *testing.T) {
 		t.Fatalf("patch: %d %+v", r.StatusCode, w)
 	}
 
-	// 用户在工作里手动开线程;普通列表里看不到，按 work_id 能看到
+	// 线程只能由协调者用工作令牌开，用户令牌带 work_id 不行
+	if c := e.code(aliceTok, "POST", "/api/sessions", map[string]string{"agent_id": "coder", "prompt": "x", "work_id": wid}); c != http.StatusForbidden {
+		t.Fatalf("用户手动开线程: %d", c)
+	}
+	if c := e.code(aliceTok, "POST", "/api/sessions/"+created.Coordinator.ID+"/resolve", nil); c != http.StatusBadRequest {
+		t.Fatalf("协调者不能标记完成: %d", c)
+	}
+
+	// 工作令牌：协调者被领走时才有，只能动这个工作的线程
+	e.st.AddMessage(ctx, alice, created.Coordinator.ID, json.RawMessage(`{"prompt":"拆活"}`))
+	cl, err := e.st.ClaimSession(ctx, d, 60)
+	if err != nil || cl.Session.ID != created.Coordinator.ID {
+		t.Fatalf("claim coordinator: %v %+v", err, cl)
+	}
+	wt := cl.WorkToken
+	if c := e.code(wt, "GET", "/api/me", nil); c != http.StatusForbidden {
+		t.Fatalf("工作令牌调别的接口: %d", c)
+	}
+	if c := e.code(wt, "GET", "/api/agents", nil); c != http.StatusOK {
+		t.Fatalf("工作令牌列 agent: %d", c)
+	}
 	var th struct {
 		Session store.Session `json:"session"`
 	}
-	if r := e.req(aliceTok, "POST", "/api/sessions", map[string]string{"agent_id": "coder", "prompt": "x", "work_id": wid}, &th); r.StatusCode != http.StatusCreated || th.Session.WorkRole != store.WorkThread {
-		t.Fatalf("thread: %d %+v", r.StatusCode, th)
+	if r := e.req(wt, "POST", "/api/sessions", map[string]string{"agent_id": "coder", "prompt": "y"}, &th); r.StatusCode != http.StatusCreated || th.Session.WorkID != wid || th.Session.WorkRole != store.WorkThread || th.Session.CreatedBy != alice.ID {
+		t.Fatalf("工作令牌开线程: %d %+v", r.StatusCode, th)
 	}
+	// 普通列表里看不到线程，按 work_id 能看到
 	var list []store.Session
 	if e.req(aliceTok, "GET", "/api/sessions", nil, &list); len(list) != 0 {
 		t.Fatalf("普通列表: %+v", list)
@@ -50,45 +71,16 @@ func TestWorksAPI(t *testing.T) {
 	if e.req(aliceTok, "GET", "/api/sessions?work_id="+wid, nil, &list); len(list) != 1 {
 		t.Fatalf("线程列表: %+v", list)
 	}
+	if e.req(wt, "GET", "/api/sessions", nil, &list); len(list) != 1 || list[0].ID != th.Session.ID {
+		t.Fatalf("工作令牌列线程: %+v", list)
+	}
 	if c := e.code(bobTok, "GET", "/api/sessions?work_id="+wid, nil); c != http.StatusNotFound {
 		t.Fatalf("bob 列线程: %d", c)
-	}
-	if c := e.code(aliceTok, "POST", "/api/sessions/"+created.Coordinator.ID+"/resolve", nil); c != http.StatusBadRequest {
-		t.Fatalf("协调者不能标记完成: %d", c)
 	}
 	if c := e.code(aliceTok, "POST", "/api/sessions/"+th.Session.ID+"/resolve", nil); c != http.StatusConflict {
 		t.Fatalf("pending 不能标记完成: %d", c)
 	}
-
-	// 工作令牌：协调者被领走时才有，只能动这个工作的线程
-	e.st.AddMessage(ctx, alice, created.Coordinator.ID, json.RawMessage(`{"prompt":"拆活"}`))
-	var cl store.Claimed
-	for cl.Session.ID != created.Coordinator.ID {
-		var err error
-		if cl, err = e.st.ClaimSession(ctx, d, 60); err != nil {
-			t.Fatal(err)
-		}
-		if cl.Session.ID != created.Coordinator.ID { // 先领到的线程直接回完，免得后面删工作时还在跑
-			e.st.AddEvent(ctx, d.ID, cl.Message.ID, store.EventDone, json.RawMessage(`{"ok":true}`), 60)
-		}
-	}
-	wt := cl.WorkToken
-	if c := e.code(wt, "GET", "/api/me", nil); c != http.StatusForbidden {
-		t.Fatalf("工作令牌调别的接口: %d", c)
-	}
-	if e.req(wt, "GET", "/api/sessions", nil, &list); len(list) != 1 || list[0].ID != th.Session.ID {
-		t.Fatalf("工作令牌列线程: %+v", list)
-	}
-	if c := e.code(wt, "GET", "/api/agents", nil); c != http.StatusOK {
-		t.Fatalf("工作令牌列 agent: %d", c)
-	}
-	var th2 struct {
-		Session store.Session `json:"session"`
-	}
-	if r := e.req(wt, "POST", "/api/sessions", map[string]string{"agent_id": "coder", "prompt": "y"}, &th2); r.StatusCode != http.StatusCreated || th2.Session.WorkID != wid || th2.Session.CreatedBy != alice.ID {
-		t.Fatalf("工作令牌开线程: %d %+v", r.StatusCode, th2)
-	}
-	if c := e.code(wt, "GET", "/api/sessions/"+th2.Session.ID, nil); c != http.StatusOK {
+	if c := e.code(wt, "GET", "/api/sessions/"+th.Session.ID, nil); c != http.StatusOK {
 		t.Fatalf("工作令牌看线程: %d", c)
 	}
 	if c := e.code(wt, "GET", "/api/sessions/"+created.Coordinator.ID, nil); c != http.StatusForbidden {
@@ -102,7 +94,7 @@ func TestWorksAPI(t *testing.T) {
 	if c := e.code(wt, "POST", "/api/sessions/"+plain.Session.ID+"/messages", map[string]string{"prompt": "hi"}); c != http.StatusForbidden {
 		t.Fatalf("工作令牌给普通会话发消息: %d", c)
 	}
-	if c := e.code(wt, "DELETE", "/api/sessions/"+th2.Session.ID, nil); c != http.StatusForbidden {
+	if c := e.code(wt, "DELETE", "/api/sessions/"+th.Session.ID, nil); c != http.StatusForbidden {
 		t.Fatalf("工作令牌删线程: %d", c)
 	}
 	// 这一轮结束，令牌失效

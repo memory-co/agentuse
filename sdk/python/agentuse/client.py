@@ -127,10 +127,10 @@ class Client:
     def list_sessions(self, user):
         return self._request("GET", "/api/sessions", user)
 
-    def create_session(self, user, agent_id, prompt=None, input=None, work_id=None):
-        """用一个 agent 新建会话并发出第一条消息，返回 {"session": …, "message": …}。给 work_id 时是在这个工作里开线程。"""
+    def create_session(self, user, agent_id, prompt=None, input=None):
+        """用一个 agent 新建会话并发出第一条消息，返回 {"session": …, "message": …}。"""
         return self._request(
-            "POST", "/api/sessions", user, _drop_none(agent_id=agent_id, prompt=prompt, input=input, work_id=work_id)
+            "POST", "/api/sessions", user, _drop_none(agent_id=agent_id, prompt=prompt, input=input)
         )
 
     def send_message(self, user, session_id, prompt=None, input=None):

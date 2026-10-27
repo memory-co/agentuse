@@ -1,8 +1,10 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -13,7 +15,7 @@ import (
 	"github.com/memory-co/agentuse/test/e2e/e2eutil"
 )
 
-// 工作场景(docs/v2/designs/work.md):用户跟协调者说话 → 协调者用 agentuse work new 开线程 →
+// 工作场景(docs/v2/designs/work.md):用户只跟协调者说话(不能自己开线程) → 协调者用 agentuse work new 开线程 →
 // 线程带着工作的说明跑完 → 结果作为一条消息回到协调者，协调者再回一轮。
 func TestWork(t *testing.T) {
 	e2eutil.Skip(t)
@@ -55,6 +57,19 @@ func TestWork(t *testing.T) {
 		t.Fatalf("建工作: %v %+v", err, w)
 	}
 	coord := w.Coordinator.ID
+	// 线程只能由协调者开：用户自己带 work_id 建会话被拒
+	body, _ := json.Marshal(map[string]string{"agent_id": "coder", "prompt": "x", "work_id": w.Work.ID})
+	req, _ := http.NewRequest("POST", srv.URL+"/api/sessions", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+srv.AdminToken)
+	req.Header.Set(agentuse.UserHeader, alice)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("用户手动开线程应该 403: %d", resp.StatusCode)
+	}
 	if _, err := c.SendMessage(ctx, alice, coord, agentuse.MessageRequest{Prompt: "spawn coder 改代码"}); err != nil {
 		t.Fatal(err)
 	}

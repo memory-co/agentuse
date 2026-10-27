@@ -453,7 +453,12 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "agent_id 必填")
 		return
 	}
-	if sc := workScope(r); sc != nil {
+	if sc := workScope(r); sc == nil {
+		if req.WorkID != "" {
+			writeErr(w, http.StatusForbidden, "线程只能由工作的协调者开(agentuse work new)")
+			return
+		}
+	} else {
 		if req.WorkID == "" {
 			req.WorkID = sc.ID
 		}

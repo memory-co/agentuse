@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { FileText, Plus, Trash2 } from 'lucide-react';
+import { FileText, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -52,8 +52,8 @@ export function NewWork({ onCreated }: { onCreated: (id: string) => void }) {
   </div>;
 }
 
-/** 工作页：上面一行工具(说明、新线程、删除),下面就是和协调者的对话。 */
-export function WorkPage({ id, onNewThread, onDeleted }: { id: string; onNewThread: () => void; onDeleted: () => void }) {
+/** 工作页：上面一行工具(说明、删除),下面就是和协调者的对话。线程由协调者开，用户不能手动开。 */
+export function WorkPage({ id, onDeleted }: { id: string; onDeleted: () => void }) {
   const t = useT();
   const w = useWork(id);
   const [showInstructions, setShowInstructions] = useState(false);
@@ -65,7 +65,6 @@ export function WorkPage({ id, onNewThread, onDeleted }: { id: string; onNewThre
     <div className="shrink-0 border-b pb-2">
     <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-1 px-4 pt-2">
       <Button variant={showInstructions ? 'secondary' : 'ghost'} size="sm" className="h-7 gap-1 px-2 text-xs" onClick={() => setShowInstructions(v => !v)}><FileText />{t('work.instructions')}</Button>
-      <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" onClick={onNewThread}><Plus />{t('work.newThread')}</Button>
       <span className="text-xs text-muted-foreground">{t('work.threads', { n: work.thread_count })}</span>
       <Confirm title={t('work.deleteTitle', { name: work.name })} description={t('work.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
         <Button variant="ghost" size="icon" className="ml-auto size-7 text-destructive" aria-label={t('work.delete')}><Trash2 /></Button>

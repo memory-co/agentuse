@@ -130,7 +130,6 @@ type MessageRequest struct {
 
 type CreateSessionRequest struct {
 	AgentID string `json:"agent_id"`
-	WorkID  string `json:"work_id,omitempty"` // 在这个工作里开线程
 	Prompt  string `json:"prompt,omitempty"`
 	Input   any    `json:"input,omitempty"`
 }

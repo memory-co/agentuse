@@ -46,7 +46,7 @@
 用一个 [agent](agents.md) 新建会话，同时发出第一条消息。两种写法:
 
 ```json
-{ "agent_id": "code-helper", "prompt": "修一下 README 的错别字", "work_id": "wk_…" }
+{ "agent_id": "code-helper", "prompt": "修一下 README 的错别字" }
 ```
 
 ```json
@@ -54,7 +54,7 @@
 ```
 
 - `agent_id` 必填，可以是任何人的 agent,不存在返回 400;agent 没有运行时(它的 daemon 被删了)也返回 400。会话属于 agent 的主人,`created_by` 是调用者;`daemon_id` 和 `harness` 取 agent 此刻的运行时。
-- `work_id` 可选，在调用者的[工作](works.md)里开一个线程;不是调用者的工作返回 404。建好后不能再改。协调者随工作一起建([works](works.md)),不走这里。
+- `work_id` 只有[工作令牌](works.md)能用：协调者在自己的工作里开线程(不带就是本工作，别的工作 403)。用户令牌带 `work_id` 返回 403,线程只能由协调者开。建好后不能再改。协调者随工作一起建([works](works.md)),不走这里。
 - 不能指定工作目录,daemon 固定用 `~/.agentuse/work/<session_id>/`。
 - 给 `prompt` 时消息内容是 `{"prompt": …}`;给 `input` 时原样交给 harness,忽略 `prompt`。
 - agent 运行时上的 harness 没开启、或那台 daemon 最近一次连上时没检测到它，返回 400 并说明原因，不会排队。

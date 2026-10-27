@@ -46,14 +46,14 @@ const PAGES: { key: PageKey; label: `nav.${PageKey}`; icon: ComponentType; Page:
 ];
 
 // 路由放在 hash 里:#/ 新会话,#/s/<id> 某个会话,#/agents 等是管理页;
-// 工作:#/works/new 新建工作,#/w/<id> 工作页(和协调者对话),#/w/<id>/new 在工作里手动开线程。
+// 工作:#/works/new 新建工作,#/w/<id> 工作页(和协调者对话)。线程只能由协调者开，没有手动开的页面。
 type Route = { page: 'new' } | { page: 'session'; id: string } | { page: PageKey }
-  | { page: 'workNew' } | { page: 'work'; id: string } | { page: 'threadNew'; workId: string };
+  | { page: 'workNew' } | { page: 'work'; id: string };
 function parse(): Route {
   const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
   if (h.startsWith('s/')) return { page: 'session', id: h.slice(2) };
   if (h === 'works/new') return { page: 'workNew' };
-  if (h.startsWith('w/')) return h.endsWith('/new') ? { page: 'threadNew', workId: h.slice(2, -4) } : { page: 'work', id: h.slice(2) };
+  if (h.startsWith('w/')) return { page: 'work', id: h.slice(2) };
   const p = PAGES.find(p => p.key === h);
   return p ? { page: p.key } : { page: 'new' };
 }
@@ -63,13 +63,12 @@ function href(r: Route) {
     case 'session': return `/s/${encodeURIComponent(r.id)}`;
     case 'workNew': return '/works/new';
     case 'work': return `/w/${encodeURIComponent(r.id)}`;
-    case 'threadNew': return `/w/${encodeURIComponent(r.workId)}/new`;
     default: return `/${r.page}`;
   }
 }
 const go = (r: Route) => { location.hash = href(r); };
-/** 路由落在哪个工作里(工作页、新线程页);会话页要看会话自己的 work_id。 */
-const routeWork = (r: Route) => r.page === 'work' ? r.id : r.page === 'threadNew' ? r.workId : '';
+/** 路由落在哪个工作里(工作页);会话页要看会话自己的 work_id。 */
+const routeWork = (r: Route) => r.page === 'work' ? r.id : '';
 function useRoute() {
   const [route, setRoute] = useState(parse);
   useEffect(() => { const on = () => setRoute(parse()); addEventListener('hashchange', on); return () => removeEventListener('hashchange', on); }, []);
@@ -124,7 +123,7 @@ function Shell({ me }: { me: User }) {
   const work = workId ? works.data?.find(w => w.id === workId) : undefined;
   const page = pages.find(p => p.key === route.page);
   const title = route.page === 'new' ? t('nav.new') : route.page === 'session' ? current?.title || route.id
-    : route.page === 'workNew' ? t('work.newTitle') : route.page === 'work' ? work?.name || route.id : route.page === 'threadNew' ? t('work.newThread')
+    : route.page === 'workNew' ? t('work.newTitle') : route.page === 'work' ? work?.name || route.id
     : page ? t(page.label) : '';
   const heading = <>
     {work && route.page !== 'work' && <a href={`#${href({ page: 'work', id: work.id })}`} className="min-w-0 max-w-[40%] shrink truncate text-sm text-muted-foreground hover:text-foreground">{work.name} /</a>}
@@ -134,8 +133,7 @@ function Shell({ me }: { me: User }) {
   </>;
   const content = route.page === 'session' ? <Conversation key={route.id} id={route.id} onDeleted={() => go(current?.work_id ? { page: 'work', id: current.work_id } : { page: 'new' })} />
     : route.page === 'workNew' ? <NewWork onCreated={id => go({ page: 'work', id })} />
-    : route.page === 'work' ? <WorkPage key={route.id} id={route.id} onNewThread={() => go({ page: 'threadNew', workId: route.id })} onDeleted={() => go({ page: 'new' })} />
-    : route.page === 'threadNew' ? <NewSession key={route.workId} work={{ id: route.workId, name: work?.name || route.workId }} onCreated={id => go({ page: 'session', id })} />
+    : route.page === 'work' ? <WorkPage key={route.id} id={route.id} onDeleted={() => go({ page: 'new' })} />
     : page ? <div className="mx-auto w-full max-w-5xl px-4 py-6"><page.Page me={effective} /></div>
     : <NewSession onCreated={id => go({ page: 'session', id })} />;
   const body = (onNavigate: () => void, onClose?: () => void) =>
