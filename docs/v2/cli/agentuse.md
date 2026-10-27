@@ -12,6 +12,7 @@
 | `agentuse daemon` | 前台运行 daemon |
 | `agentuse status` | 看本机的注册和连接状态 |
 | `agentuse harnesses` | 看本机检测到哪些 harness |
+| `agentuse work …` | 工作的协调者用来开线程、看线程(harness 在跑时用，不是给人敲的) |
 | `agentuse version` | 版本 |
 
 ### register
@@ -63,3 +64,16 @@ my-harness  /usr/local/bin/my-harness
 
 - 不在这里开关 harness、开会话、管用户：这些在网页 / [HTTP API](../apis/README.md) 上做。
 - 卸载先手动：停掉后台服务、删 `~/.agentuse/`。以后可以加 `agentuse uninstall`。
+
+### work
+
+```
+agentuse work agents                                       # 能用哪些 agent
+agentuse work threads                                      # 这个工作的线程和状态
+agentuse work new --agent code-helper "改 daemon 的重连逻辑"  # 开线程，打印线程 id
+agentuse work send ss_xxx "再补个测试"                       # 给线程发消息(在跑就是插话)
+agentuse work read ss_xxx                                  # 看线程的消息
+agentuse work resolve ss_xxx                               # 标记线程已完成
+```
+
+给[工作](../designs/work.md)的协调者用：读环境变量 `AGENTUSE_SERVER`、`AGENTUSE_WORK_TOKEN`(daemon 起协调者时设好)调 [works](../apis/works.md#工作令牌wt_) 允许的那几个接口。没有这两个变量时报错退出。输出是给 harness 读的纯文本。

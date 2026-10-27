@@ -206,7 +206,7 @@ harness 没报会话 id 时沿用续接的那个，这条对所有 harness 都�
     └── agentuse/SKILL.md     // 来自 harness/claude/skills/agentuse/
 ```
 
-`agentuse` 这个 skill 告诉 Claude 它跑在什么环境里：没有人在终端前，不能中途提问;每条消息的最后一段回复就是交给用户的结果，要写完整;这个目录是这个会话专用的，可以随便放文件，下一条消息还在。以后要按 agent 带不同的 skill、或者写 CLAUDE.md,再在这一步加。
+`agentuse` 这个 skill 告诉 Claude 它跑在什么环境里：没有人在终端前，不能中途提问;每条消息的最后一段回复就是交给用户的结果，要写完整;这个目录是这个会话专用的，可以随便放文件，下一条消息还在。以后要按 agent 带不同的 skill,再在这一步加。会话在[工作](work.md)里时，这一步还会把工作的说明写成 `CLAUDE.md`(codex 是 `AGENTS.md`),文件名由 harness.yaml 的 `instructions` 一项指定。
 
 codex 暂时不拷东西，只是也在锁定的目录里跑。
 
