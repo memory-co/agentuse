@@ -93,6 +93,9 @@ func (s *Store) CreateWork(ctx context.Context, u User, name, agentID, instructi
 	if err != nil {
 		return Work{}, Session{}, err
 	}
+	if ss.UserID != u.ID { // 工作里只用自己的 agent,协调者和线程一样
+		return Work{}, Session{}, fmt.Errorf("协调者只能用自己的 agent: %s", agentID)
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE works SET coordinator_id = ? WHERE id = ?`, ss.ID, w.ID); err != nil {
 		return Work{}, Session{}, err
 	}

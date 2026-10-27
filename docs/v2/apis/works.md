@@ -30,7 +30,7 @@
 ```
 
 - `name` 必填，空或超过 64 个字返回 400。
-- `agent_id` 是协调者用的 agent,规则同开会话([sessions](sessions.md#post-apisessions)):不存在、没有运行时、harness 不可用都返回 400。
+- `agent_id` 是协调者用的 agent,必须是调用者自己的(和线程一样，别人的返回 400);其余规则同开会话([sessions](sessions.md#post-apisessions)):不存在、没有运行时、harness 不可用都返回 400。
 - 同时建出协调者会话(`idle`,没有消息),返回 201 和 `{"work": …, "coordinator": …}`。之后给协调者发消息用 `POST /api/sessions/{coordinator_id}/messages`。
 
 ## GET /api/works/{id}
