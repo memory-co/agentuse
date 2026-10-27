@@ -98,8 +98,8 @@ type Result struct {
 type reportFn func(kind string, payload any)
 
 // runHarness 在 dir 里跑 harness 回一条消息，过程中调用 report 回报进度。m.Resume 不为空时续接 harness 的会话。
-// steers 是这条消息的插话队列，harness 能插话时从里面取。
-func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir string, steers *steerQueue, report reportFn) Result {
+// in 是这条消息收到的插话和提问答案，harness 能插话、能提问时从里面取。
+func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir string, in *inbox, report reportFn) Result {
 	if la.Spec == nil {
 		in, _ := json.Marshal(protocol.HarnessInput{SessionID: m.SessionID, Resume: m.Resume, Input: m.Input})
 		return withSession(runCustomHarness(ctx, exec.CommandContext(ctx, la.Path, la.Args...), in, dir, report), m.Resume)
@@ -117,7 +117,7 @@ func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir s
 	if env := la.Spec.Environ(m.ID, m.SessionID); len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
-	return withSession(runSpec(ctx, *la.Spec, cmd, la.Spec.Stdin(pi.Prompt), dir, steers, report), m.Resume)
+	return withSession(runSpec(ctx, *la.Spec, cmd, la.Spec.Stdin(pi.Prompt), dir, in, report), m.Resume)
 }
 
 // withSession:harness 没报会话 id 时沿用续接的那个，免得服务那边丢掉。
@@ -167,13 +167,18 @@ func start(cmd *exec.Cmd, dir string, stdin io.Reader) (stdout, stderr io.ReadCl
 
 // runSpec 按 harness.yaml 的 output 规则读 stdout,按 finish 判成败。
 // input 不为空时写进 stdin 并保持打开(stream-json),读到 result 行后关掉，进程才会退出。
-// steer 为 claude-hooks 时先在 stdin 注册 hook,再在 hook 回调里塞插话。
-func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, input []byte, dir string, steers *steerQueue, report reportFn) Result {
+// steer 为 claude-hooks 时先在 stdin 注册 hook,再在 hook 回调里塞插话;
+// ask 为 claude-permission 时在 can_use_tool 里等用户回答提问。
+func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, input []byte, dir string, in *inbox, report reportFn) Result {
 	hooks := sp.Steer == harness.SteerClaudeHooks && input != nil
-	var in io.WriteCloser
+	control := input != nil && (hooks || sp.Ask == harness.AskClaudePermission)
+	if sp.Ask != harness.AskClaudePermission && in != nil {
+		in = &inbox{steers: in.steers} // 这个 harness 不能提问
+	}
+	var pipe io.WriteCloser
 	if input != nil {
 		var err error
-		if in, err = cmd.StdinPipe(); err != nil {
+		if pipe, err = cmd.StdinPipe(); err != nil {
 			return Result{Error: err.Error()}
 		}
 	}
@@ -183,8 +188,8 @@ func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, input []byte, 
 	}
 	closeIn := func() {}
 	var w *stdinWriter
-	if in != nil {
-		w = &stdinWriter{w: in}
+	if pipe != nil {
+		w = &stdinWriter{w: pipe}
 		closeIn = w.close
 		go func() {
 			if hooks && w.writeJSON(claudeHooksInit()) != nil {
@@ -202,7 +207,7 @@ func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, input []byte, 
 
 	var st harness.State
 	scanLines(stdout, func(line string) {
-		if hooks && claudeControl(line, w, steers, report) {
+		if control && claudeControl(line, w, in, report) {
 			return
 		}
 		sp.Line(&st, line, func(text string) { report("progress", map[string]string{"text": text}) })
@@ -214,6 +219,7 @@ func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, input []byte, 
 			closeIn()
 		}
 	})
+	in.askBox().stop() // 进程的输出都读完了，还在等的提问作废
 	closeIn()
 	wg.Wait()
 	werr := cmd.Wait()

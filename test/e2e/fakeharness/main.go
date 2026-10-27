@@ -7,7 +7,7 @@
 //	fakeharness(其它)                        → 自定义 harness:stdin 读 {session_id,resume,input},stdout 写 progress / result
 //
 // 回复内容都带上 prompt、续接的会话 id 和工作目录名，测试据此确认 daemon 传对了参数、在对的目录里跑。
-// prompt 为 "fail" 时按各自的格式报失败。
+// prompt 为 "fail" 时按各自的格式报失败;claude 模式下 "ask" 会用 AskUserQuestion 提问，等 daemon 回答。
 package main
 
 import (
@@ -112,9 +112,55 @@ func claude(args []string) int {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+	if prompt == "ask" {
+		if !contains(args, "--permission-prompt-tool") {
+			fmt.Fprintln(os.Stderr, "AskUserQuestion 没打开")
+			return 2
+		}
+		out += " " + askUser(stdin)
+	}
 	emit(map[string]any{"type": "result", "subtype": "success", "is_error": false, "session_id": sid,
 		"result": out, "total_cost_usd": 0.01})
 	return 0
+}
+
+func contains(args []string, s string) bool {
+	for _, a := range args {
+		if a == s {
+			return true
+		}
+	}
+	return false
+}
+
+// askUser 像真的 claude 一样发一条 can_use_tool(AskUserQuestion),一直等到 daemon 回复。
+// 返回 "answer=<答案>" 或 "denied=<原因>"。
+func askUser(stdin *bufio.Reader) string {
+	q := "用哪种语言？"
+	emit(map[string]any{"type": "control_request", "request_id": "ask-1", "request": map[string]any{
+		"subtype": "can_use_tool", "tool_name": "AskUserQuestion", "tool_use_id": "toolu_ask1", "requires_user_interaction": true,
+		"input": map[string]any{"questions": []any{map[string]any{"question": q, "header": "语言", "multiSelect": false,
+			"options": []any{map[string]any{"label": "Go"}, map[string]any{"label": "Python"}}}}}}})
+	line, _ := stdin.ReadBytes('\n')
+	var resp struct {
+		Response struct {
+			RequestID string `json:"request_id"`
+			Response  struct {
+				Behavior     string `json:"behavior"`
+				Message      string `json:"message"`
+				UpdatedInput struct {
+					Answers map[string]string `json:"answers"`
+				} `json:"updatedInput"`
+			} `json:"response"`
+		} `json:"response"`
+	}
+	if json.Unmarshal(line, &resp) != nil || resp.Response.RequestID != "ask-1" {
+		return "bad-response=" + strings.TrimSpace(string(line))
+	}
+	if r := resp.Response.Response; r.Behavior == "allow" {
+		return "answer=" + r.UpdatedInput.Answers[q]
+	}
+	return "denied=" + resp.Response.Response.Message
 }
 
 // preToolUse 发一次 PreToolUse hook 回调，返回 daemon 塞来的 additionalContext。

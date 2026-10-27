@@ -232,8 +232,20 @@ func (c *Client) DeleteSession(ctx context.Context, user, sessionID string) erro
 	return c.do(ctx, user, "DELETE", "/api/sessions/"+esc(sessionID), nil, nil)
 }
 
-// WaitSession 每隔 interval 轮询一次，直到会话回到 idle,返回最后一次 GetSession 的结果。
-// 用 ctx 控制超时。
+// AnswerQuestion 回答 harness 的提问(会话 waiting 时，见 SessionDetail.Questions)。
+// answers 是问题 → 答案，答案可以是选项的 label,也可以是自己写的话;多选用 ", " 拼起来。
+// 问题已经答过或过期返回 409。
+func (c *Client) AnswerQuestion(ctx context.Context, user, sessionID string, questionID int64, answers map[string]string) (*Question, error) {
+	var q Question
+	path := fmt.Sprintf("/api/sessions/%s/questions/%d/answer", esc(sessionID), questionID)
+	if err := c.do(ctx, user, "POST", path, map[string]any{"answers": answers}, &q); err != nil {
+		return nil, err
+	}
+	return &q, nil
+}
+
+// WaitSession 每隔 interval 轮询一次，直到会话回到 idle,或者在等用户回答提问(waiting),
+// 返回最后一次 GetSession 的结果。用 ctx 控制超时。
 func (c *Client) WaitSession(ctx context.Context, user, sessionID string, interval time.Duration) (*SessionDetail, error) {
 	if interval <= 0 {
 		interval = 2 * time.Second
@@ -245,7 +257,7 @@ func (c *Client) WaitSession(ctx context.Context, user, sessionID string, interv
 		if err != nil {
 			return nil, err
 		}
-		if d.Session.Status == "idle" {
+		if d.Session.Status == "idle" || d.Session.Status == "waiting" {
 			return d, nil
 		}
 		select {

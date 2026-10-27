@@ -94,6 +94,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/sessions/{id}", s.auth(s.handleGetSession))
 	s.mux.HandleFunc("DELETE /api/sessions/{id}", s.auth(s.handleDeleteSession))
 	s.mux.HandleFunc("POST /api/sessions/{id}/messages", s.auth(s.handleAddMessage))
+	s.mux.HandleFunc("POST /api/sessions/{id}/questions/{qid}/answer", s.auth(s.handleAnswerQuestion))
 
 	s.mux.HandleFunc("POST "+protocol.RegisterPath, s.handleRegister)
 	s.mux.HandleFunc("GET "+protocol.WSPath, s.hub.handleWS)
@@ -134,7 +135,7 @@ func (s *Server) storeErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusNotFound, "不存在")
 		return
 	}
-	if errors.Is(err, store.ErrSessionBusy) {
+	if errors.Is(err, store.ErrSessionBusy) || errors.Is(err, store.ErrQuestionClosed) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}

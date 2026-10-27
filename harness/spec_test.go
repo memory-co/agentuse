@@ -30,7 +30,7 @@ func TestArgs(t *testing.T) {
 	}
 	sp, _ = Get("claude")
 	got, _ = sp.Args("hi", "", nil)
-	if strings.Join(got, " ") != "-p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions --disallowedTools AskUserQuestion" {
+	if strings.Join(got, " ") != "-p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions --permission-prompt-tool stdio" {
 		t.Fatalf("claude new: %q", got)
 	}
 	if _, err := sp.Args("", "", nil); err == nil {
@@ -104,7 +104,7 @@ func run(t *testing.T, name string, lines ...string) (State, []string) {
 func TestClaudeOutput(t *testing.T) {
 	st, progress := run(t, "claude",
 		`{"type":"system","subtype":"init","session_id":"s-1"}`,
-		`{"type":"assistant","message":{"content":[{"type":"text","text":"看一下"},{"type":"text","text":"  "},{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"看一下"},{"type":"text","text":"  "},{"type":"tool_use","name":"Bash","input":{"command":"ls"}},{"type":"tool_use","name":"AskUserQuestion","input":{}}]}}`,
 		`not json`,
 		`{"type":"result","subtype":"success","is_error":false,"result":"好了","session_id":"s-1","total_cost_usd":0.5}`,
 	)

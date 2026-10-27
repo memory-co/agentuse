@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/memory-co/agentuse/harness"
 	"github.com/memory-co/agentuse/internal/protocol"
@@ -70,7 +72,7 @@ func TestRunClaudeResume(t *testing.T) {
 	res := runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Resume: "s-1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, nil, func(string, any) {})
 	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
 	if got := strings.TrimSpace(string(args)); !res.OK || res.Output != "ok!" || res.SessionID != "s-1" ||
-		got != "-p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions --disallowedTools AskUserQuestion --resume s-1" {
+		got != "-p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions --permission-prompt-tool stdio --resume s-1" {
 		t.Fatalf("%+v %q", res, got)
 	}
 	in, _ := os.ReadFile(filepath.Join(dir, "stdin.txt"))
@@ -242,7 +244,7 @@ func TestRunClaudeSteer(t *testing.T) {
 	steers.push(protocol.Steer{ID: 7, MessageID: 1, Prompt: "顺便改 CHANGELOG"})
 	steers.push(protocol.Steer{ID: 8, MessageID: 1, Prompt: "还有 README"})
 	var reports []string
-	res := runHarness(context.Background(), la, protocol.Dispatch{ID: 1, SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, steers, func(kind string, p any) {
+	res := runHarness(context.Background(), la, protocol.Dispatch{ID: 1, SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, &inbox{steers: steers}, func(kind string, p any) {
 		if kind == "steered" {
 			b, _ := json.Marshal(p)
 			reports = append(reports, string(b))
@@ -280,19 +282,19 @@ func TestClaudeControlStop(t *testing.T) {
 	steers := &steerQueue{}
 	steers.push(protocol.Steer{ID: 1, Prompt: "再加个测试"})
 	var n int
-	if !claudeControl(`{"type":"control_request","request_id":"r","request":{"subtype":"hook_callback","callback_id":"agentuse-stop"}}`, w, steers, func(string, any) { n++ }) {
+	if !claudeControl(`{"type":"control_request","request_id":"r","request":{"subtype":"hook_callback","callback_id":"agentuse-stop"}}`, w, &inbox{steers: steers}, func(string, any) { n++ }) {
 		t.Fatal("应该处理 control_request")
 	}
 	if !strings.Contains(buf.String(), `"decision":"block"`) || !strings.Contains(buf.String(), "再加个测试") || n != 1 {
 		t.Fatalf("stop: %s %d", buf.String(), n)
 	}
-	if claudeControl(`{"type":"assistant"}`, w, steers, func(string, any) {}) {
+	if claudeControl(`{"type":"assistant"}`, w, &inbox{steers: steers}, func(string, any) {}) {
 		t.Fatal("不是 control_request")
 	}
 	// stdin 关了：插话放回队列，不算送达
 	w.close()
 	steers.push(protocol.Steer{ID: 2, Prompt: "x"})
-	claudeControl(`{"type":"control_request","request_id":"r","request":{"subtype":"hook_callback","callback_id":"agentuse-pre"}}`, w, steers, func(string, any) { n++ })
+	claudeControl(`{"type":"control_request","request_id":"r","request":{"subtype":"hook_callback","callback_id":"agentuse-pre"}}`, w, &inbox{steers: steers}, func(string, any) { n++ })
 	if got := steers.take(); len(got) != 1 || n != 1 {
 		t.Fatalf("closed: %+v %d", got, n)
 	}
@@ -301,3 +303,77 @@ func TestClaudeControlStop(t *testing.T) {
 type nopCloser struct{ io.Writer }
 
 func (nopCloser) Close() error { return nil }
+
+const askLine = `{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","tool_use_id":"t1",` +
+	`"input":{"questions":[{"question":"语言？","header":"语言","multiSelect":true,"options":[{"label":"Go"},{"label":"Python"}]}]}}}`
+
+func TestClaudeAsk(t *testing.T) {
+	var buf syncBuf
+	w := &stdinWriter{w: nopCloser{&buf}}
+	kinds := make(chan string, 10)
+	var payload protocol.QuestionPayload
+	report := func(kind string, p any) {
+		if kind == "question" {
+			payload = p.(protocol.QuestionPayload)
+		}
+		kinds <- kind
+	}
+
+	// 别的工具直接放行
+	in := &inbox{asks: newAskBox(time.Minute)}
+	claudeControl(`{"type":"control_request","request_id":"r0","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"}}}`, w, in, report)
+	if !strings.Contains(buf.String(), `"behavior":"allow","updatedInput":{"command":"ls"}`) {
+		t.Fatalf("bash: %s", buf.String())
+	}
+
+	// 提问：先回报 question,不回 control_response;答案到了再回 allow,带上 answers
+	buf.Reset()
+	if !claudeControl(askLine, w, in, report) {
+		t.Fatal("应该处理 control_request")
+	}
+	if k := <-kinds; k != "question" || payload.ToolUseID != "t1" || len(payload.Questions) != 1 || !payload.Questions[0].MultiSelect || payload.Questions[0].Options[1].Label != "Python" {
+		t.Fatalf("question: %s %+v", k, payload)
+	}
+	if buf.String() != "" {
+		t.Fatalf("还没答就回了: %s", buf.String())
+	}
+	in.asks.answer(protocol.Answer{ToolUseID: "other", Answers: map[string]string{"语言？": "Python"}})
+	in.asks.answer(protocol.Answer{ToolUseID: "t1", Answers: map[string]string{"语言？": "Go"}})
+	if k := <-kinds; k != "answered" || !strings.Contains(buf.String(), `"answers":{"语言？":"Go"}`) || !strings.Contains(buf.String(), `"request_id":"r1"`) || !strings.Contains(buf.String(), `"questions":[`) {
+		t.Fatalf("answered: %s %s", k, buf.String())
+	}
+
+	// 超时：回 deny,回报 question_expired
+	buf.Reset()
+	in = &inbox{asks: newAskBox(20 * time.Millisecond)}
+	claudeControl(askLine, w, in, report)
+	<-kinds
+	if k := <-kinds; k != "question_expired" || !strings.Contains(buf.String(), `"behavior":"deny"`) {
+		t.Fatalf("timeout: %s %s", k, buf.String())
+	}
+
+	// 运行结束：还在等的作废
+	in = &inbox{asks: newAskBox(time.Minute)}
+	claudeControl(askLine, w, in, report)
+	<-kinds
+	in.asks.stop()
+	if k := <-kinds; k != "question_expired" {
+		t.Fatalf("stop: %s", k)
+	}
+
+	// 不能提问的 harness:直接 deny
+	buf.Reset()
+	claudeControl(askLine, w, &inbox{}, report)
+	if !strings.Contains(buf.String(), `"behavior":"deny"`) || len(kinds) != 0 {
+		t.Fatalf("no ask: %s", buf.String())
+	}
+}
+
+type syncBuf struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) { s.mu.Lock(); defer s.mu.Unlock(); return s.b.Write(p) }
+func (s *syncBuf) String() string              { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }
+func (s *syncBuf) Reset()                      { s.mu.Lock(); defer s.mu.Unlock(); s.b.Reset() }

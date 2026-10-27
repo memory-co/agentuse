@@ -10,12 +10,13 @@ detect:
   version: [--version]
 
 # 每条消息起一次进程。{prompt} {resume} {args} 是占位符，见 docs/v2/designs/harness.md
-# prompt 不走参数，走 stdin(见 input)。不让它弹权限确认，也不让它向人提问(没人能答)
+# prompt 不走参数，走 stdin(见 input)。不让它弹权限确认;
+# --permission-prompt-tool stdio 打开 AskUserQuestion,提问走 stdin/stdout 的 can_use_tool(见 ask)
 run:
   new:    [-p, --input-format, stream-json, --output-format, stream-json, --verbose,
-           --permission-mode, bypassPermissions, --disallowedTools, AskUserQuestion, "{args}"]
+           --permission-mode, bypassPermissions, --permission-prompt-tool, stdio, "{args}"]
   resume: [-p, --input-format, stream-json, --output-format, stream-json, --verbose,
-           --permission-mode, bypassPermissions, --disallowedTools, AskUserQuestion,
+           --permission-mode, bypassPermissions, --permission-prompt-tool, stdio,
            --resume, "{resume}", "{args}"]
 
 # stdin 写一行 JSON 作为这条消息;看到 result 行后关掉 stdin,进程退出
@@ -31,6 +32,9 @@ env:
 
 # 插话：在 stdin 注册 PreToolUse / Stop hook,回调时把插话塞进去(docs/v2/designs/steer.md)
 steer: claude-hooks
+
+# 提问：AskUserQuestion 来问时报给服务，等用户回答再回(docs/v2/designs/question.md)
+ask: claude-permission
 
 # 起进程前把本目录下的子目录拷进会话目录(每次覆盖，保证是当前版本)
 workdir:
@@ -55,6 +59,9 @@ output:
           final: true
         - match: { type: tool_use, name: TaskUpdate }
           plan_update: { id: input.taskId, status: input.status }
+          final: true
+        # 提问显示成问题卡片(question 回报),不再出一行进度
+        - match: { type: tool_use, name: AskUserQuestion }
           final: true
         - match: { type: tool_use }
           progress: "🔧 {name} {input}"

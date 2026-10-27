@@ -24,6 +24,16 @@ type Config struct {
 	// Harnesses 配置本机 harness 的启动命令。内置的(claude / codex)不配也会自动检测;
 	// 自定义 harness 必须在这里配，名字要和服务上注册的一致。
 	Harnesses map[string]HarnessConfig `json:"harnesses,omitempty"`
+	// AskTimeout 是等用户回答提问的最长时间，如 "30m";不填默认 30 分钟。
+	AskTimeout string `json:"ask_timeout,omitempty"`
+}
+
+func (c Config) askTimeout() time.Duration {
+	d, err := time.ParseDuration(c.AskTimeout)
+	if err != nil || d <= 0 {
+		return defaultAskTimeout
+	}
+	return d
 }
 
 type HarnessConfig struct {

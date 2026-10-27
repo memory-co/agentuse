@@ -123,6 +123,21 @@ CREATE TABLE IF NOT EXISTS steers (
 );
 CREATE INDEX IF NOT EXISTS steers_message ON steers(message_id, id);
 CREATE INDEX IF NOT EXISTS steers_session ON steers(session_id, id);
+
+CREATE TABLE IF NOT EXISTS questions (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  message_id  INTEGER NOT NULL,
+  tool_use_id TEXT NOT NULL,
+  questions   TEXT NOT NULL,
+  answers     TEXT,
+  answered_by TEXT REFERENCES users(id),
+  status      TEXT NOT NULL DEFAULT 'pending',
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS questions_session ON questions(session_id, id);
+CREATE UNIQUE INDEX IF NOT EXISTS questions_tool_use ON questions(message_id, tool_use_id);
 `
 
 // Store 包一个 SQLite 连接。单连接 + BEGIN IMMEDIATE,所有写串行，领活的「挑一条再改」是原子的。

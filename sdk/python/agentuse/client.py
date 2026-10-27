@@ -140,18 +140,24 @@ class Client:
         )
 
     def get_session(self, user, session_id):
-        """返回 {"session": …, "messages": […], "events": […]}。"""
+        """返回 {"session": …, "messages": […], "steers": […], "questions": […], "events": […]}。"""
         return self._request("GET", f"/api/sessions/{_q(session_id)}", user)
+
+    def answer_question(self, user, session_id, question_id, answers):
+        """回答 harness 的提问(会话 waiting 时)。answers 是 {问题: 答案},多选用 ", " 拼起来。已答过或过期抛 AgentuseError(409)。"""
+        return self._request(
+            "POST", f"/api/sessions/{_q(session_id)}/questions/{_q(question_id)}/answer", user, {"answers": answers}
+        )
 
     def delete_session(self, user, session_id):
         self._request("DELETE", f"/api/sessions/{_q(session_id)}", user)
 
     def wait_session(self, user, session_id, interval=2, timeout=None):
-        """轮询直到会话回到 idle,返回最后一次 get_session 的结果。超时抛 TimeoutError。"""
+        """轮询直到会话回到 idle 或在等回答提问(waiting),返回最后一次 get_session 的结果。超时抛 TimeoutError。"""
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             detail = self.get_session(user, session_id)
-            if detail["session"]["status"] == "idle":
+            if detail["session"]["status"] in ("idle", "waiting"):
                 return detail
             if deadline is not None and time.monotonic() >= deadline:
                 raise TimeoutError(f"agentuse: session {session_id} still {detail['session']['status']}")

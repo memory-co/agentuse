@@ -161,7 +161,7 @@ function SidebarBody({ me, pages, route, sessions, onNavigate, onClose }: {
               <SidebarMenuButton isActive={route.page === 'session' && route.id === s.id} onClick={() => nav({ page: 'session', id: s.id })} title={s.title || s.id}>
                 <span className="truncate pr-3">{s.title || s.id}</span>
               </SidebarMenuButton>
-              {s.status !== 'idle' && <span className={cn('pointer-events-none absolute right-2 top-1/2 size-2 -translate-y-1/2 rounded-full', s.status === 'running' ? 'animate-pulse bg-sky-500' : 'bg-amber-500')} title={statusLabel(s.status)} />}
+              {s.status !== 'idle' && <span className={cn('pointer-events-none absolute right-2 top-1/2 size-2 -translate-y-1/2 rounded-full', s.status === 'running' ? 'animate-pulse bg-sky-500' : s.status === 'waiting' ? 'animate-pulse bg-amber-500' : 'bg-amber-500')} title={statusLabel(s.status)} />}
             </SidebarMenuItem>)
             : <p className="px-2 text-xs text-muted-foreground">{t('nav.noSessions')}</p>}
         </SidebarMenu></SidebarGroupContent>

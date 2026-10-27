@@ -47,6 +47,7 @@ const (
 	TypeWelcome = "welcome" // 回应 hello
 	TypeMessage = "message" // 派一条用户消息
 	TypeSteer   = "steer"   // 推一条插话
+	TypeAnswer  = "answer"  // 推一个提问的答案
 	TypeError   = "error"
 )
 
@@ -70,9 +71,12 @@ type Message struct {
 	// steer
 	Steer *Steer `json:"steer,omitempty"`
 
+	// answer
+	Answer *Answer `json:"answer,omitempty"`
+
 	// event / heartbeat / error
 	MessageID int64           `json:"message_id,omitempty"`
-	Kind      string          `json:"kind,omitempty"` // progress / plan / steered / done / failed
+	Kind      string          `json:"kind,omitempty"` // progress / plan / steered / question / answered / question_expired / done / failed
 	Payload   json.RawMessage `json:"payload,omitempty"`
 
 	// error
@@ -103,6 +107,32 @@ type Steer struct {
 // SteeredPayload 是 steered 回报的内容。
 type SteeredPayload struct {
 	SteerID int64 `json:"steer_id"`
+}
+
+// Question 是 harness 提的一个问题，见 docs/v2/designs/question.md。
+type Question struct {
+	Question    string   `json:"question"`
+	Header      string   `json:"header,omitempty"`
+	MultiSelect bool     `json:"multi_select,omitempty"`
+	Options     []Option `json:"options,omitempty"`
+}
+
+type Option struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+// QuestionPayload 是 question 回报的内容;answered / question_expired 只带 ToolUseID。
+type QuestionPayload struct {
+	ToolUseID string     `json:"tool_use_id"`
+	Questions []Question `json:"questions,omitempty"`
+}
+
+// Answer 是推给 daemon 的答案：问题 → 答案。
+type Answer struct {
+	MessageID int64             `json:"message_id"`
+	ToolUseID string            `json:"tool_use_id"`
+	Answers   map[string]string `json:"answers"`
 }
 
 // PromptInput 是页面 / API 发消息时内容的约定格式。自定义 harness 拿到的是原文。

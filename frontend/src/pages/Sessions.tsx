@@ -8,11 +8,11 @@ import { Confirm, ErrorState, Loading, StatusBadge } from '@/components/Shared';
 import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query';
 import { useAgents } from '@/pages/Agents';
-import type { Message, Session, SessionDetail as Detail, SessionEvent, SessionStatus, Steer } from '@/lib/types';
+import type { Message, Question, Session, SessionDetail as Detail, SessionEvent, SessionStatus, Steer } from '@/lib/types';
 import { cn, fmtTime } from '@/lib/utils';
 import { t, useT } from '@/lib/i18n';
 
-export const STATUS_TONE: Record<SessionStatus, 'ok' | 'warn' | 'run'> = { idle: 'ok', pending: 'warn', running: 'run' };
+export const STATUS_TONE: Record<SessionStatus, 'ok' | 'warn' | 'run'> = { idle: 'ok', pending: 'warn', running: 'run', waiting: 'warn' };
 export const statusLabel = (s: SessionStatus) => t(`session.status.${s}`);
 export const useSessions = () => useQuery({ queryKey: ['sessions'], queryFn: () => api<Session[]>('/api/sessions'), refetchInterval: 3000 });
 const refresh = () => queryClient.invalidateQueries({ queryKey: ['sessions'] });
@@ -85,6 +85,7 @@ export function Conversation({ id, onDeleted }: { id: string; onDeleted: () => v
   if (q.isError) return <div className="px-6 py-6"><ErrorState error={q.error} /></div>;
   const { session: x, messages, events } = q.data;
   const steers = q.data.steers ?? [];
+  const questions = q.data.questions ?? [];
   const meta = [x.agent_id, t('session.metaHarness', { harness: x.harness }), x.created_by !== x.user_id && t('session.metaOnBehalf', { by: x.created_by, owner: x.user_id }), x.daemon_id && t('session.metaDaemon', { id: x.daemon_id }), x.harness_session_id && t('session.metaHarnessSession', { id: x.harness_session_id })].filter(Boolean).join(' · ');
   const last = events.filter(e => e.kind === 'progress').pop();
   return <div className="flex min-h-0 flex-1 flex-col">
@@ -92,11 +93,11 @@ export function Conversation({ id, onDeleted }: { id: string; onDeleted: () => v
       <div className="mx-auto grid w-full max-w-3xl gap-6 px-4 py-6">
         <div className="flex items-start gap-2 border-b pb-3">
           <p className="min-w-0 flex-1 break-all font-mono text-xs text-muted-foreground">{meta}</p>
-          {x.status !== 'running' && <Confirm title={t('session.deleteTitle')} description={t('session.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
+          {x.status !== 'running' && x.status !== 'waiting' && <Confirm title={t('session.deleteTitle')} description={t('session.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
             <Button variant="ghost" size="icon" className="size-7 text-destructive" aria-label={t('session.delete')}><Trash2 /></Button>
           </Confirm>}
         </div>
-        {messages.map(m => <MessageView key={m.id} m={m} events={events} steers={steers} />)}
+        {messages.map(m => <MessageView key={m.id} m={m} events={events} steers={steers} questions={questions} sessionId={x.id} />)}
         {x.status !== 'idle' && <div className="flex items-start gap-2 text-sm">
           <StatusBadge tone={STATUS_TONE[x.status]}>{statusLabel(x.status)}</StatusBadge>
           <span className="min-w-0 break-words text-muted-foreground">{last ? evText(last.payload).slice(0, 300) : ''}</span>
@@ -112,7 +113,7 @@ export function Conversation({ id, onDeleted }: { id: string; onDeleted: () => v
   </div>;
 }
 
-function MessageView({ m, events, steers }: { m: Message; events: SessionEvent[]; steers: Steer[] }) {
+function MessageView({ m, events, steers, questions, sessionId }: { m: Message; events: SessionEvent[]; steers: Steer[]; questions: Question[]; sessionId: string }) {
   const t = useT();
   const c = m.content || {};
   if (m.role === 'user') {
@@ -128,6 +129,7 @@ function MessageView({ m, events, steers }: { m: Message; events: SessionEvent[]
         <span className="text-[11px] text-muted-foreground">{t(s.status === 'delivered' ? 'session.steerDelivered' : 'session.steerPending')}</span>
       </div>)}
       {plan && <PlanView steps={plan.payload?.steps} />}
+      {questions.filter(q => q.message_id === m.id).map(q => <QuestionView key={q.id} q={q} sessionId={sessionId} />)}
       {progress.length > 0 && <details className="group text-sm text-muted-foreground">
         <summary className="flex cursor-pointer list-none items-center gap-1 hover:text-foreground"><ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />{t('session.progress', { n: progress.length })}</summary>
         <div className="mt-2 grid max-h-64 gap-1 overflow-auto border-l pl-3 font-mono text-xs">{progress.map(e => <div key={e.id} className="break-words">{evText(e.payload).slice(0, 600)}</div>)}</div>
@@ -154,4 +156,47 @@ function PlanView({ steps }: { steps?: Step[] }) {
       <span className={cn('min-w-0 break-words', s.status === 'completed' && 'text-muted-foreground', s.status === 'in_progress' && 'font-medium')}>{s.text}</span>
     </li>)}
   </ul>;
+}
+
+/** 提问:harness 用 AskUserQuestion 问用户，选选项或自己写(docs/v2/designs/question.md)。 */
+function QuestionView({ q, sessionId }: { q: Question; sessionId: string }) {
+  const t = useT();
+  const [picked, setPicked] = useState<Record<string, string[]>>({});
+  const [other, setOther] = useState<Record<string, string>>({});
+  const answer = useMutation({
+    mutationFn: (answers: Record<string, string>) => api(`/api/sessions/${sessionId}/questions/${q.id}/answer`, { method: 'POST', body: { answers } }),
+    onSuccess: () => { void refresh(); },
+  });
+  if (q.status !== 'pending' || q.answers) {
+    const note = q.status === 'answered' ? 'question.answered' : q.status === 'expired' && !q.answers ? 'question.expired' : 'question.sending';
+    return <div className="grid gap-1 rounded-lg border px-3 py-2.5 text-sm">
+      {q.questions.map(it => <div key={it.question} className="grid gap-0.5">
+        <span className="break-words"><span className="text-muted-foreground">{t('question.ask')}:</span>{it.question}</span>
+        {q.answers?.[it.question] && <span className="break-words"><span className="text-muted-foreground">{t('question.answer')}:</span>{q.answers[it.question]}</span>}
+      </div>)}
+      <span className="text-[11px] text-muted-foreground">{t(note)}</span>
+    </div>;
+  }
+  const value = (it: Question['questions'][number]) => [...(picked[it.question] ?? []), ...(other[it.question]?.trim() ? [other[it.question].trim()] : [])].join(', ');
+  const ready = q.questions.every(it => value(it) !== '');
+  const toggle = (it: Question['questions'][number], label: string) => setPicked(p => {
+    const cur = p[it.question] ?? [];
+    const next = cur.includes(label) ? cur.filter(l => l !== label) : it.multi_select ? [...cur, label] : [label];
+    return { ...p, [it.question]: next };
+  });
+  return <form className="grid gap-3 rounded-lg border border-amber-500/50 px-3 py-3 text-sm" onSubmit={e => {
+    e.preventDefault();
+    if (ready) answer.mutate(Object.fromEntries(q.questions.map(it => [it.question, value(it)])));
+  }}>
+    {q.questions.map(it => <fieldset key={it.question} className="grid gap-2">
+      <legend className="mb-1 break-words font-medium">{it.header && <span className="mr-2 text-xs text-muted-foreground">{it.header}</span>}{it.question}</legend>
+      <div className="flex flex-wrap gap-2">
+        {it.options?.map(o => <Button key={o.label} type="button" size="sm" title={o.description}
+          variant={(picked[it.question] ?? []).includes(o.label) ? 'default' : 'outline'} onClick={() => toggle(it, o.label)}>{o.label}</Button>)}
+      </div>
+      <Input className="h-8 text-xs" placeholder={t('question.other')} value={other[it.question] ?? ''}
+        onChange={e => { const v = e.target.value; setOther(o => ({ ...o, [it.question]: v })); if (!it.multi_select && v) setPicked(p => ({ ...p, [it.question]: [] })); }} />
+    </fieldset>)}
+    <div><Button type="submit" size="sm" disabled={!ready || answer.isPending}>{t('question.submit')}</Button></div>
+  </form>;
 }

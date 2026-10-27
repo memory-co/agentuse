@@ -213,9 +213,19 @@ func (d *Daemon) session(ctx context.Context) error {
 			if m.Steer != nil {
 				d.mu.Lock()
 				if r := d.running[m.Steer.MessageID]; r != nil {
-					r.steers.push(*m.Steer)
+					r.in.steers.push(*m.Steer)
 				}
 				d.mu.Unlock()
+			}
+		case protocol.TypeAnswer:
+			// 提问的答案：交给正在等的 harness;已经不在等就忽略
+			if m.Answer != nil {
+				d.mu.Lock()
+				r := d.running[m.Answer.MessageID]
+				d.mu.Unlock()
+				if r != nil {
+					r.in.asks.answer(*m.Answer)
+				}
 			}
 		case protocol.TypeError:
 			if m.MessageID != 0 {
@@ -235,7 +245,7 @@ func (d *Daemon) session(ctx context.Context) error {
 
 type runningMsg struct {
 	cancel context.CancelFunc
-	steers *steerQueue
+	in     *inbox
 }
 
 // startMessage 在后台跑 harness 回一条消息，跑完回报结果并再说一次 ready。
@@ -244,8 +254,8 @@ func (d *Daemon) startMessage(m protocol.Dispatch) {
 	d.mu.Lock()
 	la, ok := d.harnesses[m.Harness]
 	tctx, cancel := context.WithCancel(context.Background())
-	steers := &steerQueue{}
-	d.running[m.ID] = &runningMsg{cancel: cancel, steers: steers}
+	in := &inbox{steers: &steerQueue{}, asks: newAskBox(d.cfg.askTimeout())}
+	d.running[m.ID] = &runningMsg{cancel: cancel, in: in}
 	d.mu.Unlock()
 
 	go func() {
@@ -263,7 +273,7 @@ func (d *Daemon) startMessage(m protocol.Dispatch) {
 		} else if dir, err := d.sessionDir(m); err != nil {
 			res = Result{Error: err.Error()}
 		} else {
-			res = runHarness(tctx, la, m, dir, steers, func(kind string, p any) {
+			res = runHarness(tctx, la, m, dir, in, func(kind string, p any) {
 				b, _ := json.Marshal(p)
 				_ = d.send(protocol.Message{Type: protocol.TypeEvent, MessageID: m.ID, Kind: kind, Payload: b})
 			})
