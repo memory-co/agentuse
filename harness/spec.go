@@ -35,8 +35,8 @@ type Spec struct {
 	Workdir map[string]string `yaml:"workdir"`
 	// Instructions 是工作的说明写到会话目录里的哪个文件(如 CLAUDE.md),空 = 不写。见 docs/v2/designs/work.md。
 	Instructions string `yaml:"instructions"`
-	Output  Output            `yaml:"output"`
-	Finish  Finish            `yaml:"finish"`
+	Output       Output `yaml:"output"`
+	Finish       Finish `yaml:"finish"`
 }
 
 // SteerClaudeHooks:Claude Code stream-json 的 control 协议注册 hook,回调时塞插话。

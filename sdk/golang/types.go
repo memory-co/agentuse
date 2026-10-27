@@ -89,12 +89,12 @@ type DaemonHarness struct {
 
 type Session struct {
 	ID               string `json:"id"`
-	UserID           string `json:"user_id"`            // agent 的主人，会话跑在他的 daemon 上
-	CreatedBy        string `json:"created_by"`         // 发起人
-	AgentID          string `json:"agent_id,omitempty"` // agent 删除后为空
+	UserID           string `json:"user_id"`             // agent 的主人，会话跑在他的 daemon 上
+	CreatedBy        string `json:"created_by"`          // 发起人
+	AgentID          string `json:"agent_id,omitempty"`  // agent 删除后为空
 	WorkID           string `json:"work_id,omitempty"`   // 所属工作，建的时候定，之后不变
 	WorkRole         string `json:"work_role,omitempty"` // coordinator / thread,不在工作里时为空
-	Harness          string `json:"harness"`            // 建会话时 agent 运行时的 harness,之后不变
+	Harness          string `json:"harness"`             // 建会话时 agent 运行时的 harness,之后不变
 	DaemonID         string `json:"daemon_id,omitempty"`
 	HarnessSessionID string `json:"harness_session_id,omitempty"`
 	Title            string `json:"title"`
