@@ -11,6 +11,7 @@
   "created_by": "u_10010",
   "agent_id": "code-helper",
   "work_id": "wk_3a1f9c0e2b7d4c55",
+  "work_role": "thread",
   "harness": "claude",
   "daemon_id": "dm_5c1c8602536e55cb",
   "harness_session_id": "9f1c…",
@@ -24,7 +25,7 @@
 - `status`:`idle` / `pending` / `running` / `waiting`(在等用户回答[提问](../designs/question.md))。
 - `user_id` 是 agent 的主人，会话跑在他的 daemon 上;`created_by` 是发起人，用自己的 agent 时两者相同。
 - `daemon_id`、`harness` 是建会话时 agent 的运行时，之后 agent 切换运行时它们也不变。
-- `work_id` 是所属[工作](works.md),只有发起人能放进 / 移出;agent 主人看得到这个字段，但打不开那个工作。
+- `work_id` 是所属[工作](works.md),建的时候定，之后不能改;`work_role` 是 `coordinator` / `thread`,两个都是不在工作里时不出现。agent 主人看得到这两个字段，但打不开那个工作。
 - `agent_id`、`work_id`、`daemon_id`、`harness_session_id`、`lease_until` 没有值时不出现(agent 删除后 `agent_id` 就没了)。
 
 ## message 对象
@@ -38,7 +39,7 @@
 
 最近 100 个会话，按 `updated_at` 新的在前。普通用户看自己 agent 上的和自己发起的,admin 看全部。
 
-带 `?work_id=wk_…` 只列这个工作里的会话(工作看不到返回 404)。下面的接口也一样：主人和发起人都能看、回复、删除。
+不带参数时只列不在工作里的会话。带 `?work_id=wk_…` 列这个工作的线程(不含协调者;工作看不到返回 404)。下面的接口也一样：主人和发起人都能看、回复、删除。
 
 ## POST /api/sessions
 
@@ -53,7 +54,7 @@
 ```
 
 - `agent_id` 必填，可以是任何人的 agent,不存在返回 400;agent 没有运行时(它的 daemon 被删了)也返回 400。会话属于 agent 的主人,`created_by` 是调用者;`daemon_id` 和 `harness` 取 agent 此刻的运行时。
-- `work_id` 可选，把会话放进调用者的[工作](works.md);不是调用者的工作返回 404。
+- `work_id` 可选，在调用者的[工作](works.md)里开一个线程;不是调用者的工作返回 404。建好后不能再改。协调者随工作一起建([works](works.md)),不走这里。
 - 不能指定工作目录,daemon 固定用 `~/.agentuse/work/<session_id>/`。
 - 给 `prompt` 时消息内容是 `{"prompt": …}`;给 `input` 时原样交给 harness,忽略 `prompt`。
 - agent 运行时上的 harness 没开启、或那台 daemon 最近一次连上时没检测到它，返回 400 并说明原因，不会排队。
@@ -123,16 +124,6 @@
 
 `status`:`pending` 等回答(或答案还没送到);`answered` 已送到;`expired` 超时或进程没了。
 
-## PATCH /api/sessions/{id}
-
-把会话移进 / 移出工作。只有发起人能改，否则 403。
-
-```json
-{ "work_id": "wk_…" }
-```
-
-`work_id` 为 `null` 表示移出。工作不是调用者的返回 404。返回 session 对象。任何状态都能改，从下一条消息开始带新工作的说明。
-
 ## DELETE /api/sessions/{id}
 
-删除会话和它的消息、回报，返回 204。`running` 时返回 409。只删 agentuse 这边的记录，不动 daemon 本机上 harness 的会话文件。
+删除会话和它的消息、回报，返回 204。`running` 时返回 409。协调者不能单独删(返回 400),要删整个工作。只删 agentuse 这边的记录，不动 daemon 本机上 harness 的会话文件。

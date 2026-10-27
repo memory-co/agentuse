@@ -4,7 +4,7 @@
 
 会话用一个 [agent](agents.md) 开，由接口传入的 `agent_id` 指定，可以是自己的，也可以是别人的。会话属于 agent 的主人,`created_by` 记是谁发起的;主人和发起人都能看、能接着回复、能删。建的时候把 agent 当时的运行时(daemon + harness)记进 `daemon_id` 和 `harness`,之后不再跟着 agent 变：之后 agent 切换了运行时，这个会话也还在原来的 daemon 和 harness 上(续接只能用原来那台电脑上那个 harness 的会话)。
 
-会话可以放进发起人的一个[工作](works.md)(`work_id`),带上工作的说明跑([设计](../designs/work.md))。
+会话可以属于发起人的一个[工作](works.md)(`work_id`),作为它的协调者或线程，带上工作的说明跑([设计](../designs/work.md))。`work_id` 建的时候定，之后不能改。
 
 派给 daemon 的单位是会话：用户发了消息，会话变成 `pending`,daemon 领走后 `running`,harness 回完回到 `idle`。
 
@@ -14,7 +14,7 @@
 | `user_id` | TEXT | 会话属于哪个 [用户](users.md),就是 agent 的主人 |
 | `created_by` | TEXT | 发起人 [用户](users.md);用自己的 agent 时和 `user_id` 相同 |
 | `agent_id` | TEXT | 用哪个 [agent](agents.md) 开的;agent 删除后变空 |
-| `work_id` | TEXT | 属于发起人的哪个[工作](works.md),可为空;随时可以移动，工作删除后变空 |
+| `work_id` | TEXT | 属于发起人的哪个[工作](works.md),可为空;建的时候定，之后不能改。是协调者还是线程看 `works.coordinator_id` |
 | `harness` | TEXT | 用哪个 CLI harness,建会话时取 agent 运行时的 harness,之后不变 |
 | `daemon_id` | TEXT | 跑这个会话的 daemon,建会话时取 agent 运行时的 daemon,之后只派给它(harness 的会话存在那台电脑上);daemon 被删后为空 |
 | `harness_session_id` | TEXT | harness 自己的会话 id(Claude Code 的 `session_id`、Codex 的 `thread_id`),daemon 回报结果时带回;之后每次带上它续接 |
@@ -45,7 +45,7 @@ CREATE TABLE sessions (
   user_id            TEXT NOT NULL REFERENCES users(id),
   created_by         TEXT NOT NULL REFERENCES users(id),
   agent_id           TEXT REFERENCES agents(id) ON DELETE SET NULL,
-  work_id            TEXT REFERENCES works(id) ON DELETE SET NULL,
+  work_id            TEXT REFERENCES works(id),
   harness            TEXT NOT NULL REFERENCES harnesses(name),
   daemon_id          TEXT REFERENCES daemons(id) ON DELETE SET NULL,
   harness_session_id TEXT,

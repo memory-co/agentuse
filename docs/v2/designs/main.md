@@ -48,7 +48,7 @@ agentuse 服务用 **SQLite** 存数据，一个文件、不依赖外部数据�
 | [agents](../tables/agents.md) | 用户起名字的 agent,绑定一个运行时(daemon + harness),可以切换 |
 | [daemons](../tables/daemons.md) | 登记过的 daemon 及其在线状态 |
 | [daemon_harnesses](../tables/daemon_harnesses.md) | 每个 daemon 能用哪些 CLI harness |
-| [works](../tables/works.md) | 工作：一组会话加一份共用说明，照 Claude Projects 的样子 |
+| [works](../tables/works.md) | 工作：协调者会话 + 线程会话 + 共用说明，照 Claude Projects 的样子 |
 | [sessions](../tables/sessions.md) | 会话，用某个 agent 开，对齐 harness 的 session,多轮对话 |
 | [messages](../tables/messages.md) | 会话里的消息，用户发的和 harness 回的 |
 | [session_events](../tables/session_events.md) | daemon 回报的进度和结果，按时间追加 |
@@ -69,7 +69,7 @@ agentuse 也能像 Redis 一样当中间件嵌进别的网站：网站后端带�
 
 - **机器**:添加 daemon、复制安装命令、看在线状态、为每台 daemon 开关 harness。
 - **会话**:选 agent、写 prompt 开一个会话，像聊天一样看 harness 的进度和回复，在下面接着发消息。
-- **工作**:会话列表上方切换「会话 / 工作」,工作把相关会话放在一起，共用一份说明，见 [work](work.md)。
+- **工作**:会话列表上方切换「会话 / 工作」。一个工作里用户跟协调者对话，协调者开线程去干具体的活，共用一份说明，见 [work](work.md)。
 - **Agent**:建 agent、给它起名字、选 / 切换运行时(哪台 daemon 上的哪个 harness)。
 - **Harness**:看全部 harness,注册自定义 harness。
 - **用户**(仅 admin):建用户，拿到对方的登录链接。
