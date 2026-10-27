@@ -97,7 +97,7 @@ type Dispatch struct {
 	Input     json.RawMessage `json:"input"`            // 消息内容
 	// Instructions 是会话所在工作的说明，写进会话目录的 CLAUDE.md / AGENTS.md(docs/v2/designs/work.md)。
 	Instructions string `json:"instructions,omitempty"`
-	// WorkToken 只在会话是工作的协调者时有，作为 AGENTUSE_WORK_TOKEN 给 harness 进程，让它用 agentuse work 开线程。
+	// WorkToken 只在会话是工作的协调者时有，作为 AGENTUSE_WORK 给 harness 进程，让它用 agentuse work 开线程。
 	WorkToken string `json:"work_token,omitempty"`
 }
 

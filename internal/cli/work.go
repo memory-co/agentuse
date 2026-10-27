@@ -24,7 +24,7 @@ const workUsage = `agentuse work —— 工作的协调者用来管理线程(doc
   agentuse work read <线程 id>                     看线程的消息
   agentuse work resolve <线程 id>                  标记线程已完成
 
-读环境变量 AGENTUSE_SERVER 和 AGENTUSE_WORK_TOKEN,daemon 起协调者时会设好。
+读环境变量 AGENTUSE_SERVER 和 AGENTUSE_WORK(工作令牌),daemon 起协调者时会设好。
 `
 
 func runWork(args []string) error {
@@ -75,9 +75,12 @@ func runWork(args []string) error {
 }
 
 func workClient() (*apiClient, error) {
-	server, token := os.Getenv("AGENTUSE_SERVER"), os.Getenv("AGENTUSE_WORK_TOKEN")
+	server, token := os.Getenv("AGENTUSE_SERVER"), os.Getenv("AGENTUSE_WORK")
+	if token == "" {
+		token = os.Getenv("AGENTUSE_WORK_TOKEN") // v0.0.8 的 daemon 用的旧名字
+	}
 	if server == "" || token == "" {
-		return nil, errors.New("没有 AGENTUSE_SERVER / AGENTUSE_WORK_TOKEN:这个命令只给工作的协调者在跑的时候用")
+		return nil, errors.New("没有 AGENTUSE_SERVER / AGENTUSE_WORK:这个命令只给工作的协调者在跑的时候用")
 	}
 	return &apiClient{server: strings.TrimRight(server, "/"), token: token,
 		unauthorized: "工作令牌无效或已过期(只在协调者这条消息还在跑时有效)"}, nil

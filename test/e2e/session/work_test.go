@@ -115,10 +115,10 @@ func TestWork(t *testing.T) {
 		return err == nil && d.Session.Status == "idle" && len(d.Messages) == 4
 	})
 	d, _ := c.GetSession(ctx, alice, coord)
-	// 协调者：读到了说明，PATH 里找得到 agentuse,工作令牌能用
+	// 协调者：说明文件最前面是派活的规矩，PATH 里找得到 agentuse,工作令牌能用
 	var first result
 	json.Unmarshal(d.Messages[1].Content, &first)
-	if !first.OK || !strings.Contains(first.Output, "claude.md=先读 README") || !strings.Contains(first.Output, "spawned=已开线程 ss_") {
+	if !first.OK || !strings.Contains(first.Output, "claude.md=# 你是这个工作的协调者：只派活，不干活") || !strings.Contains(first.Output, "spawned=已开线程 ss_") {
 		t.Fatalf("协调者: %+v", first)
 	}
 

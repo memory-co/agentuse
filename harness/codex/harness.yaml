@@ -10,9 +10,12 @@ instructions: AGENTS.md
 detect:
   version: [--version]
 
+# 默认沙箱改成 workspace-write 并放开网络:codex exec 默认是只读沙箱、不能联网，
+# 协调者的 agentuse work 调不到服务(它会绕开去用自带的子 agent),普通会话也干不了要联网的活。
+# 用 -c 配置而不是 --sandbox:daemon.json 里 args 再给 -s/--sandbox 时以它为准，不会冲突
 run:
-  new:    [exec, --json, --skip-git-repo-check, "{args}", "{prompt}"]
-  resume: [exec, --json, --skip-git-repo-check, "{args}", resume, "{resume}", "{prompt}"]
+  new:    [exec, --json, --skip-git-repo-check, -c, sandbox_mode=workspace-write, -c, sandbox_workspace_write.network_access=true, "{args}", "{prompt}"]
+  resume: [exec, --json, --skip-git-repo-check, -c, sandbox_mode=workspace-write, -c, sandbox_workspace_write.network_access=true, "{args}", resume, "{resume}", "{prompt}"]
 
 output:
   format: jsonl

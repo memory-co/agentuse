@@ -51,7 +51,7 @@
 
 ## 工作令牌(`wt_`)
 
-协调者跑的时候,daemon 收到的派活消息里带 `work_token`([apis/daemon](daemon.md)),作为环境变量 `AGENTUSE_WORK_TOKEN` 给 harness 进程，本机的 `agentuse work` 命令拿它调接口。
+协调者跑的时候,daemon 收到的派活消息里带 `work_token`([apis/daemon](daemon.md)),作为环境变量 `AGENTUSE_WORK` 给 harness 进程，本机的 `agentuse work` 命令拿它调接口。
 
 - 身份是工作的主人，只在这条消息还没结束时有效。
 - 只能调这些，别的一律 403:`GET /api/agents`、`GET /api/sessions?work_id=<本工作>`、`POST /api/sessions`(`work_id` 必须是本工作，开的就是线程;`agent_id` 必须是工作主人自己的 agent,哪台 daemon 上的都行，别人的 403)、`GET /api/sessions/{线程}`、`POST /api/sessions/{线程}/messages`、`POST /api/sessions/{线程}/resolve`。

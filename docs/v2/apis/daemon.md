@@ -110,7 +110,7 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 }
 ```
 
-`input` 是这条消息的 content。`resume` 是会话的 harness_session_id,第一条或还没有时不出现。`instructions` 是会话所在[工作](works.md)的说明，不在工作里或说明为空时不出现;daemon 起进程前把它写进会话目录(claude 写 `CLAUDE.md`,codex 写 `AGENTS.md`,自定义 harness 放进 stdin),不出现就删掉那个文件([设计](../designs/work.md#说明怎么交给-harness))。`work_token` 只在会话是工作的协调者时出现,daemon 把它和服务地址作为 `AGENTUSE_WORK_TOKEN`、`AGENTUSE_SERVER` 环境变量给 harness 进程(PATH 最前面加上 agentuse 自己的目录),并在说明文件末尾追加 `agentuse work` 的用法([设计](../designs/work.md#协调者怎么开线程怎么收结果))。工作目录不下发,daemon 固定用 `~/.agentuse/work/<session_id>/`。
+`input` 是这条消息的 content。`resume` 是会话的 harness_session_id,第一条或还没有时不出现。`instructions` 是会话所在[工作](works.md)的说明，不在工作里或说明为空时不出现;daemon 起进程前把它写进会话目录(claude 写 `CLAUDE.md`,codex 写 `AGENTS.md`,自定义 harness 放进 stdin),不出现就删掉那个文件([设计](../designs/work.md#说明怎么交给-harness))。`work_token` 只在会话是工作的协调者时出现,daemon 把它和服务地址作为 `AGENTUSE_WORK`、`AGENTUSE_SERVER` 环境变量给 harness 进程(PATH 最前面加上 agentuse 自己的目录),并在说明文件最前面放上协调者的规矩和 `agentuse work` 的用法([设计](../designs/work.md#协调者怎么开线程怎么收结果))。工作目录不下发,daemon 固定用 `~/.agentuse/work/<session_id>/`。
 
 **error**:带 `message_id` 表示这条消息已经不归你了(租约过期被收回、或已经结束),daemon 应该停掉它、不再回报。不带 `message_id` 是普通错误，比如未知消息类型。
 
