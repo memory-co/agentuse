@@ -27,9 +27,12 @@
 idle ──用户发消息──▶ pending ──派给 daemon──▶ running ──harness 回复(成功或失败)──▶ idle
                         ▲                        │
                         └──租约过期 / daemon 掉线─┘
+
+running ──harness 提问──▶ waiting ──答案送到 / 超时──▶ running
 ```
 
-- `idle` 时发的是下一条消息;`pending` / `running` 时发的是[插话](steers.md)，能送达就在这一轮里处理，送不到的等这一轮跑完自动变成下一条消息([设计](../designs/steer.md))。
+- `idle` 时发的是下一条消息;`pending` / `running` / `waiting` 时发的是[插话](steers.md)，能送达就在这一轮里处理，送不到的等这一轮跑完自动变成下一条消息([设计](../designs/steer.md))。
+- `waiting`：harness 向用户[提问](questions.md)，在等回答([设计](../designs/question.md))。和 `running` 一样占着 daemon、续租，租约过期一样收回。
 - 工作目录不存在表里,daemon 固定用 `~/.agentuse/work/<session_id>/`。
 - harness 失败也回到 `idle`,失败信息记在它回的那条消息里，可以接着发。
 

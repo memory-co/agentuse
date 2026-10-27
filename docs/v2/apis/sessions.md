@@ -20,7 +20,7 @@
 }
 ```
 
-- `status`:`idle` / `pending` / `running`。
+- `status`:`idle` / `pending` / `running` / `waiting`(在等用户回答[提问](../designs/question.md))。
 - `user_id` 是 agent 的主人，会话跑在他的 daemon 上;`created_by` 是发起人，用自己的 agent 时两者相同。
 - `daemon_id`、`harness` 是建会话时 agent 的运行时，之后 agent 切换运行时它们也不变。
 - `agent_id`、`daemon_id`、`harness_session_id`、`lease_until` 没有值时不出现(agent 删除后 `agent_id` 就没了)。
@@ -65,7 +65,7 @@
 
 - 会话的 daemon 已被删除返回 400(harness 会话在原来那台电脑上，续不上)。
 - `idle` 时返回 201 和 message 对象。只派给这个会话的 daemon,它离线就等它上线。
-- `pending` / `running` 时是[插话](../designs/steer.md)：返回 202 和 steer 对象。插话只收 `prompt`,带 `input` 返回 409。
+- `pending` / `running` / `waiting` 时是[插话](../designs/steer.md)：返回 202 和 steer 对象。插话只收 `prompt`,带 `input` 返回 409。
 
 ```json
 { "id": 7, "session_id": "ss_…", "message_id": 3, "created_by": "u_10010", "prompt": "顺便把 CHANGELOG 也改了", "status": "pending", "created_at": 1792800050 }
@@ -89,7 +89,28 @@
 }
 ```
 
-`messages`、`steers`、`events` 都按时间顺序;`steers.message_id`、`events.message_id` 是它挂着的那条 `user` 消息。
+还有 `questions`,对象见下。`messages`、`steers`、`questions`、`events` 都按时间顺序;它们的 `message_id` 是挂着的那条 `user` 消息。
+
+## POST /api/sessions/{id}/questions/{qid}/answer
+
+回答 harness 的[提问](../designs/question.md)。
+
+```json
+{ "answers": { "要用 Python 还是 Go？": "Go" } }
+```
+
+- 每个问题都要有答案，可以是选项的 `label`,也可以是自己写的话;多选用 `, ` 拼起来。缺了返回 400。
+- 问题不是 `pending` 返回 409。
+- 返回 202 和 question 对象。daemon 把答案送到后才变成 `answered`。
+
+```json
+{ "id": 5, "session_id": "ss_…", "message_id": 3, "tool_use_id": "toolu_…",
+  "questions": [{ "question": "要用 Python 还是 Go？", "header": "语言", "multi_select": false,
+                  "options": [{ "label": "Python", "description": "…" }, { "label": "Go", "description": "…" }] }],
+  "answers": { "要用 Python 还是 Go？": "Go" }, "answered_by": "u_10010", "status": "pending", "created_at": 1792800050 }
+```
+
+`status`:`pending` 等回答(或答案还没送到);`answered` 已送到;`expired` 超时或进程没了。
 
 ## DELETE /api/sessions/{id}
 
