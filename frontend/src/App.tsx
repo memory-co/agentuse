@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Bot, Boxes, Languages, LogOut, Menu, MonitorSmartphone, SquarePen, Users as UsersIcon, X } from 'lucide-react';
+import { ArrowLeftRight, Bot, Boxes, Check, Languages, LogOut, Menu, MonitorSmartphone, SquarePen, Users as UsersIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Loading, StatusBadge } from '@/components/Shared';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarInset,
@@ -151,7 +152,7 @@ function SidebarBody({ me, pages, route, sessions, onNavigate, onClose }: {
           <SidebarMenuButton isActive={route.page === p.key} onClick={() => nav({ page: p.key })} tooltip={t(p.label)}><p.icon /><span>{t(p.label)}</span></SidebarMenuButton>
         </SidebarMenuItem>)}
       </SidebarMenu></SidebarGroupContent></SidebarGroup>
-      {admin && <ActAsPicker me={me} value={actAs} />}
+      <ActAsPicker me={me} value={admin ? actAs : ''} />
       <SidebarGroup className="group-data-[collapsible=icon]:hidden">
         <SidebarGroupLabel>{t('nav.sessions')}<span className="ml-auto">{sessions.data?.length || ''}</span></SidebarGroupLabel>
         <SidebarGroupContent><SidebarMenu>
@@ -209,21 +210,43 @@ function MobileShell({ route, body, heading, page }: {
   </div>;
 }
 
-/** 管理员切换身份：自己(看全部)或代为某个用户(和那个用户看到的一样)。 */
+/** 当前身份：灰色的名字;管理员旁边多一个切换按钮，点开是可搜索的用户列表。 */
 function ActAsPicker({ me, value }: { me: User; value: string }) {
   const t = useT();
-  const users = useQuery({ queryKey: ['users'], queryFn: () => api<User[]>('/api/users') });
-  const SELF = '__self__';
+  const admin = me.role === 'admin';
+  const [open, setOpen] = useState(false);
+  const users = useQuery({ queryKey: ['users'], queryFn: () => api<User[]>('/api/users'), enabled: admin });
+  const acting = value ? users.data?.find(u => u.id === value) : undefined;
+  const name = value ? acting?.name || value : admin ? t('actAs.self', { name: me.name }) : me.name;
+  const pick = (id: string) => { setOpen(false); if (id !== value) { setActAs(id); go({ page: 'new' }); } };
   return <SidebarGroup className="py-0 group-data-[collapsible=icon]:hidden">
     <SidebarGroupLabel>{t('actAs.label')}</SidebarGroupLabel>
-    <Select value={value || SELF} onValueChange={v => { setActAs(v === SELF ? '' : v); go({ page: 'new' }); }}>
-      <SelectTrigger className="h-8 bg-background text-xs"><SelectValue /></SelectTrigger>
-      <SelectContent>
-        <SelectItem value={SELF}>{t('actAs.self', { name: me.name })}</SelectItem>
-        {users.data?.filter(u => u.id !== me.id).map(u => <SelectItem key={u.id} value={u.id}>{u.name}{u.name !== u.id && <span className="ml-1 font-mono text-muted-foreground">{u.id}</span>}</SelectItem>)}
-        {value && !users.data?.some(u => u.id === value) && <SelectItem value={value}>{value}</SelectItem>}
-      </SelectContent>
-    </Select>
+    <div className="flex h-8 items-center gap-1 px-2">
+      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={value || me.id}>{name}</span>
+      {admin && <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" size="icon" className="size-7 shrink-0 text-muted-foreground" title={t('actAs.switch')} aria-label={t('actAs.switch')}><ArrowLeftRight /></Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" side="bottom" className="w-64 p-0">
+          <Command>
+            <CommandInput placeholder={t('actAs.search')} />
+            <CommandList>
+              <CommandEmpty>{users.isPending ? t('common.loading') : t('actAs.empty')}</CommandEmpty>
+              <CommandGroup>
+                <CommandItem value={`__self__ ${me.name} ${me.id}`} onSelect={() => pick('')}>
+                  <Check className={cn(value && 'invisible')} /><span className="truncate">{t('actAs.self', { name: me.name })}</span>
+                </CommandItem>
+                {users.data?.filter(u => u.id !== me.id).map(u => <CommandItem key={u.id} value={`${u.name} ${u.id}`} onSelect={() => pick(u.id)}>
+                  <Check className={cn(value !== u.id && 'invisible')} />
+                  <span className="truncate">{u.name}</span>
+                  {u.name !== u.id && <span className="ml-auto truncate font-mono text-xs text-muted-foreground">{u.id}</span>}
+                </CommandItem>)}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>}
+    </div>
   </SidebarGroup>;
 }
 
