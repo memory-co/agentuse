@@ -114,6 +114,9 @@ func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir s
 		return Result{Error: "准备工作目录: " + err.Error()}
 	}
 	cmd := exec.CommandContext(ctx, la.Path, args...)
+	if env := la.Spec.Environ(m.ID, m.SessionID); len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	return withSession(runSpec(ctx, *la.Spec, cmd, la.Spec.Stdin(pi.Prompt), dir, steers, report), m.Resume)
 }
 

@@ -136,6 +136,7 @@ finish:
 | `run.new` | 第一条消息的参数(不含 command 本身) |
 | `run.resume` | 之后每条的参数，派活消息里有 `resume` 时用 |
 | `input` | 不写:stdin 为空,prompt 只能用 `{prompt}` 放进参数(codex)。`format: stream-json`:把 `message` 里的占位符换掉，序列化成一行写进 stdin,stdin 保持打开，读到 `result` 行后关闭 |
+| `env` | 起进程时追加的环境变量，值里的 `{message_id}` / `{session_id}` 换成这条消息、这个会话的 id |
 | `workdir` | `harness/<name>/` 下的子目录 → 会话目录里的相对路径，起进程前整个拷过去(覆盖同名文件);不写就什么也不拷 |
 | `output.format` | 目前只有 `jsonl`:stdout 每行一个 JSON,不是 JSON 的行当文本进度 |
 | `output.session_id` | 全局规则：哪个字段是 harness 的会话 id |

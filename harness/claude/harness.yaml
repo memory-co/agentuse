@@ -23,6 +23,12 @@ input:
   format: stream-json
   message: { type: user, message: { role: user, content: "{prompt}" } }
 
+# 计划(docs/v2/designs/plan.md):-p 模式默认没有 TaskCreate / TaskUpdate,要打开;
+# 任务清单默认跟着 Claude 会话走，续接时编号接着上次的，所以每条消息用一个新的清单，编号从 1 开始
+env:
+  CLAUDE_CODE_ENABLE_TODO_TOOLS: "1"
+  CLAUDE_CODE_TASK_LIST_ID: "agentuse-{message_id}"
+
 # 插话：在 stdin 注册 PreToolUse / Stop hook,回调时把插话塞进去(docs/v2/designs/steer.md)
 steer: claude-hooks
 
