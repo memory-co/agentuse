@@ -76,4 +76,4 @@ agentuse work read ss_xxx                                  # 看线程的消息
 agentuse work resolve ss_xxx                               # 标记线程已完成
 ```
 
-给[工作](../designs/work.md)的协调者用：读环境变量 `AGENTUSE_SERVER`、`AGENTUSE_WORK_TOKEN`(daemon 起协调者时设好)调 [works](../apis/works.md#工作令牌wt_) 允许的那几个接口。没有这两个变量时报错退出。输出是给 harness 读的纯文本。
+给[工作](../designs/work.md)的协调者用：读环境变量 `AGENTUSE_SERVER`、`AGENTUSE_WORK`(工作令牌，daemon 起协调者时设好;也认旧名字 `AGENTUSE_WORK_TOKEN`)调 [works](../apis/works.md#工作令牌wt_) 允许的那几个接口。没有这两个变量时报错退出。输出是给 harness 读的纯文本。

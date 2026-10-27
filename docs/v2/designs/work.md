@@ -32,7 +32,7 @@
 | 变量 | 值 |
 |---|---|
 | `AGENTUSE_SERVER` | 服务地址 |
-| `AGENTUSE_WORK_TOKEN` | `wt_…`,服务在派活消息里给，只在这条消息跑着时有效，只能动这个工作的线程 |
+| `AGENTUSE_WORK` | 工作令牌 `wt_…`(变量名不带 TOKEN:codex 默认会把名字含 KEY/SECRET/TOKEN 的变量从它跑的命令里过滤掉),服务在派活消息里给，只在这条消息跑着时有效，只能动这个工作的线程 |
 
 协调者用本机的 `agentuse work` 命令(读这两个变量调接口,[cli](../cli/agentuse.md#work)):
 
@@ -45,7 +45,7 @@ agentuse work read ss_xxx                    # 看线程的消息
 agentuse work resolve ss_xxx                 # 线程的活做完了，标记已完成
 ```
 
-daemon 还把自己所在的目录放到 PATH 最前面，保证找得到 `agentuse`;协调者的说明文件(见下)末尾追加一段固定的用法，教它这些命令和「开完线程就结束这一轮，等结果回来」。codex、自定义 harness 也一样适用，所以不做成 claude 专用的 skill。
+daemon 还把自己所在的目录放到 PATH 最前面，保证找得到 `agentuse`;协调者的说明文件(见下)**最前面**放一段固定的规矩：只派活不干活(哪怕活很小也开线程，不用 harness 自带的子 agent)、这些命令怎么用、开完线程就结束这一轮等结果回来、`agentuse work` 报错就原样告诉用户而不是绕过去自己干。工作的说明接在后面，标题「工作说明」。codex、自定义 harness 也一样适用，所以不做成 claude 专用的 skill。
 
 工作令牌存在 [work_tokens](../tables/work_tokens.md) 里，派活给协调者时生成，这一轮结束时删掉。
 
@@ -59,7 +59,7 @@ daemon 还把自己所在的目录放到 PATH 最前面，保证找得到 `agent
 
 ## 说明怎么交给 harness
 
-派活时，会话在工作里(协调者和线程都算),服务就把工作的 `instructions` 放进 daemon 收到的 `message` 里([apis/daemon](../apis/daemon.md)),没有就不带。daemon 每次起进程前在会话目录里写好(协调者的再追加上面那段用法):
+派活时，会话在工作里(协调者和线程都算),服务就把工作的 `instructions` 放进 daemon 收到的 `message` 里([apis/daemon](../apis/daemon.md)),没有就不带。daemon 每次起进程前在会话目录里写好(协调者的是上面那段规矩在前、工作说明在后):
 
 | harness | 写到哪 |
 |---|---|
