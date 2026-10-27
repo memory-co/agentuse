@@ -68,6 +68,9 @@ func TestWorksAPI(t *testing.T) {
 		if cl, err = e.st.ClaimSession(ctx, d, 60); err != nil {
 			t.Fatal(err)
 		}
+		if cl.Session.ID != created.Coordinator.ID { // 先领到的线程直接回完，免得后面删工作时还在跑
+			e.st.AddEvent(ctx, d.ID, cl.Message.ID, store.EventDone, json.RawMessage(`{"ok":true}`), 60)
+		}
 	}
 	wt := cl.WorkToken
 	if c := e.code(wt, "GET", "/api/me", nil); c != http.StatusForbidden {
