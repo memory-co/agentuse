@@ -77,3 +77,28 @@ agentuse work resolve ss_xxx                               # 标记线程已完�
 ```
 
 给[工作](../designs/work.md)的协调者用：读环境变量 `AGENTUSE_SERVER`、`AGENTUSE_WORK`(工作令牌，daemon 起协调者时设好;也认旧名字 `AGENTUSE_WORK_TOKEN`)调 [works](../apis/works.md#工作令牌wt_) 允许的那几个接口。没有这两个变量时报错退出。输出是给 harness 读的纯文本。
+
+### attachment（待实现）
+
+给人和 harness 使用的会话文件命令，设计见 [attachment](../designs/attachment.md)，调用 [attachments API](../apis/attachments.md)。
+
+```bash
+agentuse attachment upload ./report.pdf
+agentuse attachment upload ./report-v2.pdf --name report.pdf --json
+agentuse attachment list --session ss_xxx --json
+agentuse attachment download at_xxx --output ./report.pdf
+```
+
+- 所有子命令支持 `--session`、`--server`、`--token`、`--config`、`--json`。参数可以放在位置参数之前或之后。session 默认读 `AGENTUSE_SESSION`；server 按显式参数 → `AGENTUSE_SERVER` → daemon 配置选取；config 按显式参数 → `AGENTUSE_CONFIG` → `~/.agentuse/daemon.json` 选取。
+- 认证按显式 `--token` → `AGENTUSE_TOKEN` → `AGENTUSE_WORK`（兼容 `AGENTUSE_WORK_TOKEN`）→ daemon 配置中的 `key` 选取。前面提供了但无效就报错，不降级换身份。显式用户/工作令牌和 server 已足够时，不要求本机注册。
+- harness 默认用当前 session。使用 daemon 密钥上传时，从 `AGENTUSE_MESSAGE_ID` 取活动消息 id，缺少时直接报错；仅对 dk_ 请求发送这个字段。用用户令牌可以显式指定有权访问的其他 session；工作令牌只能指定本工作会话。不会从当前目录名称猜 session。
+- `upload` 接受一个普通文件路径，`--name` 可覆盖文件名；拒绝目录，流式上传，成功打印 id、文件名、大小、download_path；`--json` 输出 attachment 对象。不自动重试 POST，超时提示先检查 list，避免重复附件。
+- `list` 自动取完分页，普通模式打印表格，`--json` 输出完整 attachment 数组。
+- `download` 的 `--output` 必填，写临时文件、核对元数据大小和 SHA-256 后原子 rename。目标已存在就报错；显式 `--force` 才能覆盖。失败清理临时文件；`--json` 输出 `{"attachment": …, "output": "本地路径"}`，不混入文件字节。
+- HTTP、文件读写、校验失败都非零退出，错误写 stderr。第一版 CLI 不提供删除命令，删除走页面或 API。
+
+示例：本机用户上传输入文件，凭据也可以用环境变量提供：
+
+```bash
+agentuse attachment upload ./requirements.pdf --session ss_xxx --server https://agentuse.example.com --token ut_…
+```

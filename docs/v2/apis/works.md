@@ -56,3 +56,7 @@
 - 身份是工作的主人，只在这条消息还没结束时有效。
 - 只能调这些，别的一律 403:`GET /api/agents`、`GET /api/sessions?work_id=<本工作>`、`POST /api/sessions`(`work_id` 必须是本工作，开的就是线程;`agent_id` 必须是工作主人自己的 agent,哪台 daemon 上的都行，别人的 403)、`GET /api/sessions/{线程}`、`POST /api/sessions/{线程}/messages`、`POST /api/sessions/{线程}/resolve`。
 - 用工作令牌时 `GET /api/sessions`、`POST /api/sessions` 不带 `work_id` 就是本工作;令牌过期返回 401。
+
+## 附件权限扩展（待实现）
+
+`wt_` 可对本工作的协调者和线程调用 [attachments](attachments.md) 的列表、上传、元数据、下载和删除接口，越出本工作返回 403。有效期仍是协调者当前消息的执行期。创建线程可用 `defer_start` 先建空会话、上传文件再发送第一条消息；工作删除时附件一起回收。详见 [attachment 设计](../designs/attachment.md)。

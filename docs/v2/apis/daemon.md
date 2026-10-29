@@ -132,3 +132,11 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 | `ask_timeout` | 等用户回答提问的最长时间，默认 `30m`,超时让 harness 先结束这一轮 |
 
 各 harness 怎么被调用见 [designs/connect](../designs/connect.md#本机怎么跑-harness)。改完重启 daemon 生效。
+
+## 附件扩展（待实现）
+
+不通过 WebSocket 传文件，daemon 用现有 `dk_` 调 [attachments HTTP API](attachments.md)。可读取分配给自己的 session 的附件；上传须提供当前有效租约下正在执行的 `message_id`，不能删除附件。daemon 密钥对其他管理接口的权限保持不变。
+
+每次启动 harness 前，取附件清单、下载并校验到会话工作目录的 `.agentuse/attachments/<id>/<filename>`。给 harness 增加附件上下文，以及 `AGENTUSE_SERVER`、`AGENTUSE_SESSION`、`AGENTUSE_MESSAGE_ID`、`AGENTUSE_CONFIG` 环境变量和 agentuse 的 PATH，供它调用 `agentuse attachment upload`。自定义 harness 的 stdin 运行上下文增加 `attachments` 数组，每项含 `id`、`filename`、`path`（本地相对路径）、`content_type`、`size_bytes`、`sha256`；用户原始 input 保持不变。完整流程、并发与失败规则见 [attachment 设计](../designs/attachment.md#daemon-和-harness)。
+
+附件能力通过 hello 的可选 `capabilities: ["attachments-v1"]` 声明，缺省视为不支持；服务在 daemon 对象中返回最近一次的能力列表。不支持时附件上传返回 409，含附件的会话不派给旧 daemon，具体降级规则见 [升级兼容](../designs/attachment.md#升级兼容)。

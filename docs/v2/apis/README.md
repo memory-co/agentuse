@@ -11,13 +11,14 @@ agentuse 服务对外的全部接口。一组接口一个文件:
 | [daemons](daemons.md) | 添加 daemon、安装命令、开关 harness | 网页 / 脚本 |
 | [works](works.md) | 工作：一组会话 + 共用说明 | 网页 / 脚本 |
 | [sessions](sessions.md) | 开会话、发消息、看消息和回报 | 网页 / 脚本 |
+| [attachments](attachments.md)（待实现） | session 附件上传、列表、下载、删除 | 网页 / SDK / agentuse 客户端 |
 | [setup](setup.md) | `setup.sh` 和二进制下载 | 用户电脑上的 curl |
 | [daemon](daemon.md) | daemon 注册、自检、WebSocket 消息 | daemon |
 
 ## 约定
 
-- 请求和响应都是 JSON(`Content-Type: application/json`),时间都是 unix 秒。
-- **认证**:`/api/*` 里除了 `/api/login`、`/api/logout` 和 `/api/daemon/*`，都要带用户登录令牌(`ut_` 开头):网页用 cookie `agentuse_token`,脚本用 `Authorization: Bearer ut_…`。见 [auth](auth.md)。
+- 默认请求和响应都是 JSON(`Content-Type: application/json`),时间都是 unix 秒。[附件接口](attachments.md)（待实现）上传用 multipart，下载返回二进制。
+- **认证**:`/api/*` 里除了 `/api/login`、`/api/logout` 和 `/api/daemon/*`，都要带用户登录令牌(`ut_` 开头):网页用 cookie `agentuse_token`,脚本用 `Authorization: Bearer ut_…`。见 [auth](auth.md)。[附件接口](attachments.md)（待实现）另允许受限的 daemon 密钥和工作令牌，权限范围见其设计。
 - **代为用户**:admin 令牌可以再带 `X-Agentuse-User: <用户 id>`,按那个用户的身份调用，用户不存在就先建;普通用户令牌带这个头返回 403。嵌入网站时网站后端就这么用，见 [designs/embedding](../designs/embedding.md)。
 - **权限**:普通用户只能看和改自己的 daemon、agent、工作、会话、自定义 harness(例外：开会话时可以用任何人的 agent,见 [sessions](sessions.md));admin 能看和改所有人的。看不到的东西一律返回 404。
 - **错误**:非 2xx 时响应体是 `{"error": "说明"}`。

@@ -135,3 +135,11 @@
 ## DELETE /api/sessions/{id}
 
 删除会话和它的消息、回报，返回 204。`running` 时返回 409。协调者不能单独删(返回 400),要删整个工作。只删 agentuse 这边的记录，不动 daemon 本机上 harness 的会话文件。
+
+## 附件扩展（待实现）
+
+会话下增加独立的 [attachments](attachments.md) 资源：`/api/sessions/{id}/attachments`，包含上传、列表、元数据、内容下载、删除。附件属于 session，不挂 message；session 详情暂不内嵌附件数组，单独分页获取。
+
+为支持先上传输入文件，`POST /api/sessions` 增加可选 `defer_start: true`：不传 prompt/input，返回 `{"session": …}`（201），初始状态 `idle`，没有 message，也不派活。随后上传附件，再用 messages 接口发第一条消息。未指定该选项时行为保持不变。细则见 [attachment 设计](../designs/attachment.md#先建空会话)。
+
+删除会话或整个工作时，附件元数据级联删除，二进制异步回收。下载到 daemon 的副本不做远程擦除。

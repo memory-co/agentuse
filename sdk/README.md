@@ -27,3 +27,19 @@
 另外还有 `me`、`list_agents`、`get_agent`、`delete_agent`、`list_sessions`、`delete_session`、`list_harnesses`、`create_harness`、`delete_harness`、`reset_daemon`、`delete_daemon`,以及 admin 用的 `list_users`、`create_user`、`reset_user_token`,和接口一一对应。
 
 非 2xx 响应统一抛(Go 里返回)一个带 `status` 和服务端 `error` 说明的错误。
+
+## 会话附件（待实现）
+
+设计见 [attachment](../docs/v2/designs/attachment.md)，HTTP 约定见 [attachments](../docs/v2/apis/attachments.md)。三种 SDK 同步增加 `Attachment` 类型和以下方法，仍按第一个用户参数发送 `X-Agentuse-User`：
+
+| 操作 | Python / Node / Go |
+|---|---|
+| 上传一个文件流、指定文件名 | `upload_attachment` / `uploadAttachment` / `UploadAttachment` |
+| 分页列出 session 附件，接收 limit/cursor | `list_attachments` / `listAttachments` / `ListAttachments` |
+| 取附件元数据 | `get_attachment` / `getAttachment` / `GetAttachment` |
+| 下载附件，返回可关闭的响应流 | `download_attachment` / `downloadAttachment` / `DownloadAttachment` |
+| 删除附件 | `delete_attachment` / `deleteAttachment` / `DeleteAttachment` |
+
+以上方法均显式传 session_id；get/download/delete 再传 attachment_id。列表返回 `{attachments, next_cursor}`，upload/get 返回 Attachment，delete 不返回内容。Go upload 接收 `io.Reader` 和 filename、download 返回 `io.ReadCloser`（另带响应头）；Python 接收二进制文件对象、返回可关闭的二进制响应；Node 接收文件流、返回含 headers 的流响应，调用方负责消费或关闭。传输取消与错误处理沿用各 SDK 约定。upload 必须流式生成 multipart，不能先缓冲整个文件或转 base64；download 不自动落盘。
+
+`create_session` / `createSession` / `CreateSession` 的可选参数增加 `defer_start`。为 true 时仅创建 idle 会话，返回中的 message 可缺省；调用者可先上传输入附件，再调用 send_message 开始执行。已有调用的默认行为保持不变。
