@@ -17,6 +17,7 @@ const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 age
   agentuse status                                 看本机的注册和连接状态
   agentuse harnesses [-json]                         看本机检测到哪些 harness
   agentuse work …                                 工作的协调者用来开线程、看线程(见 agentuse work help)
+  agentuse attachment upload <文件> | list | download <id> --output <文件>
   agentuse version
 
 所有命令都可以用 -config 指定配置文件，默认 ~/.agentuse/daemon.json。
@@ -30,6 +31,7 @@ func AgentuseMain(args []string) int {
 		{"status", runStatus},
 		{"harnesses", runHarnesses},
 		{"work", runWork},
+		{"attachment", runAttachment},
 	})
 }
 

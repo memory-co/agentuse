@@ -1,6 +1,6 @@
 # 会话附件
 
-> 待实现设计。本文及关联 API、表结构、CLI、SDK 约定随实现一起落地，当前版本尚不支持附件。
+> 已实现。附件需要服务端和 daemon 一起升级；daemon 通过 `attachments-v1` 声明支持。
 
 ## 用途
 
@@ -26,7 +26,7 @@
 { "agent_id": "code-helper", "defer_start": true }
 ```
 
-返回 201 和 `{"session": {"status": "idle", "…": "…"}}`，不建 message、不派活。此时不能同时传 `prompt` 或 `input`，否则 400；agent 和运行时的校验保持不变。工作令牌用它建线程时也遵守相同规则。随后上传文件，再用现有 messages 接口发第一条消息；第一条有 prompt 的消息补上空标题。未传 `defer_start` 的行为保持不变。工作协调者原本就从 `idle` 开始，可以直接上传。
+返回 201 和 `{"session": {"status": "idle", "…": "…"}}`，不建 message、不派活。此时不能同时传 `prompt` 或 `input`，否则 400；agent 和运行时的校验保持不变。工作令牌用它建线程时也遵守相同规则；CLI 用 `agentuse work new --agent <id> --defer-start`，上传后 `agentuse work send` 开始。随后上传文件，再用现有 messages 接口发第一条消息；第一条有 prompt 的消息补上空标题。未传 `defer_start` 的行为保持不变。工作协调者原本就从 `idle` 开始，可以直接上传。
 
 ## HTTP 和权限
 
@@ -85,7 +85,7 @@ agentuse attachment download at_xxx --output ./input.csv
 agentuse attachment upload ./requirements.pdf --session ss_xxx --server https://agentuse.example.com --token ut_…
 ```
 
-命令的完整约定见 [cli/agentuse](../cli/agentuse.md#attachment待实现)。单次上传一个普通文件；拒绝目录，不自动压缩。上传和下载都流式处理，不把整个文件读进内存。成功后纯文本输出 id、文件名、大小及服务端返回的相对下载路径；`--json` 直接输出 API 对象，错误写 stderr，非零退出。客户端不自动无限重试 POST，超时可能已经上传成功，提示先 list 检查；第一版不保证上传幂等。
+命令的完整约定见 [cli/agentuse](../cli/agentuse.md#attachment)。单次上传一个普通文件；拒绝目录，不自动压缩。上传和下载都流式处理，不把整个文件读进内存。成功后纯文本输出 id、文件名、大小及服务端返回的相对下载路径；`--json` 直接输出 API 对象，错误写 stderr，非零退出。客户端不自动无限重试 POST，超时可能已经上传成功，提示先 list 检查；第一版不保证上传幂等。
 
 ## 页面与 SDK
 

@@ -150,3 +150,15 @@ docs/                v2(当前) / v1(旧版)
 ## License
 
 [Apache License 2.0](LICENSE)
+
+## 会话附件
+
+会话支持输入文件和交付产物，接口是 `/api/sessions/{id}/attachments`。先用 `defer_start: true` 创建空会话、上传输入文件，再发送第一条消息。daemon 会下载并校验附件，交给 harness 读取。harness 生成文件后可直接运行：
+
+```bash
+agentuse attachment upload ./report.pdf
+agentuse attachment list --json
+agentuse attachment download at_xxx --output ./report.pdf
+```
+
+网页会话页和 Go、Python、Node SDK 均支持附件。服务端默认单文件 100 MiB、每会话总计 1 GiB；附件目录默认 `~/.agentuse/attachments`，须与数据库一起备份。需要服务端和 daemon 一起升级，旧 daemon 会提示不支持附件。[设计](docs/v2/designs/attachment.md) · [API](docs/v2/apis/attachments.md) · [CLI](docs/v2/cli/agentuse.md#attachment)。

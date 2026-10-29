@@ -43,3 +43,21 @@ if err == nil && reply.Steer != nil {
 ```
 
 类型和接口里的对象一一对应(见 `types.go`),消息内容和回报的 `payload` 是 `json.RawMessage`。要自定义超时、代理就设 `c.HTTPClient`。
+
+## 附件
+
+先用 `CreateSessionRequest{AgentID: "coder", DeferStart: true}` 建空会话，上传文件后 `SendMessage` 开始。附件是 session 的独立资源，大小限制和权限见 [attachments API](../../docs/v2/apis/attachments.md)。
+
+```go
+f, err := os.Open("input.csv")
+if err != nil { return err }
+defer f.Close()
+a, err := c.UploadAttachment(ctx, user, sessionID, "input.csv", f)
+if err != nil { return err }
+r, err := c.DownloadAttachment(ctx, user, sessionID, a.ID)
+if err != nil { return err }
+defer r.Close()
+_, err = io.Copy(destination, r)
+```
+
+`ListAttachments(ctx, user, sessionID, limit, cursor)` 返回 `AttachmentPage`，用 `NextCursor` 继续取下一页；limit 为 0 时使用服务端默认值。另有 `GetAttachment`、`DeleteAttachment`。上传流由调用者关闭，下载流必须消费或关闭。下载响应头在 `Header` 中。

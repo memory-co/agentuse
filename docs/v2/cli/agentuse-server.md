@@ -103,3 +103,7 @@ agentuse-server user token u_10086
 | `agentuse daemon register …` | `agentuse register …` |
 | `agentuse daemon run` | `agentuse daemon` |
 | — | `agentuse status`、`agentuse harnesses`(新增) |
+
+### 附件存储参数
+
+`start` 支持 `-attachments-dir`（环境变量 `AGENTUSE_ATTACHMENTS_DIR`，默认 `~/.agentuse/attachments`）、`-attachment-max-bytes`（`AGENTUSE_ATTACHMENT_MAX_BYTES`，默认 104857600）、`-attachment-session-max-bytes`（`AGENTUSE_ATTACHMENT_SESSION_MAX_BYTES`，默认 1073741824）。容量必须是正整数字节数。数据库和附件目录一起备份，目录不能公开为静态资源。详见 [attachment](../designs/attachment.md)。

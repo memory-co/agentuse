@@ -133,7 +133,7 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 
 各 harness 怎么被调用见 [designs/connect](../designs/connect.md#本机怎么跑-harness)。改完重启 daemon 生效。
 
-## 附件扩展（待实现）
+## 附件扩展
 
 不通过 WebSocket 传文件，daemon 用现有 `dk_` 调 [attachments HTTP API](attachments.md)。可读取分配给自己的 session 的附件；上传须提供当前有效租约下正在执行的 `message_id`，不能删除附件。daemon 密钥对其他管理接口的权限保持不变。
 

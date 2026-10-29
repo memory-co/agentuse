@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,8 +57,29 @@ func runStart(args []string) error {
 	dbPath := fs.String("db", envOr("AGENTUSE_DB", defaultDB()), "SQLite 数据库文件")
 	publicURL := fs.String("public-url", os.Getenv("AGENTUSE_PUBLIC_URL"), "用户电脑访问服务的地址(写进安装命令),空 = 按请求推断")
 	dist := fs.String("dist", envOr("AGENTUSE_DIST", defaultDist()), "各平台 agentuse 二进制所在目录(agentuse-<os>-<arch>)")
+	home, _ := os.UserHomeDir()
+	attachmentsDir := fs.String("attachments-dir", envOr("AGENTUSE_ATTACHMENTS_DIR", filepath.Join(home, ".agentuse", "attachments")), "附件存储目录")
+	envInt := func(key string, def int64) int64 {
+		v := os.Getenv(key)
+		if v == "" {
+			return def
+		}
+		n, e := strconv.ParseInt(v, 10, 64)
+		if e != nil {
+			return -1
+		}
+		return n
+	}
+	maxBytes := fs.Int64("attachment-max-bytes", envInt("AGENTUSE_ATTACHMENT_MAX_BYTES", 100<<20), "单附件字节上限")
+	sessionMax := fs.Int64("attachment-session-max-bytes", envInt("AGENTUSE_ATTACHMENT_SESSION_MAX_BYTES", 1<<30), "会话附件总字节上限")
 	resetAdmin := fs.Bool("reset-admin-token", false, "启动时给管理员换一个新令牌并打印(令牌丢了用)")
 	if err := parse(fs, args); err != nil {
+		return err
+	}
+	if *maxBytes <= 0 || *sessionMax <= 0 || *maxBytes > (1<<63-1)-(1<<20) {
+		return errors.New("附件容量必须是有效正整数")
+	}
+	if err := os.MkdirAll(*attachmentsDir, 0700); err != nil {
 		return err
 	}
 	if *dbPath != ":memory:" {
@@ -92,7 +114,7 @@ func runStart(args []string) error {
 			*dist, strings.Join(missing, ", "))
 	}
 
-	srv := server.New(st, server.Config{PublicURL: *publicURL, DistDir: *dist})
+	srv := server.New(st, server.Config{PublicURL: *publicURL, DistDir: *dist, AttachmentsDir: *attachmentsDir, AttachmentMaxBytes: *maxBytes, AttachmentSessionMaxBytes: *sessionMax})
 	go srv.Run(ctx)
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 	go func() {

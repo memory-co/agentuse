@@ -39,6 +39,7 @@ export interface DaemonHarness {
 }
 
 export interface Daemon {
+ capabilities: string[];
   id: string;
   user_id: string;
   name: string;
@@ -131,7 +132,18 @@ export interface ClientOptions {
   fetch?: typeof fetch;
 }
 
+export interface Attachment {
+ id: string; session_id: string; filename: string; content_type: string; size_bytes: number; sha256: string;
+ created_by: string; source: 'user' | 'daemon' | 'work'; daemon_id?: string; created_at: number; download_path: string;
+}
+export interface AttachmentPage { attachments: Attachment[]; next_cursor: string | null }
 export declare class Client {
+ uploadAttachment(user: UserId, sessionId: string, filename: string, stream: AsyncIterable<Uint8Array> | ReadableStream<Uint8Array> | Blob): Promise<Attachment>;
+ listAttachments(user: UserId, sessionId: string, opts?: {limit?: number; cursor?: string}): Promise<AttachmentPage>;
+ getAttachment(user: UserId, sessionId: string, id: string): Promise<Attachment>;
+ downloadAttachment(user: UserId, sessionId: string, id: string): Promise<Response>;
+ deleteAttachment(user: UserId, sessionId: string, id: string): Promise<void>;
+
   baseUrl: string;
   token: string;
   constructor(opts: ClientOptions);
@@ -159,7 +171,7 @@ export declare class Client {
   deleteDaemon(user: UserId, daemonId: string): Promise<void>;
 
   listSessions(user: UserId): Promise<Session[]>;
-  createSession(user: UserId, req: MessageInput & { agent_id: string }): Promise<{ session: Session; message: Message }>;
+  createSession(user: UserId, req: MessageInput & { agent_id: string; defer_start?: boolean }): Promise<{ session: Session; message?: Message }>;
   /** 会话 idle 时返回 Message;忙时是插话，返回 Steer。 */
   sendMessage(user: UserId, sessionId: string, req: MessageInput): Promise<Message | Steer>;
   getSession(user: UserId, sessionId: string): Promise<SessionDetail>;

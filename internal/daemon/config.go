@@ -18,9 +18,10 @@ import (
 
 // Config 是 ~/.agentuse/daemon.json。
 type Config struct {
-	Server   string `json:"server"`
-	DaemonID string `json:"daemon_id"`
-	Key      string `json:"key"`
+	ConfigPath string `json:"-"`
+	Server     string `json:"server"`
+	DaemonID   string `json:"daemon_id"`
+	Key        string `json:"key"`
 	// Harnesses 配置本机 harness 的启动命令。内置的(claude / codex)不配也会自动检测;
 	// 自定义 harness 必须在这里配，名字要和服务上注册的一致。
 	Harnesses map[string]HarnessConfig `json:"harnesses,omitempty"`
@@ -57,6 +58,7 @@ func LoadConfig(path string) (Config, error) {
 	if err := json.Unmarshal(b, &c); err != nil {
 		return c, fmt.Errorf("%s: %w", path, err)
 	}
+	c.ConfigPath, _ = filepath.Abs(path)
 	return c, nil
 }
 

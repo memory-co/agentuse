@@ -1,10 +1,34 @@
 """agentuse HTTP API 的薄封装，只用标准库。接口见 docs/v2/apis。"""
 
 import json
+import secrets
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import TypedDict, Literal, Optional, List
+
+class _AttachmentOptional(TypedDict, total=False):
+    daemon_id: str
+
+
+class Attachment(_AttachmentOptional):
+    id: str
+    session_id: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    sha256: str
+    created_by: str
+    source: Literal["user", "daemon", "work"]
+    created_at: int
+    download_path: str
+
+
+class AttachmentPage(TypedDict):
+    attachments: List[Attachment]
+    next_cursor: Optional[str]
+
 
 USER_HEADER = "X-Agentuse-User"
 
@@ -122,15 +146,64 @@ class Client:
     def delete_daemon(self, user, daemon_id):
         self._request("DELETE", f"/api/daemons/{_q(daemon_id)}", user)
 
+    def _attachment_request(self, method, path, user, body=None, content_type=None):
+        headers = {"Authorization": f"Bearer {self.token}"}
+        if user:
+            headers[USER_HEADER] = user
+        if content_type:
+            headers["Content-Type"] = content_type
+        req = urllib.request.Request(self.base_url + path, data=body, headers=headers, method=method)
+        try:
+            return urllib.request.urlopen(req, timeout=self.timeout)
+        except urllib.error.HTTPError as e:
+            with e:
+                raw = e.read()
+            try:
+                msg = json.loads(raw).get("error") or e.reason
+            except ValueError:
+                msg = raw.decode(errors="replace") or e.reason
+            raise AgentuseError(e.code, msg) from None
+
+    def upload_attachment(self, user, session_id, filename, stream) -> Attachment:
+        """Stream a binary file object without buffering it in memory."""
+        boundary = "agentuse-" + secrets.token_hex(24)
+        def body():
+            yield (f'--{boundary}\r\nContent-Disposition: form-data; name="filename"\r\n\r\n'
+                   f'{filename}\r\n--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="file"\r\n'
+                   'Content-Type: application/octet-stream\r\n\r\n').encode()
+            while True:
+                chunk = stream.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+            yield f'\r\n--{boundary}--\r\n'.encode()
+        with self._attachment_request("POST", f"/api/sessions/{_q(session_id)}/attachments", user,
+                                      body(), f"multipart/form-data; boundary={boundary}") as resp:
+            return json.load(resp)
+
+    def list_attachments(self, user, session_id, limit=None, cursor=None) -> AttachmentPage:
+        query = urllib.parse.urlencode(_drop_none(limit=limit, cursor=cursor))
+        return self._request("GET", f"/api/sessions/{_q(session_id)}/attachments?{query}", user)
+
+    def get_attachment(self, user, session_id, attachment_id) -> Attachment:
+        return self._request("GET", f"/api/sessions/{_q(session_id)}/attachments/{_q(attachment_id)}", user)
+
+    def download_attachment(self, user, session_id, attachment_id):
+        """Return a response stream. Use it as a context manager or close it."""
+        return self._attachment_request("GET", f"/api/sessions/{_q(session_id)}/attachments/{_q(attachment_id)}/content", user)
+
+    def delete_attachment(self, user, session_id, attachment_id):
+        self._request("DELETE", f"/api/sessions/{_q(session_id)}/attachments/{_q(attachment_id)}", user)
+
     # sessions
 
     def list_sessions(self, user):
         return self._request("GET", "/api/sessions", user)
 
-    def create_session(self, user, agent_id, prompt=None, input=None):
+    def create_session(self, user, agent_id, prompt=None, input=None, defer_start=None):
         """用一个 agent 新建会话并发出第一条消息，返回 {"session": …, "message": …}。"""
         return self._request(
-            "POST", "/api/sessions", user, _drop_none(agent_id=agent_id, prompt=prompt, input=input)
+            "POST", "/api/sessions", user, _drop_none(agent_id=agent_id, prompt=prompt, input=input, defer_start=defer_start)
         )
 
     def send_message(self, user, session_id, prompt=None, input=None):

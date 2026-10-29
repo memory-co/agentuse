@@ -2,7 +2,10 @@
 // 说明见 docs/v2/designs/connect.md。
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"github.com/memory-co/agentuse/internal/attachment"
+)
 
 const (
 	// RegisterPath:daemon 用安装令牌换长期密钥。
@@ -56,9 +59,10 @@ type Message struct {
 	Type string `json:"type"`
 
 	// hello
-	Harnesses []Harness `json:"harnesses,omitempty"`
-	Running   []int64   `json:"running,omitempty"` // 正在回的消息 id
-	Version   string    `json:"version,omitempty"`
+	Capabilities []string  `json:"capabilities,omitempty"`
+	Harnesses    []Harness `json:"harnesses,omitempty"`
+	Running      []int64   `json:"running,omitempty"` // 正在回的消息 id
+	Version      string    `json:"version,omitempty"`
 
 	// welcome
 	DaemonID string   `json:"daemon_id,omitempty"`
@@ -90,11 +94,13 @@ type Harness struct {
 
 // Dispatch 是派给 daemon 的一条用户消息，带上会话的信息。
 type Dispatch struct {
-	ID        int64           `json:"id"` // 消息 id
-	SessionID string          `json:"session_id"`
-	Harness   string          `json:"harness"`
-	Resume    string          `json:"resume,omitempty"` // harness 自己的会话 id,第一条消息时为空
-	Input     json.RawMessage `json:"input"`            // 消息内容
+	AttachmentSupport bool              `json:"-"`
+	Attachments       []LocalAttachment `json:"-"`
+	ID                int64             `json:"id"` // 消息 id
+	SessionID         string            `json:"session_id"`
+	Harness           string            `json:"harness"`
+	Resume            string            `json:"resume,omitempty"` // harness 自己的会话 id,第一条消息时为空
+	Input             json.RawMessage   `json:"input"`            // 消息内容
 	// Instructions 是会话所在工作的说明，写进会话目录的 CLAUDE.md / AGENTS.md(docs/v2/designs/work.md)。
 	Instructions string `json:"instructions,omitempty"`
 	// WorkToken 只在会话是工作的协调者时有，作为 AGENTUSE_WORK 给 harness 进程，让它用 agentuse work 开线程。
@@ -145,9 +151,15 @@ type PromptInput struct {
 }
 
 // HarnessInput 是写进自定义 harness stdin 的内容。
+type LocalAttachment struct {
+	attachment.Attachment
+	Path string `json:"path"`
+}
+
 type HarnessInput struct {
-	SessionID    string          `json:"session_id"`
-	Resume       string          `json:"resume,omitempty"`
-	Instructions string          `json:"instructions,omitempty"`
-	Input        json.RawMessage `json:"input"`
+	Attachments  []LocalAttachment `json:"attachments,omitempty"`
+	SessionID    string            `json:"session_id"`
+	Resume       string            `json:"resume,omitempty"`
+	Instructions string            `json:"instructions,omitempty"`
+	Input        json.RawMessage   `json:"input"`
 }

@@ -107,7 +107,9 @@ func claude(args []string) int {
 	out := reply("claude", prompt, resume)
 	if b, err := os.ReadFile("CLAUDE.md"); err == nil {
 		first, _, _ := strings.Cut(string(b), "\n")
-		out += " claude.md=" + first
+		if first != "" {
+			out += " claude.md=" + first
+		}
 	}
 	if f := strings.SplitN(prompt, " ", 3); len(f) == 3 && f[0] == "spawn" {
 		b, err := exec.Command("agentuse", "work", "new", "--agent", f[1], f[2]).CombinedOutput()
@@ -230,6 +232,10 @@ func custom() int {
 		return 2
 	}
 	var in struct {
+		Attachments []struct {
+			Path     string `json:"path"`
+			Filename string `json:"filename"`
+		} `json:"attachments"`
 		SessionID string `json:"session_id"`
 		Resume    string `json:"resume"`
 		Input     struct {
@@ -245,6 +251,29 @@ func custom() int {
 	if in.Input.Prompt == "fail" {
 		fmt.Fprintln(os.Stderr, "fake failure")
 		return 3
+	}
+	if in.Input.Prompt == "attachments" {
+		if len(in.Attachments) != 1 {
+			fmt.Fprintln(os.Stderr, "missing attachment context")
+			return 2
+		}
+		b, err := os.ReadFile(in.Attachments[0].Path)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+		if err = os.WriteFile("report.txt", append([]byte("result:"), b...), 0600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+		cmd := exec.Command("agentuse", "attachment", "upload", "report.txt", "--json")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, string(out), err)
+			return 2
+		}
+		emit(map[string]any{"type": "result", "ok": true, "output": string(out), "session_id": "custom-" + in.SessionID})
+		return 0
 	}
 	sid := in.Resume
 	if sid == "" {

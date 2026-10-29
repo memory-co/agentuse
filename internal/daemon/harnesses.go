@@ -103,7 +103,7 @@ type reportFn func(kind string, payload any)
 // in 是这条消息收到的插话和提问答案，harness 能插话、能提问时从里面取。
 func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir string, in *inbox, report reportFn) Result {
 	if la.Spec == nil {
-		in, _ := json.Marshal(protocol.HarnessInput{SessionID: m.SessionID, Resume: m.Resume, Instructions: instructionsFor(m), Input: m.Input})
+		in, _ := json.Marshal(protocol.HarnessInput{SessionID: m.SessionID, Resume: m.Resume, Instructions: instructionsFor(m), Input: m.Input, Attachments: m.Attachments})
 		cmd := exec.CommandContext(ctx, la.Path, la.Args...)
 		if len(la.Env) > 0 {
 			cmd.Env = append(os.Environ(), la.Env...)

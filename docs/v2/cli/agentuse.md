@@ -13,6 +13,7 @@
 | `agentuse status` | 看本机的注册和连接状态 |
 | `agentuse harnesses` | 看本机检测到哪些 harness |
 | `agentuse work …` | 工作的协调者用来开线程、看线程(harness 在跑时用，不是给人敲的) |
+| `agentuse attachment …` | 上传、列出、下载 session 附件 |
 | `agentuse version` | 版本 |
 
 ### register
@@ -71,6 +72,7 @@ my-harness  /usr/local/bin/my-harness
 agentuse work agents                                       # 能用哪些 agent
 agentuse work threads                                      # 这个工作的线程和状态
 agentuse work new --agent code-helper "改 daemon 的重连逻辑"  # 开线程，打印线程 id
+agentuse work new --agent code-helper --defer-start         # 先建空线程，上传附件后再 send
 agentuse work send ss_xxx "再补个测试"                       # 给线程发消息(在跑就是插话)
 agentuse work read ss_xxx                                  # 看线程的消息
 agentuse work resolve ss_xxx                               # 标记线程已完成
@@ -78,7 +80,7 @@ agentuse work resolve ss_xxx                               # 标记线程已完�
 
 给[工作](../designs/work.md)的协调者用：读环境变量 `AGENTUSE_SERVER`、`AGENTUSE_WORK`(工作令牌，daemon 起协调者时设好;也认旧名字 `AGENTUSE_WORK_TOKEN`)调 [works](../apis/works.md#工作令牌wt_) 允许的那几个接口。没有这两个变量时报错退出。输出是给 harness 读的纯文本。
 
-### attachment（待实现）
+### attachment
 
 给人和 harness 使用的会话文件命令，设计见 [attachment](../designs/attachment.md)，调用 [attachments API](../apis/attachments.md)。
 

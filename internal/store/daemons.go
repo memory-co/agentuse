@@ -14,14 +14,15 @@ const (
 )
 
 type Daemon struct {
-	ID         string          `json:"id"`
-	UserID     string          `json:"user_id"`
-	Name       string          `json:"name"`
-	SetupToken string          `json:"setup_token,omitempty"` // 注册前有值，注册后清空
-	Status     string          `json:"status"`
-	LastSeenAt *int64          `json:"last_seen_at"`
-	CreatedAt  int64           `json:"created_at"`
-	Harnesses  []DaemonHarness `json:"harnesses"`
+	Capabilities []string        `json:"capabilities"`
+	ID           string          `json:"id"`
+	UserID       string          `json:"user_id"`
+	Name         string          `json:"name"`
+	SetupToken   string          `json:"setup_token,omitempty"` // 注册前有值，注册后清空
+	Status       string          `json:"status"`
+	LastSeenAt   *int64          `json:"last_seen_at"`
+	CreatedAt    int64           `json:"created_at"`
+	Harnesses    []DaemonHarness `json:"harnesses"`
 }
 
 type DaemonHarness struct {
@@ -123,6 +124,7 @@ func (s *Store) scanDaemon(row scanner) (Daemon, error) {
 	}
 	d.SetupToken, d.LastSeenAt = token.String, nullInt(seen)
 	d.Harnesses = []DaemonHarness{}
+	d.Capabilities = []string{}
 	return d, err
 }
 
@@ -140,6 +142,9 @@ func (s *Store) GetDaemon(ctx context.Context, u User, id string) (Daemon, error
 	}
 	harnesses, err := s.daemonHarnesses(ctx, `WHERE daemon_id = ?`, d.ID)
 	d.Harnesses = harnesses
+	if err == nil {
+		d.Capabilities, err = s.daemonCapabilities(ctx, d.ID)
+	}
 	return d, err
 }
 
@@ -182,6 +187,13 @@ func (s *Store) ListDaemons(ctx context.Context, u User) ([]Daemon, error) {
 		if i, ok := byID[a.DaemonID]; ok {
 			out[i].Harnesses = append(out[i].Harnesses, a)
 		}
+	}
+	for i := range out {
+		caps, e := s.daemonCapabilities(ctx, out[i].ID)
+		if e != nil {
+			return nil, e
+		}
+		out[i].Capabilities = caps
 	}
 	return out, nil
 }
@@ -238,12 +250,22 @@ func (s *Store) DeleteDaemon(ctx context.Context, u User, id string) error {
 // DaemonConnected 处理 daemon 连上:标在线，按上报更新 daemon_harnesses。
 // 上报里有的标 available=1 并保留原来的 enabled;没上报的标 available=0。
 // 不在 harnesses 表里登记过的名字被忽略，返回给调用方。
-func (s *Store) DaemonConnected(ctx context.Context, d Daemon, reported []ReportedHarness) (ignored []string, err error) {
+func (s *Store) DaemonConnected(ctx context.Context, d Daemon, reported []ReportedHarness, caps ...[]string) (ignored []string, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM daemon_capabilities WHERE daemon_id=?`, d.ID); err != nil {
+		return nil, err
+	}
+	if len(caps) > 0 {
+		for _, c := range caps[0] {
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO daemon_capabilities VALUES(?,?)`, d.ID, c); err != nil {
+				return nil, err
+			}
+		}
+	}
 	now := s.unix()
 	if _, err := tx.ExecContext(ctx, `UPDATE daemons SET status = ?, last_seen_at = ? WHERE id = ?`, DaemonOnline, now, d.ID); err != nil {
 		return nil, err

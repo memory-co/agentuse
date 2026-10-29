@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowUp, Check, ChevronRight, Circle, CircleCheck, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react';
+import { Attachments } from '@/components/Attachments';
+import { uploadAttachment } from '@/lib/attachments';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -56,9 +58,29 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
   const t = useT();
   const agents = useAgents();
   const [agent, setAgent] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [progress, setProgress] = useState('');
+  const draft = useRef<string | null>(null);
+  const uploaded = useRef(new Set<File>());
+  const [draftId, setDraftId] = useState<string | null>(null);
   useEffect(() => { if (!agent && agents.data?.length) setAgent(agents.data[0].id); }, [agent, agents.data]);
   const add = useMutation({
-    mutationFn: (prompt: string) => api<{ session: Session }>('/api/sessions', { method: 'POST', body: { agent_id: agent.trim(), prompt } }),
+    mutationFn: async (prompt: string) => {
+      if (!files.length && !draft.current) return api<{ session: Session }>('/api/sessions', { method: 'POST', body: { agent_id: agent.trim(), prompt } });
+      if (!draft.current) {
+        const r = await api<{session: Session}>('/api/sessions', {method: 'POST', body: {agent_id: agent.trim(), defer_start: true}});
+        draft.current = r.session.id; setDraftId(r.session.id); void refresh();
+      }
+      const id = draft.current;
+      try {
+        for (const file of files) {
+          if (uploaded.current.has(file)) continue;
+          await uploadAttachment(id, file, n => setProgress(`${file.name} ${n}%`)); uploaded.current.add(file);
+        }
+        await api(`/api/sessions/${id}/messages`, {method: 'POST', body: {prompt}});
+        return {session: {id} as Session};
+      } finally { setProgress(''); }
+    },
     onSuccess: r => { void refresh(); onCreated(r.session.id); },
   });
   return <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-6 px-4 py-10">
@@ -67,9 +89,15 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
       <p className="text-sm text-muted-foreground">{t('session.askText')}</p>
     </div>
     <Composer placeholder={t('session.taskPlaceholder')} disabled={!agent.trim()} busy={add.isPending} onSend={p => add.mutateAsync(p)}>
-      <Input className="h-8 w-52 font-mono text-xs" list="agent-ids" placeholder={t('session.agentPlaceholder')} value={agent} onChange={e => setAgent(e.target.value)} aria-label="agent" />
+      <Input disabled={!!draftId || add.isPending} className="h-8 w-52 font-mono text-xs" list="agent-ids" placeholder={t('session.agentPlaceholder')} value={agent} onChange={e => setAgent(e.target.value)} aria-label="agent" />
       <datalist id="agent-ids">{agents.data?.map(a => <option key={a.id} value={a.id}>{a.name} ({a.harness})</option>)}</datalist>
+      <label className="cursor-pointer text-xs text-muted-foreground">{t('attachment.upload')}
+        <input type="file" multiple disabled={add.isPending} className="sr-only" onChange={e => setFiles(Array.from(e.target.files ?? []))} />
+      </label>
+      {files.length > 0 && <span className="min-w-0 break-all text-xs text-muted-foreground">{t('attachment.selected', {n: files.length})}: {files.map(f => f.name).join(', ')}</span>}
     </Composer>
+    {progress && <p role="status" className="text-center text-xs">{progress}</p>}
+    {draftId && <div className="grid gap-1 text-center text-xs"><p>{t('attachment.created')}</p><a className="underline" href={`#/s/${draftId}`}>{t('attachment.open')}</a></div>}
     {add.isError && <div className="text-center"><ErrorState error={add.error} /></div>}
     {agents.isSuccess && !agents.data.length && <p className="text-center text-sm text-muted-foreground">{t('session.noAgents')}</p>}
   </div>;
@@ -99,7 +127,7 @@ export function Conversation({ id, onDeleted, placeholder }: { id: string; onDel
   const settled = x.status === 'idle' || x.status === 'resolved';
   return <div className="flex min-h-0 flex-1 flex-col">
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto grid w-full max-w-3xl gap-6 px-4 py-6">
+      <div className="mx-auto grid min-w-0 w-full max-w-3xl grid-cols-1 gap-6 px-4 py-6">
         <div className="flex items-start gap-2 border-b pb-3">
           <p className="min-w-0 flex-1 break-all font-mono text-xs text-muted-foreground">{meta}</p>
           {!coordinator && settled && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" disabled={resolve.isPending} onClick={() => resolve.mutate(x.status === 'idle')}>
@@ -109,6 +137,7 @@ export function Conversation({ id, onDeleted, placeholder }: { id: string; onDel
             <Button variant="ghost" size="icon" className="size-7 text-destructive" aria-label={t('session.delete')}><Trash2 /></Button>
           </Confirm>}
         </div>
+        <Attachments key={id} session={id} running={!settled} />
         {messages.map(m => <MessageView key={m.id} m={m} events={events} steers={steers} questions={questions} sessionId={x.id} />)}
         {!settled && <div className="flex items-start gap-2 text-sm">
           <StatusBadge tone={STATUS_TONE[x.status]}>{statusLabel(x.status)}</StatusBadge>
@@ -135,7 +164,7 @@ function MessageView({ m, events, steers, questions, sessionId }: { m: Message; 
     const plan = events.filter(e => e.message_id === m.id && e.kind === 'plan').pop();
     // 插话：转成下一条消息的(queued)不再单独显示
     const mine = steers.filter(s => s.message_id === m.id && s.status !== 'queued');
-    return <div className="grid gap-3">
+    return <div className="grid min-w-0 grid-cols-1 gap-3">
       {typeof c.from_session === 'string' ? <ThreadNote m={m} />
         : <div className="ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-2.5 text-sm" title={fmtTime(m.created_at)}>{text}</div>}
       {mine.map(s => <div key={s.id} className="ml-auto grid max-w-[75%] justify-items-end gap-0.5" title={fmtTime(s.created_at)}>
@@ -151,9 +180,9 @@ function MessageView({ m, events, steers, questions, sessionId }: { m: Message; 
     </div>;
   }
   const out = c.ok ? (typeof c.output === 'string' ? c.output : JSON.stringify(c, null, 2)) : (c.error || t('session.failed')) + (c.output ? '\n' + c.output : '');
-  return <div className="grid gap-1.5" title={fmtTime(m.created_at)}>
+  return <div className="grid min-w-0 grid-cols-1 gap-1.5" title={fmtTime(m.created_at)}>
     {!c.ok && <div><StatusBadge tone="bad">{t('session.failed')}</StatusBadge></div>}
-    <div className={cn('whitespace-pre-wrap break-words text-sm leading-7', !c.ok && 'text-destructive')}>{out}</div>
+    <div className={cn('min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere] text-sm leading-7', !c.ok && 'text-destructive')}>{out}</div>
   </div>;
 }
 

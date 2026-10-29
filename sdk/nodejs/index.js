@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 // agentuse HTTP API 的薄封装，用 Node 18+ 自带的 fetch,没有依赖。接口见 docs/v2/apis。
 
 export const USER_HEADER = "X-Agentuse-User";
@@ -73,6 +74,38 @@ export class Client {
     return this._request("PUT", `/api/daemons/${q(daemonId)}/harnesses/${q(harness)}`, user, { enabled: !!enabled });
   }
   async deleteDaemon(user, daemonId) { await this._request("DELETE", `/api/daemons/${q(daemonId)}`, user); }
+
+  async _attachmentRequest(method, path, user, body, contentType) {
+    const headers = { Authorization: `Bearer ${this.token}` };
+    if (user) headers[USER_HEADER] = user;
+    if (contentType) headers["Content-Type"] = contentType;
+    const res = await this._fetch(this.baseUrl + path, { method, headers, ...(body ? {body, duplex: "half"} : {}) });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new AgentuseError(res.status, data.error || res.statusText);
+    }
+    return res;
+  }
+  async uploadAttachment(user, sessionId, filename, stream) {
+    const boundary = "agentuse-" + randomBytes(24).toString("hex");
+    async function* body() {
+      yield Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="filename"\r\n\r\n${filename}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="file"\r\nContent-Type: application/octet-stream\r\n\r\n`);
+      const source = typeof stream.stream === "function" ? stream.stream() : stream;
+      for await (const chunk of source) yield chunk;
+      yield Buffer.from(`\r\n--${boundary}--\r\n`);
+    }
+    const res = await this._attachmentRequest("POST", `/api/sessions/${q(sessionId)}/attachments`, user, body(), `multipart/form-data; boundary=${boundary}`);
+    return res.json();
+  }
+  listAttachments(user, sessionId, {limit, cursor} = {}) {
+    const params = new URLSearchParams();
+    if (limit !== undefined) params.set("limit", limit);
+    if (cursor) params.set("cursor", cursor);
+    return this._request("GET", `/api/sessions/${q(sessionId)}/attachments?${params}`, user);
+  }
+  getAttachment(user, sessionId, id) { return this._request("GET", `/api/sessions/${q(sessionId)}/attachments/${q(id)}`, user); }
+  downloadAttachment(user, sessionId, id) { return this._attachmentRequest("GET", `/api/sessions/${q(sessionId)}/attachments/${q(id)}/content`, user); }
+  deleteAttachment(user, sessionId, id) { return this._request("DELETE", `/api/sessions/${q(sessionId)}/attachments/${q(id)}`, user); }
 
   // sessions
   listSessions(user) { return this._request("GET", "/api/sessions", user); }

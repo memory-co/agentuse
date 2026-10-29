@@ -7,7 +7,10 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/memory-co/agentuse/internal/protocol"
@@ -15,6 +18,9 @@ import (
 )
 
 type Config struct {
+	AttachmentsDir            string
+	AttachmentMaxBytes        int64
+	AttachmentSessionMaxBytes int64
 	// PublicURL 是用户电脑访问服务的地址，写进安装命令和 setup.sh。空 = 按请求的 Host 推断。
 	PublicURL string
 	// DistDir 放各平台的 agentuse 二进制(agentuse-<os>-<arch>),setup.sh 从这里下载。
@@ -23,16 +29,27 @@ type Config struct {
 }
 
 type Server struct {
-	cfg   Config
-	store *store.Store
-	hub   *hub
-	log   *log.Logger
-	mux   *http.ServeMux
+	attachmentMu sync.RWMutex
+	cfg          Config
+	store        *store.Store
+	hub          *hub
+	log          *log.Logger
+	mux          *http.ServeMux
 }
 
 func New(st *store.Store, cfg Config) *Server {
 	if cfg.Logger == nil {
 		cfg.Logger = log.Default()
+	}
+	if cfg.AttachmentsDir == "" {
+		home, _ := os.UserHomeDir()
+		cfg.AttachmentsDir = filepath.Join(home, ".agentuse", "attachments")
+	}
+	if cfg.AttachmentMaxBytes <= 0 {
+		cfg.AttachmentMaxBytes = 100 << 20
+	}
+	if cfg.AttachmentSessionMaxBytes <= 0 {
+		cfg.AttachmentSessionMaxBytes = 1 << 30
 	}
 	cfg.PublicURL = strings.TrimRight(cfg.PublicURL, "/")
 	s := &Server{cfg: cfg, store: st, log: cfg.Logger, mux: http.NewServeMux()}
@@ -45,12 +62,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.Serve
 
 // Run 跑后台任务(收回过期租约),直到 ctx 结束。
 func (s *Server) Run(ctx context.Context) {
+	if err := s.CleanupAttachments(ctx); err != nil {
+		s.log.Printf("attachment cleanup: %v", err)
+	}
+	cleanup := time.NewTicker(time.Hour)
+	defer cleanup.Stop()
 	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-cleanup.C:
+			if err := s.CleanupAttachments(ctx); err != nil {
+				s.log.Printf("attachment cleanup: %v", err)
+			}
 		case <-t.C:
 			users, err := s.store.RequeueExpired(ctx)
 			if err != nil {
@@ -104,6 +130,18 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/sessions/{id}/reopen", s.auth(s.handleReopenSession))
 	s.mux.HandleFunc("POST /api/sessions/{id}/questions/{qid}/answer", s.auth(s.handleAnswerQuestion))
 
+	for _, route := range []struct {
+		pattern string
+		handler http.HandlerFunc
+	}{
+		{"POST /api/sessions/{id}/attachments", s.handleUploadAttachment},
+		{"GET /api/sessions/{id}/attachments", s.handleListAttachments},
+		{"GET /api/sessions/{id}/attachments/{attachment_id}", s.handleGetAttachment},
+		{"GET /api/sessions/{id}/attachments/{attachment_id}/content", s.handleAttachmentContent},
+		{"DELETE /api/sessions/{id}/attachments/{attachment_id}", s.handleDeleteAttachment},
+	} {
+		s.mux.HandleFunc(route.pattern, s.attachmentAuth(route.handler))
+	}
 	s.mux.HandleFunc("POST "+protocol.RegisterPath, s.handleRegister)
 	s.mux.HandleFunc("GET "+protocol.WSPath, s.hub.handleWS)
 	s.mux.HandleFunc("GET "+protocol.MePath, s.handleDaemonMe)

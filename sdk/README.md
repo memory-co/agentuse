@@ -28,7 +28,7 @@
 
 非 2xx 响应统一抛(Go 里返回)一个带 `status` 和服务端 `error` 说明的错误。
 
-## 会话附件（待实现）
+## 会话附件
 
 设计见 [attachment](../docs/v2/designs/attachment.md)，HTTP 约定见 [attachments](../docs/v2/apis/attachments.md)。三种 SDK 同步增加 `Attachment` 类型和以下方法，仍按第一个用户参数发送 `X-Agentuse-User`：
 

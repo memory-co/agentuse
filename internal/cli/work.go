@@ -20,6 +20,7 @@ const workUsage = `agentuse work —— 工作的协调者用来管理线程(doc
   agentuse work agents                            能用哪些 agent
   agentuse work threads                           这个工作的线程和状态
   agentuse work new --agent <agent_id> "要做的事"   开线程，打印线程 id
+  agentuse work new --agent <agent_id> --defer-start  先建空线程，上传附件后再 send
   agentuse work send <线程 id> "补充的话"           给线程发消息(它在跑就是插话)
   agentuse work read <线程 id>                     看线程的消息
   agentuse work resolve <线程 id>                  标记线程已完成
@@ -120,17 +121,28 @@ func workNew(ctx context.Context, c *apiClient, args []string) error {
 	fs := flag.NewFlagSet("agentuse work new", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	agent := fs.String("agent", "", "用哪个 agent(agentuse work agents 里的 agent_id)")
+	deferStart := fs.Bool("defer-start", false, "先建空线程，上传附件后再发消息")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if *agent == "" || fs.NArg() != 1 {
-		return usageErr("用法: agentuse work new --agent <agent_id> \"要做的事\"")
+	if *agent == "" || (!*deferStart && fs.NArg() != 1) || (*deferStart && fs.NArg() != 0) {
+		return usageErr("用法: agentuse work new --agent <agent_id> \"要做的事\" | --defer-start")
 	}
 	var res struct {
 		Session store.Session `json:"session"`
 	}
-	if err := c.do(ctx, http.MethodPost, "/api/sessions", map[string]string{"agent_id": *agent, "prompt": fs.Arg(0)}, &res); err != nil {
+	request := map[string]any{"agent_id": *agent}
+	if *deferStart {
+		request["defer_start"] = true
+	} else {
+		request["prompt"] = fs.Arg(0)
+	}
+	if err := c.do(ctx, http.MethodPost, "/api/sessions", request, &res); err != nil {
 		return err
+	}
+	if *deferStart {
+		fmt.Printf("已创建空线程 %s。先用 agentuse attachment upload --session %s 上传，再用 agentuse work send 开始。\n", res.Session.ID, res.Session.ID)
+		return nil
 	}
 	fmt.Printf("已开线程 %s。它回完会把结果发给你，不用等。\n", res.Session.ID)
 	return nil

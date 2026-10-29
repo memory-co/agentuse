@@ -90,6 +90,11 @@ type fakeServer struct {
 func newFakeServer(t *testing.T) *fakeServer {
 	f := &fakeServer{recv: make(chan protocol.Message, 100), send: make(chan protocol.Message, 100)}
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/sessions/ss_1/attachments" && r.Method == "GET" && r.Header.Get("Authorization") == "Bearer dk_ok" {
+			w.Header().Set("Content-Type", "application/json")
+			io.WriteString(w, `{"attachments":[],"next_cursor":null}`)
+			return
+		}
 		if r.URL.Path != protocol.WSPath || r.Header.Get("Authorization") != "Bearer dk_ok" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return

@@ -67,6 +67,6 @@ CREATE INDEX sessions_work ON sessions(work_id, updated_at);
 
 daemon 被删后 `daemon_id` 变空，会话只能看、不能再发消息(harness 的会话在原来那台电脑上，换电脑续不上)。
 
-## 附件扩展（待实现）
+## 附件扩展
 
 会话的一组文件记在 [attachments](attachments.md) 表，通过 `session_id` 关联，不修改 sessions 表结构。附件上传、删除不改变会话状态或 `updated_at`。`defer_start` 允许创建没有消息的 `idle` 会话，以便先上传再开始；详见 [attachment 设计](../designs/attachment.md)。

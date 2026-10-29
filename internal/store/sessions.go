@@ -106,7 +106,7 @@ func (s *Store) CreateSession(ctx context.Context, u User, agentID, title string
 
 // CreateSessionIn 同 CreateSession,workID 不为空时在调用者的这个工作里开一个线程(work_id 之后不能改)。
 func (s *Store) CreateSessionIn(ctx context.Context, u User, workID, agentID, title string, content json.RawMessage) (Session, Message, error) {
-	if !json.Valid(content) {
+	if content != nil && !json.Valid(content) {
 		return Session{}, Message{}, errors.New("input 必须是 JSON")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -119,12 +119,19 @@ func (s *Store) CreateSessionIn(ctx context.Context, u User, workID, agentID, ti
 			return Session{}, Message{}, err
 		}
 	}
-	ss, err := s.insertSession(ctx, tx, u, workID, agentID, title, SessionPending)
+	status := SessionPending
+	if content == nil {
+		status = SessionIdle
+	}
+	ss, err := s.insertSession(ctx, tx, u, workID, agentID, title, status)
 	if err != nil {
 		return Session{}, Message{}, err
 	}
 	if workID != "" {
 		ss.WorkRole = WorkThread
+	}
+	if content == nil {
+		return ss, Message{}, tx.Commit()
 	}
 	m, err := insertMessage(ctx, tx, ss.ID, RoleUserMsg, content, ss.CreatedAt)
 	if err != nil {
@@ -156,6 +163,20 @@ func (s *Store) AddMessage(ctx context.Context, u User, sessionID string, conten
 	}
 	if err := runtimeErr(ctx, tx, ss.DaemonID, ss.Harness); err != nil {
 		return Session{}, Message{}, err
+	}
+	if ss.Title == "" {
+		var p struct {
+			Prompt string `json:"prompt"`
+		}
+		_ = json.Unmarshal(content, &p)
+		r := []rune(strings.TrimSpace(p.Prompt))
+		if len(r) > 50 {
+			r = r[:50]
+		}
+		ss.Title = string(r)
+		if _, err = tx.ExecContext(ctx, `UPDATE sessions SET title=? WHERE id=?`, ss.Title, ss.ID); err != nil {
+			return Session{}, Message{}, err
+		}
 	}
 	now := s.unix()
 	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ?`, now, ss.ID); err != nil {
@@ -212,6 +233,9 @@ func (s *Store) ClaimSession(ctx context.Context, d Daemon, leaseSeconds int64) 
 		return Claimed{}, err
 	}
 	defer tx.Rollback()
+	if err := s.failUnrunnable(ctx, tx, d.ID); err != nil {
+		return Claimed{}, err
+	}
 	var id string
 	err = tx.QueryRowContext(ctx, `
 		SELECT s.id FROM sessions s
@@ -221,6 +245,9 @@ func (s *Store) ClaimSession(ctx context.Context, d Daemon, leaseSeconds int64) 
 		                AND da.available = 1 AND da.enabled = 1)
 		ORDER BY s.updated_at, s.id LIMIT 1`, d.ID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
+		if err := tx.Commit(); err != nil {
+			return Claimed{}, err
+		}
 		return Claimed{}, ErrNotFound
 	}
 	if err != nil {
@@ -483,6 +510,9 @@ func (s *Store) failDaemonSessions(ctx context.Context, tx *sql.Tx, daemonID str
 // failUnrunnable 把这台 daemon 名下排队中、但运行时已经派不出去(harness 关了或不可用)的会话判失败，
 // 免得一直排队。只动 pending 的:已经在跑的由 daemon 跑完。
 func (s *Store) failUnrunnable(ctx context.Context, tx *sql.Tx, daemonID string) error {
+	if err := s.failSessions(ctx, tx, `daemon_id=? AND status='pending' AND EXISTS(SELECT 1 FROM attachments a WHERE a.session_id=sessions.id) AND NOT EXISTS(SELECT 1 FROM daemon_capabilities c WHERE c.daemon_id=sessions.daemon_id AND c.capability='attachments-v1')`, ErrAttachmentCapability.Error(), daemonID); err != nil {
+		return err
+	}
 	rows, err := tx.QueryContext(ctx, `
 		SELECT DISTINCT harness FROM sessions s WHERE daemon_id = ? AND status = 'pending'
 		  AND NOT EXISTS (SELECT 1 FROM daemon_harnesses da

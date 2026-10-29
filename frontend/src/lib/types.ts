@@ -9,7 +9,7 @@ export interface Agent { id: string; user_id: string; name: string; daemon_id?: 
 export interface DaemonHarness { harness: string; version: string; available: boolean; enabled: boolean; updated_at: number }
 export interface Daemon {
   id: string; user_id: string; name: string; status: 'pending' | 'online' | 'offline';
-  setup_command?: string; last_seen_at: number | null; created_at: number; harnesses: DaemonHarness[];
+  capabilities: string[]; setup_command?: string; last_seen_at: number | null; created_at: number; harnesses: DaemonHarness[];
 }
 
 export type SessionStatus = 'idle' | 'pending' | 'running' | 'waiting' | 'resolved';
@@ -29,3 +29,8 @@ export interface Question {
   answers?: Record<string, string>; answered_by?: string; status: 'pending' | 'answered' | 'expired'; created_at: number;
 }
 export interface SessionDetail { session: Session; messages: Message[]; steers: Steer[]; questions?: Question[]; events: SessionEvent[]; daemon_offline?: boolean }
+
+export interface Attachment {
+ id: string; session_id: string; filename: string; content_type: string; size_bytes: number; sha256: string;
+ created_by: string; source: 'user' | 'daemon' | 'work'; daemon_id?: string; created_at: number; download_path: string;
+}

@@ -75,6 +75,6 @@ agentuse 也能像 Redis 一样当中间件嵌进别的网站：网站后端带�
 - **Harness**:看全部 harness,注册自定义 harness。
 - **用户**(仅 admin):建用户，拿到对方的登录链接。
 
-## 会话附件（待实现）
+## 会话附件
 
 session 下增加 attachment：用户上传输入文件，daemon 下载到会话目录交给 harness，harness 用 agentuse 客户端上传产物，用户从会话下载。文件内容走 HTTP，元数据存 SQLite；完整设计见 [attachment](attachment.md)，接口见 [attachments](../apis/attachments.md)，表见 [attachments](../tables/attachments.md)。

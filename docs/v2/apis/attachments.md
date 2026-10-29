@@ -1,6 +1,6 @@
 # attachments
 
-> 待实现。会话附件设计见 [designs/attachment](../designs/attachment.md)，表结构见 [tables/attachments](../tables/attachments.md)。
+> 会话附件设计见 [designs/attachment](../designs/attachment.md)，表结构见 [tables/attachments](../tables/attachments.md)。
 
 附件属于 session，创建后内容不可变，不关联某条 message。全部接口先校验会话权限，再校验附件属于这个会话。用户、admin、daemon 密钥、工作令牌的范围见设计文档；下面的下载路径也需要认证。
 

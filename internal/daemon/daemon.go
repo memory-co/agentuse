@@ -16,6 +16,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/memory-co/agentuse/internal/attachment"
 	"github.com/memory-co/agentuse/internal/protocol"
 )
 
@@ -127,7 +128,7 @@ func (d *Daemon) session(ctx context.Context) error {
 
 	d.mu.Lock()
 	d.harnesses = detectHarnesses(d.cfg)
-	hello := protocol.Message{Type: protocol.TypeHello, Version: Version}
+	hello := protocol.Message{Type: protocol.TypeHello, Version: Version, Capabilities: []string{attachment.Capability}}
 	for _, a := range d.harnesses {
 		hello.Harnesses = append(hello.Harnesses, protocol.Harness{Name: a.Name, Version: a.Version})
 	}
@@ -251,9 +252,14 @@ type runningMsg struct {
 // startMessage 在后台跑 harness 回一条消息，跑完回报结果并再说一次 ready。
 // 不跟连接绑定：中途断线重连，结果照样回报给新连接。
 func (d *Daemon) startMessage(m protocol.Dispatch) {
+	m.AttachmentSupport = true
 	d.mu.Lock()
 	la, ok := d.harnesses[m.Harness]
-	la.Env = workEnv(d.cfg.Server, m)
+	cfgPath := d.cfg.ConfigPath
+	if cfgPath == "" {
+		cfgPath = DefaultConfigPath()
+	}
+	la.Env = append(workEnv(d.cfg.Server, m), "AGENTUSE_CONFIG="+cfgPath)
 	tctx, cancel := context.WithCancel(context.Background())
 	in := &inbox{steers: &steerQueue{}, asks: newAskBox(d.cfg.askTimeout())}
 	d.running[m.ID] = &runningMsg{cancel: cancel, in: in}
@@ -273,6 +279,8 @@ func (d *Daemon) startMessage(m protocol.Dispatch) {
 			res = Result{Error: "本机没有 harness " + m.Harness}
 		} else if dir, err := d.sessionDir(m); err != nil {
 			res = Result{Error: err.Error()}
+		} else if err := d.syncAttachments(tctx, &m, dir); err != nil {
+			res = Result{Error: "附件同步失败: " + err.Error()}
 		} else {
 			res = runHarness(tctx, la, m, dir, in, func(kind string, p any) {
 				b, _ := json.Marshal(p)

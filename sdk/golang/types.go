@@ -66,6 +66,7 @@ type UpdateAgentRequest struct {
 }
 
 type Daemon struct {
+	Capabilities []string        `json:"capabilities"`
 	ID           string          `json:"id"`
 	UserID       string          `json:"user_id"`
 	Name         string          `json:"name"`
@@ -129,14 +130,15 @@ type MessageRequest struct {
 }
 
 type CreateSessionRequest struct {
-	AgentID string `json:"agent_id"`
-	Prompt  string `json:"prompt,omitempty"`
-	Input   any    `json:"input,omitempty"`
+	DeferStart bool   `json:"defer_start,omitempty"`
+	AgentID    string `json:"agent_id"`
+	Prompt     string `json:"prompt,omitempty"`
+	Input      any    `json:"input,omitempty"`
 }
 
 type CreateSessionResponse struct {
-	Session Session `json:"session"`
-	Message Message `json:"message"`
+	Session Session  `json:"session"`
+	Message *Message `json:"message,omitempty"`
 }
 
 type SessionDetail struct {

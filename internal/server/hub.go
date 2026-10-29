@@ -84,7 +84,7 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 			for _, a := range m.Harnesses {
 				reported = append(reported, store.ReportedHarness{Name: a.Name, Version: a.Version})
 			}
-			ignored, err := st.DaemonConnected(ctx, c.d, reported)
+			ignored, err := st.DaemonConnected(ctx, c.d, reported, m.Capabilities)
 			if err != nil {
 				return err
 			}

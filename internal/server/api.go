@@ -440,10 +440,11 @@ func messageContent(input json.RawMessage, prompt string) (json.RawMessage, erro
 // handleCreateSession 建会话并发出第一条消息。
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		AgentID string          `json:"agent_id"`
-		WorkID  string          `json:"work_id"`
-		Input   json.RawMessage `json:"input"`
-		Prompt  string          `json:"prompt"`
+		DeferStart bool            `json:"defer_start"`
+		AgentID    string          `json:"agent_id"`
+		WorkID     string          `json:"work_id"`
+		Input      json.RawMessage `json:"input"`
+		Prompt     *string         `json:"prompt"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -472,14 +473,31 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	content, err := messageContent(req.Input, req.Prompt)
+	if req.DeferStart {
+		if len(req.Input) > 0 || req.Prompt != nil {
+			writeErr(w, 400, "defer_start 不能同时传 prompt/input")
+			return
+		}
+		ss, _, err := s.store.CreateSessionIn(r.Context(), currentUser(r), req.WorkID, req.AgentID, "", nil)
+		if err != nil {
+			s.storeErr(w, err)
+			return
+		}
+		writeJSON(w, 201, map[string]any{"session": ss})
+		return
+	}
+	prompt := ""
+	if req.Prompt != nil {
+		prompt = *req.Prompt
+	}
+	content, err := messageContent(req.Input, prompt)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	title := ""
 	if len(req.Input) == 0 {
-		title = firstRunes(strings.TrimSpace(req.Prompt), 50)
+		title = firstRunes(strings.TrimSpace(prompt), 50)
 	}
 	ss, m, err := s.store.CreateSessionIn(r.Context(), currentUser(r), req.WorkID, req.AgentID, title, content)
 	if err != nil {

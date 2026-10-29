@@ -27,6 +27,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
 		t.Fatalf("密钥文件权限应为 0600: %v", st.Mode())
 	}
+	c.ConfigPath = path
 	got, err := LoadConfig(path)
 	if err != nil || !reflect.DeepEqual(got, c) {
 		t.Fatalf("%v %+v", err, got)

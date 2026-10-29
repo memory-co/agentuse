@@ -41,3 +41,16 @@ if ("status" in r) console.log("插话:", r.status);
 ```
 
 返回值都是接口里的 JSON 对象，字段见 [apis](../../docs/v2/apis/README.md) 和 `index.d.ts`。需要自定义请求时可以传 `fetch`。
+
+## 附件
+
+```js
+import { createReadStream } from 'node:fs';
+const { session } = await c.createSession(user, { agent_id: 'coder', defer_start: true });
+const file = await c.uploadAttachment(user, session.id, 'input.csv', createReadStream('./input.csv'));
+await c.sendMessage(user, session.id, { prompt: '分析附件' });
+const response = await c.downloadAttachment(user, session.id, file.id);
+// response 是 fetch Response，使用 response.body 流式读取，完成后关闭或取消流。
+```
+
+还支持 `listAttachments(user, sessionId, {limit, cursor})`、`getAttachment`、`deleteAttachment`；列表返回 `{attachments, next_cursor}`。上传接受异步字节流、ReadableStream 或 Blob，不预读整个文件。完整约定见 [attachments API](../../docs/v2/apis/attachments.md)。
