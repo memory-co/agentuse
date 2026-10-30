@@ -56,3 +56,14 @@ with c.download_attachment(user, session_id, file['id']) as response:
 ```
 
 还支持 `list_attachments(user, session_id, limit=None, cursor=None)`、`get_attachment`、`delete_attachment`。列表返回 `attachments` 和 `next_cursor`；下载返回需要关闭的响应流。上传使用二进制文件对象，按块发送；导出 `Attachment`、`AttachmentPage` TypedDict 类型。完整约定见 [attachments API](../../docs/v2/apis/attachments.md)。
+
+## 多 agent
+
+```python
+s = c.create_session(user, mode='multi_agent')['session']
+r = c.send_message(user, s['id'], prompt='分别看看实现与风险',
+                   target_agent_ids=['coder', 'reviewer'], idempotency_key='turn-1')
+d = c.wait_message_runs(user, s['id'], r['message']['id'], interval=.5, timeout=600)
+```
+
+支持 get_run、wait_run、cancel_run、answer_run_question、upgrade_session。响应 deliveries 包含各目标的新执行或插话状态；新模式 wait_session 默认等全部终态，return_on_waiting=True 可在提问时返回。

@@ -26,6 +26,8 @@ func runAttachment(args []string) error {
 	name := fs.String("name", "", "上传文件名")
 	output := fs.String("output", "", "下载目标文件")
 	force := fs.Bool("force", false, "允许覆盖下载目标")
+	runID := fs.String("run", os.Getenv("AGENTUSE_RUN"), "当前 run")
+	attemptID := fs.String("attempt", os.Getenv("AGENTUSE_ATTEMPT"), "当前执行代次")
 	asJSON := fs.Bool("json", false, "输出 JSON")
 	// flag stops at the first positional argument; accept flags on either side.
 	var flags, positionals []string
@@ -74,6 +76,13 @@ func runAttachment(args []string) error {
 		return errors.New("缺少服务地址或凭据")
 	}
 	c := attachment.Client{Server: *server, Token: *token}
+	if strings.HasPrefix(*token, "dk_") {
+		c.RunID = *runID
+		c.AttemptID = *attemptID
+		if c.RunID != "" && c.AttemptID == "" {
+			return errors.New("缺少 AGENTUSE_ATTEMPT")
+		}
+	}
 	ctx, cancel := signalContext()
 	defer cancel()
 	printJSON := func(v any) error { return json.NewEncoder(os.Stdout).Encode(v) }
@@ -99,7 +108,7 @@ func runAttachment(args []string) error {
 			filename = filepath.Base(positionals[0])
 		}
 		var messageID int64
-		if strings.HasPrefix(*token, "dk_") {
+		if strings.HasPrefix(*token, "dk_") && c.RunID == "" {
 			messageID, err = strconv.ParseInt(os.Getenv("AGENTUSE_MESSAGE_ID"), 10, 64)
 			if err != nil || messageID <= 0 {
 				return errors.New("daemon 上传需要 AGENTUSE_MESSAGE_ID")

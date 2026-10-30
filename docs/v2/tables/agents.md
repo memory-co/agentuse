@@ -38,6 +38,6 @@ CREATE UNIQUE INDEX agents_user_name ON agents(user_id, name);
 
 还有 agent 用着某个 harness 时，这个 harness 不能删。
 
-## 多 agent 会话方案（待实现）
+## 多 agent 会话方案
 
 [session-mentions](../designs/session-mentions.md) 由每条消息的 @ 目标直接选择 agent，不建立 session-agent 参与关系。agent 仍配置自身运行时，每次 run 保存当时的运行时快照；所有 agent 执行时读取同一个 session 的消息和附件。

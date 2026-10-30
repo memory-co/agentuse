@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowUp, Check, ChevronRight, Circle, CircleCheck, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react';
+import { MentionComposer } from '@/components/MentionComposer';
 import { Attachments } from '@/components/Attachments';
 import { uploadAttachment } from '@/lib/attachments';
 import { Button } from '@/components/ui/button';
@@ -10,7 +11,7 @@ import { Confirm, ErrorState, Loading, StatusBadge } from '@/components/Shared';
 import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query';
 import { useAgents } from '@/pages/Agents';
-import type { Message, Question, Session, SessionDetail as Detail, SessionEvent, SessionStatus, Steer } from '@/lib/types';
+import type { Message, Question, Session, SessionDetail as Detail, SessionEvent, SessionStatus, Steer, Run } from '@/lib/types';
 import { cn, fmtTime } from '@/lib/utils';
 import { t, useT } from '@/lib/i18n';
 
@@ -25,6 +26,11 @@ export const useWorkSessions = (workId: string, enabled = true) => useQuery({
 const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['sessions'] }), queryClient.invalidateQueries({ queryKey: ['works'] })]);
 // progress 回报只有 {text} 时直接显示文字，否则显示 JSON。
 const evText = (p: any) => (p && typeof p === 'object' && Object.keys(p).length === 1 && 'text' in p ? String(p.text) : JSON.stringify(p ?? ''));
+
+function useMessageKey(){
+ const ref=useRef<{body:string;key:string}|null>(null);
+ return {key:(body:unknown)=>{const encoded=JSON.stringify(body);if(ref.current?.body!==encoded)ref.current={body:encoded,key:`message-${Date.now()}-${Math.random().toString(36).slice(2)}`};return ref.current!.key;},reset:()=>{ref.current=null;}};
+}
 
 /** 底部输入框:回车发送,Shift+回车换行;children 放在输入框下面一行(选 agent)。 */
 function Composer({ placeholder, disabled, busy, onSend, children }: {
@@ -57,18 +63,16 @@ function Composer({ placeholder, disabled, busy, onSend, children }: {
 export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
   const t = useT();
   const agents = useAgents();
-  const [agent, setAgent] = useState('');
+ const messageKey=useMessageKey();
   const [files, setFiles] = useState<File[]>([]);
   const [progress, setProgress] = useState('');
   const draft = useRef<string | null>(null);
   const uploaded = useRef(new Set<File>());
   const [draftId, setDraftId] = useState<string | null>(null);
-  useEffect(() => { if (!agent && agents.data?.length) setAgent(agents.data[0].id); }, [agent, agents.data]);
   const add = useMutation({
-    mutationFn: async (prompt: string) => {
-      if (!files.length && !draft.current) return api<{ session: Session }>('/api/sessions', { method: 'POST', body: { agent_id: agent.trim(), prompt } });
+    mutationFn: async ({prompt, targets}: {prompt:string;targets:string[]}) => {
       if (!draft.current) {
-        const r = await api<{session: Session}>('/api/sessions', {method: 'POST', body: {agent_id: agent.trim(), defer_start: true}});
+        const r = await api<{session: Session}>('/api/sessions', {method: 'POST', body: {mode:"multi_agent"}});
         draft.current = r.session.id; setDraftId(r.session.id); void refresh();
       }
       const id = draft.current;
@@ -77,7 +81,7 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
           if (uploaded.current.has(file)) continue;
           await uploadAttachment(id, file, n => setProgress(`${file.name} ${n}%`)); uploaded.current.add(file);
         }
-        await api(`/api/sessions/${id}/messages`, {method: 'POST', body: {prompt}});
+        const body={prompt,target_agent_ids:targets};await api(`/api/sessions/${id}/messages`, {method: 'POST', body,headers:{"Idempotency-Key":messageKey.key(body)}});
         return {session: {id} as Session};
       } finally { setProgress(''); }
     },
@@ -86,16 +90,14 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
   return <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-6 px-4 py-10">
     <div className="grid gap-1 text-center">
       <h1 className="text-2xl font-semibold">{t('session.ask')}</h1>
-      <p className="text-sm text-muted-foreground">{t('session.askText')}</p>
+      <p className="text-sm text-muted-foreground">{t('mention.shared')}</p>
     </div>
-    <Composer placeholder={t('session.taskPlaceholder')} disabled={!agent.trim()} busy={add.isPending} onSend={p => add.mutateAsync(p)}>
-      <Input disabled={!!draftId || add.isPending} className="h-8 w-52 font-mono text-xs" list="agent-ids" placeholder={t('session.agentPlaceholder')} value={agent} onChange={e => setAgent(e.target.value)} aria-label="agent" />
-      <datalist id="agent-ids">{agents.data?.map(a => <option key={a.id} value={a.id}>{a.name} ({a.harness})</option>)}</datalist>
+    <MentionComposer agents={agents.data??[]} placeholder={t('session.taskPlaceholder')} busy={add.isPending} onSend={(prompt,targets)=>add.mutateAsync({prompt,targets})}>
       <label className="cursor-pointer text-xs text-muted-foreground">{t('attachment.upload')}
         <input type="file" multiple disabled={add.isPending} className="sr-only" onChange={e => setFiles(Array.from(e.target.files ?? []))} />
       </label>
       {files.length > 0 && <span className="min-w-0 break-all text-xs text-muted-foreground">{t('attachment.selected', {n: files.length})}: {files.map(f => f.name).join(', ')}</span>}
-    </Composer>
+    </MentionComposer>
     {progress && <p role="status" className="text-center text-xs">{progress}</p>}
     {draftId && <div className="grid gap-1 text-center text-xs"><p>{t('attachment.created')}</p><a className="underline" href={`#/s/${draftId}`}>{t('attachment.open')}</a></div>}
     {add.isError && <div className="text-center"><ErrorState error={add.error} /></div>}
@@ -104,15 +106,18 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
 }
 
 /** 会话页：上面是消息流，下面是回复框。工作页里协调者的对话也用它(placeholder 换掉，不能删、不能标记完成)。 */
-export function Conversation({ id, onDeleted, placeholder }: { id: string; onDeleted: () => void; placeholder?: string }) {
+export function Conversation({ id, onDeleted, placeholder,defaultAgent }: { id: string; onDeleted: () => void; placeholder?: string; defaultAgent?:string }) {
   const t = useT();
+ const agents=useAgents();
+ const messageKey=useMessageKey();
   const q = useQuery({ queryKey: ['sessions', id], queryFn: () => api<Detail>(`/api/sessions/${id}`), refetchInterval: 3000 });
   const reply = useMutation({
-    mutationFn: (prompt: string) => api(`/api/sessions/${id}/messages`, { method: 'POST', body: { prompt } }),
-    onSuccess: () => { void refresh(); },
+    mutationFn: ({prompt,targets}: {prompt:string;targets?:string[]}) => {const body={prompt,target_agent_ids:targets};return api(`/api/sessions/${id}/messages`, { method: 'POST', body,headers:{"Idempotency-Key":messageKey.key(body)} });},
+    onSuccess: () => {messageKey.reset(); void refresh(); },
   });
   const del = useMutation({ mutationFn: () => api(`/api/sessions/${id}`, { method: 'DELETE' }), onSuccess: () => { void refresh(); onDeleted(); } });
   const resolve = useMutation({ mutationFn: (done: boolean) => api(`/api/sessions/${id}/${done ? 'resolve' : 'reopen'}`, { method: 'POST' }), onSuccess: () => { void refresh(); } });
+  const upgrade=useMutation({mutationFn:()=>api(`/api/sessions/${id}/upgrade`,{method:"POST"}),onSuccess:()=>{void refresh();}});
   const bottom = useRef<HTMLDivElement>(null);
   const count = (q.data?.messages.length ?? 0) + (q.data?.events.length ?? 0);
   useEffect(() => { bottom.current?.scrollIntoView({ block: 'end' }); }, [count]);
@@ -121,7 +126,8 @@ export function Conversation({ id, onDeleted, placeholder }: { id: string; onDel
   const { session: x, messages, events } = q.data;
   const steers = q.data.steers ?? [];
   const questions = q.data.questions ?? [];
-  const meta = [x.agent_id, t('session.metaHarness', { harness: x.harness }), x.created_by !== x.user_id && t('session.metaOnBehalf', { by: x.created_by, owner: x.user_id }), x.daemon_id && t('session.metaDaemon', { id: x.daemon_id }), x.harness_session_id && t('session.metaHarnessSession', { id: x.harness_session_id })].filter(Boolean).join(' · ');
+  const multi=x.mode==="multi_agent";
+  const meta = multi?t("mention.shared"):[x.agent_id, t('session.metaHarness', { harness: x.harness }), x.created_by !== x.user_id && t('session.metaOnBehalf', { by: x.created_by, owner: x.user_id }), x.daemon_id && t('session.metaDaemon', { id: x.daemon_id }), x.harness_session_id && t('session.metaHarnessSession', { id: x.harness_session_id })].filter(Boolean).join(' · ');
   const last = events.filter(e => e.kind === 'progress').pop();
   const coordinator = x.work_role === 'coordinator';
   const settled = x.status === 'idle' || x.status === 'resolved';
@@ -130,15 +136,19 @@ export function Conversation({ id, onDeleted, placeholder }: { id: string; onDel
       <div className="mx-auto grid min-w-0 w-full max-w-3xl grid-cols-1 gap-6 px-4 py-6">
         <div className="flex items-start gap-2 border-b pb-3">
           <p className="min-w-0 flex-1 break-all font-mono text-xs text-muted-foreground">{meta}</p>
+          {!multi&&settled&&<Button variant="outline" size="sm" disabled={upgrade.isPending} onClick={()=>upgrade.mutate()}>{t("mention.upgrade")}</Button>}
           {!coordinator && settled && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" disabled={resolve.isPending} onClick={() => resolve.mutate(x.status === 'idle')}>
             {x.status === 'idle' ? <><CircleCheck />{t('session.resolve')}</> : <><RotateCcw />{t('session.reopen')}</>}
           </Button>}
-          {!coordinator && x.status !== 'running' && x.status !== 'waiting' && <Confirm title={t('session.deleteTitle')} description={t('session.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
+          {!coordinator && (multi?settled:x.status !== 'running' && x.status !== 'waiting') && <Confirm title={t('session.deleteTitle')} description={t('session.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
             <Button variant="ghost" size="icon" className="size-7 text-destructive" aria-label={t('session.delete')}><Trash2 /></Button>
           </Confirm>}
         </div>
         <Attachments key={id} session={id} running={!settled} />
-        {messages.map(m => <MessageView key={m.id} m={m} events={events} steers={steers} questions={questions} sessionId={x.id} />)}
+        {messages.map(m=><div key={m.id} className="grid min-w-0 grid-cols-1 gap-2"><MessageView m={m} events={multi?[]:events} steers={steers} questions={multi?[]:questions} sessionId={x.id}/>
+        {multi&&m.role==='user'&&<div className="flex flex-wrap gap-2">{(q.data.deliveries??[]).filter(d=>d.message_id===m.id).map(d=><span key={d.id} className="rounded-md border px-2 py-1 text-xs" title={d.error}>@{d.agent_key} · {d.kind==='steer'?t('mention.steer')+' · ':''}{t(`mention.${d.status}`)}</span>)}</div>}
+        {multi&&(q.data.runs??[]).filter(r=>r.message_id===m.id).map(run=><RunView key={run.id} run={run} events={events} questions={questions} sessionId={id}/>)}
+        </div>)}
         {!settled && <div className="flex items-start gap-2 text-sm">
           <StatusBadge tone={STATUS_TONE[x.status]}>{statusLabel(x.status)}</StatusBadge>
           <span className="min-w-0 break-words text-muted-foreground">{q.data.daemon_offline ? t('session.daemonOffline') : last ? evText(last.payload).slice(0, 300) : ''}</span>
@@ -148,8 +158,8 @@ export function Conversation({ id, onDeleted, placeholder }: { id: string; onDel
     </div>
     <div className="mx-auto w-full max-w-3xl px-4 pb-4">
       {reply.isError && <div className="pb-2"><ErrorState error={reply.error} /></div>}
-      {x.daemon_id || x.status !== 'idle'
-        ? <Composer placeholder={settled ? placeholder ?? t('session.replyPlaceholder') : t('session.busyPlaceholder')} busy={reply.isPending} onSend={p => reply.mutateAsync(p)} />
+      {multi?<MentionComposer agents={agents.data??[]} defaultAgent={defaultAgent} placeholder={placeholder??t('session.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets)=>reply.mutateAsync({prompt,targets})}/>:x.daemon_id || x.status !== 'idle'
+        ? <Composer placeholder={settled ? placeholder ?? t('session.replyPlaceholder') : t('session.busyPlaceholder')} busy={reply.isPending} onSend={prompt => reply.mutateAsync({prompt})} />
         : <p className="py-2 text-center text-sm text-muted-foreground">{t('session.daemonGone')}</p>}
     </div>
   </div>;
@@ -181,6 +191,7 @@ function MessageView({ m, events, steers, questions, sessionId }: { m: Message; 
   }
   const out = c.ok ? (typeof c.output === 'string' ? c.output : JSON.stringify(c, null, 2)) : (c.error || t('session.failed')) + (c.output ? '\n' + c.output : '');
   return <div className="grid min-w-0 grid-cols-1 gap-1.5" title={fmtTime(m.created_at)}>
+    {m.agent_key&&<div className="text-xs font-medium text-muted-foreground">@{m.agent_key}{m.agent_name&&` · ${m.agent_name}`}</div>}
     {!c.ok && <div><StatusBadge tone="bad">{t('session.failed')}</StatusBadge></div>}
     <div className={cn('min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere] text-sm leading-7', !c.ok && 'text-destructive')}>{out}</div>
   </div>;
@@ -220,7 +231,7 @@ function QuestionView({ q, sessionId }: { q: Question; sessionId: string }) {
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   const [other, setOther] = useState<Record<string, string>>({});
   const answer = useMutation({
-    mutationFn: (answers: Record<string, string>) => api(`/api/sessions/${sessionId}/questions/${q.id}/answer`, { method: 'POST', body: { answers } }),
+    mutationFn: (answers: Record<string, string>) => api(q.run_id?`/api/sessions/${sessionId}/runs/${q.run_id}/questions/${q.id}/answer`:`/api/sessions/${sessionId}/questions/${q.id}/answer`, { method: 'POST', body: { answers } }),
     onSuccess: () => { void refresh(); },
   });
   if (q.status !== 'pending' || q.answers) {
@@ -255,4 +266,15 @@ function QuestionView({ q, sessionId }: { q: Question; sessionId: string }) {
     </fieldset>)}
     <div><Button type="submit" size="sm" disabled={!ready || answer.isPending}>{t('question.submit')}</Button></div>
   </form>;
+}
+
+function RunView({run,events,questions,sessionId}:{run:Run;events:SessionEvent[];questions:Question[];sessionId:string}){
+ const t=useT();const cancel=useMutation({mutationFn:()=>api(`/api/sessions/${sessionId}/runs/${run.id}/cancel`,{method:'POST'}),onSuccess:()=>{void refresh();}});
+ const mine=events.filter(e=>e.run_id===run.id);const plan=mine.filter(e=>e.kind==='plan').pop();const active=['pending','running','waiting'].includes(run.status);
+ return <section className="grid min-w-0 grid-cols-1 gap-2 rounded-lg border p-3 text-xs" data-run-id={run.id} aria-label={`run @${run.agent_key}`}>
+ <div className="flex flex-wrap items-center gap-2"><span className="font-medium">@{run.agent_key}</span><span>{t(`mention.${run.status}`)}</span><span className="min-w-0 break-all text-muted-foreground">{run.harness} · {run.daemon_id??'—'}</span>{active&&<Button variant="ghost" size="sm" className="ml-auto h-7 text-xs" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>{t('mention.cancel')}</Button>}</div>
+ {run.error&&run.status!=='cancelled'&&<p className="break-words text-destructive">{run.error}</p>}{plan&&<PlanView steps={plan.payload?.steps}/>}
+ {questions.filter(q=>q.run_id===run.id).map(q=><QuestionView key={q.id} q={q} sessionId={sessionId}/>)}
+ {mine.some(e=>e.kind==='progress')&&<details><summary className="cursor-pointer text-muted-foreground">{t('session.progress',{n:mine.filter(e=>e.kind==='progress').length})}</summary><div className="grid max-h-48 gap-1 overflow-auto py-2 font-mono">{mine.filter(e=>e.kind==='progress').map(e=><p className="[overflow-wrap:anywhere]" key={e.id}>{evText(e.payload)}</p>)}</div></details>}
+ </section>;
 }

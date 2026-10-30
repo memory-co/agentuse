@@ -31,6 +31,10 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 			a := store.AttachmentAccess{User: currentUser(r), Token: token}
 			if wk := workScope(r); wk != nil {
 				a.WorkID = wk.ID
+				if run, e := s.store.WorkRunByToken(r.Context(), token); e == nil {
+					a.RunID = run.ID
+					a.AttemptID = run.AttemptID
+				}
 			}
 			h(w, r.WithContext(context.WithValue(r.Context(), attachmentKey{}, a)))
 		}
@@ -56,7 +60,7 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 			s.attachmentErr(w, err)
 			return
 		}
-		a := store.AttachmentAccess{User: u, DaemonID: d.ID, Token: token}
+		a := store.AttachmentAccess{User: u, DaemonID: d.ID, Token: token, RunID: r.Header.Get("X-Agentuse-Run"), AttemptID: r.Header.Get("X-Agentuse-Attempt")}
 		h(w, r.WithContext(context.WithValue(r.Context(), attachmentKey{}, a)))
 	}
 }
@@ -237,7 +241,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 400, "缺少 file")
 		return
 	}
-	if a.DaemonID != "" && !seen["message_id"] {
+	if a.DaemonID != "" && a.RunID == "" && !seen["message_id"] {
 		writeErr(w, 400, "daemon 上传需要 message_id")
 		return
 	}
@@ -261,8 +265,23 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 	if a.DaemonID != "" {
 		v.Source = "daemon"
 		v.DaemonID = a.DaemonID
+		v.CreatedByRunID = a.RunID
 	} else if a.WorkID != "" {
 		v.Source = "work"
+	}
+	if a.RunID != "" {
+		v.CreatedByRunID = a.RunID
+		if run, e := s.store.GetRun(r.Context(), store.User{Role: store.RoleAdmin}, func() string {
+			if a.WorkID != "" {
+				wk := workScope(r)
+				if wk != nil {
+					return wk.CoordinatorID
+				}
+			}
+			return v.SessionID
+		}(), a.RunID); e == nil {
+			v.CreatedByAgentKey = run.AgentKey
+		}
 	}
 	final := s.attachmentPath(v.SessionID, v.ID)
 	err = s.store.CommitAttachment(r.Context(), a, v, s.cfg.AttachmentSessionMaxBytes, func() error {

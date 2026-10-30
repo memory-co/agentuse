@@ -88,12 +88,38 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 			if err != nil {
 				return err
 			}
+			live := map[string]string{}
+			for _, ref := range m.ActiveRuns {
+				live[ref.RunID] = ref.AttemptID
+			}
+			valid, err := st.ReconcileRuns(ctx, c.d.ID, live)
+			if err != nil {
+				return err
+			}
+			refs := []protocol.RunRef{}
+			for _, run := range valid {
+				refs = append(refs, protocol.RunRef{RunID: run.ID, AttemptID: run.AttemptID})
+			}
 			users, err := st.RequeueDaemonSessions(ctx, c.d.ID, m.Running)
 			if err != nil {
 				return err
 			}
-			if err := c.send(ctx, protocol.Message{Type: protocol.TypeWelcome, DaemonID: c.d.ID, Name: c.d.Name, Ignored: ignored}); err != nil {
+			if err := c.send(ctx, protocol.Message{Type: protocol.TypeWelcome, DaemonID: c.d.ID, Name: c.d.Name, Ignored: ignored, ValidRuns: refs}); err != nil {
 				return err
+			}
+			for _, run := range valid {
+				ds, e := st.RunSteers(ctx, run.ID)
+				if e != nil {
+					return e
+				}
+				h.pushRunSteers(ds)
+			}
+			qs, e := st.PendingRunAnswers(ctx, c.d.ID)
+			if e != nil {
+				return e
+			}
+			for _, q := range qs {
+				_ = c.send(ctx, protocol.Message{Type: protocol.TypeAnswer, Answer: &protocol.Answer{RunID: q.RunID, AttemptID: q.AttemptID, MessageID: q.MessageID, ToolUseID: q.ToolUseID, Answers: q.Answers}})
 			}
 			// 断线期间答了的提问，再推一遍
 			answers, err := st.PendingAnswers(ctx, c.d.ID)
@@ -113,13 +139,30 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 			h.dispatch(ctx, c)
 		case protocol.TypeHeartbeat:
 			_ = st.TouchDaemon(ctx, c.d.ID)
-			if m.MessageID != 0 {
+			if m.RunID != "" {
+				if err := st.RenewRun(ctx, c.d.ID, m.RunID, m.AttemptID, protocol.LeaseSeconds); err != nil {
+					_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, RunID: m.RunID, AttemptID: m.AttemptID, MessageID: m.MessageID, Error: err.Error()})
+				}
+			} else if m.MessageID != 0 {
 				if err := st.RenewLease(ctx, c.d.ID, m.MessageID, protocol.LeaseSeconds); err != nil {
 					h.reportStale(ctx, c, m.MessageID, err)
 				}
 			}
 		case protocol.TypeEvent:
+			if m.RunID != "" {
+				if err := st.ReportRunEvent(ctx, c.d.ID, m.RunID, m.AttemptID, m.EventSeq, m.Kind, m.Payload, protocol.LeaseSeconds); err != nil {
+					_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, RunID: m.RunID, AttemptID: m.AttemptID, MessageID: m.MessageID, Error: err.Error()})
+				}
+				if ds, e := st.PendingRunSteers(ctx); e == nil {
+					h.pushRunSteers(ds)
+				}
+				h.kickAll()
+				continue
+			}
 			rep, err := st.ReportEvent(ctx, c.d.ID, m.MessageID, m.Kind, m.Payload, protocol.LeaseSeconds)
+			if ds, e := st.PendingRunSteers(ctx); e == nil {
+				h.pushRunSteers(ds)
+			}
 			if err != nil {
 				h.reportStale(ctx, c, m.MessageID, err)
 			}
@@ -153,6 +196,20 @@ func (h *hub) dispatch(ctx context.Context, c *daemonConn) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.idle {
+		return
+	}
+	clRun, runErr := h.s.store.ClaimRun(ctx, c.d, protocol.LeaseSeconds)
+	if runErr == nil {
+		c.idle = false
+		run := clRun.Run
+		msg := protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{ID: run.MessageID, RunID: run.ID, AttemptID: run.AttemptID, SessionID: run.SessionID, AgentID: run.AgentKey, Harness: run.Harness, Input: clRun.Input, TaskMessageIDs: clRun.TaskMessageIDs, ContextSeq: run.ContextSeq, Instructions: clRun.Instructions, WorkToken: clRun.WorkToken}}
+		if err := c.send(ctx, msg); err != nil {
+			h.s.log.Printf("send run: %v", err)
+		}
+		return
+	}
+	if !errors.Is(runErr, store.ErrNotFound) {
+		h.s.log.Printf("claim run: %v", runErr)
 		return
 	}
 	cl, err := h.s.store.ClaimSession(ctx, c.d, protocol.LeaseSeconds)
@@ -246,4 +303,40 @@ func (c *daemonConn) send(ctx context.Context, m protocol.Message) error {
 		return err
 	}
 	return c.ws.Write(ctx, websocket.MessageText, b)
+}
+
+func (h *hub) kickAll() {
+	h.mu.Lock()
+	cs := make([]*daemonConn, 0, len(h.conns))
+	for _, c := range h.conns {
+		cs = append(cs, c)
+	}
+	h.mu.Unlock()
+	for _, c := range cs {
+		go h.dispatch(context.Background(), c)
+	}
+}
+func (h *hub) pushRun(daemon string, m protocol.Message) {
+	h.mu.Lock()
+	c := h.conns[daemon]
+	h.mu.Unlock()
+	if c != nil {
+		_ = c.send(context.Background(), m)
+	}
+}
+func (h *hub) pushRunSteers(ds []store.Delivery) {
+	for _, d := range ds {
+		if d.Kind != "steer" || d.Status != "pending" {
+			continue
+		}
+		run, err := h.s.store.GetRun(context.Background(), store.User{Role: store.RoleAdmin}, d.SessionID, d.RunID)
+		if err != nil || run.Status != "running" {
+			continue
+		}
+		prompt, err := h.s.store.RunTaskPrompt(context.Background(), d.MessageID)
+		if err != nil || prompt == "" {
+			continue
+		}
+		h.pushRun(run.DaemonID, protocol.Message{Type: protocol.TypeSteer, Steer: &protocol.Steer{ID: d.ID, RunID: run.ID, AttemptID: run.AttemptID, MessageID: run.MessageID, Prompt: prompt}})
+	}
 }

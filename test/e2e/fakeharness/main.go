@@ -236,9 +236,13 @@ func custom() int {
 			Path     string `json:"path"`
 			Filename string `json:"filename"`
 		} `json:"attachments"`
-		SessionID string `json:"session_id"`
-		Resume    string `json:"resume"`
-		Input     struct {
+		RunID           string          `json:"run_id"`
+		AgentID         string          `json:"agent_id"`
+		SessionMessages json.RawMessage `json:"session_messages"`
+		TaskMessageIDs  []int64         `json:"task_message_ids"`
+		SessionID       string          `json:"session_id"`
+		Resume          string          `json:"resume"`
+		Input           struct {
 			Prompt string `json:"prompt"`
 		} `json:"input"`
 	}
@@ -251,6 +255,34 @@ func custom() int {
 	if in.Input.Prompt == "fail" {
 		fmt.Fprintln(os.Stderr, "fake failure")
 		return 3
+	}
+	if strings.HasPrefix(in.Input.Prompt, "multi:") {
+		if in.RunID == "" || in.Resume != "" || os.Getenv("AGENTUSE_RUN") != in.RunID {
+			fmt.Fprintln(os.Stderr, "missing fresh run context")
+			return 2
+		}
+		if in.Input.Prompt == "multi:hold" {
+			for i := 0; i < 600; i++ {
+				if _, err := os.Stat("release"); err == nil {
+					break
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+		cmd := exec.Command("agentuse", "session", "read", "--json")
+		live, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, string(live), err)
+			return 2
+		}
+		var state map[string]any
+		if err = json.Unmarshal(live, &state); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+		out, _ := json.Marshal(map[string]any{"agent_id": in.AgentID, "run_id": in.RunID, "resume": in.Resume, "history": in.SessionMessages, "task_ids": in.TaskMessageIDs, "live": state["messages"]})
+		emit(map[string]any{"type": "result", "ok": true, "output": string(out), "session_id": "native-" + in.RunID})
+		return 0
 	}
 	if in.Input.Prompt == "attachments" {
 		if len(in.Attachments) != 1 {

@@ -26,7 +26,7 @@ func openAttachmentDir(root *os.Root, name string) (*os.Root, error) {
 	return root.OpenRoot(name)
 }
 func (d *Daemon) syncAttachments(ctx context.Context, m *protocol.Dispatch, dir string) error {
-	c := attachment.Client{Server: d.cfg.Server, Token: d.cfg.Key}
+	c := attachment.Client{Server: d.cfg.Server, Token: d.cfg.Key, RunID: m.RunID, AttemptID: m.AttemptID}
 	list, err := c.List(ctx, m.SessionID)
 	if err != nil {
 		return err

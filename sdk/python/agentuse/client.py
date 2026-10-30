@@ -10,6 +10,8 @@ from typing import TypedDict, Literal, Optional, List
 
 class _AttachmentOptional(TypedDict, total=False):
     daemon_id: str
+    created_by_run_id: str
+    created_by_agent_key: str
 
 
 class Attachment(_AttachmentOptional):
@@ -28,6 +30,40 @@ class Attachment(_AttachmentOptional):
 class AttachmentPage(TypedDict):
     attachments: List[Attachment]
     next_cursor: Optional[str]
+
+
+class Run(TypedDict, total=False):
+    id: str
+    session_id: str
+    message_id: int
+    agent_id: str
+    agent_key: str
+    agent_name: str
+    daemon_id: str
+    harness: str
+    status: Literal["pending", "running", "waiting", "succeeded", "failed", "cancelled"]
+    attempt_id: str
+    lease_until: int
+    context_seq: int
+    result_message_id: int
+    error: str
+    created_at: int
+    updated_at: int
+
+
+class Delivery(TypedDict, total=False):
+    id: int
+    message_id: int
+    agent_key: str
+    run_id: str
+    kind: Literal["new_run", "steer"]
+    status: str
+    error: str
+
+
+class RunDetail(TypedDict):
+    run: Run
+    events: List[dict]
 
 
 USER_HEADER = "X-Agentuse-User"
@@ -55,8 +91,8 @@ class Client:
         self.token = token
         self.timeout = timeout
 
-    def _request(self, method, path, user=None, body=None):
-        headers = {"Authorization": f"Bearer {self.token}", "Accept": "application/json"}
+    def _request(self, method, path, user=None, body=None, extra_headers=None):
+        headers = {**(extra_headers or {}), "Authorization": f"Bearer {self.token}", "Accept": "application/json"}
         if user:
             headers[USER_HEADER] = user
         data = None
@@ -200,16 +236,16 @@ class Client:
     def list_sessions(self, user):
         return self._request("GET", "/api/sessions", user)
 
-    def create_session(self, user, agent_id, prompt=None, input=None, defer_start=None):
+    def create_session(self, user, agent_id=None, prompt=None, input=None, defer_start=None, mode=None, title=None, target_agent_ids=None):
         """用一个 agent 新建会话并发出第一条消息，返回 {"session": …, "message": …}。"""
         return self._request(
-            "POST", "/api/sessions", user, _drop_none(agent_id=agent_id, prompt=prompt, input=input, defer_start=defer_start)
+            "POST", "/api/sessions", user, _drop_none(agent_id=agent_id, prompt=prompt, input=input, defer_start=defer_start, mode=mode, title=title, target_agent_ids=target_agent_ids)
         )
 
-    def send_message(self, user, session_id, prompt=None, input=None):
+    def send_message(self, user, session_id, prompt=None, input=None, target_agent_ids=None, idempotency_key=None):
         """回复。会话 idle 时返回 message;忙时是插话，返回 steer(带 status)。插话只收 prompt,带 input 抛 AgentuseError(409)。"""
         return self._request(
-            "POST", f"/api/sessions/{_q(session_id)}/messages", user, _drop_none(prompt=prompt, input=input)
+            "POST", f"/api/sessions/{_q(session_id)}/messages", user, _drop_none(prompt=prompt, input=input, target_agent_ids=target_agent_ids), extra_headers={"Idempotency-Key": idempotency_key} if idempotency_key else None
         )
 
     def get_session(self, user, session_id):
@@ -232,20 +268,52 @@ class Client:
     def reopen_session(self, user, session_id):
         return self._request("POST", f"/api/sessions/{_q(session_id)}/reopen", user)
 
+    def get_run(self, user, session_id, run_id) -> RunDetail:
+        return self._request("GET", f"/api/sessions/{_q(session_id)}/runs/{_q(run_id)}", user)
+
+    def cancel_run(self, user, session_id, run_id) -> Run:
+        return self._request("POST", f"/api/sessions/{_q(session_id)}/runs/{_q(run_id)}/cancel", user)
+
+    def upgrade_session(self, user, session_id):
+        return self._request("POST", f"/api/sessions/{_q(session_id)}/upgrade", user)
+
+    def answer_run_question(self, user, session_id, run_id, question_id, answers):
+        return self._request("POST", f"/api/sessions/{_q(session_id)}/runs/{_q(run_id)}/questions/{_q(question_id)}/answer", user, {"answers": answers})
+
+    def wait_run(self, user, session_id, run_id, interval=2, timeout=None, return_on_waiting=False) -> RunDetail:
+        start = time.monotonic()
+        while True:
+            detail = self.get_run(user, session_id, run_id)
+            if detail["run"]["status"] in ("succeeded", "failed", "cancelled") or (return_on_waiting and detail["run"]["status"] == "waiting"):
+                return detail
+            if timeout is not None and time.monotonic() - start >= timeout:
+                raise TimeoutError("agentuse: wait_run timed out")
+            time.sleep(interval)
+
+    def wait_message_runs(self, user, session_id, message_id, interval=2, timeout=None):
+        start = time.monotonic()
+        while True:
+            detail = self.get_session(user, session_id)
+            if all(d["status"] in ("succeeded", "failed", "cancelled") for d in detail.get("deliveries", []) if d["message_id"] == message_id):
+                return detail
+            if timeout is not None and time.monotonic() - start >= timeout:
+                raise TimeoutError("agentuse: wait_message_runs timed out")
+            time.sleep(interval)
+
     # works:协调者 + 线程 + 共用说明
 
     def list_works(self, user):
         return self._request("GET", "/api/works", user)
 
-    def create_work(self, user, name, agent_id, instructions=None):
+    def create_work(self, user, name, agent_id, instructions=None, mode=None):
         """建工作，同时建出协调者会话，返回 {"work": …, "coordinator": …}。给协调者发消息用 send_message。"""
-        return self._request("POST", "/api/works", user, _drop_none(name=name, agent_id=agent_id, instructions=instructions))
+        return self._request("POST", "/api/works", user, _drop_none(name=name, agent_id=agent_id, instructions=instructions, mode=mode))
 
     def get_work(self, user, work_id):
         return self._request("GET", f"/api/works/{_q(work_id)}", user)
 
-    def update_work(self, user, work_id, name=None, instructions=None):
-        return self._request("PATCH", f"/api/works/{_q(work_id)}", user, _drop_none(name=name, instructions=instructions))
+    def update_work(self, user, work_id, name=None, instructions=None, coordinator_agent_id=None):
+        return self._request("PATCH", f"/api/works/{_q(work_id)}", user, _drop_none(name=name, instructions=instructions, coordinator_agent_id=coordinator_agent_id))
 
     def delete_work(self, user, work_id):
         """连协调者和所有线程一起删。"""
@@ -255,12 +323,12 @@ class Client:
         """列工作的线程(不含协调者)。"""
         return self._request("GET", f"/api/sessions?work_id={_q(work_id)}", user)
 
-    def wait_session(self, user, session_id, interval=2, timeout=None):
+    def wait_session(self, user, session_id, interval=2, timeout=None, return_on_waiting=False):
         """轮询直到会话回到 idle(或已完成)或在等回答提问(waiting),返回最后一次 get_session 的结果。超时抛 TimeoutError。"""
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             detail = self.get_session(user, session_id)
-            if detail["session"]["status"] in ("idle", "waiting", "resolved"):
+            if detail["session"]["status"] in ("idle", "resolved") or (detail["session"]["status"] == "waiting" and (detail["session"].get("mode") != "multi_agent" or return_on_waiting)):
                 return detail
             if deadline is not None and time.monotonic() >= deadline:
                 raise TimeoutError(f"agentuse: session {session_id} still {detail['session']['status']}")

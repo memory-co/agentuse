@@ -45,7 +45,7 @@ func IsStatus(err error, status int) bool {
 	return ok && e.Status == status
 }
 
-func (c *Client) do(ctx context.Context, user, method, path string, body, out any) error {
+func (c *Client) do(ctx context.Context, user, method, path string, body, out any, extra ...http.Header) error {
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -57,6 +57,11 @@ func (c *Client) do(ctx context.Context, user, method, path string, body, out an
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.BaseURL, "/")+path, rd)
 	if err != nil {
 		return err
+	}
+	for _, headers := range extra {
+		for k, values := range headers {
+			req.Header[k] = values
+		}
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Accept", "application/json")
@@ -210,11 +215,20 @@ func (c *Client) CreateSession(ctx context.Context, user string, req CreateSessi
 // 插话只收 Prompt,带 Input 返回 409(用 IsStatus(err, 409) 判断)。
 func (c *Client) SendMessage(ctx context.Context, user, sessionID string, req MessageRequest) (*Reply, error) {
 	var raw map[string]json.RawMessage
-	if err := c.do(ctx, user, "POST", "/api/sessions/"+esc(sessionID)+"/messages", req, &raw); err != nil {
+	if err := c.do(ctx, user, "POST", "/api/sessions/"+esc(sessionID)+"/messages", req, &raw, func() http.Header {
+		h := http.Header{}
+		if req.IdempotencyKey != "" {
+			h.Set("Idempotency-Key", req.IdempotencyKey)
+		}
+		return h
+	}()); err != nil {
 		return nil, err
 	}
 	b, _ := json.Marshal(raw)
 	var r Reply
+	if _, ok := raw["message"]; ok {
+		return &r, json.Unmarshal(b, &r)
+	}
 	if _, ok := raw["role"]; ok {
 		r.Message = &Message{}
 		return &r, json.Unmarshal(b, r.Message)
@@ -292,7 +306,7 @@ func (c *Client) AnswerQuestion(ctx context.Context, user, sessionID string, que
 
 // WaitSession 每隔 interval 轮询一次，直到会话回到 idle(或已完成),或者在等用户回答提问(waiting),
 // 返回最后一次 GetSession 的结果。用 ctx 控制超时。
-func (c *Client) WaitSession(ctx context.Context, user, sessionID string, interval time.Duration) (*SessionDetail, error) {
+func (c *Client) WaitSession(ctx context.Context, user, sessionID string, interval time.Duration, opts ...WaitOptions) (*SessionDetail, error) {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
@@ -303,7 +317,7 @@ func (c *Client) WaitSession(ctx context.Context, user, sessionID string, interv
 		if err != nil {
 			return nil, err
 		}
-		if d.Session.Status == "idle" || d.Session.Status == "waiting" || d.Session.Status == "resolved" {
+		if d.Session.Status == "idle" || d.Session.Status == "resolved" || (d.Session.Status == "waiting" && (d.Session.Mode != "multi_agent" || (len(opts) > 0 && opts[0].ReturnOnWaiting))) {
 			return d, nil
 		}
 		select {

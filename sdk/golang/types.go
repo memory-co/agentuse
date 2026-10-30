@@ -89,6 +89,7 @@ type DaemonHarness struct {
 }
 
 type Session struct {
+	Mode             string `json:"mode"`
 	ID               string `json:"id"`
 	UserID           string `json:"user_id"`             // agent 的主人，会话跑在他的 daemon 上
 	CreatedBy        string `json:"created_by"`          // 发起人
@@ -106,14 +107,21 @@ type Session struct {
 }
 
 type Message struct {
-	ID        int64           `json:"id"`
-	SessionID string          `json:"session_id"`
-	Role      string          `json:"role"` // user / assistant
-	Content   json.RawMessage `json:"content"`
-	CreatedAt int64           `json:"created_at"`
+	Seq            int64           `json:"seq"`
+	AgentKey       string          `json:"agent_key,omitempty"`
+	AgentName      string          `json:"agent_name,omitempty"`
+	RunID          string          `json:"run_id,omitempty"`
+	TargetAgentIDs []string        `json:"target_agent_ids,omitempty"`
+	ID             int64           `json:"id"`
+	SessionID      string          `json:"session_id"`
+	Role           string          `json:"role"` // user / assistant
+	Content        json.RawMessage `json:"content"`
+	CreatedAt      int64           `json:"created_at"`
 }
 
 type SessionEvent struct {
+	RunID     string          `json:"run_id,omitempty"`
+	AttemptID string          `json:"attempt_id,omitempty"`
 	ID        int64           `json:"id"`
 	SessionID string          `json:"session_id"`
 	MessageID int64           `json:"message_id"`
@@ -125,28 +133,38 @@ type SessionEvent struct {
 
 // MessageRequest 是一条用户消息:给 Prompt 时内容是 {"prompt": …};给 Input 时原样交给 harness。
 type MessageRequest struct {
-	Prompt string `json:"prompt,omitempty"`
-	Input  any    `json:"input,omitempty"`
+	TargetAgentIDs []string `json:"target_agent_ids,omitempty"`
+	IdempotencyKey string   `json:"-"`
+	Prompt         string   `json:"prompt,omitempty"`
+	Input          any      `json:"input,omitempty"`
 }
 
 type CreateSessionRequest struct {
-	DeferStart bool   `json:"defer_start,omitempty"`
-	AgentID    string `json:"agent_id"`
-	Prompt     string `json:"prompt,omitempty"`
-	Input      any    `json:"input,omitempty"`
+	Mode           string   `json:"mode,omitempty"`
+	Title          string   `json:"title,omitempty"`
+	TargetAgentIDs []string `json:"target_agent_ids,omitempty"`
+	DeferStart     bool     `json:"defer_start,omitempty"`
+	AgentID        string   `json:"agent_id,omitempty"`
+	Prompt         string   `json:"prompt,omitempty"`
+	Input          any      `json:"input,omitempty"`
 }
 
 type CreateSessionResponse struct {
-	Session Session  `json:"session"`
-	Message *Message `json:"message,omitempty"`
+	Runs       []Run      `json:"runs,omitempty"`
+	Deliveries []Delivery `json:"deliveries,omitempty"`
+	Session    Session    `json:"session"`
+	Message    *Message   `json:"message,omitempty"`
 }
 
 type SessionDetail struct {
-	Session   Session        `json:"session"`
-	Messages  []Message      `json:"messages"`
-	Steers    []Steer        `json:"steers"`
-	Questions []Question     `json:"questions"`
-	Events    []SessionEvent `json:"events"`
+	Runs       []Run          `json:"runs,omitempty"`
+	Deliveries []Delivery     `json:"deliveries,omitempty"`
+	RunCounts  map[string]int `json:"run_counts,omitempty"`
+	Session    Session        `json:"session"`
+	Messages   []Message      `json:"messages"`
+	Steers     []Steer        `json:"steers"`
+	Questions  []Question     `json:"questions"`
+	Events     []SessionEvent `json:"events"`
 }
 
 // Steer 是一条插话：会话忙时发的消息。见 docs/v2/designs/steer.md。
@@ -162,6 +180,8 @@ type Steer struct {
 
 // Question 是 harness 向用户的一次提问，见 docs/v2/designs/question.md。用 AnswerQuestion 回答。
 type Question struct {
+	RunID      string            `json:"run_id,omitempty"`
+	AttemptID  string            `json:"attempt_id,omitempty"`
 	ID         int64             `json:"id"`
 	SessionID  string            `json:"session_id"`
 	MessageID  int64             `json:"message_id"`
@@ -187,23 +207,27 @@ type QuestionOption struct {
 
 // Reply 是 SendMessage 的结果：会话 idle 时是 Message,忙时是 Steer。
 type Reply struct {
-	Message *Message
-	Steer   *Steer
+	Runs       []Run      `json:"runs,omitempty"`
+	Deliveries []Delivery `json:"deliveries,omitempty"`
+	Message    *Message   `json:"message,omitempty"`
+	Steer      *Steer
 }
 
 // Work 是工作：协调者会话 + 若干线程会话 + 一份共用说明，见 docs/v2/apis/works.md。
 type Work struct {
-	ID            string `json:"id"`
-	UserID        string `json:"user_id"`
-	Name          string `json:"name"`
-	Instructions  string `json:"instructions"`
-	CoordinatorID string `json:"coordinator_id"`
-	ThreadCount   int    `json:"thread_count"`
-	CreatedAt     int64  `json:"created_at"`
-	UpdatedAt     int64  `json:"updated_at"`
+	CoordinatorAgentID string `json:"coordinator_agent_id,omitempty"`
+	ID                 string `json:"id"`
+	UserID             string `json:"user_id"`
+	Name               string `json:"name"`
+	Instructions       string `json:"instructions"`
+	CoordinatorID      string `json:"coordinator_id"`
+	ThreadCount        int    `json:"thread_count"`
+	CreatedAt          int64  `json:"created_at"`
+	UpdatedAt          int64  `json:"updated_at"`
 }
 
 type CreateWorkRequest struct {
+	Mode         string `json:"mode,omitempty"`
 	Name         string `json:"name"`
 	AgentID      string `json:"agent_id"` // 协调者用的 agent
 	Instructions string `json:"instructions,omitempty"`
@@ -216,6 +240,7 @@ type CreateWorkResponse struct {
 
 // WorkPatch 只改非 nil 的字段。
 type WorkPatch struct {
-	Name         *string `json:"name,omitempty"`
-	Instructions *string `json:"instructions,omitempty"`
+	CoordinatorAgentID *string `json:"coordinator_agent_id,omitempty"`
+	Name               *string `json:"name,omitempty"`
+	Instructions       *string `json:"instructions,omitempty"`
 }

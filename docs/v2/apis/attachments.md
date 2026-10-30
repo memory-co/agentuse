@@ -72,3 +72,11 @@ curl -H 'Authorization: Bearer ut_…' \
 | 413 | 文件、请求体或会话总配额超限 |
 | 415 | 上传不是 multipart/form-data |
 | 500 | 文件写入失败、数据库提交失败、元数据存在但文件缺失 |
+
+## 多 agent session
+
+multi_agent 空会话可以先上传文件，不要求先绑定 daemon。选执行目标时校验 daemon 附件能力。每次执行读取同一 session 当前附件列表。
+
+元数据增加可选 created_by_run_id、created_by_agent_key，用于标识产物来自哪个执行和 agent。普通用户上传不填它们；daemon 和新工作令牌的作者由服务推导。
+
+daemon 请求带 Bearer dk_ 及 X-Agentuse-Run、X-Agentuse-Attempt；新模式不再仅凭 message_id 授权。执行结束、取消或租约失效后，读取和上传都拒绝；其他会话/其他 daemon 的执行返回 404。legacy 继续用现有 message_id 规则。

@@ -140,3 +140,13 @@ WebSocket 长连接，握手时带 `Authorization: Bearer dk_…`。密钥无效
 每次启动 harness 前，取附件清单、下载并校验到会话工作目录的 `.agentuse/attachments/<id>/<filename>`。给 harness 增加附件上下文，以及 `AGENTUSE_SERVER`、`AGENTUSE_SESSION`、`AGENTUSE_MESSAGE_ID`、`AGENTUSE_CONFIG` 环境变量和 agentuse 的 PATH，供它调用 `agentuse attachment upload`。自定义 harness 的 stdin 运行上下文增加 `attachments` 数组，每项含 `id`、`filename`、`path`（本地相对路径）、`content_type`、`size_bytes`、`sha256`；用户原始 input 保持不变。完整流程、并发与失败规则见 [attachment 设计](../designs/attachment.md#daemon-和-harness)。
 
 附件能力通过 hello 的可选 `capabilities: ["attachments-v1"]` 声明，缺省视为不支持；服务在 daemon 对象中返回最近一次的能力列表。不支持时附件上传返回 409，含附件的会话不派给旧 daemon，具体降级规则见 [升级兼容](../designs/attachment.md#升级兼容)。
+
+## 多 agent 共享 session
+
+hello 的 capabilities 增加 `session-runs-v1`。新派活 type 为 run，run 内的 id 为触发消息 id，另带 run_id、attempt_id、session_id、agent_id、task_message_ids、harness、context_seq、input；没有 resume。daemon 开始执行时经 HTTP 读取共享 session 和附件，写 `.agentuse/session-history.json`，每次启动新原生会话。同一 daemon 仍一次执行一个任务。
+
+hello 的 active_runs / welcome 的 valid_runs 都是 `{run_id, attempt_id}` 数组，legacy 的 running 消息 id 数组保留。无效执行必须停止后才能 ready。heartbeat、event、内部 steer/answer 带 run_id/attempt_id；event 另带 event_seq 去重。type cancel 停止对应执行。
+
+使用 dk_ 调 `GET /api/sessions/{id}` 和附件接口时，新模式还须带 `X-Agentuse-Run`、`X-Agentuse-Attempt`，服务验证本机当前执行及有效租约。终态、取消、过期代次不能继续读取或上传。工作协调令牌改为绑定当前 run/attempt，只有协调 agent 的执行拿得到。
+
+详见 [session-mentions](../designs/session-mentions.md)。旧 daemon/legacy 接口保持兼容。

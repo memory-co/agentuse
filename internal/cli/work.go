@@ -52,6 +52,9 @@ func runWork(args []string) error {
 	case "new":
 		return workNew(ctx, c, rest)
 	case "send":
+		if len(rest) > 2 {
+			return workSendTargets(ctx, c, rest)
+		}
 		if len(rest) != 2 {
 			return usageErr("用法: agentuse work send <线程 id> \"消息\"")
 		}
@@ -121,19 +124,33 @@ func workNew(ctx context.Context, c *apiClient, args []string) error {
 	fs := flag.NewFlagSet("agentuse work new", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	agent := fs.String("agent", "", "用哪个 agent(agentuse work agents 里的 agent_id)")
+	agents := fs.String("agents", "", "多个 agent，逗号分隔")
+	multi := os.Getenv("AGENTUSE_RUN") != ""
 	deferStart := fs.Bool("defer-start", false, "先建空线程，上传附件后再发消息")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if *agent == "" || (!*deferStart && fs.NArg() != 1) || (*deferStart && fs.NArg() != 0) {
+	if (*agent == "" && *agents == "") || (!*deferStart && fs.NArg() != 1) || (*deferStart && fs.NArg() != 0) {
 		return usageErr("用法: agentuse work new --agent <agent_id> \"要做的事\" | --defer-start")
 	}
 	var res struct {
 		Session store.Session `json:"session"`
 	}
 	request := map[string]any{"agent_id": *agent}
+	if multi || *agents != "" {
+		request = map[string]any{"mode": store.MultiAgent}
+		ids := splitAgents(*agents)
+		if len(ids) == 0 {
+			ids = splitAgents(*agent)
+		}
+		if !*deferStart {
+			request["target_agent_ids"] = ids
+		}
+	}
 	if *deferStart {
-		request["defer_start"] = true
+		if !multi && *agents == "" {
+			request["defer_start"] = true
+		}
 	} else {
 		request["prompt"] = fs.Arg(0)
 	}
@@ -141,7 +158,7 @@ func workNew(ctx context.Context, c *apiClient, args []string) error {
 		return err
 	}
 	if *deferStart {
-		fmt.Printf("已创建空线程 %s。先用 agentuse attachment upload --session %s 上传，再用 agentuse work send 开始。\n", res.Session.ID, res.Session.ID)
+		fmt.Printf("已创建空线程 %s。先用 agentuse attachment upload --session %s 上传，再用 agentuse work send --agents <目标> 开始。\n", res.Session.ID, res.Session.ID)
 		return nil
 	}
 	fmt.Printf("已开线程 %s。它回完会把结果发给你，不用等。\n", res.Session.ID)
@@ -152,7 +169,31 @@ func workSend(ctx context.Context, c *apiClient, id, prompt string) error {
 	var res struct {
 		Status string `json:"status"` // 插话才有
 	}
-	if err := c.do(ctx, http.MethodPost, "/api/sessions/"+url.PathEscape(id)+"/messages", map[string]string{"prompt": prompt}, &res); err != nil {
+	body := map[string]any{"prompt": prompt}
+	if os.Getenv("AGENTUSE_RUN") != "" {
+		var detail struct {
+			Session store.Session `json:"session"`
+			Runs    []store.Run   `json:"runs"`
+		}
+		if err := c.do(ctx, "GET", "/api/sessions/"+url.PathEscape(id), nil, &detail); err != nil {
+			return err
+		}
+		if detail.Session.Mode == store.MultiAgent {
+			seen := map[string]bool{}
+			var targets []string
+			for _, r := range detail.Runs {
+				if r.AgentID != "" && !seen[r.AgentID] {
+					seen[r.AgentID] = true
+					targets = append(targets, r.AgentID)
+				}
+			}
+			if len(targets) != 1 {
+				return errors.New("多 agent 线程请用 work send --agents 指定目标")
+			}
+			body["target_agent_ids"] = targets
+		}
+	}
+	if err := c.do(ctx, http.MethodPost, "/api/sessions/"+url.PathEscape(id)+"/messages", body, &res); err != nil {
 		return err
 	}
 	if res.Status != "" {
@@ -195,4 +236,20 @@ func workRead(ctx context.Context, c *apiClient, id string) error {
 		}
 	}
 	return nil
+}
+
+func workSendTargets(ctx context.Context, c *apiClient, args []string) error {
+	fs := newFlags("agentuse work send")
+	agents := fs.String("agents", "", "目标 agent")
+	if err := parse(fs, args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 || *agents == "" {
+		return usageErr("work send --agents coder,reviewer <session> \"消息\"")
+	}
+	var out any
+	if err := c.do(ctx, "POST", "/api/sessions/"+url.PathEscape(fs.Arg(0))+"/messages", map[string]any{"prompt": fs.Arg(1), "target_agent_ids": splitAgents(*agents)}, &out); err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(out)
 }

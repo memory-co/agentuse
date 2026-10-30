@@ -13,6 +13,7 @@ import (
 type steerQueue struct {
 	mu    sync.Mutex
 	items []protocol.Steer
+	seen  map[int64]bool
 }
 
 func (q *steerQueue) push(s protocol.Steer) {
@@ -20,8 +21,17 @@ func (q *steerQueue) push(s protocol.Steer) {
 		return
 	}
 	q.mu.Lock()
+	defer q.mu.Unlock()
+	if s.ID > 0 {
+		if q.seen == nil {
+			q.seen = map[int64]bool{}
+		}
+		if q.seen[s.ID] {
+			return
+		}
+		q.seen[s.ID] = true
+	}
 	q.items = append(q.items, s)
-	q.mu.Unlock()
 }
 
 // take 取走全部插话。
@@ -149,8 +159,10 @@ func claudeControl(line string, w *stdinWriter, in *inbox, report reportFn) bool
 	}
 	if err := writeControl(w, m.RequestID, out); err != nil {
 		// 没塞进去:放回去，这一轮结束时服务会把它们转成下一条消息
-		for _, s := range sent {
-			steers.push(s)
+		if steers != nil {
+			steers.mu.Lock()
+			steers.items = append(sent, steers.items...)
+			steers.mu.Unlock()
 		}
 		return true
 	}

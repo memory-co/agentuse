@@ -32,7 +32,7 @@ export function Attachments({ session, running }: { session: string; running: bo
     {progress && <p className="break-all text-xs" role="status">{progress}</p>}
     {q.isPending && <p className="text-xs text-muted-foreground">{t('attachment.loading')}</p>}
     {q.data?.map(a => <div key={a.id} className="flex items-center gap-2 text-xs">
-      <div className="min-w-0 flex-1"><p className="break-all">{a.filename}</p><p className="break-words text-muted-foreground">{a.size_bytes.toLocaleString()} bytes · {a.created_by} · {new Date(a.created_at * 1000).toLocaleString()}</p></div>
+      <div className="min-w-0 flex-1"><p className="break-all">{a.filename}</p><p className="break-words text-muted-foreground">{a.size_bytes.toLocaleString()} bytes · {a.created_by_agent_key?`@${a.created_by_agent_key}`:a.created_by} · {new Date(a.created_at * 1000).toLocaleString()}</p></div>
       <Button size="icon" variant="ghost" className="size-7" aria-label={`${t('attachment.download')} ${a.filename}`} disabled={download.isPending} onClick={() => download.mutate(a)}><Download /></Button>
       <Confirm title={t('attachment.delete')} description={a.filename} action={t('common.delete')} onConfirm={() => del.mutate(a)}>
         <Button size="icon" variant="ghost" className="size-7 text-destructive" aria-label={`${t('attachment.delete')} ${a.filename}`} disabled={del.isPending}><Trash2 /></Button>

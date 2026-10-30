@@ -60,3 +60,9 @@
 ## 附件权限扩展
 
 `wt_` 可对本工作的协调者和线程调用 [attachments](attachments.md) 的列表、上传、元数据、下载和删除接口，越出本工作返回 403。有效期仍是协调者当前消息的执行期。创建线程可用 `defer_start` 先建空会话、上传文件再发送第一条消息；工作删除时附件一起回收。详见 [attachment 设计](../designs/attachment.md)。
+
+## multi_agent 工作
+
+创建时可传 `mode: "multi_agent"`，agent_id 作为工作上的 coordinator_agent_id，协调 session 本身不绑定 agent。工作页消息显式选中协调 agent，也可 @ 其他自己的 agent。PATCH 支持 coordinator_agent_id；只允许自己的、支持新协议的有效 agent，协调 session 忙时返回 409。
+
+工作令牌只在协调 run/attempt 的有效租约内可用。新线程也使用共享 session，多目标消息在所有目标得到最终结果后向协调者汇总一次；插话未送达改挂后续 run 时继续等待，不提前通知。自动通知显式路由到工作的协调 agent。工作里有未结束的新模式 run 时，不能删除整组工作。

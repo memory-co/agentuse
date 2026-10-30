@@ -12,6 +12,8 @@ import (
 
 // Question 是 harness 向用户提的一次问题(Claude Code 的 AskUserQuestion),见 docs/v2/designs/question.md。
 type Question struct {
+	RunID      string            `json:"run_id,omitempty"`
+	AttemptID  string            `json:"attempt_id,omitempty"`
 	ID         int64             `json:"id"`
 	SessionID  string            `json:"session_id"`
 	MessageID  int64             `json:"message_id"`

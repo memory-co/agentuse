@@ -78,6 +78,10 @@ func (s *Server) Run(ctx context.Context) {
 				s.log.Printf("attachment cleanup: %v", err)
 			}
 		case <-t.C:
+			if err := s.store.RequeueRuns(ctx); err != nil {
+				s.log.Printf("runs: %v", err)
+			}
+			s.hub.kickAll()
 			users, err := s.store.RequeueExpired(ctx)
 			if err != nil {
 				s.log.Printf("requeue expired: %v", err)
@@ -123,7 +127,11 @@ func (s *Server) routes() {
 	// 带 workAuth 的几个，协调者也能用工作令牌调(docs/v2/apis/works.md)
 	s.mux.HandleFunc("GET /api/sessions", s.workAuth(s.handleListSessions))
 	s.mux.HandleFunc("POST /api/sessions", s.workAuth(s.handleCreateSession))
-	s.mux.HandleFunc("GET /api/sessions/{id}", s.workAuth(s.handleGetSession))
+	s.mux.HandleFunc("GET /api/sessions/{id}", s.sessionReadAuth(s.handleGetSession))
+	s.mux.HandleFunc("GET /api/sessions/{id}/runs/{run_id}", s.workAuth(s.handleGetRun))
+	s.mux.HandleFunc("POST /api/sessions/{id}/runs/{run_id}/cancel", s.workAuth(s.handleCancelRun))
+	s.mux.HandleFunc("POST /api/sessions/{id}/runs/{run_id}/questions/{qid}/answer", s.workAuth(s.handleAnswerRun))
+	s.mux.HandleFunc("POST /api/sessions/{id}/upgrade", s.auth(s.handleUpgradeSession))
 	s.mux.HandleFunc("DELETE /api/sessions/{id}", s.auth(s.handleDeleteSession))
 	s.mux.HandleFunc("POST /api/sessions/{id}/messages", s.workAuth(s.handleAddMessage))
 	s.mux.HandleFunc("POST /api/sessions/{id}/resolve", s.workAuth(s.handleResolveSession))
@@ -181,7 +189,7 @@ func (s *Server) storeErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusNotFound, "不存在")
 		return
 	}
-	if errors.Is(err, store.ErrSessionBusy) || errors.Is(err, store.ErrQuestionClosed) || errors.Is(err, store.ErrSessionState) {
+	if errors.Is(err, store.ErrStaleMessage) || errors.Is(err, store.ErrSessionBusy) || errors.Is(err, store.ErrQuestionClosed) || errors.Is(err, store.ErrSessionState) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}

@@ -440,14 +440,29 @@ func messageContent(input json.RawMessage, prompt string) (json.RawMessage, erro
 // handleCreateSession 建会话并发出第一条消息。
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		DeferStart bool            `json:"defer_start"`
-		AgentID    string          `json:"agent_id"`
-		WorkID     string          `json:"work_id"`
-		Input      json.RawMessage `json:"input"`
-		Prompt     *string         `json:"prompt"`
+		Mode           string          `json:"mode"`
+		Title          string          `json:"title"`
+		TargetAgentIDs []string        `json:"target_agent_ids"`
+		DeferStart     bool            `json:"defer_start"`
+		AgentID        string          `json:"agent_id"`
+		WorkID         string          `json:"work_id"`
+		Input          json.RawMessage `json:"input"`
+		Prompt         *string         `json:"prompt"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Mode == store.MultiAgent {
+		if req.DeferStart && (req.Prompt != nil || len(req.Input) > 0 || len(req.TargetAgentIDs) > 0) {
+			writeErr(w, 400, "defer_start 不能同时发送任务")
+			return
+		}
+		s.createMultiSession(w, r, req.WorkID, req.Title, req.AgentID, req.Input, req.Prompt, req.TargetAgentIDs)
+		return
+	}
+	if req.Mode != "" && req.Mode != "legacy" {
+		writeErr(w, 400, "未知 session mode")
 		return
 	}
 	if req.AgentID == "" {
@@ -511,8 +526,9 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 // handleAddMessage 在会话里回复下一条消息。
 func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Input  json.RawMessage `json:"input"`
-		Prompt string          `json:"prompt"`
+		TargetAgentIDs []string        `json:"target_agent_ids"`
+		Input          json.RawMessage `json:"input"`
+		Prompt         string          `json:"prompt"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -525,6 +541,22 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	u, id := currentUser(r), r.PathValue("id")
 	if !s.threadInScope(w, r, id) {
+		return
+	}
+	ss, err := s.store.GetSession(r.Context(), u, id)
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	if ss.Mode == store.MultiAgent {
+		reply, err := s.store.SendMultiMessage(r.Context(), u, id, content, req.TargetAgentIDs, r.Header.Get("Idempotency-Key"), len(req.Input) == 0)
+		if err != nil {
+			s.storeErr(w, err)
+			return
+		}
+		s.hub.kickAll()
+		s.hub.pushRunSteers(reply.Deliveries)
+		writeJSON(w, 201, reply)
 		return
 	}
 	// 空闲时发下一条消息;忙时插话(docs/v2/designs/steer.md)。两次之间状态可能刚好变了，所以最多试两轮。
@@ -567,6 +599,10 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	ss, err := s.store.GetSession(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
+		return
+	}
+	if ss.Mode == store.MultiAgent {
+		s.getMultiSession(w, r, ss)
 		return
 	}
 	msgs, err := s.store.Messages(r.Context(), ss.ID)
@@ -635,7 +671,7 @@ func (s *Server) threadInScope(w http.ResponseWriter, r *http.Request, id string
 		s.storeErr(w, err)
 		return false
 	}
-	if ss.WorkID != sc.ID || ss.WorkRole != store.WorkThread {
+	if ss.WorkID != sc.ID || (ss.WorkRole != store.WorkThread && ss.Mode != store.MultiAgent) {
 		writeErr(w, http.StatusForbidden, "工作令牌只能动自己工作的线程")
 		return false
 	}
@@ -676,6 +712,7 @@ func (s *Server) handleListWorks(w http.ResponseWriter, r *http.Request) {
 // handleCreateWork 建工作，同时建出协调者会话。
 func (s *Server) handleCreateWork(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		Mode         string `json:"mode"`
 		Name         string `json:"name"`
 		AgentID      string `json:"agent_id"`
 		Instructions string `json:"instructions"`
@@ -684,7 +721,14 @@ func (s *Server) handleCreateWork(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	wk, coord, err := s.store.CreateWork(r.Context(), currentUser(r), req.Name, req.AgentID, req.Instructions)
+	create := s.store.CreateWork
+	if req.Mode == store.MultiAgent {
+		create = s.store.CreateMultiWork
+	} else if req.Mode != "" && req.Mode != "legacy" {
+		writeErr(w, 400, "未知 mode")
+		return
+	}
+	wk, coord, err := create(r.Context(), currentUser(r), req.Name, req.AgentID, req.Instructions)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -703,14 +747,15 @@ func (s *Server) handleGetWork(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdateWork(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name         *string `json:"name"`
-		Instructions *string `json:"instructions"`
+		CoordinatorAgentID *string `json:"coordinator_agent_id"`
+		Name               *string `json:"name"`
+		Instructions       *string `json:"instructions"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	wk, err := s.store.UpdateWork(r.Context(), currentUser(r), r.PathValue("id"), store.WorkPatch{Name: req.Name, Instructions: req.Instructions})
+	wk, err := s.store.UpdateWork(r.Context(), currentUser(r), r.PathValue("id"), store.WorkPatch{Name: req.Name, Instructions: req.Instructions, CoordinatorAgentID: req.CoordinatorAgentID})
 	if err != nil {
 		s.storeErr(w, err)
 		return

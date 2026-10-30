@@ -104,3 +104,19 @@ agentuse attachment download at_xxx --output ./report.pdf
 ```bash
 agentuse attachment upload ./requirements.pdf --session ss_xxx --server https://agentuse.example.com --token ut_…
 ```
+
+### session
+
+```bash
+agentuse session send ss_xxx --agents coder,reviewer "看看实现和风险"
+agentuse session read ss_xxx --json
+agentuse session runs ss_xxx
+agentuse session wait ss_xxx --timeout 10m
+agentuse session cancel ss_xxx sr_xxx
+```
+
+默认从 AGENTUSE_SESSION 取当前会话，显式 session 参数覆盖；支持 --server、--token、--config、--json。地址/凭据来源与 attachment 一致。send 的 --agents 为空时只记笔记；忙碌目标自动作为插话。read 返回统一的 session 消息，不按 agent 区分上下文。
+
+harness 内部的 read/attachment 请求自动带 AGENTUSE_RUN、AGENTUSE_ATTEMPT，读配置里的 dk_，只在当前执行有效时可用；协调者优先用工作令牌。所有新执行都给出 AGENTUSE_AGENT、AGENTUSE_SESSION、AGENTUSE_MESSAGE_ID、AGENTUSE_RUN、AGENTUSE_ATTEMPT。session 管理和 send 仍需要用户或工作令牌。
+
+work new/send 支持 --agents coder,reviewer（放在位置参数前）。新模式协调者开的线程为 multi_agent；--agent 兼容单目标。空线程上传文件后，用 work send --agents 指明第一轮目标。

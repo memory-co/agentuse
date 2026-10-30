@@ -54,3 +54,15 @@ const response = await c.downloadAttachment(user, session.id, file.id);
 ```
 
 还支持 `listAttachments(user, sessionId, {limit, cursor})`、`getAttachment`、`deleteAttachment`；列表返回 `{attachments, next_cursor}`。上传接受异步字节流、ReadableStream 或 Blob，不预读整个文件。完整约定见 [attachments API](../../docs/v2/apis/attachments.md)。
+
+## 多 agent
+
+```js
+const {session} = await c.createSession(user, {mode: 'multi_agent'});
+const reply = await c.sendMessage(user, session.id, {
+  prompt: '分别看看实现与风险', target_agent_ids: ['coder', 'reviewer'],
+}, {idempotencyKey: 'turn-1'});
+const detail = await c.waitMessageRuns(user, session.id, reply.message.id, {interval: 500, timeout: 600000});
+```
+
+支持 getRun、waitRun、cancelRun、answerRunQuestion、upgradeSession。reply.deliveries 表示自动路由到新执行或插话的状态；新模式 waitSession 默认等待全部终态，可设置 returnOnWaiting。

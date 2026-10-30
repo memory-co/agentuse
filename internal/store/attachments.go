@@ -36,6 +36,7 @@ type AttachmentAccess struct {
 	User                    User
 	DaemonID, WorkID, Token string
 	MessageID               int64
+	RunID, AttemptID        string
 }
 
 func (s *Store) attachmentSession(ctx context.Context, q querier, a AttachmentAccess, id string, upload bool) (Session, error) {
@@ -57,7 +58,13 @@ func (s *Store) attachmentSession(ctx context.Context, q querier, a AttachmentAc
 			return Session{}, err
 		}
 		if n == 0 {
-			return Session{}, ErrAttachmentUnauthorized
+			err = q.QueryRowContext(ctx, `SELECT COUNT(*) FROM work_run_tokens t JOIN session_runs r ON r.id=t.run_id WHERE t.work_id=? AND t.token_hash=? AND t.attempt_id=r.attempt_id AND r.status IN ('running','waiting') AND r.lease_until>?`, a.WorkID, HashSecret(a.Token), s.unix()).Scan(&n)
+			if err != nil {
+				return Session{}, err
+			}
+			if n == 0 {
+				return Session{}, ErrAttachmentUnauthorized
+			}
 		}
 	}
 	if a.DaemonID == "" && a.WorkID == "" {
@@ -78,6 +85,24 @@ func (s *Store) attachmentSession(ctx context.Context, q querier, a AttachmentAc
 	ss, err := s.getSession(ctx, q, u, id)
 	if err != nil {
 		return ss, err
+	}
+	if ss.Mode == MultiAgent {
+		if a.WorkID != "" && ss.WorkID != a.WorkID {
+			return ss, ErrNotFound
+		}
+		if a.DaemonID != "" {
+			r, e := s.CheckRun(ctx, q, a.DaemonID, a.RunID, a.AttemptID)
+			if e != nil {
+				return ss, e
+			}
+			if r.SessionID != ss.ID {
+				return ss, ErrNotFound
+			}
+		}
+		return ss, nil
+	}
+	if a.DaemonID != "" && (a.RunID != "" || a.AttemptID != "") {
+		return ss, ErrAttachmentUnauthorized
 	}
 	if a.DaemonID != "" && ss.DaemonID != a.DaemonID {
 		return Session{}, ErrNotFound
@@ -129,7 +154,7 @@ func (s *Store) CommitAttachment(ctx context.Context, a AttachmentAccess, v atta
 	if err = publish(); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO attachments(id,session_id,filename,content_type,size_bytes,sha256,created_by,source,daemon_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, v.ID, v.SessionID, v.Filename, v.ContentType, v.SizeBytes, v.SHA256, v.CreatedBy, v.Source, nullIfEmpty(v.DaemonID), v.CreatedAt)
+	_, err = tx.ExecContext(ctx, `INSERT INTO attachments(id,session_id,filename,content_type,size_bytes,sha256,created_by,source,daemon_id,created_at,created_by_run_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, v.ID, v.SessionID, v.Filename, v.ContentType, v.SizeBytes, v.SHA256, v.CreatedBy, v.Source, nullIfEmpty(v.DaemonID), v.CreatedAt, nullIfEmpty(v.CreatedByRunID))
 	if err != nil {
 		return err
 	}
@@ -137,11 +162,11 @@ func (s *Store) CommitAttachment(ctx context.Context, a AttachmentAccess, v atta
 }
 func (s *Store) NewAttachmentID() string { return randomID("at_") }
 
-const attachmentCols = `SELECT id,session_id,filename,content_type,size_bytes,sha256,created_by,source,COALESCE(daemon_id,''),created_at FROM attachments`
+const attachmentCols = `SELECT id,session_id,filename,content_type,size_bytes,sha256,created_by,source,COALESCE(daemon_id,''),created_at,COALESCE(created_by_run_id,''),COALESCE((SELECT agent_key FROM session_runs r WHERE r.id=attachments.created_by_run_id),'') FROM attachments`
 
 func scanAttachment(row scanner) (attachment.Attachment, error) {
 	var a attachment.Attachment
-	err := row.Scan(&a.ID, &a.SessionID, &a.Filename, &a.ContentType, &a.SizeBytes, &a.SHA256, &a.CreatedBy, &a.Source, &a.DaemonID, &a.CreatedAt)
+	err := row.Scan(&a.ID, &a.SessionID, &a.Filename, &a.ContentType, &a.SizeBytes, &a.SHA256, &a.CreatedBy, &a.Source, &a.DaemonID, &a.CreatedAt, &a.CreatedByRunID, &a.CreatedByAgentKey)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}

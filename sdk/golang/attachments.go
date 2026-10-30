@@ -12,17 +12,19 @@ import (
 )
 
 type Attachment struct {
-	ID           string `json:"id"`
-	SessionID    string `json:"session_id"`
-	Filename     string `json:"filename"`
-	ContentType  string `json:"content_type"`
-	SizeBytes    int64  `json:"size_bytes"`
-	SHA256       string `json:"sha256"`
-	CreatedBy    string `json:"created_by"`
-	Source       string `json:"source"`
-	DaemonID     string `json:"daemon_id,omitempty"`
-	CreatedAt    int64  `json:"created_at"`
-	DownloadPath string `json:"download_path"`
+	CreatedByAgentKey string `json:"created_by_agent_key,omitempty"`
+	CreatedByRunID    string `json:"created_by_run_id,omitempty"`
+	ID                string `json:"id"`
+	SessionID         string `json:"session_id"`
+	Filename          string `json:"filename"`
+	ContentType       string `json:"content_type"`
+	SizeBytes         int64  `json:"size_bytes"`
+	SHA256            string `json:"sha256"`
+	CreatedBy         string `json:"created_by"`
+	Source            string `json:"source"`
+	DaemonID          string `json:"daemon_id,omitempty"`
+	CreatedAt         int64  `json:"created_at"`
+	DownloadPath      string `json:"download_path"`
 }
 type AttachmentPage struct {
 	Attachments []Attachment `json:"attachments"`

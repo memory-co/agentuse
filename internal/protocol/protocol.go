@@ -48,6 +48,8 @@ const (
 
 	// 服务 → daemon
 	TypeWelcome = "welcome" // 回应 hello
+	TypeRun     = "run"
+	TypeCancel  = "cancel"
 	TypeMessage = "message" // 派一条用户消息
 	TypeSteer   = "steer"   // 推一条插话
 	TypeAnswer  = "answer"  // 推一个提问的答案
@@ -55,8 +57,19 @@ const (
 )
 
 // Message 是 WebSocket 上的一条消息，按 Type 取用对应字段。
+type RunRef struct {
+	RunID     string `json:"run_id"`
+	AttemptID string `json:"attempt_id"`
+}
+
 type Message struct {
-	Type string `json:"type"`
+	RunID      string    `json:"run_id,omitempty"`
+	AttemptID  string    `json:"attempt_id,omitempty"`
+	EventSeq   int64     `json:"event_seq,omitempty"`
+	ActiveRuns []RunRef  `json:"active_runs,omitempty"`
+	ValidRuns  []RunRef  `json:"valid_runs,omitempty"`
+	Run        *Dispatch `json:"run,omitempty"`
+	Type       string    `json:"type"`
 
 	// hello
 	Capabilities []string  `json:"capabilities,omitempty"`
@@ -94,6 +107,12 @@ type Harness struct {
 
 // Dispatch 是派给 daemon 的一条用户消息，带上会话的信息。
 type Dispatch struct {
+	RunID             string            `json:"run_id,omitempty"`
+	AttemptID         string            `json:"attempt_id,omitempty"`
+	AgentID           string            `json:"agent_id,omitempty"`
+	TaskMessageIDs    []int64           `json:"task_message_ids,omitempty"`
+	ContextSeq        int64             `json:"context_seq,omitempty"`
+	SessionMessages   json.RawMessage   `json:"session_messages,omitempty"`
 	AttachmentSupport bool              `json:"-"`
 	Attachments       []LocalAttachment `json:"-"`
 	ID                int64             `json:"id"` // 消息 id
@@ -109,6 +128,8 @@ type Dispatch struct {
 
 // Steer 是推给 daemon 的一条插话，挂在它正在回的消息 MessageID 上。见 docs/v2/designs/steer.md。
 type Steer struct {
+	RunID     string `json:"run_id,omitempty"`
+	AttemptID string `json:"attempt_id,omitempty"`
 	ID        int64  `json:"id"`
 	MessageID int64  `json:"message_id"`
 	Prompt    string `json:"prompt"`
@@ -140,6 +161,8 @@ type QuestionPayload struct {
 
 // Answer 是推给 daemon 的答案：问题 → 答案。
 type Answer struct {
+	RunID     string            `json:"run_id,omitempty"`
+	AttemptID string            `json:"attempt_id,omitempty"`
 	MessageID int64             `json:"message_id"`
 	ToolUseID string            `json:"tool_use_id"`
 	Answers   map[string]string `json:"answers"`
@@ -157,9 +180,13 @@ type LocalAttachment struct {
 }
 
 type HarnessInput struct {
-	Attachments  []LocalAttachment `json:"attachments,omitempty"`
-	SessionID    string            `json:"session_id"`
-	Resume       string            `json:"resume,omitempty"`
-	Instructions string            `json:"instructions,omitempty"`
-	Input        json.RawMessage   `json:"input"`
+	RunID           string            `json:"run_id,omitempty"`
+	AgentID         string            `json:"agent_id,omitempty"`
+	TaskMessageIDs  []int64           `json:"task_message_ids,omitempty"`
+	SessionMessages json.RawMessage   `json:"session_messages,omitempty"`
+	Attachments     []LocalAttachment `json:"attachments,omitempty"`
+	SessionID       string            `json:"session_id"`
+	Resume          string            `json:"resume,omitempty"`
+	Instructions    string            `json:"instructions,omitempty"`
+	Input           json.RawMessage   `json:"input"`
 }

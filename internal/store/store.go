@@ -185,6 +185,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("store: migrate: %w", err)
 	}
+	if err := migrateRuns(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("store: migrate runs: %w", err)
+	}
 	s := &Store{db: db, now: time.Now}
 	if err := s.seedBuiltinHarnesses(context.Background()); err != nil {
 		db.Close()

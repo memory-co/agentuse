@@ -25,8 +25,8 @@ export class Client {
     this._fetch = fetchImpl || globalThis.fetch;
   }
 
-  async _request(method, path, user, body) {
-    const headers = { Authorization: `Bearer ${this.token}`, Accept: "application/json" };
+  async _request(method, path, user, body, extraHeaders = {}) {
+    const headers = { ...extraHeaders, Authorization: `Bearer ${this.token}`, Accept: "application/json" };
     if (user) headers[USER_HEADER] = user;
     const init = { method, headers };
     if (body !== undefined) {
@@ -113,7 +113,7 @@ export class Client {
   createSession(user, req) { return this._request("POST", "/api/sessions", user, req); }
   // 回复:{ prompt? , input? }。会话不是 idle 时抛 AgentuseError(409)。
   // 会话 idle 时返回 message;忙时是插话，返回 steer。
-  sendMessage(user, sessionId, req) { return this._request("POST", `/api/sessions/${q(sessionId)}/messages`, user, req); }
+  sendMessage(user, sessionId, req, {idempotencyKey} = {}) { return this._request("POST", `/api/sessions/${q(sessionId)}/messages`, user, req, idempotencyKey ? {"Idempotency-Key": idempotencyKey} : {}); }
   // → { session, messages, steers, questions, events }
   getSession(user, sessionId) { return this._request("GET", `/api/sessions/${q(sessionId)}`, user); }
   // 回答 harness 的提问(会话 waiting 时):answers 是 { 问题: 答案 },多选用 ", " 拼起来。已答过或过期抛 409。
@@ -124,6 +124,21 @@ export class Client {
   // 把 idle 的会话标记为已完成;再发消息就重新打开。
   resolveSession(user, sessionId) { return this._request("POST", `/api/sessions/${q(sessionId)}/resolve`, user); }
   reopenSession(user, sessionId) { return this._request("POST", `/api/sessions/${q(sessionId)}/reopen`, user); }
+
+  getRun(user, session, run) { return this._request("GET", `/api/sessions/${q(session)}/runs/${q(run)}`, user); }
+  cancelRun(user, session, run) { return this._request("POST", `/api/sessions/${q(session)}/runs/${q(run)}/cancel`, user); }
+  upgradeSession(user, session) { return this._request("POST", `/api/sessions/${q(session)}/upgrade`, user); }
+  answerRunQuestion(user, session, run, question, answers) { return this._request("POST", `/api/sessions/${q(session)}/runs/${q(run)}/questions/${q(question)}/answer`, user, {answers}); }
+  async waitRun(user, session, run, {interval=2000, timeout, returnOnWaiting=false}={}) {
+    const start=Date.now();
+    for (;;) { const d=await this.getRun(user,session,run); if (["succeeded","failed","cancelled"].includes(d.run.status) || (returnOnWaiting && d.run.status==="waiting")) return d;
+      if (timeout!=null && Date.now()-start>=timeout) throw new Error("agentuse: waitRun timed out"); await new Promise(r=>setTimeout(r,interval)); }
+  }
+  async waitMessageRuns(user, session, message, {interval=2000,timeout}={}) {
+    const start=Date.now();
+    for (;;) { const d=await this.getSession(user,session); if ((d.deliveries||[]).filter(x=>x.message_id===message).every(x=>["succeeded","failed","cancelled"].includes(x.status))) return d;
+      if (timeout!=null && Date.now()-start>=timeout) throw new Error("agentuse: waitMessageRuns timed out"); await new Promise(r=>setTimeout(r,interval)); }
+  }
 
   // works:协调者 + 线程 + 共用说明
   listWorks(user) { return this._request("GET", "/api/works", user); }
@@ -137,11 +152,11 @@ export class Client {
   listWorkSessions(user, workId) { return this._request("GET", `/api/sessions?work_id=${q(workId)}`, user); }
 
   // 轮询直到会话回到 idle(或已完成)或在等回答提问(waiting),返回最后一次 getSession 的结果。超时抛错。
-  async waitSession(user, sessionId, { interval = 2000, timeout } = {}) {
+  async waitSession(user, sessionId, { interval = 2000, timeout, returnOnWaiting = false } = {}) {
     const deadline = timeout === undefined ? Infinity : Date.now() + timeout;
     for (;;) {
       const detail = await this.getSession(user, sessionId);
-      if (["idle", "waiting", "resolved"].includes(detail.session.status)) return detail;
+      if (["idle", "resolved"].includes(detail.session.status) || (detail.session.status === "waiting" && (detail.session.mode !== "multi_agent" || returnOnWaiting))) return detail;
       if (Date.now() >= deadline) {
         throw new Error(`agentuse: session ${sessionId} still ${detail.session.status}`);
       }

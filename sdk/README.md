@@ -43,3 +43,9 @@
 以上方法均显式传 session_id；get/download/delete 再传 attachment_id。列表返回 `{attachments, next_cursor}`，upload/get 返回 Attachment，delete 不返回内容。Go upload 接收 `io.Reader` 和 filename、download 返回 `io.ReadCloser`（另带响应头）；Python 接收二进制文件对象、返回可关闭的二进制响应；Node 接收文件流、返回含 headers 的流响应，调用方负责消费或关闭。传输取消与错误处理沿用各 SDK 约定。upload 必须流式生成 multipart，不能先缓冲整个文件或转 base64；download 不自动落盘。
 
 `create_session` / `createSession` / `CreateSession` 的可选参数增加 `defer_start`。为 true 时仅创建 idle 会话，返回中的 message 可缺省；调用者可先上传输入附件，再调用 send_message 开始执行。已有调用的默认行为保持不变。
+
+## 多 agent 共享 session
+
+创建时显式传 mode=multi_agent，不传 agent_id。发送消息带 target_agent_ids，返回 message、runs、deliveries；空闲目标新建执行，忙碌目标自动插话。目标省略只保存笔记，不默认调用上次 agent。
+
+三个 SDK 增加 get/cancel/wait run、wait message runs、answer run question 和 upgrade session 方法。等待一条消息完成要跟踪 deliveries（包括改挂到后续 run 的插话），不能只等最初返回的新 runs。WaitSession 对新模式默认等全部执行结束；returnOnWaiting / return_on_waiting / Go WaitOptions 可选择在提问时返回。legacy 行为保持不变。

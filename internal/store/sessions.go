@@ -37,13 +37,14 @@ const (
 )
 
 type Session struct {
+	Mode             string `json:"mode"`
 	ID               string `json:"id"`
 	UserID           string `json:"user_id"`
 	CreatedBy        string `json:"created_by"`
 	AgentID          string `json:"agent_id,omitempty"`
 	WorkID           string `json:"work_id,omitempty"`
 	WorkRole         string `json:"work_role,omitempty"` // coordinator / thread,不在工作里时为空
-	Harness          string `json:"harness"`
+	Harness          string `json:"harness,omitempty"`
 	DaemonID         string `json:"daemon_id,omitempty"`
 	HarnessSessionID string `json:"harness_session_id,omitempty"`
 	Title            string `json:"title"`
@@ -54,14 +55,21 @@ type Session struct {
 }
 
 type Message struct {
-	ID        int64           `json:"id"`
-	SessionID string          `json:"session_id"`
-	Role      string          `json:"role"`
-	Content   json.RawMessage `json:"content"`
-	CreatedAt int64           `json:"created_at"`
+	Seq            int64           `json:"seq"`
+	RunID          string          `json:"run_id,omitempty"`
+	AgentKey       string          `json:"agent_key,omitempty"`
+	AgentName      string          `json:"agent_name,omitempty"`
+	TargetAgentIDs []string        `json:"target_agent_ids,omitempty"`
+	ID             int64           `json:"id"`
+	SessionID      string          `json:"session_id"`
+	Role           string          `json:"role"`
+	Content        json.RawMessage `json:"content"`
+	CreatedAt      int64           `json:"created_at"`
 }
 
 type SessionEvent struct {
+	RunID     string          `json:"run_id,omitempty"`
+	AttemptID string          `json:"attempt_id,omitempty"`
 	ID        int64           `json:"id"`
 	SessionID string          `json:"session_id"`
 	MessageID int64           `json:"message_id"`
@@ -206,7 +214,7 @@ func (s *Store) insertSession(ctx context.Context, tx *sql.Tx, u User, workID, a
 		return Session{}, err
 	}
 	now := s.unix()
-	ss := Session{ID: randomID("ss_"), UserID: a.UserID, CreatedBy: u.ID, AgentID: a.ID, WorkID: workID, Harness: a.Harness, DaemonID: a.DaemonID, Title: title, Status: status, CreatedAt: now, UpdatedAt: now}
+	ss := Session{Mode: "legacy", ID: randomID("ss_"), UserID: a.UserID, CreatedBy: u.ID, AgentID: a.ID, WorkID: workID, Harness: a.Harness, DaemonID: a.DaemonID, Title: title, Status: status, CreatedAt: now, UpdatedAt: now}
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO sessions (id, user_id, created_by, agent_id, work_id, harness, daemon_id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ss.ID, ss.UserID, ss.CreatedBy, ss.AgentID, nullIfEmpty(workID), ss.Harness, ss.DaemonID, title, ss.Status, now, now)
@@ -221,7 +229,7 @@ func insertMessage(ctx context.Context, tx *sql.Tx, sessionID, role string, cont
 		return Message{}, err
 	}
 	id, _ := res.LastInsertId()
-	return Message{ID: id, SessionID: sessionID, Role: role, Content: content, CreatedAt: now}, nil
+	return Message{ID: id, Seq: id, SessionID: sessionID, Role: role, Content: content, CreatedAt: now}, nil
 }
 
 // ClaimSession 给 daemon 挑一个 pending 的会话：会话定在这台 daemon 上(建会话时取 agent 的运行时)、
@@ -239,7 +247,7 @@ func (s *Store) ClaimSession(ctx context.Context, d Daemon, leaseSeconds int64) 
 	var id string
 	err = tx.QueryRowContext(ctx, `
 		SELECT s.id FROM sessions s
-		WHERE s.status = 'pending' AND s.daemon_id = ?
+		WHERE s.mode='legacy' AND s.status = 'pending' AND s.daemon_id = ?
 		  AND EXISTS (SELECT 1 FROM daemon_harnesses da
 		              WHERE da.daemon_id = s.daemon_id AND da.harness = s.harness
 		                AND da.available = 1 AND da.enabled = 1)
@@ -594,13 +602,13 @@ const sessionCols = `SELECT id, user_id, created_by, agent_id, work_id,
   CASE WHEN work_id IS NULL THEN ''
        WHEN EXISTS (SELECT 1 FROM works w WHERE w.coordinator_id = sessions.id) THEN 'coordinator'
        ELSE 'thread' END,
-  harness, daemon_id, harness_session_id, title, status, lease_until, created_at, updated_at FROM sessions`
+  harness, daemon_id, harness_session_id, title, status, lease_until, created_at, updated_at, mode FROM sessions`
 
 func (s *Store) scanSession(row scanner) (Session, error) {
 	var ss Session
 	var agent, work, daemon, harness sql.NullString
 	var lease sql.NullInt64
-	err := row.Scan(&ss.ID, &ss.UserID, &ss.CreatedBy, &agent, &work, &ss.WorkRole, &ss.Harness, &daemon, &harness, &ss.Title, &ss.Status, &lease, &ss.CreatedAt, &ss.UpdatedAt)
+	err := row.Scan(&ss.ID, &ss.UserID, &ss.CreatedBy, &agent, &work, &ss.WorkRole, &ss.Harness, &daemon, &harness, &ss.Title, &ss.Status, &lease, &ss.CreatedAt, &ss.UpdatedAt, &ss.Mode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Session{}, ErrNotFound
 	}
@@ -609,15 +617,28 @@ func (s *Store) scanSession(row scanner) (Session, error) {
 	}
 	ss.AgentID, ss.WorkID, ss.DaemonID, ss.HarnessSessionID = agent.String, work.String, daemon.String, harness.String
 	ss.LeaseUntil = nullInt(lease)
+	if ss.Mode == MultiAgent {
+		ss.AgentID = ""
+		ss.Harness = ""
+		ss.DaemonID = ""
+		ss.HarnessSessionID = ""
+		ss.LeaseUntil = nil
+	}
 	return ss, nil
 }
 
-const messageCols = `SELECT id, session_id, role, content, created_at FROM messages`
+const messageCols = `SELECT id, session_id, role, content, created_at,
+ COALESCE((SELECT run_id FROM message_authors a WHERE a.message_id=messages.id),''),
+ COALESCE((SELECT agent_key FROM message_authors a WHERE a.message_id=messages.id),''),
+ COALESCE((SELECT agent_name FROM message_authors a WHERE a.message_id=messages.id),''),
+ (SELECT json_group_array(agent_key) FROM message_deliveries d WHERE d.message_id=messages.id) FROM messages`
 
 func scanMessage(row scanner) (Message, error) {
 	var m Message
-	var content string
-	err := row.Scan(&m.ID, &m.SessionID, &m.Role, &content, &m.CreatedAt)
+	var content, targets string
+	err := row.Scan(&m.ID, &m.SessionID, &m.Role, &content, &m.CreatedAt, &m.RunID, &m.AgentKey, &m.AgentName, &targets)
+	m.Seq = m.ID
+	_ = json.Unmarshal([]byte(targets), &m.TargetAgentIDs)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Message{}, ErrNotFound
 	}
@@ -633,8 +654,8 @@ func (s *Store) getSession(ctx context.Context, q querier, u User, id string) (S
 	query := sessionCols + ` WHERE id = ?`
 	args := []any{id}
 	if !u.IsAdmin() {
-		query += ` AND (user_id = ? OR created_by = ?)`
-		args = append(args, u.ID, u.ID)
+		query += ` AND (user_id = ? OR created_by = ? OR EXISTS(SELECT 1 FROM session_access x WHERE x.session_id=sessions.id AND x.user_id=?))`
+		args = append(args, u.ID, u.ID, u.ID)
 	}
 	return s.scanSession(q.QueryRowContext(ctx, query, args...))
 }
@@ -648,8 +669,8 @@ func (s *Store) ListSessions(ctx context.Context, u User, limit int) ([]Session,
 	q := sessionCols + ` WHERE work_id IS NULL`
 	var args []any
 	if !u.IsAdmin() {
-		q += ` AND (user_id = ? OR created_by = ?)`
-		args = append(args, u.ID, u.ID)
+		q += ` AND (user_id = ? OR created_by = ? OR EXISTS(SELECT 1 FROM session_access x WHERE x.session_id=sessions.id AND x.user_id=?))`
+		args = append(args, u.ID, u.ID, u.ID)
 	}
 	return s.listSessions(ctx, q, limit, args...)
 }
@@ -693,7 +714,7 @@ func (s *Store) DeleteSession(ctx context.Context, u User, id string) error {
 	if err != nil {
 		return err
 	}
-	if ss.Status == SessionRunning || ss.Status == SessionWaiting {
+	if ss.Status == SessionRunning || ss.Status == SessionWaiting || (ss.Mode == MultiAgent && ss.Status == SessionPending) {
 		return ErrSessionBusy
 	}
 	if ss.WorkRole == WorkCoordinator {

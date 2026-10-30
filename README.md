@@ -162,3 +162,19 @@ agentuse attachment download at_xxx --output ./report.pdf
 ```
 
 网页会话页和 Go、Python、Node SDK 均支持附件。服务端默认单文件 100 MiB、每会话总计 1 GiB；附件目录默认 `~/.agentuse/attachments`，须与数据库一起备份。需要服务端和 daemon 一起升级，旧 daemon 会提示不支持附件。[设计](docs/v2/designs/attachment.md) · [API](docs/v2/apis/attachments.md) · [CLI](docs/v2/cli/agentuse.md#attachment)。
+
+## 多 agent 共享会话
+
+网页新建 session 不绑定 agent，每条消息通过 @ 选择一个或多个执行者。所有 agent 每次都读取同一 session 的消息和附件，并启动新的原生 harness 会话。目标空闲时新建 run，目标已有任务时自动作为插话；不支持插话或未送达的补充排到后续执行，用户消息只保存一次。
+
+```json
+{"mode":"multi_agent"}
+```
+
+用上面的 body 创建 session 后，向 `/api/sessions/{id}/messages` 发送：
+
+```json
+{"prompt":"分别看看实现和风险","target_agent_ids":["coder","reviewer"]}
+```
+
+返回 `{message, runs, deliveries}`。也支持 `agentuse session send ss_xxx --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。旧 API 未传 mode 时和已有会话仍为 legacy；页面可显式升级。需要服务端和 daemon 一起升级（`session-runs-v1`）。[设计](docs/v2/designs/session-mentions.md) · [API](docs/v2/apis/sessions.md#multi_agent-请求与响应)。

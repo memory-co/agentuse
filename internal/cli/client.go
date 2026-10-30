@@ -69,8 +69,9 @@ func (h *flagsHolder) client() (*apiClient, error) {
 
 // apiClient 是管理命令用的 HTTP API 客户端，接口见 docs/v2/apis/。
 type apiClient struct {
-	server, token string
-	http          http.Client
+	server, token    string
+	runID, attemptID string
+	http             http.Client
 	// unauthorized 是 401 时给的提示，空就用默认的(让管理员重新 login)。
 	unauthorized string
 }
@@ -96,6 +97,10 @@ func (c *apiClient) do(ctx context.Context, method, path string, body, out any) 
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
+	if c.runID != "" {
+		req.Header.Set("X-Agentuse-Run", c.runID)
+		req.Header.Set("X-Agentuse-Attempt", c.attemptID)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

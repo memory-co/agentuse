@@ -91,19 +91,31 @@ func (s *Store) RegisterDaemon(ctx context.Context, setupToken, hostname string)
 
 // ResetDaemonSetup 重新生成安装令牌(用于换电脑 / 重装),旧密钥立即失效。
 func (s *Store) ResetDaemonSetup(ctx context.Context, u User, id string) (Daemon, error) {
-	token := RandomToken("st_")
-	q := `UPDATE daemons SET setup_token = ?, key_hash = NULL, status = ? WHERE id = ?`
-	args := []any{token, DaemonPending, id}
-	if !u.IsAdmin() {
-		q += ` AND user_id = ?`
-		args = append(args, u.ID)
-	}
-	res, err := s.db.ExecContext(ctx, q, args...)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Daemon{}, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	defer tx.Rollback()
+	query := `SELECT 1 FROM daemons WHERE id=?`
+	args := []any{id}
+	if !u.IsAdmin() {
+		query += ` AND user_id=?`
+		args = append(args, u.ID)
+	}
+	var one int
+	if err = tx.QueryRowContext(ctx, query, args...).Scan(&one); errors.Is(err, sql.ErrNoRows) {
 		return Daemon{}, ErrNotFound
+	} else if err != nil {
+		return Daemon{}, err
+	}
+	if err = s.terminateDaemonRuns(ctx, tx, id, "daemon 已重置，请重新发送任务"); err != nil {
+		return Daemon{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE daemons SET setup_token=?,key_hash=NULL,status=? WHERE id=?`, RandomToken("st_"), DaemonPending, id); err != nil {
+		return Daemon{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Daemon{}, err
 	}
 	return s.GetDaemon(ctx, u, id)
 }
@@ -236,6 +248,9 @@ func (s *Store) DeleteDaemon(ctx context.Context, u User, id string) error {
 	if err := tx.QueryRowContext(ctx, check, args...).Scan(&one); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
+		return err
+	}
+	if err := s.terminateDaemonRuns(ctx, tx, id, "daemon 已删除"); err != nil {
 		return err
 	}
 	if err := s.failDaemonSessions(ctx, tx, id); err != nil {

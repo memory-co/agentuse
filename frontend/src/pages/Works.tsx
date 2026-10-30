@@ -30,12 +30,12 @@ export function NewWork({ me, onCreated }: { me: User; onCreated: (id: string) =
   const [instructions, setInstructions] = useState('');
   const options = (agents.data || []).filter(a => a.user_id === me.id).map(a => {
     const d = daemons.data?.find(d => d.id === a.daemon_id);
-    const ok = !!d?.harnesses.some(h => h.harness === a.harness && h.available && h.enabled);
+    const ok = !!d?.capabilities.includes("session-runs-v1") && !!d?.harnesses.some(h => h.harness === a.harness && h.available && h.enabled);
     return { id: a.id, ok, label: `${a.name} · ${d?.name ?? '?'} · ${a.harness}${!ok ? t('agents.unavailable') : d?.status === 'online' ? '' : t('agents.offline')}` };
   });
   useEffect(() => { if (!agent && daemons.data) { const o = options.find(o => o.ok); if (o) setAgent(o.id); } }, [agent, daemons.data, options]);
   const create = useMutation({
-    mutationFn: () => api<{ work: Work; coordinator: Session }>('/api/works', { method: 'POST', body: { name, agent_id: agent, instructions } }),
+    mutationFn: () => api<{ work: Work; coordinator: Session }>('/api/works', { method: 'POST', body: { mode:"multi_agent", name, agent_id: agent, instructions } }),
     onSuccess: r => { void refresh(); onCreated(r.work.id); },
   });
   const submit = (e: FormEvent) => { e.preventDefault(); if (name.trim() && agent) create.mutate(); };
@@ -84,22 +84,25 @@ export function WorkPage({ id, onDeleted }: { id: string; onDeleted: () => void 
     </div>
     {showInstructions && <WorkSettings key={work.id + work.updated_at} work={work} />}
     </div>
-    <Conversation id={work.coordinator_id} onDeleted={onDeleted} placeholder={t('work.coordinatorPlaceholder')} />
+    <Conversation defaultAgent={work.coordinator_agent_id} id={work.coordinator_id} onDeleted={onDeleted} placeholder={t('work.coordinatorPlaceholder')} />
   </div>;
 }
 
 /** 改名字和说明。 */
 function WorkSettings({ work }: { work: Work }) {
   const t = useT();
+ const agents=useAgents();
+ const [coordinator,setCoordinator]=useState(work.coordinator_agent_id??'');
   const [name, setName] = useState(work.name);
   const [instructions, setInstructions] = useState(work.instructions);
   const save = useMutation({
-    mutationFn: () => api<Work>(`/api/works/${encodeURIComponent(work.id)}`, { method: 'PATCH', body: { name, instructions } }),
+    mutationFn: () => api<Work>(`/api/works/${encodeURIComponent(work.id)}`, { method: 'PATCH', body: { name, instructions,...(coordinator!==work.coordinator_agent_id&&coordinator?{coordinator_agent_id:coordinator}:{}) } }),
     onSuccess: () => { void refresh(); toast.success(t('work.saved')); },
   });
-  const dirty = name !== work.name || instructions !== work.instructions;
+  const dirty = name !== work.name || instructions !== work.instructions || (coordinator!==work.coordinator_agent_id&&coordinator!=='');
   return <form className="mx-auto grid w-full max-w-3xl gap-2 px-4 pt-3" onSubmit={e => { e.preventDefault(); if (name.trim() && dirty) save.mutate(); }}>
     <Input value={name} onChange={e => setName(e.target.value)} aria-label={t('common.name')} />
+    <label className="grid gap-1 text-sm"><span>{t('work.agentLabel')}</span><Select value={coordinator} onValueChange={setCoordinator}><SelectTrigger><SelectValue placeholder={t('work.pickAgent')}/></SelectTrigger><SelectContent>{agents.data?.filter(a=>a.user_id===work.user_id).map(a=><SelectItem key={a.id} value={a.id}>@{a.id} · {a.name}</SelectItem>)}</SelectContent></Select></label>
     <Textarea rows={6} value={instructions} placeholder={t('work.instructionsPlaceholder')} onChange={e => setInstructions(e.target.value)} aria-label={t('work.instructions')} />
     <div className="flex items-center gap-2">
       <Button type="submit" size="sm" disabled={!name.trim() || !dirty || save.isPending}>{t('work.save')}</Button>

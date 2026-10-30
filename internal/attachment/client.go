@@ -17,8 +17,9 @@ import (
 )
 
 type Client struct {
-	Server, Token string
-	HTTPClient    *http.Client
+	Server, Token    string
+	RunID, AttemptID string
+	HTTPClient       *http.Client
 }
 type Error struct {
 	Status  int
@@ -32,6 +33,10 @@ func (c Client) request(ctx context.Context, method, path, ctype string, body io
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
+	if c.RunID != "" {
+		req.Header.Set("X-Agentuse-Run", c.RunID)
+		req.Header.Set("X-Agentuse-Attempt", c.AttemptID)
+	}
 	if ctype != "" {
 		req.Header.Set("Content-Type", ctype)
 	}

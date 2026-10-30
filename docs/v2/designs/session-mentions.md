@@ -1,6 +1,6 @@
 # Session 中 @ 多个 agent
 
-> 待实现设计。当前 session 仍绑定单个 agent；本方案让 session 保存所有 agent 共用的消息和附件，每条消息通过 @ 指定执行者。
+> 已实现兼容阶段：网页新建会话使用 `multi_agent`，已有会话和未传 mode 的旧 API 请求保持 `legacy`。所有 agent 共用 session 消息和附件，messages 根据 @ 目标自动新建 run 或插话。
 
 ## 交互
 
@@ -33,7 +33,7 @@ coder：已实现，产物见附件……
 - `agent_key`、`agent_name` 是当时的身份快照，agent 改名、删除后仍能识别历史作者。agent_id 可用外键在删除后置空，展示快照保留。
 - agent 删除后不能再 @ 它；它的 pending run 标为 failed，已经执行的 run 可以按原快照完成。daemon 删除、harness 被关闭或能力降级时，仅使相关执行失败，不影响其他 agent 的结果。
 - 新模型不保存 session 或 session-agent 级的 harness_session_id，不保存每个 agent 的历史水位、已读集合或私有消息视图。原生 harness 返回的会话 id 如需排查，只记在本次 run 的执行日志里。
-- 新增 session_runs、消息目标关联表（含 run_id、投递方式、状态）和必要的执行事件字段；不增加 agent 参与关系表或按 agent 划分的上下文表。正式 SQL 随实现补齐。
+- 新增 session_runs、消息目标关联表（含 run_id、投递方式、状态）和必要的执行事件字段；不增加 agent 参与关系表或按 agent 划分的上下文表。表结构见 [session_runs](../tables/session_runs.md)。
 
 ## @ 的路由规则
 
@@ -114,7 +114,7 @@ session 是消息和附件的唯一来源。用户消息、所有 agent 的回�
 - 重派时重新读取 session 当前内容，并启动新原生会话。run 可记录每个 attempt 开始读取到的 context_seq 和附件 id，供排查；这些只是执行日志，不是另存一套上下文，也不要求重派复用旧快照。
 - session 变长时，如需截断或摘要，按 session 统一的规则生成、保留消息来源和本次任务，不能为每个 agent 维护不同的记忆。
 
-Claude/Codex 通过 daemon 生成的 session 历史文件读取共享对话，说明文件写明路径和本次任务；自定义 harness 在 stdin 的 `session_messages` 中获得同样的数据，用户原 input 保持不变。历史引用、附件内容和其他 agent 的回复都是有来源的对话数据，不提升为系统指令。
+daemon 开始执行时用当前 run/attempt 经 HTTP 获取 session 消息，避免通过 WebSocket 传输整段长历史。Claude/Codex 通过生成的 `.agentuse/session-history.json` 文件读取共享对话，说明文件写明路径和本次任务；自定义 harness 在 stdin 的 `session_messages` 中获得同样的数据，用户原 input 保持不变。历史引用、附件内容和其他 agent 的回复都是有来源的对话数据，不提升为系统指令。
 
 执行中的工具临时输出可以留在本次进程内；需要交给其他 agent 的结论、文件和后续工作依据必须写回 session 消息或附件，不能依赖私有原生会话的隐藏记忆。
 
@@ -179,11 +179,9 @@ hello 增加 `session-runs-v1` 能力；有附件的执行另要求 `attachments
 {
   "type":"run",
   "run":{
-    "id":"sr_1","attempt_id":"ra_1","message_id":31,
-    "session_id":"ss_1","agent_id":"coder","harness":"claude","task_message_ids":[31],
-    "context_seq":12,
-    "session_messages":[{"id":20,"seq":11,"role":"assistant","agent_key":"reviewer","content":{"output":"…"}}],
-    "attachment_ids":["at_1"],"input":{"prompt":"…"}
+    "id":31,"run_id":"sr_1","attempt_id":"ra_1",
+    "session_id":"ss_1","agent_id":"coder","harness":"claude",
+    "context_seq":12,"task_message_ids":[31],"input":{"prompt":"…"}
   }
 }
 ```
@@ -196,7 +194,7 @@ hello 增加 `session-runs-v1` 能力；有附件的执行另要求 `attachments
 - 旧 attempt 不能提交结果或附件。daemon 收到 stale 错误就停掉对应进程，停止完才能再次 ready。
 - 服务重启不创建新的逻辑 run，租约到期才重派。重派是新的进程和当前 session 输入，工具副作用可能重复，不能保证外部操作恰好发生一次。
 
-给 harness 设置 `AGENTUSE_SESSION`、`AGENTUSE_MESSAGE_ID`、`AGENTUSE_RUN`、`AGENTUSE_ATTEMPT`，CLI 自动带执行身份调用 HTTP。读取 session 当前消息、附件列表和内容时，dk_ 还须带 run/attempt（请求头 `X-Agentuse-Run`、`X-Agentuse-Attempt`），服务验证该执行确实分配给这台 daemon 且未结束、租约有效。
+给 harness 设置 `AGENTUSE_AGENT`、`AGENTUSE_SESSION`、`AGENTUSE_MESSAGE_ID`、`AGENTUSE_RUN`、`AGENTUSE_ATTEMPT`，CLI 自动带执行身份调用 HTTP。读取 session 当前消息、附件列表和内容时，dk_ 还须带 run/attempt（请求头 `X-Agentuse-Run`、`X-Agentuse-Attempt`），服务验证该执行确实分配给这台 daemon 且未结束、租约有效。
 
 同一份 session 对所有获授权的执行可读；执行结束或取消后，不再允许用该 run 读取。产物上传也检查同一执行权。不能仅凭曾经在这个 session 干过活就永久获得读取权，不能借执行身份调用 session 管理接口。旧 message_id 鉴权格式只用于 legacy 执行。
 
@@ -220,9 +218,9 @@ hello 增加 `session-runs-v1` 能力；有附件的执行另要求 `attachments
 
 1. sessions 增加 mode（legacy / multi_agent）。已有会话及未传 mode 的旧创建请求保持 legacy；新网页和新版 SDK 显式创建 multi_agent。旧接口、原生续接、附件权限和 daemon 协议暂时保留，不能静默改变旧客户端行为。
 2. 增加 `POST /api/sessions/{id}/upgrade`，只允许空闲且没有未处理 steer/question 的会话升级。回填共享消息的 seq、作者和目标，把已有最终结果导入为终态 run，不重跑历史任务；原 agent/runtime 仅用来补历史 run 的快照。
-3. 升级后不再使用旧 harness_session_id，不把它迁移为按 agent 的续接状态。后续每次执行从共享 session 历史启动新原生会话；原消息、附件和各机器上已有的 session 工作目录保留。已经删除的 agent 只保留历史身份，下次需要选择当前存在的 agent。
+3. 升级后不再使用旧 harness_session_id，不把它迁移为按 agent 的续接状态。后续每次执行从共享 session 历史启动新原生会话；原消息、附件和各机器上已有的 session 工作目录保留。旧消息 id 不变；原来单独保存的已送达插话、问答答案补入共享消息并标出来源，历史提问和事件同时导入 run 明细。已经删除的 agent 只保留历史身份，下次需要选择当前存在的 agent。
 4. 旧 user_id、created_by 的 read/write/delete 权限写入 session_access，主归属改为原发起人，避免升级时丢失既有访问权。新建会话没有这种自动授权。
-5. work 必须整体空闲后一次性升级。原协调 agent 填入 coordinator_agent_id；若该 agent 已删除，先由主人选择有效 agent 再升级，不能凭空恢复。事务失败不得留下部分升级。
+5. work 必须整体空闲后一次性升级。原协调 agent 填入 coordinator_agent_id；若该 agent 已删除，先由主人通过工作设置或 PATCH works 的 coordinator_agent_id 选择有效 agent 再升级，不能凭空恢复。事务失败不得留下部分升级。
 
 切换 API 默认创建模式和移除旧 runtime 字段另行安排版本；本阶段只定义并存及显式升级。
 
@@ -238,7 +236,7 @@ CLI 增加 `agentuse session send <id> --agents coder,reviewer "…"`、`agentus
 
 ## 实现和验收
 
-先增加 mode、run、消息作者/目标/seq 和执行权限，再接多目标调度、新协议及共享 session 输入，最后更新附件、work、页面、CLI/SDK 和升级流程。所有改动先与 legacy 并存。
+mode、run、共享消息、目标投递、运行协议、附件/工作权限、网页、CLI、三个 SDK 及升级流程已落地，与 legacy 并存。服务端和 daemon 需一起升级，新 daemon 通过 `session-runs-v1` 声明支持。
 
 验收覆盖：
 

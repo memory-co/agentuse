@@ -39,16 +39,23 @@ var errOffline = errors.New("未连接")
 
 // send 发到当前连接。断线时进度直接丢掉，最终结果留到重连后补发。
 func (d *Daemon) send(m protocol.Message) error {
+	durable := m.Type == protocol.TypeEvent && (m.RunID != "" || m.Kind == "done" || m.Kind == "failed")
 	d.mu.Lock()
 	conn := d.conn
-	if conn == nil && m.Type == protocol.TypeEvent && (m.Kind == "done" || m.Kind == "failed") {
+	if conn == nil && durable {
 		d.outbox = append(d.outbox, m)
 	}
 	d.mu.Unlock()
 	if conn == nil {
 		return errOffline
 	}
-	return conn(m)
+	err := conn(m)
+	if err != nil && durable {
+		d.mu.Lock()
+		d.outbox = append(d.outbox, m)
+		d.mu.Unlock()
+	}
+	return err
 }
 
 func New(cfg Config, logger *log.Logger) (*Daemon, error) {
@@ -64,6 +71,24 @@ func New(cfg Config, logger *log.Logger) (*Daemon, error) {
 
 // Run 连上服务干活，断线自动退避重连，直到 ctx 结束。
 func (d *Daemon) Run(ctx context.Context) error {
+	defer func() {
+		d.mu.Lock()
+		active := make([]*runningMsg, 0, len(d.running))
+		for _, r := range d.running {
+			active = append(active, r)
+			r.cancel()
+		}
+		d.mu.Unlock()
+		deadline := time.NewTimer(5 * time.Second)
+		defer deadline.Stop()
+		for _, r := range active {
+			select {
+			case <-r.done:
+			case <-deadline.C:
+				return
+			}
+		}
+	}()
 	backoff := time.Second
 	for {
 		start := time.Now()
@@ -128,16 +153,24 @@ func (d *Daemon) session(ctx context.Context) error {
 
 	d.mu.Lock()
 	d.harnesses = detectHarnesses(d.cfg)
-	hello := protocol.Message{Type: protocol.TypeHello, Version: Version, Capabilities: []string{attachment.Capability}}
+	hello := protocol.Message{Type: protocol.TypeHello, Version: Version, Capabilities: []string{attachment.Capability, "session-runs-v1"}}
 	for _, a := range d.harnesses {
 		hello.Harnesses = append(hello.Harnesses, protocol.Harness{Name: a.Name, Version: a.Version})
 	}
 	sort.Slice(hello.Harnesses, func(i, j int) bool { return hello.Harnesses[i].Name < hello.Harnesses[j].Name })
-	for id := range d.running {
-		hello.Running = append(hello.Running, id)
+	for id, r := range d.running {
+		if r.dispatch.RunID != "" {
+			hello.ActiveRuns = append(hello.ActiveRuns, protocol.RunRef{RunID: r.dispatch.RunID, AttemptID: r.dispatch.AttemptID})
+		} else {
+			hello.Running = append(hello.Running, id)
+		}
 	}
 	for _, m := range d.outbox {
-		hello.Running = append(hello.Running, m.MessageID)
+		if m.RunID != "" {
+			hello.ActiveRuns = append(hello.ActiveRuns, protocol.RunRef{RunID: m.RunID, AttemptID: m.AttemptID})
+		} else {
+			hello.Running = append(hello.Running, m.MessageID)
+		}
 	}
 	d.mu.Unlock()
 	if err := send(hello); err != nil {
@@ -159,16 +192,16 @@ func (d *Daemon) session(ctx context.Context) error {
 				return
 			case <-t.C:
 				d.mu.Lock()
-				ids := make([]int64, 0, len(d.running))
-				for id := range d.running {
-					ids = append(ids, id)
+				beats := []protocol.Message{}
+				for id, r := range d.running {
+					beats = append(beats, protocol.Message{Type: protocol.TypeHeartbeat, MessageID: id, RunID: r.dispatch.RunID, AttemptID: r.dispatch.AttemptID})
 				}
 				d.mu.Unlock()
-				if len(ids) == 0 {
-					ids = []int64{0}
+				if len(beats) == 0 {
+					beats = append(beats, protocol.Message{Type: protocol.TypeHeartbeat})
 				}
-				for _, id := range ids {
-					_ = send(protocol.Message{Type: protocol.TypeHeartbeat, MessageID: id})
+				for _, beat := range beats {
+					_ = send(beat)
 				}
 			}
 		}
@@ -191,12 +224,24 @@ func (d *Daemon) session(ctx context.Context) error {
 			}
 			d.mu.Lock()
 			d.conn = send
+			valid := map[string]string{}
+			for _, ref := range m.ValidRuns {
+				valid[ref.RunID] = ref.AttemptID
+			}
+			for _, r := range d.running {
+				if r.dispatch.RunID != "" && valid[r.dispatch.RunID] != r.dispatch.AttemptID {
+					r.cancel()
+				}
+			}
 			outbox := d.outbox
 			d.outbox = nil
 			busy := len(d.running) > 0
 			d.mu.Unlock()
-			for _, m := range outbox {
+			for i, m := range outbox {
 				if err := send(m); err != nil {
+					d.mu.Lock()
+					d.outbox = append(outbox[i:], d.outbox...)
+					d.mu.Unlock()
 					return err
 				}
 			}
@@ -205,6 +250,19 @@ func (d *Daemon) session(ctx context.Context) error {
 					return err
 				}
 			}
+		case protocol.TypeRun:
+			if m.Run != nil {
+				m.Run.Resume = ""
+				d.startMessage(*m.Run)
+			}
+		case protocol.TypeCancel:
+			d.mu.Lock()
+			for _, r := range d.running {
+				if r.dispatch.RunID == m.RunID && r.dispatch.AttemptID == m.AttemptID {
+					r.cancel()
+				}
+			}
+			d.mu.Unlock()
 		case protocol.TypeMessage:
 			if m.Message != nil {
 				d.startMessage(*m.Message)
@@ -213,7 +271,7 @@ func (d *Daemon) session(ctx context.Context) error {
 			// 插话：交给正在跑这条消息的 harness;不在跑就忽略，服务会把它转成下一条消息
 			if m.Steer != nil {
 				d.mu.Lock()
-				if r := d.running[m.Steer.MessageID]; r != nil {
+				if r := d.running[m.Steer.MessageID]; r != nil && r.dispatch.RunID == m.Steer.RunID && r.dispatch.AttemptID == m.Steer.AttemptID {
 					r.in.steers.push(*m.Steer)
 				}
 				d.mu.Unlock()
@@ -224,7 +282,7 @@ func (d *Daemon) session(ctx context.Context) error {
 				d.mu.Lock()
 				r := d.running[m.Answer.MessageID]
 				d.mu.Unlock()
-				if r != nil {
+				if r != nil && r.dispatch.RunID == m.Answer.RunID && r.dispatch.AttemptID == m.Answer.AttemptID {
 					r.in.asks.answer(*m.Answer)
 				}
 			}
@@ -233,7 +291,7 @@ func (d *Daemon) session(ctx context.Context) error {
 				d.mu.Lock()
 				r := d.running[m.MessageID]
 				d.mu.Unlock()
-				if r != nil {
+				if r != nil && r.dispatch.RunID == m.RunID && r.dispatch.AttemptID == m.AttemptID {
 					d.log.Printf("消息 %d 已不归本机(%s),停止执行", m.MessageID, m.Error)
 					r.cancel()
 				}
@@ -245,8 +303,10 @@ func (d *Daemon) session(ctx context.Context) error {
 }
 
 type runningMsg struct {
-	cancel context.CancelFunc
-	in     *inbox
+	done     chan struct{}
+	dispatch protocol.Dispatch
+	cancel   context.CancelFunc
+	in       *inbox
 }
 
 // startMessage 在后台跑 harness 回一条消息，跑完回报结果并再说一次 ready。
@@ -262,10 +322,20 @@ func (d *Daemon) startMessage(m protocol.Dispatch) {
 	la.Env = append(workEnv(d.cfg.Server, m), "AGENTUSE_CONFIG="+cfgPath)
 	tctx, cancel := context.WithCancel(context.Background())
 	in := &inbox{steers: &steerQueue{}, asks: newAskBox(d.cfg.askTimeout())}
-	d.running[m.ID] = &runningMsg{cancel: cancel, in: in}
+	r := &runningMsg{cancel: cancel, in: in, dispatch: m, done: make(chan struct{})}
+	d.running[m.ID] = r
 	d.mu.Unlock()
-
+	var reportMu sync.Mutex
+	var eventSeq int64
+	report := func(kind string, p any) {
+		reportMu.Lock()
+		defer reportMu.Unlock()
+		eventSeq++
+		b, _ := json.Marshal(p)
+		_ = d.send(protocol.Message{Type: protocol.TypeEvent, MessageID: m.ID, RunID: m.RunID, AttemptID: m.AttemptID, EventSeq: eventSeq, Kind: kind, Payload: b})
+	}
 	go func() {
+		defer close(r.done)
 		defer func() {
 			d.mu.Lock()
 			delete(d.running, m.ID)
@@ -279,13 +349,17 @@ func (d *Daemon) startMessage(m protocol.Dispatch) {
 			res = Result{Error: "本机没有 harness " + m.Harness}
 		} else if dir, err := d.sessionDir(m); err != nil {
 			res = Result{Error: err.Error()}
+		} else if err := d.loadRunHistory(tctx, &m); err != nil {
+			res = Result{Error: "共享历史读取失败: " + err.Error()}
 		} else if err := d.syncAttachments(tctx, &m, dir); err != nil {
 			res = Result{Error: "附件同步失败: " + err.Error()}
+		} else if err := writeSessionHistory(m, dir); err != nil {
+			res = Result{Error: err.Error()}
 		} else {
-			res = runHarness(tctx, la, m, dir, in, func(kind string, p any) {
-				b, _ := json.Marshal(p)
-				_ = d.send(protocol.Message{Type: protocol.TypeEvent, MessageID: m.ID, Kind: kind, Payload: b})
-			})
+			if m.RunID != "" {
+				report("started", map[string]any{"task_message_ids": m.TaskMessageIDs, "context_seq": m.ContextSeq})
+			}
+			res = runHarness(tctx, la, m, dir, in, report)
 		}
 		if tctx.Err() != nil {
 			d.log.Printf("消息 %d 已取消", m.ID)
@@ -295,10 +369,7 @@ func (d *Daemon) startMessage(m protocol.Dispatch) {
 		if !res.OK {
 			kind = "failed"
 		}
-		b, _ := json.Marshal(res)
-		if err := d.send(protocol.Message{Type: protocol.TypeEvent, MessageID: m.ID, Kind: kind, Payload: b}); err != nil {
-			d.log.Printf("回报消息 %d 结果失败: %v", m.ID, err)
-		}
+		report(kind, res)
 		d.log.Printf("消息 %d 结束: %s", m.ID, kind)
 	}()
 }

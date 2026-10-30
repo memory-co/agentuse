@@ -71,6 +71,6 @@ daemon 被删后 `daemon_id` 变空，会话只能看、不能再发消息(harne
 
 会话的一组文件记在 [attachments](attachments.md) 表，通过 `session_id` 关联，不修改 sessions 表结构。附件上传、删除不改变会话状态或 `updated_at`。`defer_start` 允许创建没有消息的 `idle` 会话，以便先上传再开始；详见 [attachment 设计](../designs/attachment.md)。
 
-## 多 agent 会话方案（待实现）
+## 多 agent 会话方案
 
-计划由 session 统一保存共享消息、附件和归属，session_runs 记录每次执行的 agent、运行时、调度和租约；每次执行读取同一 session 的当前内容，不保留按 agent 的原生续接状态。字段分工、旧会话升级及目录兼容见 [session-mentions](../designs/session-mentions.md)。
+由 session 统一保存共享消息、附件和归属，session_runs 记录每次执行的 agent、运行时、调度和租约；每次执行读取同一 session 的当前内容，不保留按 agent 的原生续接状态。字段分工、旧会话升级及目录兼容见 [session-mentions](../designs/session-mentions.md)。

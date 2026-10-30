@@ -144,6 +144,25 @@
 
 删除会话或整个工作时，附件元数据级联删除，二进制异步回收。下载到 daemon 的副本不做远程擦除。
 
-## 多 agent 会话方案（待实现）
+## 多 agent 会话方案
 
-新方案通过 `mode: "multi_agent"` 创建不绑定单个 agent 的会话，每条消息用 `target_agent_ids` 指定一个或多个目标。同一消息对空闲 agent 创建 run、对忙碌 agent 作为插话，统一通过 messages 接口提交。共享 session 内容、run、提问路由及旧接口兼容见 [Session 中 @ 多个 agent](../designs/session-mentions.md)。本文件上面的接口仍是当前 legacy 行为。
+新方案通过 `mode: "multi_agent"` 创建不绑定单个 agent 的会话，每条消息用 `target_agent_ids` 指定一个或多个目标。同一消息对空闲 agent 创建 run、对忙碌 agent 作为插话，统一通过 messages 接口提交。共享 session 内容、run、提问路由及旧接口兼容见 [Session 中 @ 多个 agent](../designs/session-mentions.md)。本文件上面的单 agent 接口是 legacy 行为，新模式见下方及设计文档。
+
+### multi_agent 请求与响应
+
+创建空会话：`POST /api/sessions` 发送 `{"mode":"multi_agent","title":"评审"}`，201 返回 session；也可同时带 prompt/input、target_agent_ids 原子创建首条消息。新模式不使用 agent_id 绑定。未传 mode 的旧请求按 legacy 处理。
+
+```json
+{"prompt":"分别看看实现与风险","target_agent_ids":["coder","reviewer"]}
+```
+
+将上面请求发到 `POST /api/sessions/{id}/messages`，201 返回 `{message, runs, deliveries}`。每个空闲目标新建 run；pending/running/waiting 目标关联为插话。runs 只包含对应的新建执行，deliveries 表示各目标当前的 run、kind（new_run/steer）、status 和 error；后续未送达插话可能改挂后续 run，应以 GET 详情里的 deliveries 跟踪。目标省略/空数组只保存笔记，不隐式调用上一个 agent。发送可带 Idempotency-Key；相同用户、session、key 和相同请求内容不重复派活，内容不同返回 409。
+
+`GET /api/sessions/{id}` 增加 runs、deliveries、run_counts；消息增加 seq、agent_key、agent_name、run_id、target_agent_ids。seq 复用 message id，按递增顺序排列。session 不返回有效的单一 agent/runtime/resume 绑定。
+
+- `GET /api/sessions/{id}/runs/{run_id}`：返回 `{run, events}`。
+- `POST /api/sessions/{id}/runs/{run_id}/cancel`：取消当前执行和未送达补充，返回 run；重复取消幂等，已成功/失败返回 409。
+- `POST /api/sessions/{id}/runs/{run_id}/questions/{qid}/answer`：按 run 回答提问，响应为 question，202。
+- `POST /api/sessions/{id}/upgrade`：空闲 legacy 会话显式升级，工作内会话整组升级；未结束任务、插话或问题返回 409。旧消息、文件、插话/问答、访问权限保留，原生 resume 不再使用。
+
+没有单独的 steers 写接口。更多状态、回退、重派规则见 [设计](../designs/session-mentions.md)。

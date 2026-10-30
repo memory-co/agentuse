@@ -1,5 +1,7 @@
 # agentuse v2 总体设计
 
+> 网页新建会话已使用 [多 agent 共享 session](session-mentions.md)。下文单 agent 绑定/续接流程描述兼容的 legacy 模式。
+>
 > v1 文档见 [`docs/v1/`](../../v1/README.md),v2 从这里重新开始。
 
 ## 一句话
@@ -79,6 +81,6 @@ agentuse 也能像 Redis 一样当中间件嵌进别的网站：网站后端带�
 
 session 下增加 attachment：用户上传输入文件，daemon 下载到会话目录交给 harness，harness 用 agentuse 客户端上传产物，用户从会话下载。文件内容走 HTTP，元数据存 SQLite；完整设计见 [attachment](attachment.md)，接口见 [attachments](../apis/attachments.md)，表见 [attachments](../tables/attachments.md)。
 
-## Session 中 @ 多个 agent（待实现）
+## Session 中 @ 多个 agent
 
 会话保存所有 agent 共用的消息和附件，每条消息可 @ 多个 agent；run 记录本次执行者、运行时、租约和结果，每次执行读取同一 session 的当前内容，不保存按 agent 的上下文。方案、权限与兼容迁移见 [session-mentions](session-mentions.md)。

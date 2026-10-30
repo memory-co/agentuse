@@ -12,21 +12,23 @@ import (
 
 // Work 是一个工作：协调者会话 + 若干线程会话 + 一份共用说明，见 docs/v2/designs/work.md。
 type Work struct {
-	ID            string `json:"id"`
-	UserID        string `json:"user_id"`
-	Name          string `json:"name"`
-	Instructions  string `json:"instructions"`
-	CoordinatorID string `json:"coordinator_id"`
-	ThreadCount   int    `json:"thread_count"`
-	CreatedAt     int64  `json:"created_at"`
+	CoordinatorAgentID string `json:"coordinator_agent_id,omitempty"`
+	ID                 string `json:"id"`
+	UserID             string `json:"user_id"`
+	Name               string `json:"name"`
+	Instructions       string `json:"instructions"`
+	CoordinatorID      string `json:"coordinator_id"`
+	ThreadCount        int    `json:"thread_count"`
+	CreatedAt          int64  `json:"created_at"`
 	// UpdatedAt 取工作本身和里面会话最近一次变化里晚的那个。
 	UpdatedAt int64 `json:"updated_at"`
 }
 
 // WorkPatch 是修改工作时要改的字段，nil 表示不改。
 type WorkPatch struct {
-	Name         *string
-	Instructions *string
+	CoordinatorAgentID *string
+	Name               *string
+	Instructions       *string
 }
 
 func cleanWorkName(name string) (string, error) {
@@ -44,11 +46,11 @@ const workCols = `SELECT w.id, w.user_id, w.name, w.instructions, w.coordinator_
   (SELECT COUNT(*) FROM sessions s WHERE s.work_id = w.id AND s.id != w.coordinator_id),
   w.created_at,
   MAX(w.updated_at, COALESCE((SELECT MAX(s.updated_at) FROM sessions s WHERE s.work_id = w.id), 0)) AS last
-  FROM works w`
+   , COALESCE(w.coordinator_agent_id,'') FROM works w`
 
 func scanWork(row scanner) (Work, error) {
 	var w Work
-	err := row.Scan(&w.ID, &w.UserID, &w.Name, &w.Instructions, &w.CoordinatorID, &w.ThreadCount, &w.CreatedAt, &w.UpdatedAt)
+	err := row.Scan(&w.ID, &w.UserID, &w.Name, &w.Instructions, &w.CoordinatorID, &w.ThreadCount, &w.CreatedAt, &w.UpdatedAt, &w.CoordinatorAgentID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Work{}, ErrNotFound
 	}
@@ -143,6 +145,26 @@ func (s *Store) UpdateWork(ctx context.Context, u User, id string, p WorkPatch) 
 		return Work{}, err
 	}
 	now := s.unix()
+	if p.CoordinatorAgentID != nil {
+		coord, e := s.getSession(ctx, tx, u, w.CoordinatorID)
+		if e != nil {
+			return w, e
+		}
+		if coord.Status != "idle" && coord.Status != "resolved" {
+			return w, ErrSessionBusy
+		}
+		a, e := scanAgent(tx.QueryRowContext(ctx, agentCols+` WHERE id=? AND user_id=?`, *p.CoordinatorAgentID, w.UserID))
+		if e != nil {
+			return w, e
+		}
+		if e = runRuntime(ctx, tx, a); e != nil {
+			return w, e
+		}
+		if _, e = tx.ExecContext(ctx, `UPDATE works SET coordinator_agent_id=? WHERE id=?`, a.ID, w.ID); e != nil {
+			return w, e
+		}
+		w.CoordinatorAgentID = a.ID
+	}
 	if p.Name != nil {
 		name, err := cleanWorkName(*p.Name)
 		if err != nil {
@@ -177,7 +199,7 @@ func (s *Store) DeleteWork(ctx context.Context, u User, id string) error {
 	}
 	var busy int
 	if err := tx.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM sessions WHERE work_id = ? AND status IN ('running', 'waiting')`, w.ID).Scan(&busy); err != nil {
+		`SELECT COUNT(*) FROM sessions WHERE work_id = ? AND (status IN ('running', 'waiting') OR (mode='multi_agent' AND status='pending'))`, w.ID).Scan(&busy); err != nil {
 		return err
 	}
 	if busy > 0 {
@@ -270,6 +292,22 @@ func (s *Store) notifyCoordinator(ctx context.Context, tx *sql.Tx, sessionID str
 		body = string(rs[:maxNoteRunes]) + "…"
 	}
 	prompt := fmt.Sprintf("[线程 %s「%s」回复了]\n%s", thread.ID, thread.Title, body)
+	if coord.Mode == MultiAgent {
+		var agent string
+		_ = tx.QueryRowContext(ctx, `SELECT COALESCE(coordinator_agent_id,'') FROM works WHERE id=?`, thread.WorkID).Scan(&agent)
+		b, _ := json.Marshal(map[string]string{"prompt": prompt, "from_session": thread.ID})
+		if a, e := s.runAgent(ctx, tx, User{ID: owner}, coord, agent); e == nil && runRuntime(ctx, tx, a) == nil {
+			if _, e = s.sendMultiTx(ctx, tx, User{ID: owner}, coord, b, []string{agent}, "", true); e != nil {
+				return nil, e
+			}
+		} else {
+			if _, e = insertMessage(ctx, tx, coord.ID, RoleUserMsg, b, now); e != nil {
+				return nil, e
+			}
+		}
+		fresh, e := s.getSession(ctx, tx, User{Role: RoleAdmin}, coord.ID)
+		return &CoordinatorNote{Session: fresh}, e
+	}
 	note := &CoordinatorNote{Session: coord}
 	switch coord.Status {
 	case SessionIdle, SessionResolved:
@@ -310,7 +348,7 @@ func (s *Store) WorkByToken(ctx context.Context, token string) (Work, User, erro
 		  AND t.message_id = (SELECT MAX(m.id) FROM messages m WHERE m.session_id = s.id AND m.role = 'user')`,
 		HashSecret(token)).Scan(&workID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Work{}, User{}, ErrNotFound
+		return s.runWorkToken(ctx, token)
 	}
 	if err != nil {
 		return Work{}, User{}, err

@@ -61,3 +61,17 @@ _, err = io.Copy(destination, r)
 ```
 
 `ListAttachments(ctx, user, sessionID, limit, cursor)` 返回 `AttachmentPage`，用 `NextCursor` 继续取下一页；limit 为 0 时使用服务端默认值。另有 `GetAttachment`、`DeleteAttachment`。上传流由调用者关闭，下载流必须消费或关闭。下载响应头在 `Header` 中。
+
+## 多 agent
+
+```go
+ss, err := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Mode: "multi_agent"})
+if err != nil { return err }
+reply, err := c.SendMessage(ctx, user, ss.Session.ID, agentuse.MessageRequest{
+    Prompt: "分别看看实现与风险", TargetAgentIDs: []string{"coder", "reviewer"}, IdempotencyKey: "turn-1",
+})
+if err != nil { return err }
+detail, err := c.WaitMessageRuns(ctx, user, ss.Session.ID, reply.Message.ID, time.Second)
+```
+
+Reply.Runs 与 Reply.Deliveries 对应各目标的新执行/插话。另有 GetRun、WaitRun、CancelRun、AnswerRunQuestion、UpgradeSession。新模式 WaitSession 默认等全部执行终态，可传 WaitOptions{ReturnOnWaiting:true}；旧模式仍在提问时返回。

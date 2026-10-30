@@ -220,3 +220,30 @@ func TestRunUnauthorized(t *testing.T) {
 		t.Fatalf("want errUnauthorized, got %v", err)
 	}
 }
+
+func TestRunShutdownStopsHarness(t *testing.T) {
+	f := newFakeServer(t)
+	slow := fakeBin(t, t.TempDir(), "slow", `read in; echo '{"type":"progress"}'; exec sleep 30`)
+	t.Setenv("HOME", t.TempDir())
+	d, _ := New(Config{Server: f.URL, Key: "dk_ok", Harnesses: map[string]HarnessConfig{"slow": {Command: slow}, "claude": {Disabled: true}, "codex": {Disabled: true}}}, log.New(io.Discard, "", 0))
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- d.Run(ctx) }()
+	f.next(t, protocol.TypeHello)
+	f.send <- protocol.Message{Type: protocol.TypeWelcome}
+	f.next(t, protocol.TypeReady)
+	f.send <- protocol.Message{Type: protocol.TypeMessage, Message: &protocol.Dispatch{ID: 30, SessionID: "ss_1", Harness: "slow", Input: json.RawMessage(`{}`)}}
+	f.next(t, protocol.TypeEvent)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(6 * time.Second):
+		t.Fatal("shutdown did not stop harness")
+	}
+	d.mu.Lock()
+	count := len(d.running)
+	d.mu.Unlock()
+	if count != 0 {
+		t.Fatal("harness remained running", count)
+	}
+}
