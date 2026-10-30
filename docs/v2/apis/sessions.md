@@ -143,3 +143,7 @@
 为支持先上传输入文件，`POST /api/sessions` 增加可选 `defer_start: true`：不传 prompt/input，返回 `{"session": …}`（201），初始状态 `idle`，没有 message，也不派活。随后上传附件，再用 messages 接口发第一条消息。未指定该选项时行为保持不变。细则见 [attachment 设计](../designs/attachment.md#先建空会话)。
 
 删除会话或整个工作时，附件元数据级联删除，二进制异步回收。下载到 daemon 的副本不做远程擦除。
+
+## 多 agent 会话方案（待实现）
+
+新方案通过 `mode: "multi_agent"` 创建不绑定单个 agent 的会话，每条消息用 `target_agent_ids` 指定一个或多个目标。参与者、run、插话/提问路由及旧接口兼容见 [Session 中 @ 多个 agent](../designs/session-mentions.md)。本文件上面的接口仍是当前 legacy 行为。

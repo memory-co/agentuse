@@ -78,3 +78,7 @@ agentuse 也能像 Redis 一样当中间件嵌进别的网站：网站后端带�
 ## 会话附件
 
 session 下增加 attachment：用户上传输入文件，daemon 下载到会话目录交给 harness，harness 用 agentuse 客户端上传产物，用户从会话下载。文件内容走 HTTP，元数据存 SQLite；完整设计见 [attachment](attachment.md)，接口见 [attachments](../apis/attachments.md)，表见 [attachments](../tables/attachments.md)。
+
+## Session 中 @ 多个 agent（待实现）
+
+会话作为共享对话，每条消息可 @ 多个 agent；运行时和原生续接状态移到 participant，执行、租约和结果移到 run。方案、权限与兼容迁移见 [session-mentions](session-mentions.md)。
