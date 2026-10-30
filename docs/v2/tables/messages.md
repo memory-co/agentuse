@@ -28,4 +28,4 @@ daemon 每次领到的是会话里最后一条 `user` 消息;回报 `done` / `fa
 
 ## 多 agent 会话方案（待实现）
 
-[session-mentions](../designs/session-mentions.md) 中，一条 user 消息可对应多个目标 run；assistant 消息记录 participant_id、run_id 和触发消息，消息按 session 内 seq 排序。当前表和“最后一条 user 消息”派活规则只用于 legacy 模式。
+[session-mentions](../designs/session-mentions.md) 中，一条 user 消息可对应多个目标 run；assistant 消息记录 agent 身份快照、run_id 和触发消息，消息按 session 内 seq 排序。当前表和“最后一条 user 消息”派活规则只用于 legacy 模式。

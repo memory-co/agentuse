@@ -73,4 +73,4 @@ daemon 被删后 `daemon_id` 变空，会话只能看、不能再发消息(harne
 
 ## 多 agent 会话方案（待实现）
 
-计划将 agent/runtime/resume 从 session 拆到 session_participants，调度和租约拆到 session_runs，session 保留共享消息、附件和归属。字段分工、上下文、旧会话升级及目录兼容见 [session-mentions](../designs/session-mentions.md)。
+计划由 session 统一保存共享消息、附件和归属，session_runs 记录每次执行的 agent、运行时、调度和租约；每次执行读取同一 session 的当前内容，不保留按 agent 的原生续接状态。字段分工、旧会话升级及目录兼容见 [session-mentions](../designs/session-mentions.md)。

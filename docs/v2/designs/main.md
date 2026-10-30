@@ -81,4 +81,4 @@ session 下增加 attachment：用户上传输入文件，daemon 下载到会话
 
 ## Session 中 @ 多个 agent（待实现）
 
-会话作为共享对话，每条消息可 @ 多个 agent；运行时和原生续接状态移到 participant，执行、租约和结果移到 run。方案、权限与兼容迁移见 [session-mentions](session-mentions.md)。
+会话保存所有 agent 共用的消息和附件，每条消息可 @ 多个 agent；run 记录本次执行者、运行时、租约和结果，每次执行读取同一 session 的当前内容，不保存按 agent 的上下文。方案、权限与兼容迁移见 [session-mentions](session-mentions.md)。

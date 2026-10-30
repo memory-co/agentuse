@@ -146,4 +146,4 @@
 
 ## 多 agent 会话方案（待实现）
 
-新方案通过 `mode: "multi_agent"` 创建不绑定单个 agent 的会话，每条消息用 `target_agent_ids` 指定一个或多个目标。参与者、run、插话/提问路由及旧接口兼容见 [Session 中 @ 多个 agent](../designs/session-mentions.md)。本文件上面的接口仍是当前 legacy 行为。
+新方案通过 `mode: "multi_agent"` 创建不绑定单个 agent 的会话，每条消息用 `target_agent_ids` 指定一个或多个目标。共享 session 内容、run、插话/提问路由及旧接口兼容见 [Session 中 @ 多个 agent](../designs/session-mentions.md)。本文件上面的接口仍是当前 legacy 行为。

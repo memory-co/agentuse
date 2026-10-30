@@ -40,4 +40,4 @@ CREATE UNIQUE INDEX agents_user_name ON agents(user_id, name);
 
 ## 多 agent 会话方案（待实现）
 
-[session-mentions](../designs/session-mentions.md) 计划让 agent 作为 participant 加入共享 session，由每条消息的 @ 目标决定是否执行。agent 仍绑定自身运行时，session 不再绑定唯一 agent；已有运行时快照和续接状态由 participant 保管。
+[session-mentions](../designs/session-mentions.md) 由每条消息的 @ 目标直接选择 agent，不建立 session-agent 参与关系。agent 仍配置自身运行时，每次 run 保存当时的运行时快照；所有 agent 执行时读取同一个 session 的消息和附件。
