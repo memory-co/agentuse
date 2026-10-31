@@ -25,7 +25,7 @@ Server 分为三层：
 | [agentService](agent.md) | Agent 的名称、说明、归属，以及选择哪台 device、哪种 harness 执行 | `agents` |
 | [harnessService](harness.md) | 用统一 YAML config 描述不同 harness，使 client 能把任务转为认识的执行方式 | `harnesses` 和 harness YAML 配置 |
 | [sessionService](session.md) | 清晰、持续的对话：创建会话、保存消息、读取共享历史；调用 runService 分配任务，接收结果事件并保存回复 | `sessions`、`messages` |
-| [runService](run.md) | 建立任务、关联任务消息、派发与领取、跟踪执行、插话、提问、取消和执行恢复 | `runs`、`run_prompt`、`run_events`、`run_questions` |
+| [runService](run.md) | 建立任务、关联任务消息、派发与领取、跟踪执行、插话、提问、取消和执行恢复 | `runs`、`run_prompts`、`run_events`、`run_questions` |
 | [attachmentService](attachment.md) | 会话附件的上传、下载、访问权限、配额、元数据和文件生命周期 | `attachments` 与附件正文 |
 | [workService](work.md) | 把多个 session 组织成一项工作，管理协调 agent、线程关系和结果汇总 | `works`、`work_run_tokens`、`run_notifications` |
 
@@ -86,7 +86,7 @@ Work 是多个 session 的组织方式。workService 维护协调 session、工�
 | session → messages：1:N | 一段会话保存多条共享消息 |
 | session → runs：1:N | 一段会话可以先后或同时存在多个执行任务 |
 | message ↔ run：N:M | 一条消息可以交给多个 agent 的 run；一个 run 也可以处理多条任务消息 |
-| message → run_prompt → run | `run_prompt` 为每个目标 run 保存一份消息副本，连接消息和执行 |
+| message → run_prompts → run | `run_prompts` 为每个目标 run 保存一份消息副本，连接消息和执行 |
 
 这个 N:M 指的是**任务输入关系**。Run 的最终结果可以成为一条 assistant message，但对话关系始终是 message 回复 message：messages.reply_to_message_id 指向被回复的消息，不保存 run_id。一条用户消息触发多个 run，各个 agent 产生的回复都可以指回同一条原始消息。执行层内部通过 runs.result_message_id 追踪结果。
 
@@ -104,7 +104,7 @@ Session S
 
 这里 M1 对应 R1、R2；R1 同时处理 M1、M2。Session 不绑定某个 agent，每条消息的目标决定任务分配。
 
-`runs.message_id` 即使保留，也只表示主任务，不能拿它表达完整 N:M；完整输入关系由 run_prompt 承载。没有目标的消息可以只进入对话，不创建 run。
+`runs.message_id` 即使保留，也只表示主任务，不能拿它表达完整 N:M；完整输入关系由 run_prompts 承载。没有目标的消息可以只进入对话，不创建 run。
 
 Run 是一次业务执行任务。设备故障导致重试时，用 attempt 区分同一个 run 的不同执行尝试；尚未消费的补充任务转入后续执行时，可以建立新的 run。具体恢复规则不在本篇展开。
 
@@ -127,8 +127,8 @@ Run 是一次业务执行任务。设备故障导致重试时，用 attempt 区�
 ## 五、用户消息进来以后
 
 1. **controller 接收。** 校验身份，解析消息、session 和目标 agent，交给 sessionService。
-2. **sessionService 保存对话。** 检查会话权限，保存一条 user message；共享 messages 只保存一条，各目标 run 分别写 run_prompt 副本。
-3. **runService 建立分配。** 对每个目标 agent，创建 run 或把消息加入已有活跃 run，写入当前 run 的消息副本 run_prompt；读取 agent/device/harness 的执行配置。
+2. **sessionService 保存对话。** 检查会话权限，保存一条 user message；共享 messages 只保存一条，各目标 run 分别写 run_prompts 副本。
+3. **runService 建立分配。** 对每个目标 agent，创建 run 或把消息加入已有活跃 run，写入当前 run 的消息副本 run_prompts；读取 agent/device/harness 的执行配置。
 4. **统一提交。** 消息和任务分配一并成功或失败。提交后通知在线 device 有任务或插话，HTTP 返回保存结果。
 5. **client 领取并执行。** runService 确定当前执行身份；client 读取共享消息、附件和 YAML 配置，转换为本机命令或协议调用。
 6. **上报与呈现。** client 上报进度、问题和结果；runService 更新执行记录并发出结果事件，sessionService 消费后追加最终回复；workService 按需汇总线程结果。

@@ -4,18 +4,18 @@
 
 ## 职责
 
-sessionService 管理 session、message 和共享历史，并编排消息分配。一个 session 包含若干 message 和若干 run；message 与 run 的任务输入关系是 **N:M**，由 runService 的 run_prompt 连接。
+sessionService 管理 session、message 和共享历史，并编排消息分配。一个 session 包含若干 message 和若干 run；message 与 run 的任务输入关系是 **N:M**，由 runService 的 run_prompts 连接。
 
 - 创建/读取/删除会话，维护标题、归属和共享历史。
-- 接收消息，调用 runService 为目标 agent 分配任务；对话原文只保存一次，每个目标 run 另存一份 run_prompt。
+- 接收消息，调用 runService 为目标 agent 分配任务；对话原文只保存一次，每个目标 run 另存一份 run_prompts。
 - 消费执行结果事件，把最终回复写为 assistant message，并记录作者和被回复的 message。
-- 读取会话时组合对话、run、run_prompt、事件和问题的统一快照。
+- 读取会话时组合对话、run、run_prompts、事件和问题的统一快照。
 
 ![Session、消息、投递与执行的关系](../../images/session-run.svg)
 
 ## 发送和回复
 
-发送链路是 `controller → sessionService → runService`：先检查权限与请求幂等，在一个事务中写一条 message 和全部目标 run 的 run_prompt，最后提交并通知设备。任一目标失败则整体回滚。空目标允许只保存一条备注。
+发送链路是 `controller → sessionService → runService`：先检查权限与请求幂等，在一个事务中写一条 message 和全部目标 run 的 run_prompts，最后提交并通知设备。任一目标失败则整体回滚。空目标允许只保存一条备注。
 
 ```text
 M1 @coder @reviewer → P1 / R1，P2 / R2
@@ -80,7 +80,7 @@ M1：@coder @reviewer 修复并评审
   └─ M4：用户追问，reply_to_message_id=M1 或选中的具体回复
 ```
 
-一个 run 消费多条输入时，最终回复默认指向其主任务 message；补充输入仍通过 run_prompt 记录。service 检查父消息已存在、属于同一 session，避免跨会话引用和循环回复。
+一个 run 消费多条输入时，最终回复默认指向其主任务 message；补充输入仍通过 run_prompts 记录。service 检查父消息已存在、属于同一 session，避免跨会话引用和循环回复。
 
 执行结果的内部关联留在 runs.result_message_id，允许 runService 追踪及去重，但不会出现在 messages 的字段或回复语义中。sessionService 在同一事务调用 runService 检查结果是否已绑定，未绑定才新增回复并绑定；重复结果直接返回已有回复。取消可以没有回复。
 
@@ -110,7 +110,7 @@ CREATE UNIQUE INDEX messages_request ON messages(session_id,user_id,request_key)
 
 | 原表 | v3 处理 |
 |---|---|
-| message_formats | 不再建表，格式直接保存在 messages.format；执行副本复制到 run_prompt.format |
+| message_formats | 不再建表，格式直接保存在 messages.format；执行副本复制到 run_prompts.format |
 | message_authors | 不再建表，回复作者直接保存在 messages.agent_key/name；回复关系使用 reply_to_message_id，执行关联留在 runs |
 | session_requests | 不再建表；保留发送幂等需求，用 messages 的 user_id、request_key、request_digest 和唯一索引实现 |
 
