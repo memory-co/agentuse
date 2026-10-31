@@ -42,7 +42,7 @@ Session 状态是 run 的聚合投影，优先 waiting、running、pending，再
 
 ### sessions
 
-共享会话主表。`user_id` 是资源所有者，`created_by` 是创建者；可归属一个 work，不绑定 agent。mode 暂保留 multi_agent 约束。状态是聚合投影，不替代 run 明细。
+共享会话主表。`user_id` 是资源所有者，`created_by` 是创建者；可归属一个 work，不绑定 agent。所有 session 都支持多 agent，不设 mode 字段。状态是聚合投影，不替代 run 明细。
 
 ```sql
 CREATE TABLE sessions (
@@ -52,7 +52,6 @@ CREATE TABLE sessions (
     work_id TEXT REFERENCES works(id),
     title TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'idle',
-    mode TEXT NOT NULL DEFAULT 'multi_agent' CHECK(mode='multi_agent'),
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
