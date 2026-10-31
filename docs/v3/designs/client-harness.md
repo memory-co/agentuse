@@ -1,6 +1,6 @@
 # Client harnessService：本地探测、执行与交互
 
-> v3 目标设计。harnessService 属于 client；YAML、hook、桥接程序、skill、指令文件及原生协议状态都留在设备上。Server 的职责到 run 调度和标准业务状态为止，详见 [Server 总览](server-main.md)。
+> v3 目标设计。harnessService 属于 client；YAML、hook、桥接程序、skill、指令文件及原生协议状态都留在设备上。Server 的职责到 run 调度和标准业务状态为止，client 整体装配见 [client-main.md](client-main.md)，服务端见 [Server 总览](server-main.md)。
 
 ## 一、职责边界
 
