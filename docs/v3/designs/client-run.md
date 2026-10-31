@@ -93,7 +93,7 @@ run.json 是该执行记录的持久化事实。状态、耗时和计量由 runS
 
 ## 目录清理与恢复
 
-runService 在启动、执行前后和配置的周期检查中，按 settingService 的策略触发 sessionService 清理空闲受管工作目录；不直接递归删除任意路径。同一 conversation 任一 run 仍占用的共享目录都不能成为候选，不能因当前 session 空闲就删除其他 session 正在使用的文件。
+声明 quota 后，runService 在启动、执行前后和内置周期检查中自动触发 sessionService 清理空闲受管工作目录；不直接递归删除任意路径。同一 conversation 任一 run 仍占用的共享目录都不能成为候选，不能因当前 session 空闲就删除其他 session 正在使用的文件。
 
 创建 run.json、绑定 session、更新同步位置涉及多个文件，没有跨文件数据库事务。进程中串行管理，崩溃后读取状态文件并与 server/原生状态核对；无法确认的任务标中断，不因一个旧 running 字段自行重跑。
 

@@ -37,7 +37,7 @@ endpointService 不创建中心连接，不领取任务，不管理槽位，也�
 
 settingService 读取 setting.yaml，管理本机 HTTP 端口、执行总容量、sessionService 使用的统一临时工作根目录，以及容量限制和自动清理策略。它提供校验后的配置，不领任务、不直接删目录。
 
-配置容量超限时，由 runService 触发 sessionService 回收空闲受管工作目录；正在执行或等待答案的目录受保护。根目录容量属于清理/准入策略，不是会强杀进程的硬配额。
+配置容量超限时，由 runService 触发 sessionService 回收空闲受管工作目录；正在执行或等待答案的目录受保护。声明 quota 即启用自动清理，不额外配置 cleanup。根目录容量属于清理/准入策略，不是会强杀进程的硬配额。
 
 ### 2.3 sessionService：原生执行上下文
 
@@ -141,7 +141,7 @@ tmp 是默认父目录，可通过 setting.yaml 的 session.work_root 配置。s
 
 ## 七、目录容量与清理
 
-settingService 提供 session 的默认父目录及统一容量策略；sessionService 按 conversation 回收带受管标记的空闲共享目录，每个目录只计量一次，按其所有 session 的最近使用时间清理。任一关联 session 正在运行、等待问题或已被任务锁定时，整个目录不能删。
+settingService 提供 session 的默认父目录及统一容量策略；sessionService 按 conversation 回收带受管标记的空闲共享目录，每个目录只计量一次，按其所有 session 的最近使用时间清理至不超过 quota。任一关联 session 正在运行、等待问题或已被任务锁定时，整个目录不能删。
 
 目录回收不删除 session.yaml、run.json、server 文件或原生工具的全局历史。对应 session 记录目录缺失，后续不得直接恢复旧工作区；有任务时从共享历史和文件重建新会话。没有可清理空间时暂停新启动，不强杀在用任务。
 

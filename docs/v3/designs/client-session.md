@@ -39,7 +39,7 @@ Session 对应原生历史，不等于操作系统进程。一次 Claude print �
 - 在 run 结束后保留 session，供后续领来的 run 继续使用。
 - 处理 session 恢复、失效、关闭及本地历史查询。
 
-settingService 提供端口、目录和清理配置；endpointService 只管已注册 server 的信息；client runService 管连接、领取、本机容量和 run/attempt 生命周期；sessionService 管跨 run 的原生上下文；harnessService 管创建、恢复、输入和原生交互的具体实现。
+settingService 提供端口、目录和 quota 配置；endpointService 只管已注册 server 的信息；client runService 管连接、领取、本机容量和 run/attempt 生命周期；sessionService 管跨 run 的原生上下文；harnessService 管创建、恢复、输入和原生交互的具体实现。
 
 ## 三、收到 Run 后怎样选 Session
 

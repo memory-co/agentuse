@@ -18,7 +18,7 @@
     <rect x="535" y="225" width="430" height="135" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
     <text x="555" y="259" font-size="23">settingService</text>
     <text x="555" y="292" font-size="17">本机端口、执行并发、session 默认父目录</text>
-    <text x="555" y="319" font-size="17">容量开关、字节上限、清理周期与目标</text>
+    <text x="555" y="319" font-size="17">声明 quota 即自动清理，无独立清理配置</text>
     <rect x="1035" y="225" width="420" height="135" rx="14" fill="#fff7ed" stroke="#94a3b8"/>
     <text x="1055" y="259" font-size="23">Server（多个 endpoint）</text>
     <text x="1055" y="292" font-size="17">conversation / run / fileService</text>

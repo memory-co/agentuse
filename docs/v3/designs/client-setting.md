@@ -22,11 +22,7 @@ execution:
 session:
   work_root: ~/.agentuse/tmp
   quota:
-    enabled: true
     max_bytes: 21474836480 # 20 GiB，所有受管 conversation 工作目录合计
-  cleanup:
-    interval: 5m
-    target_ratio: 0.8
 ```
 
 | 设置 | 含义 |
@@ -34,12 +30,9 @@ session:
 | local_http | 本机只读页面的开关、监听地址和端口；仅允许回环地址 |
 | execution.max_running_runs | 所有 endpoint 共用的执行上限，不是各 server 分别计算 |
 | session.work_root | sessionService 为新 conversation 分配工作目录的默认根目录，不按 harness 划分 |
-| session.quota.enabled | 是否启用所有已登记受管工作目录的统一容量限制与自动清理 |
 | session.quota.max_bytes | 所有受管 conversation 工作目录的总容量上限，正整数字节数 |
-| session.cleanup.interval | 周期检查间隔；启动、执行前后也可触发检查 |
-| session.cleanup.target_ratio | 超限清理目标占比，必须大于 0 且小于 1，避免刚清完又立刻触发 |
 
-默认本机端口 7801、总并发 1；默认工作根目录为 `~/.agentuse/tmp`。未配置 quota 时默认关闭容量限制，不触发容量回收；示例显式开启。所有 harness 共用这一目录分配规则。
+默认本机端口 7801、总并发 1；默认工作根目录为 `~/.agentuse/tmp`。声明 session.quota 就启用容量限制与自动清理，不再配置 enabled 或 cleanup。省略 quota 表示不限容量、不因容量回收；声明时 max_bytes 必须为正整数。所有 harness 共用这一目录分配规则。
 
 缺少配置文件时首次生成默认文件再使用，不另存隐藏配置表。端口须合法、执行容量须正数，路径扩展 `~` 后规范化；非法配置在启动时明确报错。运行时修改无效则拒绝应用，保留当前有效内存快照并报告错误，不能静默写回另一份“权威配置”。
 
@@ -65,9 +58,9 @@ setting.yaml 的 session.work_root 是分配新 conversation 目录的默认父�
 
 ## 四、超过容量后怎样自动清理
 
-1. runService 在启动、领取执行前后及周期检查时，按 settingService 的策略触发 sessionService 检查。
-2. sessionService 统计所有受管 conversation 目录，每个共享目录只计算一次；未开启限制或未超限则不因容量删除文件。
-3. 超限后取 conversation 内所有 session 最近使用时间的最大值，按该时间从旧到新回收**整个空闲 conversation 工作目录**，直到低于 session.quota.max_bytes × session.cleanup.target_ratio。
+1. 声明 quota 后，runService 在启动、领取执行前后及内置周期检查时触发 sessionService 检查。周期由实现内部管理，不暴露 cleanup 配置。
+2. sessionService 统计所有受管 conversation 目录，每个共享目录只计算一次；未声明 quota 或未超限则不因容量删除文件。
+3. 超限后取 conversation 内所有 session 最近使用时间的最大值，按该时间从旧到新回收**整个空闲 conversation 工作目录**，直到总用量不超过 session.quota.max_bytes。
 4. 任一关联 session 正在执行、等待用户答案、持有执行锁，或已分配给即将启动任务时，整个目录都不能删除。目录使用登记允许多个 session 并发，清理必须取得 conversation 工作目录的独占权限，不能边执行边清理。
 5. 回收后将 workspace.yaml 标记为 missing，并更新所有关联 session.yaml 的 workspace_state 为 missing，使其不可直接恢复。后续有效任务建立新原生 session，从 server 历史和文件准备输入，不假装旧工作区仍在。
 
