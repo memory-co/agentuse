@@ -8,7 +8,7 @@ sessionService 管理 session、message 和共享历史，并编排消息分配�
 
 - 创建/读取/删除会话，维护标题、归属和共享历史。
 - 接收消息，调用 runService 为目标 agent 分配任务；对话原文只保存一次，每个目标 run 另存一份 run_prompts。
-- 消费执行结果事件，把最终回复写为 assistant message，并记录作者和被回复的 message。
+- 消费执行结果事件，把最终回复写为 agent message，并记录作者和被回复的 message。
 - 读取会话时组合对话、run、run_prompts、事件和问题的统一快照。
 
 ![Session、消息、投递与执行的关系](../../images/session-run.svg)
@@ -24,7 +24,7 @@ M2 @coder          → P3 / R1（R1 仍活跃，补充输入）
 
 M1 对应两个 run，R1 处理两条消息；session 不绑定 agent，没有 session_participant 或每个 agent 独立的上下文。
 
-runService 先持久化终态与结果事件；sessionService 消费后，在同一事务写带作者和 reply_to_message_id 的 assistant message、更新 runs.result_message_id 和会话状态投影。runService 根据结果关联去重，messages 不保存 run_id。设备进度不直接变成普通聊天消息；取消可以只更新状态，不生成回复。
+runService 先持久化终态与结果事件；sessionService 消费后，在同一事务写带作者和 reply_to_message_id 的 agent message、更新 runs.result_message_id 和会话状态投影。runService 根据结果关联去重，messages 不保存 run_id。设备进度不直接变成普通聊天消息；取消可以只更新状态，不生成回复。
 
 结果关联由 runService 提供事务内绑定操作完成，不要求 sessionService 直接改 runs。结果事件未消费时，run 可以已经结束、最终回复尚未写入；快照必须明确保留这个区别。恢复时可扫描终态 run 的持久化终态事件，由 runService 检查 runs.result_message_id 判断是否需要补写，不依赖一次性的内存通知。
 
@@ -36,7 +36,7 @@ Session 状态是 run 的聚合投影，优先 waiting、running、pending，再
 
 ## 幂等
 
-发送用户和 request_key/request_digest 直接保存在原始用户消息上；service 保证带 key 时用户与摘要非空。
+发送用户 author_user_id 和 request_key/request_digest 直接保存在原始用户消息上；service 保证带 key 时作者为 user，用户与摘要非空。
 
 messages 中的唯一索引按 session、用户和非空 request_key 去重。相同 key、相同内容及目标返回原消息；摘要不一致则冲突。它解决重复提交，不保证执行工具的外部副作用只发生一次。
 
@@ -69,7 +69,9 @@ CREATE INDEX sessions_created_by
 
 ### messages
 
-共享对话的原始消息。`content` 统一保存对话正文；`user_id` 记录发送用户，`agent_key/name` 记录回复作者快照。`target_agent_ids` 保存原始 @ 目标数组，即使执行分配变化，对话仍能显示当时 @ 了谁。
+共享对话的原始消息。`content` 统一保存对话正文；`author_role` 为 user/agent；`author_user_id`、`author_agent_id` 按作者类型二选一。作者名称分别实时关联 users/agents 读取，不保存 agent_key、agent_name 快照。`target_agent_ids` 保存原始 @ 目标数组，即使执行分配变化，对话仍能显示当时 @ 了谁。
+
+service 写入时保证 user 消息只填 author_user_id，agent 消息只填 author_agent_id。读取作者用 LEFT JOIN；agent 改名后历史消息展示当前名称，已删除的作者保留原 ID 并显示已删除状态，不清空消息中的作者 ID。
 
 message 永远回复另一条 message，不回复 run。`reply_to_message_id` 表示被回复的消息，开头的根消息为空；后续用户消息、agent 回复都可以引用同 session 中已有的消息。messages 不保存 run_id，也不以 run 为对话层级。
 
@@ -88,12 +90,12 @@ M1：@coder @reviewer 修复并评审
 CREATE TABLE messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
-    role TEXT NOT NULL CHECK(role IN ('user','assistant')),
+    author_role TEXT NOT NULL CHECK(author_role IN ('user','agent')),
     content TEXT NOT NULL,
-    user_id TEXT,
+    author_user_id TEXT,
+    author_agent_id TEXT,
     target_agent_ids TEXT NOT NULL DEFAULT '[]',
-    agent_key TEXT,
-    agent_name TEXT,
+
     reply_to_message_id INTEGER,
     request_key TEXT,
     request_digest TEXT,
@@ -101,8 +103,8 @@ CREATE TABLE messages (
 );
 CREATE INDEX messages_session ON messages(session_id,id);
 CREATE INDEX messages_replies ON messages(session_id,reply_to_message_id,id);
-CREATE UNIQUE INDEX messages_request ON messages(session_id,user_id,request_key)
-    WHERE role='user' AND request_key IS NOT NULL;
+CREATE UNIQUE INDEX messages_request ON messages(session_id,author_user_id,request_key)
+    WHERE author_role='user' AND request_key IS NOT NULL;
 ```
 
 ### 合并掉的辅助表
@@ -110,8 +112,8 @@ CREATE UNIQUE INDEX messages_request ON messages(session_id,user_id,request_key)
 | 原表 | v3 处理 |
 |---|---|
 | message_formats | 不再建表，也不保留 format 字段；消息与执行副本均保存正文 |
-| message_authors | 不再建表，回复作者直接保存在 messages.agent_key/name；回复关系使用 reply_to_message_id，执行关联留在 runs |
-| session_requests | 不再建表；保留发送幂等需求，用 messages 的 user_id、request_key、request_digest 和唯一索引实现 |
+| message_authors | 不再建表，作者只保存在 messages.author_role、author_user_id、author_agent_id；名称实时关联读取；回复关系使用 reply_to_message_id，执行关联留在 runs |
+| session_requests | 不再建表；保留发送幂等需求，用 messages 的 author_user_id、request_key、request_digest 和唯一索引实现 |
 
 这些信息仍有作用，但都是一条消息自身的属性，不需要再各拆一张 1:1 的表。
 

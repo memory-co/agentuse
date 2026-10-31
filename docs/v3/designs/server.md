@@ -90,7 +90,7 @@ Work 是多个 session 的组织方式。workService 维护协调 session、工�
 | message ↔ run：N:M | 一条消息可以交给多个 agent 的 run；一个 run 也可以处理多条任务消息 |
 | message → run_prompts → run | `run_prompts` 为每个目标 run 保存一份消息副本，连接消息和执行 |
 
-这个 N:M 指的是**任务输入关系**。Run 的最终结果可以成为一条 assistant message，但对话关系始终是 message 回复 message：messages.reply_to_message_id 指向被回复的消息，不保存 run_id。一条用户消息触发多个 run，各个 agent 产生的回复都可以指回同一条原始消息。执行层内部通过 runs.result_message_id 追踪结果。
+这个 N:M 指的是**任务输入关系**。Run 的最终结果可以成为一条 agent message，但对话关系始终是 message 回复 message：messages.reply_to_message_id 指向被回复的消息，不保存 run_id。一条用户消息触发多个 run，各个 agent 产生的回复都可以指回同一条原始消息。执行层内部通过 runs.result_message_id 追踪结果。
 
 例子：
 

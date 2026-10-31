@@ -9,7 +9,7 @@
 <text x="380" y="156" font-size="15" fill="#334155">同 session + agent 最多一个活跃 run</text>
 <rect x="40" y="275" width="430" height="145" rx="10" fill="#f1f5f9" stroke="#94a3b8"/>
 <text x="60" y="308" font-size="21" fill="#334155">Message</text>
-<text x="60" y="340" font-size="15" fill="#334155">用户内容或最终 assistant 结果</text>
+<text x="60" y="340" font-size="15" fill="#334155">用户内容或最终 agent 回复</text>
 <text x="60" y="366" font-size="15" fill="#334155">reply_to_message_id 指向被回复消息</text>
 <text x="60" y="392" font-size="15" fill="#334155">消息不等于 run，也不保证触发执行</text>
 <rect x="650" y="275" width="430" height="145" rx="10" fill="#eef2ff" stroke="#94a3b8"/>
