@@ -139,7 +139,7 @@ tmp 是默认父目录，可通过 setting.yaml 的 session.work_root 配置。s
 
 多文件更新不等于数据库事务。崩溃后读取状态文件，与 server 租约和原生状态核对；无法确认时记中断或建立新 session，不能仅凭旧 running 标记重跑。
 
-本地 session UUID、原生 session ID、server conversation UUID、server run/attempt 各自独立；路径包含 endpoint_id，避免多个平台返回相同 ID 时串目录或结果。
+本地 session UUID、原生 session ID、server conversation UUID、server run/attempt 各自独立；路径包含由规范化 server 地址推导的 endpoint_id（如 https---company.example.com），避免多个平台返回相同 ID 时串目录或结果。
 
 ## 七、目录容量与清理
 

@@ -59,7 +59,7 @@ runService 启动时读取启用的 endpoints，为每个已注册 server 建立
 
 ```json
 {
-  "endpoint_id": "66c645f1-f128-4c83-b29a-93bd1f181017",
+  "endpoint_id": "https---company.example.com",
   "run_id": "run-1",
   "attempt_id": "attempt-1",
   "session_id": "7877d33b-788f-4f6c-9ff0-987c2128064e",

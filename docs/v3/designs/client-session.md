@@ -91,7 +91,7 @@ sessionService 依据 last_context_seq 读取共享历史增量，结合当前 r
 
 ```yaml
 id: 7877d33b-788f-4f6c-9ff0-987c2128064e
-endpoint_id: 66c645f1-f128-4c83-b29a-93bd1f181017
+endpoint_id: https---company.example.com
 conversation_id: 550e8400-e29b-41d4-a716-446655440000
 agent_id: coder
 harness: codex
@@ -119,7 +119,7 @@ sessionService 将目录绑定保存在 `~/.agentuse/state/workspaces/<endpoint_
 
 ```yaml
 id: 512f5703-b9e0-48fc-9a66-8d33883c32db
-endpoint_id: 66c645f1-f128-4c83-b29a-93bd1f181017
+endpoint_id: https---company.example.com
 conversation_id: 550e8400-e29b-41d4-a716-446655440000
 conversation_root: ~/.agentuse/tmp/<endpoint_id>/<conversation_id>
 state: present
