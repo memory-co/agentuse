@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1340" height="1030" viewBox="0 0 1340 1030" font-family="-apple-system, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" role="img" aria-labelledby="title desc">
+<title id="title">Codex 与 Claude Code 的插话路径</title><desc id="desc">Codex 用原生 turn steer RPC 匹配响应；Claude Code 等待 hook 接入点，再通过桥接交付上下文，确认范围与 RPC 不同。</desc>
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker></defs>
+<rect width="1340" height="1030" rx="16" fill="white"/>
+<text x="30" y="40" font-size="24" fill="#0f172a" font-weight="600">同一个 steer 动作，两种原生接入路径</text>
+<rect x="45" y="75" width="305" height="65" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+<text x="63" y="105" font-size="19" fill="#0f172a" font-weight="600">Server · harness / run</text>
+<rect x="515" y="75" width="305" height="65" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+<text x="533" y="105" font-size="19" fill="#0f172a" font-weight="600">Client · 通用执行器</text>
+<rect x="985" y="75" width="305" height="65" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+<text x="1003" y="105" font-size="19" fill="#0f172a" font-weight="600">原生程序</text>
+<path d="M197 140 V920" stroke="#cbd5e1" stroke-dasharray="5 5"/>
+<path d="M667 140 V920" stroke="#cbd5e1" stroke-dasharray="5 5"/>
+<path d="M1137 140 V920" stroke="#cbd5e1" stroke-dasharray="5 5"/>
+<text x="30" y="185" font-size="19" fill="#3730a3" font-weight="600">Codex：原生 RPC，可向正在运行的 turn 发输入</text>
+<path d="M197 245 L667 245" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="209" y="233" font-size="14" fill="#475569">① 生成带 thread / expectedTurnId 的 RPC</text>
+<path d="M667 295 L1137 295" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="679" y="283" font-size="14" fill="#475569">② turn/steer：转发到当前持续连接</text>
+<path d="M1137 350 L667 350" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="679" y="338" font-size="14" fill="#475569">③ 匹配请求的 result.turnId 或 error</text>
+<path d="M667 405 L197 405" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="209" y="393" font-size="14" fill="#475569">④ server 核对 turn 后接受；失败保留输入</text>
+<text x="30" y="460" font-size="19" fill="#3730a3" font-weight="600">Claude Code：等待 PreToolUse / Stop 接入点，不是随时往 stdin 追加文本</text>
+<path d="M1137 520 L667 520" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="679" y="508" font-size="14" fill="#475569">① 原生 hook 调用包内桥接程序 / 回调</text>
+<path d="M667 575 L197 575" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="209" y="563" font-size="14" fill="#475569">② 转发 hook 及 run / attempt 关联</text>
+<path d="M197 630 L667 630" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="209" y="618" font-size="14" fill="#475569">③ 提取待处理输入，生成当前版本 hook 响应</text>
+<path d="M667 685 L1137 685" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="679" y="673" font-size="14" fill="#475569">④ 返回上下文 / 继续执行决策</text>
+<path d="M1137 740 L667 740" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="679" y="728" font-size="14" fill="#475569">⑤ 后续原生事件 / 继续执行证据（能力验证）</text>
+<path d="M667 795 L197 795" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="209" y="783" font-size="14" fill="#475569">⑥ 记录 hook 交付确认范围，不伪造原生 RPC ACK</text>
+<text x="30" y="875" font-size="16" fill="#475569">AskUserQuestion：hook / 交互宿主必须保持请求关联，等待答案后回到同一次调用。</text>
+<text x="30" y="923" font-size="16" fill="#92400e">没有有效确认、程序已结束或交互不支持：输入仍待处理，交由后续 run，不能静默丢弃。</text>
+<text x="30" y="975" font-size="17" fill="#475569">Skill 只指导业务行为；两条插话链路都不能靠 skill 替代。</text>
+</svg>

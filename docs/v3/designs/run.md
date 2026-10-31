@@ -47,7 +47,7 @@ Run 状态是 pending/running/waiting/succeeded/failed/cancelled；run_prompts �
 
 ## v3 执行配置快照
 
-建立 run 时，harnessService 固定 harness_revision，保存仅供 server 使用的 harness_config_yaml，并编译 execution_spec（版本化 JSON 标准执行描述）。Client 只收到 execution_spec 和任务输入，不解析 YAML、不按 harness 名称分支。
+建立 run 时，harnessService 固定整个接入包的 harness_revision，保存仅供 server 使用的 harness_config_yaml，并编译包含版本化 hook/skill/指令资源清单的 execution_spec（版本化 JSON 标准执行描述）。Client 只收到 execution_spec 和任务输入，不解析 YAML、不按 harness 名称分支。
 
 原始输出/交互先由 harnessService 解释为标准事件，再由 runService 更新进度、结果、问题和消费状态。runService 的插话、答案、取消也经 harnessService 转换成通用执行动作。Client 仅确认通道读写不等于业务接受，steer accepted 必须有输入被消费的确认。
 

@@ -23,7 +23,7 @@ Server 分为三层：
 | [userService](user.md) | 用户、角色、访问令牌和身份校验 | `users` |
 | [deviceService](device.md) | 执行设备的登记、凭据、在线状态、可用 harness 和执行能力 | `devices`、`device_harnesses`、`device_capabilities` |
 | [agentService](agent.md) | Agent 的名称、说明、归属，以及选择哪台 device、哪种 harness 执行 | `agents` |
-| [harnessService](harness.md) | 在 server 解析 YAML，将探测、执行及各种交互转换为标准协议 | `harnesses` 和 harness YAML 配置 |
+| [harnessService](harness.md) | 在 server 解析 YAML，将探测、执行及各种交互转换为标准协议 | `harnesses` 和版本化接入包（YAML、hook、skill、指令） |
 | [sessionService](session.md) | 清晰、持续的对话：创建会话、保存消息、读取共享历史；调用 runService 分配任务，接收结果事件并保存回复 | `sessions`、`messages` |
 | [runService](run.md) | 建立任务、关联任务消息、派发与领取、跟踪执行、插话、提问、取消和执行恢复 | `runs`、`run_prompts`、`run_events`、`run_questions` |
 | [fileService](file.md) | 按 session 隔离文件空间，支持本地和 S3 的上传、下载 | 本地目录或 S3 对象前缀，无数据库表 |
@@ -61,7 +61,7 @@ harnessService 在 server 管理和解析 YAML，把不同 harness 的探测、�
 
 统一业务语义是 probe、start、progress/result/error、steer accepted/rejected、question/answer、cancel。能力可以缺失；比如不支持可确认插话时，由 runService 回退到后续任务，而不是 client 增加某个 harness 的特殊分支。
 
-runService 下发标准执行描述，不下发 YAML。执行时的规则和配置版本固定；共享代码只保留标准协议数据结构。详情见 [harnessService](harness.md)。
+runService 下发标准执行描述，不下发 YAML。执行时的规则和配置版本固定；共享代码只保留标准协议数据结构；按需的 hook/桥接程序、skill 和指令作为接入包资源下发，client 不为其增加专用分支。详情见 [harnessService](harness.md)。
 
 ### 2.3 sessionService 与 runService
 
