@@ -55,7 +55,7 @@ runService 启动时读取启用的 endpoints，为每个已注册 server 建立
   runs/<run_id>/<attempt_id>/run.json
 ```
 
-每个已绑定 session 的执行尝试一个文件，conversation 根目录来自 sessionService 的目录映射，所有实际执行统一以其下的 workspace/ 为 cwd；run.json 在同级 sessions/ 树内。目录层级为 conversation → session → run → attempt，唯一执行身份仍为 endpoint/run/attempt，不再有本机 runs 表或 run_settings 表。磁盘容量策略读取 setting.yaml；领取预留、连接状态和执行槽位由 runService 内部管理，只存在运行时内存中。
+每个已绑定 session 的执行尝试一个文件，conversation 根目录由 session.work_root、endpoint_id 和 conversation_id 直接推导，所有实际执行统一以其下的 workspace/ 为 cwd；run.json 在同级 sessions/ 树内。目录层级为 conversation → session → run → attempt，唯一执行身份仍为 endpoint/run/attempt，不再有本机 runs 表或 run_settings 表。磁盘容量策略读取 setting.yaml；领取预留、连接状态和执行槽位由 runService 内部管理，只存在运行时内存中。
 
 ```json
 {

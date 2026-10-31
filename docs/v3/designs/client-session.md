@@ -87,7 +87,7 @@ sessionService 依据 last_context_seq 读取共享历史增量，结合当前 r
 <session.work_root>/<endpoint_id>/<conversation_id>/sessions/<local_session_id>/session.yaml
 ```
 
-每个 session 必须属于一个 endpoint/conversation，状态文件放在 conversation 目录的 sessions/ 下，与 workspace/ 同级。这里 session.work_root 指配置的默认父目录，已有 conversation 以 workspace.yaml 绑定的实际目录为准。每个文件对应一个确定的原生会话。id 是本机 UUID，native_session_id 是原生程序返回的 ID，创建成功后固定；首次创建尚未完成时为空。
+每个 session 必须属于一个 endpoint/conversation，状态文件放在 conversation 目录的 sessions/ 下，与 workspace/ 同级。这里 session.work_root 是 setting.yaml 中配置的统一父目录，路径直接由配置和 endpoint/conversation 标识推导。每个文件对应一个确定的原生会话。id 是本机 UUID，native_session_id 是原生程序返回的 ID，创建成功后固定；首次创建尚未完成时为空。
 
 ```yaml
 id: 7877d33b-788f-4f6c-9ff0-987c2128064e
@@ -97,7 +97,6 @@ agent_id: coder
 harness: codex
 harness_revision: package-revision
 native_session_id: thread-1
-workspace_id: 512f5703-b9e0-48fc-9a66-8d33883c32db
 status: idle
 last_context_seq: 12
 created_at: 1793443200000
@@ -107,27 +106,17 @@ updated_at: 1793443205100
 
 status 为 creating/idle/running/unavailable/closed，等待问题期间仍是 running。工作目录被回收时 session.yaml、run.json 和执行资源随目录删除，该原生上下文不再作为可恢复候选。
 
-不再保存 sessions 表、原生 ID 唯一索引或单独的 current 指针。sessionService 根据 workspace 映射扫描各 conversation 工作目录内的 session.yaml，构建可重建的内存索引：按 endpoint/conversation/agent/harness 筛选空闲、版本匹配、目录存在的会话，再取最近使用的有效记录。同一 session 的选择、执行与清理共用排他保护。
+不再保存 sessions 表、原生 ID 唯一索引或单独的 current 指针。sessionService 扫描配置根目录下各 endpoint/conversation 的 sessions/ 内的 session.yaml，构建可重建的内存索引：按 endpoint/conversation/agent/harness 筛选空闲、版本匹配、目录存在的会话，再取最近使用的有效记录。同一 session 的选择、执行与清理共用排他保护。
 
 原生 ID 的一对一映射和单 session 串行执行由 sessionService 校验。新建会话不修改旧文件的 native_session_id；替换/关闭写回对应状态文件。不要靠删除一条数据库记录来表示原生历史已被销毁。
 
 本机 run.json 由 [client runService](client-run.md) 管理，其中 session_id 指向本文件的 id。多个从 server 领来的 run 可以引用同一个会话文件。每个本机 run.json 保存在该 session 目录的 runs/<run_id>/<attempt_id>/ 下，已落盘执行记录必须归属一个确定的 session；未绑定时的领取/拒绝处理由 runService 与 server 协议完成。
 
-### conversation 工作目录映射
+### conversation 路径推导
 
-sessionService 将目录绑定保存在 `~/.agentuse/state/workspaces/<endpoint_id>/<conversation_id>/workspace.yaml`：
+conversation 根目录固定为 `<session.work_root>/<endpoint_id>/<conversation_id>/`；实际 cwd 固定为其下的 `workspace/`，session 和 run 记录位于同级的 `sessions/`。不保存目录映射文件、workspace_id 或重复的路径字段。
 
-```yaml
-id: 512f5703-b9e0-48fc-9a66-8d33883c32db
-endpoint_id: https---company.example.com
-conversation_id: 550e8400-e29b-41d4-a716-446655440000
-conversation_root: ~/.agentuse/tmp/<endpoint_id>/<conversation_id>
-state: present
-```
-
-workspace.yaml 是该 conversation 目录绑定及存在状态的唯一持久化来源；session.yaml 只通过 workspace_id 关联 conversation 目录，不再保存 work_root；启动目录统一由 conversation_root/workspace 推导。workspace.yaml 保留在工作目录之外以记录目录绑定；session.yaml 随 conversation 工作目录一起管理和回收。
-
-首次按 setting.yaml 的 session.work_root 分配目录，后续相同 endpoint/conversation 的所有 session 复用映射。更换 harness、原生 session 或配置父目录都不能把已有 conversation 拆成不同目录。容量检查遍历已登记映射，因此配置变更后旧根目录仍纳入受管目录统计。目录回收会删除其中所有 session.yaml 并移除对应内存索引；之后在原绑定路径重建工作区时创建新 session 和新 UUID，不能因为同一路径重新出现就恢复旧上下文。
+以目录和状态文件的实际存在情况判断可恢复性，不另存 present/missing 状态。目录回收会删除其中所有 session.yaml 并移除对应内存索引；重建目录时创建新 session 和新 UUID，不能因为同一路径重新出现就恢复旧上下文。
 
 session 的执行锁只保证单个原生 session 串行，不独占整个工作目录。多个 session 在同一目录并发时登记使用占用；清理须确认所有占用均已释放。业务文件直接共享，并发修改同一文件或 Git 状态仍需 agent 协调；不会自动获得文件事务。hook、临时配置和控制资源放在 sessions/<session_id>/runs/<run_id>/<attempt_id>/ 下，与 workspace/ 分开，通过绝对路径启动参数加载，不能相互覆盖。服务端 fileService 用于文件传输与交付，同机共享工作区不需要通过上传下载模拟同步。
 
@@ -151,11 +140,11 @@ conversation 目录包含 workspace/ 与 sessions/ 两个同级目录：前者�
 
 sessionService 按 `(endpoint_id, conversation_id)` 分配唯一 conversation 目录。其中 workspace/ 是实际工作目录，所有 Codex、Claude Code 都以该目录作为 cwd 启动或恢复，可以同时运行；不同 endpoint/conversation 分开。原生上下文仍各自独立，工作文件则直接共享。
 
-setting.yaml 的 session.work_root 是分配新 conversation 目录的默认父目录；conversation 根目录记录在 sessionService 的 workspace.yaml 中；实际启动目录固定为该目录下的 workspace/，不在 session.yaml 中冗余保存。已有 conversation 新建或更换 harness/session 时沿用已绑定目录，不重新分配。目录绑定文件的结构见上节。
+setting.yaml 的 session.work_root 是所有 conversation 目录的统一父目录；同一 endpoint/conversation 的路径确定，不因新增 session 或更换 harness 而改变。修改根目录需先停止任务并重启 client；需要保留会话时由用户将原目录内容完整迁移到新根目录。Client 不记录旧目录映射、不自动扫描或搬迁旧路径。
 
-`.agentuse-workspace.json` 标识 client 创建的受管目录，记录 endpoint/conversation/workspace_id；会话状态文件通过 workspace_id 关联该目录。没有标识的用户目录不作为清理对象。不得把 home、磁盘根目录、原生工具全局用户目录或设置/状态/适配器目录作为可回收工作根目录。
+`.agentuse-workspace.json` 标识 client 创建的受管目录，仅记录 endpoint/conversation 以校验目录归属，不生成独立 workspace ID 或保存目录状态。没有标识的用户目录不作为清理对象。不得把 home、磁盘根目录、原生工具全局用户目录或设置/状态/适配器目录作为可回收工作根目录。
 
-容量只统计这些受管工作目录，包括目录中的 session.yaml、run.json 和执行资源；不统计目录之外的 endpoint 密钥、workspace.yaml、接入包，也不擅自扫描删除 `~/.codex`、`~/.claude` 等原生全局历史。
+容量只统计这些受管工作目录，包括目录中的 session.yaml、run.json 和执行资源；不统计目录之外的 endpoint 密钥、接入包，也不擅自扫描删除 `~/.codex`、`~/.claude` 等原生全局历史。
 
 ## 八、恢复和清理
 
@@ -163,7 +152,7 @@ setting.yaml 的 session.work_root 是分配新 conversation 目录的默认父�
 - client 重启先对账，不因本地存在 session 就自动恢复执行旧 run；只有领到或确认有效的任务才能开始工作。
 - 原生历史缺失或恢复失败则标记不可用；重新建立 session 时保留旧执行关联和失败原因。
 - 取消 run 结束当前执行，不必删除原生 session；本地适配确认历史仍可恢复时，后续 run 可以继续使用。
-- 本机执行记录随 conversation 工作目录管理。容量超限按 settingService 配置回收整个空闲 conversation 目录；任一关联 session 在用时都受保护，回收后保留 workspace.yaml 映射并标记目录缺失，session.yaml、run.json 和执行资源随目录删除。崩溃恢复时以映射和实际目录核对，不能恢复旧工作区；不删除 server conversation 或文件。
+- 本机执行记录随 conversation 工作目录管理。容量超限按 settingService 配置回收整个空闲 conversation 目录；任一关联 session 在用时都受保护，回收后不另存目录缺失记录，session.yaml、run.json 和执行资源随目录删除。崩溃恢复时以目录及状态文件实际存在情况核对，不能恢复旧工作区；不删除 server conversation 或文件。
 
 ## 九、超过容量后怎样自动清理
 
@@ -172,7 +161,7 @@ setting.yaml 的 session.work_root 是分配新 conversation 目录的默认父�
 2. sessionService 统计所有受管 conversation 目录，每个共享目录只计算一次；未声明 quota 或未超限则不因容量删除文件。
 3. 超限后取 conversation 内所有 session 最近使用时间的最大值，按该时间从旧到新回收**整个空闲 conversation 工作目录**，直到总用量不超过 session.quota.max_bytes。
 4. 任一关联 session 正在执行、等待用户答案、结果尚未获 server 确认、持有执行锁，或已分配给即将启动任务时，整个目录都不能删除。目录使用登记允许多个 session 并发，清理必须取得 conversation 工作目录的独占权限，不能边执行边清理。
-5. 回收时持有目录独占权限，删除整个目录及其中所有 session.yaml、run.json 和执行资源，并将 workspace.yaml 标记为 missing、移除相关内存索引。若操作中途崩溃，重启以实际目录及标记核对，不能只凭旧内存索引恢复。后续有效任务建立新原生 session，从 server 历史和文件准备输入，不假装旧工作区仍在。
+5. 回收时持有目录独占权限，删除整个目录及其中所有 session.yaml、run.json 和执行资源，并移除相关内存索引。若操作中途崩溃，重启以实际目录及标记核对，不能只凭旧内存索引恢复。后续有效任务建立新原生 session，从 server 历史和文件准备输入，不假装旧工作区仍在。
 
 文件应先通过 fileService 上传再作为产物交付；清理只处理本机临时工作副本，不删除 server 文件。未上传的空闲工作目录内容会随回收删除，这就是启用临时目录回收的语义。
 

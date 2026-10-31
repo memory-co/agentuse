@@ -31,7 +31,7 @@
     <rect x="535" y="440" width="430" height="170" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
     <text x="555" y="474" font-size="23">sessionService</text>
     <text x="555" y="507" font-size="17">原生 Session 复用；统一分配共享目录</text>
-    <text x="555" y="534" font-size="17">按 Conversation 绑定与回收工作区</text>
+    <text x="555" y="534" font-size="17">按 Conversation 推导与回收工作区</text>
     <text x="555" y="561" font-size="17">一份 Session 可承载若干 Run</text>
     <rect x="1035" y="440" width="420" height="170" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
     <text x="1055" y="474" font-size="23">harnessService</text>
@@ -46,7 +46,7 @@
     <rect x="45" y="690" width="920" height="170" rx="14" fill="#ecfdf5" stroke="#94a3b8"/>
     <text x="65" y="724" font-size="23">~/.agentuse/：配置与状态文件</text>
     <text x="65" y="757" font-size="17">endpoints.yaml → endpointService      setting.yaml → settingService</text>
-    <text x="65" y="784" font-size="17">workspace.yaml → sessionService；session.yaml 在工作区内</text>
+    <text x="65" y="784" font-size="17">session.yaml → sessionService；路径由配置及 ID 推导</text>
     <text x="65" y="811" font-size="17">工作区内 sessions/&lt;session&gt;/runs/&lt;run&gt;/&lt;attempt&gt;/run.json</text>
     <rect x="1035" y="690" width="420" height="170" rx="14" fill="#ecfdf5" stroke="#94a3b8"/>
     <text x="1055" y="724" font-size="23">Conversation：workspace/ 与 sessions/</text>
