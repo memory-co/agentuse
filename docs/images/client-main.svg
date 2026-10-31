@@ -17,7 +17,7 @@
     <text x="65" y="319" font-size="17">仅管理注册文件，不连接、不领任务</text>
     <rect x="535" y="225" width="430" height="135" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
     <text x="555" y="259" font-size="23">settingService</text>
-    <text x="555" y="292" font-size="17">本机端口、执行并发、harness 工作根目录</text>
+    <text x="555" y="292" font-size="17">本机端口、执行并发、session 默认父目录</text>
     <text x="555" y="319" font-size="17">容量开关、字节上限、清理周期与目标</text>
     <rect x="1035" y="225" width="420" height="135" rx="14" fill="#fff7ed" stroke="#94a3b8"/>
     <text x="1055" y="259" font-size="23">Server（多个 endpoint）</text>
@@ -30,8 +30,8 @@
     <text x="65" y="561" font-size="17">读取 endpointService / settingService</text>
     <rect x="535" y="440" width="430" height="170" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
     <text x="555" y="474" font-size="23">sessionService</text>
-    <text x="555" y="507" font-size="17">原生 Session 复用与互斥</text>
-    <text x="555" y="534" font-size="17">按配置选择目录、回收空闲工作区</text>
+    <text x="555" y="507" font-size="17">原生 Session 复用；统一分配共享目录</text>
+    <text x="555" y="534" font-size="17">按 Conversation 绑定与回收工作区</text>
     <text x="555" y="561" font-size="17">一份 Session 可承载若干 Run</text>
     <rect x="1035" y="440" width="420" height="170" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
     <text x="1055" y="474" font-size="23">harnessService</text>
@@ -46,13 +46,13 @@
     <rect x="45" y="690" width="920" height="170" rx="14" fill="#ecfdf5" stroke="#94a3b8"/>
     <text x="65" y="724" font-size="23">~/.agentuse/：配置与状态文件</text>
     <text x="65" y="757" font-size="17">endpoints.yaml → endpointService      setting.yaml → settingService</text>
-    <text x="65" y="784" font-size="17">state/sessions/&lt;session&gt;/session.yaml → sessionService</text>
+    <text x="65" y="784" font-size="17">session.yaml / workspace.yaml → sessionService</text>
     <text x="65" y="811" font-size="17">state/runs/&lt;endpoint&gt;/&lt;run&gt;/&lt;attempt&gt;/run.json → runService</text>
     <rect x="1035" y="690" width="420" height="170" rx="14" fill="#ecfdf5" stroke="#94a3b8"/>
-    <text x="1055" y="724" font-size="23">各 harness 临时工作根目录</text>
-    <text x="1055" y="757" font-size="17">Codex、Claude Code 分开配置</text>
-    <text x="1055" y="784" font-size="17">空闲受管目录按最近使用时间回收</text>
-    <text x="1055" y="811" font-size="17">保护执行中 / 等待答案 / 已锁定目录</text>
+    <text x="1055" y="724" font-size="23">Conversation 共享工作目录</text>
+    <text x="1055" y="757" font-size="17">Codex、Claude Code 共享并可并发</text>
+    <text x="1055" y="784" font-size="17">任一 Session 在用时整个目录受保护</text>
+    <text x="1055" y="811" font-size="17">空闲 Conversation 目录整体回收</text>
     <path d="M255,610 L255,690" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
     <path d="M750,610 L750,690" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
     <path d="M1245,610 L1245,690" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>

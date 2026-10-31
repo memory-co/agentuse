@@ -24,7 +24,7 @@
        └─ server Run R4 / Attempt A4 → 恢复 H1 执行
 ```
 
-C 是共享对话，S1/S2 是各自原生上下文。一台设备上的不同 agent 不共用同一个原生 session，但它们仍从 server 读取同一个 conversation 的共享消息。
+C 是共享对话，S1/S2 是各自原生上下文。一台设备上的不同 agent 不共用同一个原生 session，但它们仍从 server 读取同一个 conversation 的共享消息，并使用同一工作目录。Codex 与 Claude Code 可以在该目录同时运行；原生历史独立不意味着工作文件隔离。
 
 Session 对应原生历史，不等于操作系统进程。一次 Claude print 进程结束不代表 session 被删除；Codex app-server 连接也可以重新建立后恢复原 thread。
 
@@ -34,6 +34,7 @@ Session 对应原生历史，不等于操作系统进程。一次 Claude print �
 
 - 为领取的 run 选择可复用的本地 session，或请求 harnessService 创建新的原生 session。
 - 保存本地 session 与原生会话 ID 的一对一映射。
+- 按 endpoint/conversation 管理唯一共享工作目录，保证不同 agent/harness 的 session 使用相同 work_root。
 - 串行管理同一个 session 的执行，维护上下文同步位置。
 - 在 run 结束后保留 session，供后续领来的 run 继续使用。
 - 处理 session 恢复、失效、关闭及本地历史查询。
@@ -96,7 +97,8 @@ agent_id: coder
 harness: codex
 harness_revision: package-revision
 native_session_id: thread-1
-directory: ~/.agentuse/tmp/codex/<endpoint_id>/<conversation_id>/<local_session_id>
+workspace_id: 512f5703-b9e0-48fc-9a66-8d33883c32db
+work_root: ~/.agentuse/tmp/<endpoint_id>/<conversation_id>
 status: idle
 workspace_state: present
 last_context_seq: 12
@@ -113,7 +115,23 @@ status 为 creating/idle/running/unavailable/closed，等待问题期间仍是 r
 
 本机 run.json 由 [client runService](client-run.md) 管理，其中 session_id 指向本文件的 id。多个从 server 领来的 run 可以引用同一个会话文件。
 
-工作根目录从 [settingService](client-setting.md) 按 harness 取得。不同根目录的工作副本不承诺物理共享；共享业务文件通过 server fileService 上传/下载。原生会话继续使用自己的既定目录，运行中不迁移。
+### conversation 工作目录映射
+
+sessionService 将目录绑定保存在 `~/.agentuse/state/workspaces/<endpoint_id>/<conversation_id>/workspace.yaml`：
+
+```yaml
+id: 512f5703-b9e0-48fc-9a66-8d33883c32db
+endpoint_id: 66c645f1-f128-4c83-b29a-93bd1f181017
+conversation_id: 550e8400-e29b-41d4-a716-446655440000
+work_root: ~/.agentuse/tmp/<endpoint_id>/<conversation_id>
+state: present
+```
+
+workspace.yaml 是该 conversation 目录绑定及存在状态的唯一持久化来源；session.yaml 的 workspace_id/work_root/workspace_state 是关联信息，加载时以映射和实际目录核对修正。状态文件不放在可回收目录中。
+
+首次按 setting.yaml 的 session.work_root 分配目录，后续相同 endpoint/conversation 的所有 session 复用映射。更换 harness、原生 session 或配置父目录都不能把已有 conversation 拆成不同目录。容量检查遍历已登记映射，因此配置变更后旧根目录仍纳入受管目录统计。目录回收后先将所有旧 session 标为不可恢复，再在原绑定路径重建工作区并创建新原生 session；不能因为同一路径重新出现就恢复旧上下文。
+
+session 的执行锁只保证单个原生 session 串行，不独占整个工作目录。多个 session 在同一目录并发时登记使用占用；清理须确认所有占用均已释放。业务文件直接共享，并发修改同一文件或 Git 状态仍需 agent 协调；不会自动获得文件事务。hook、临时配置和控制资源按 run/attempt 隔离，不能相互覆盖。服务端 fileService 用于文件传输与交付，同机共享工作区不需要通过上传下载模拟同步。
 
 ## 七、恢复和清理
 
@@ -121,7 +139,7 @@ status 为 creating/idle/running/unavailable/closed，等待问题期间仍是 r
 - client 重启先对账，不因本地存在 session 就自动恢复执行旧 run；只有领到或确认有效的任务才能开始工作。
 - 原生历史缺失或恢复失败则标记不可用；重新建立 session 时保留旧执行关联和失败原因。
 - 取消 run 结束当前执行，不必删除原生 session；本地适配确认历史仍可恢复时，后续 run 可以继续使用。
-- 执行记录保留期和临时目录容量是两项独立规则。容量超限按 settingService 配置回收空闲受管目录；在用会话受保护，回收后保留 session.yaml 并标记目录缺失，不删除 server conversation 或文件。
+- 执行记录保留期和临时目录容量是两项独立规则。容量超限按 settingService 配置回收整个空闲 conversation 目录；任一关联 session 在用时都受保护，回收后保留映射及所有 session.yaml 并标记目录缺失。即使崩溃导致部分会话文件尚未更新，也以 workspace 映射和实际目录为准，不能恢复旧工作区；不删除 server conversation 或文件。
 
 ## 相关设计
 

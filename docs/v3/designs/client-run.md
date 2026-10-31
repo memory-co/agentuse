@@ -41,7 +41,7 @@ runService 启动时读取启用的 endpoints，为每个已注册 server 建立
 ## 执行流程
 
 1. 校验中心和领取授权，写 received 记录；无效或不支持的任务记拒绝，不擅自生成替代任务。
-2. 按 settingService 的配置触发 sessionService 检查工作目录容量；领取前尽量避免选择空间不足的 harness，已领取却不能启动时明确回报资源不足，不无限占位或伪报 started；有空间才选择/创建空闲且版本匹配的 session，没有可回收空间则暂不启动该 harness。
+2. 按 settingService 的配置触发 sessionService 检查工作目录容量；领取前检查统一工作空间容量，已领取却不能启动时明确回报资源不足，不无限占位或伪报 started；有空间才选择/创建空闲且版本匹配的 session，没有可回收空间则暂不启动新任务。
 3. 准备当前输入与共享历史增量，交 harnessService 执行。配置和 hook 资源按 endpoint/run/attempt 隔离。
 4. 标准进度、问题、消费确认、结果和用量更新本地记录，并经 runService 为该 endpoint 维护的连接回报原 server。
 5. 执行结束后清理本次回调/进程占用，session 回到可复用状态，释放全局槽位。原生历史仍保留。
@@ -93,7 +93,7 @@ run.json 是该执行记录的持久化事实。状态、耗时和计量由 runS
 
 ## 目录清理与恢复
 
-runService 在启动、执行前后和配置的周期检查中，按 settingService 的策略触发 sessionService 清理空闲受管工作目录；不直接递归删除任意路径。当前 run 仍占用的目录不能成为候选。
+runService 在启动、执行前后和配置的周期检查中，按 settingService 的策略触发 sessionService 清理空闲受管工作目录；不直接递归删除任意路径。同一 conversation 任一 run 仍占用的共享目录都不能成为候选，不能因当前 session 空闲就删除其他 session 正在使用的文件。
 
 创建 run.json、绑定 session、更新同步位置涉及多个文件，没有跨文件数据库事务。进程中串行管理，崩溃后读取状态文件并与 server/原生状态核对；无法确认的任务标中断，不因一个旧 running 字段自行重跑。
 

@@ -58,6 +58,8 @@ Client 维护本地接入包及其内容摘要 harness_revision，摘要包括 Y
 
 每次执行把需准备的资源放到当前 run/attempt 的独立目录，通过本次启动参数加载；同 conversation 的并行 agent 不互相覆盖 hook 配置、AGENTS.md 或 CLAUDE.md。小型协议关联信息与原生连接对象只保存在本地执行期间，进程结束后清理，服务端 conversation 文件空间不受本地临时目录回收影响。
 
+同一 endpoint/conversation 的 Codex、Claude Code 等适配器必须使用 sessionService 分配的相同 work_root，可以同时运行。适配器不按 harness 再创建独立业务目录；本次 hook/配置资源放在共享目录中的 run/attempt 独立子目录，通过启动参数加载，不能覆盖共享根目录的 AGENTS.md 或 CLAUDE.md。
+
 session 的创建/恢复选择由 [client sessionService](client-session.md) 负责；harnessService 实现原生 create/resume/run 操作，不自行按每个 run 新建上下文。
 
 ## 四、统一业务动作

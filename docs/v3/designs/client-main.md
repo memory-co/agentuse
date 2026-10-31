@@ -20,8 +20,8 @@ Client 负责本地连接、领取、原生 session 和执行；server 负责 co
 | Service | 负责什么 | 主要拥有的数据 |
 |---|---|---|
 | [endpointService](client-endpoint.md) | 管已注册 server 的地址、device 身份和凭据 | `~/.agentuse/endpoints.yaml` |
-| [settingService](client-setting.md) | 管端口、执行容量、各 harness 工作根目录和容量回收策略 | `~/.agentuse/setting.yaml` |
-| [sessionService](client-session.md) | 管理原生会话复用、执行锁、历史位置及空闲工作目录回收 | 每个原生会话的 `session.yaml` |
+| [settingService](client-setting.md) | 管端口、执行容量、session 共享工作根目录和容量回收策略 | `~/.agentuse/setting.yaml` |
+| [sessionService](client-session.md) | 管理原生会话复用、执行锁、历史位置及空闲工作目录回收 | 每个原生会话的 `session.yaml` 与 conversation 的 `workspace.yaml` |
 | [runService](client-run.md) | 读取 endpoints 和设置，自行领取/执行、上报事件并触发清理 | 每个执行尝试的 `run.json` |
 | [harnessService](client-harness.md) | 本地接入包探测、原生 session 操作、启动执行、RPC/hook/skill、输出解释 | `~/.agentuse/harness/` 下的适配器与资源文件 |
 
@@ -35,7 +35,7 @@ endpointService 不创建中心连接，不领取任务，不管理槽位，也�
 
 ### 2.2 settingService：本地运行配置
 
-settingService 读取 setting.yaml，管理本机 HTTP 端口、执行总容量、Codex/Claude Code 各自临时工作根目录，以及容量限制和自动清理策略。它提供校验后的配置，不领任务、不直接删目录。
+settingService 读取 setting.yaml，管理本机 HTTP 端口、执行总容量、sessionService 使用的统一临时工作根目录，以及容量限制和自动清理策略。它提供校验后的配置，不领任务、不直接删目录。
 
 配置容量超限时，由 runService 触发 sessionService 回收空闲受管工作目录；正在执行或等待答案的目录受保护。根目录容量属于清理/准入策略，不是会强杀进程的硬配额。
 
@@ -73,7 +73,7 @@ Server Conversation C
   └─ Agent reviewer → R3、R4 → Client Session S2 → Claude Session H1
 ```
 
-一个 conversation 的多个 agent 共享 server 历史，但在 client 各自有原生 session。一个 server run 的不同 attempt 可以有多条本地执行记录，每条绑定实际使用过的 session。
+一个 conversation 的多个 agent 共享 server 历史，在 client 各自有原生 session，但使用同一个 conversation 工作目录。一个 server run 的不同 attempt 可以有多条本地执行记录，每条绑定实际使用过的 session。
 
 首次执行准备共享历史；恢复 session 时以历史增量和当前 run_prompts 组织输入，不重复把完整 conversation 灌进已有原生上下文。细节见 sessionService 设计。
 
@@ -114,21 +114,20 @@ Server Conversation C
 ├── setting.yaml
 ├── harness/<harness>/<revision>/...
 ├── state/
+│   ├── workspaces/<endpoint_id>/<conversation_id>/workspace.yaml
 │   ├── sessions/<session_id>/session.yaml
 │   └── runs/<endpoint_id>/<run_id>/<attempt_id>/run.json
-├── tmp/
-│   ├── codex/<endpoint_id>/<conversation_id>/<session_id>/...
-│   └── claude/<endpoint_id>/<conversation_id>/<session_id>/...
+├── tmp/<endpoint_id>/<conversation_id>/...
 └── ui.token
 ```
 
-两个 tmp 路径是默认值，可在 setting.yaml 中分别改到其他目录。配置、运行记录和接入包不放入可回收工作根目录。不同 harness 工作区是本地副本，共享文件以 server fileService 为准，不承诺不同根目录自动同步。
+tmp 是默认父目录，可通过 setting.yaml 的 session.work_root 配置。sessionService 按 endpoint/conversation 绑定唯一工作目录，同一 conversation 的 Codex、Claude Code 等原生 session 使用该目录，并允许并行运行。配置、状态和适配器不放入可回收目录；server fileService 负责上传下载和交付。
 
 | 文件 | 唯一负责写入的 Service |
 |---|---|
 | endpoints.yaml | endpointService |
 | setting.yaml | settingService（CLI 通过它修改） |
-| session.yaml | sessionService |
+| session.yaml / workspace.yaml | sessionService |
 | run.json | runService |
 | 接入包和原生资源 | harnessService 与本地包安装流程 |
 
@@ -142,7 +141,7 @@ Server Conversation C
 
 ## 七、目录容量与清理
 
-settingService 提供每种 harness 的根目录与策略；sessionService 只回收带受管标记的空闲 session 工作目录，按最近使用时间清理到目标容量。正在运行、等待问题或已被任务锁定的目录不能删。
+settingService 提供 session 的默认父目录及统一容量策略；sessionService 按 conversation 回收带受管标记的空闲共享目录，每个目录只计量一次，按其所有 session 的最近使用时间清理。任一关联 session 正在运行、等待问题或已被任务锁定时，整个目录不能删。
 
 目录回收不删除 session.yaml、run.json、server 文件或原生工具的全局历史。对应 session 记录目录缺失，后续不得直接恢复旧工作区；有任务时从共享历史和文件重建新会话。没有可清理空间时暂停新启动，不强杀在用任务。
 
