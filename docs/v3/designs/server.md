@@ -4,7 +4,7 @@
 
 Server 负责保存共享会话、把每条消息交给指定的 agent、跟踪执行和保存结果。真正运行 harness 的是用户机器上的 client。服务端的持久事实在 SQLite，在线 daemon 的 WebSocket 连接在内存里，附件正文在文件系统里。
 
-阅读顺序：先看调用图，再按文件查职责；数据关系见第四节，一条用户消息的全过程见第五节。
+阅读顺序：先看调用图，再按文件查职责；数据关系见第四节，一条用户消息的全过程见第五节。Session 与 run 的对象关系和场景例子另见 [Session 设计](session.md)。
 
 ## 一、整体拓扑
 
@@ -247,7 +247,7 @@ hub 是另一条业务入口：hello 调 `DaemonConnected + ReconcileRuns`，rea
 3. `runInputs` 选取主任务和可合并的连续文本 prompt delivery，记录 `prepared_attempt`；读取共享消息历史并确定 `context_seq` 上界。结构化输入不会被无条件拼进同一次文本任务。
 4. 读取 session 创建者作为 sender，读取 work 信息；若是当前协调 agent 的 run，签发限定本 run/attempt 的工作令牌。更新 session 状态并提交。
 5. hub 把连接改为非 idle，通过 WebSocket 发 `run`，携带 run/attempt/session/agent/harness、input、task_message_ids、context_seq、sender、work 等。
-6. **dispatch 不内联整个消息历史和附件正文。** client 用 daemon 密钥和 `X-Agentuse-Run / X-Agentuse-Attempt` 经 HTTP 读取 session 快照、附件元数据/内容。server 的 `sessionReadAuth / attachmentAuth` 校验该 attempt 的访问权；`ReadSession` 返回一致快照，client 按 context_seq 和任务 ID 准备执行上下文。
+6. **dispatch 不内联整个消息历史和附件正文。** client 用 daemon 密钥和 `X-Agentuse-Run / X-Agentuse-Attempt` 经 HTTP 读取 session 快照、附件元数据/内容。server 的 `sessionReadAuth / attachmentAuth` 校验该 attempt 的访问权；`ReadSession` 返回一致快照，client 读取最新共享历史并更新 context_seq，再通过 started 上报实际读取边界；任务 ID 标识本次明确要处理的输入。
 
 所有 agent 读取同一个 session 的历史；每个 run 的 context_seq 记录该次执行准备时的边界，不存在 session_participant 或按 agent 分开的上下文库。
 
