@@ -1,8 +1,10 @@
-// Package attachment contains the shared attachment metadata and streaming client.
+// Package attachment validates attachment filenames and IDs.
 package attachment
 
 import (
 	"errors"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"net/url"
 	"path"
 	"strings"
 	"unicode"
@@ -11,25 +13,8 @@ import (
 
 const Capability = "attachments-v1"
 
-type Attachment struct {
-	CreatedByAgentKey string `json:"created_by_agent_key,omitempty"`
-	CreatedByRunID    string `json:"created_by_run_id,omitempty"`
-	ID                string `json:"id"`
-	SessionID         string `json:"session_id"`
-	Filename          string `json:"filename"`
-	ContentType       string `json:"content_type"`
-	SizeBytes         int64  `json:"size_bytes"`
-	SHA256            string `json:"sha256"`
-	CreatedBy         string `json:"created_by"`
-	Source            string `json:"source"`
-	DaemonID          string `json:"daemon_id,omitempty"`
-	CreatedAt         int64  `json:"created_at"`
-	DownloadPath      string `json:"download_path"`
-}
-type Page struct {
-	Attachments []Attachment `json:"attachments"`
-	NextCursor  *string      `json:"next_cursor"`
-}
+type Attachment = agentuse.Attachment
+type Page = agentuse.AttachmentPage
 
 func Filename(s string) (string, error) {
 	s = path.Base(strings.ReplaceAll(s, `\`, "/"))
@@ -49,3 +34,5 @@ func ValidID(s, prefix string) bool {
 	}
 	return true
 }
+
+func Path(session string) string { return "/api/sessions/" + url.PathEscape(session) + "/attachments" }

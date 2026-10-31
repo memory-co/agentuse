@@ -10,6 +10,7 @@ import (
 
 	"github.com/memory-co/agentuse/internal/attachment"
 	"github.com/memory-co/agentuse/internal/protocol"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 func openAttachmentDir(root *os.Root, name string) (*os.Root, error) {
@@ -26,8 +27,8 @@ func openAttachmentDir(root *os.Root, name string) (*os.Root, error) {
 	return root.OpenRoot(name)
 }
 func (d *Daemon) syncAttachments(ctx context.Context, m *protocol.Dispatch, dir string) error {
-	c := attachment.Client{Server: d.cfg.Server, Token: d.cfg.Key, RunID: m.RunID, AttemptID: m.AttemptID}
-	list, err := c.List(ctx, m.SessionID)
+	c := agentuse.Client{BaseURL: d.cfg.Server, Token: d.cfg.Key, RunID: m.RunID, AttemptID: m.AttemptID}
+	list, err := c.AllAttachments(ctx, "", m.SessionID)
 	if err != nil {
 		return err
 	}
@@ -68,7 +69,7 @@ func (d *Daemon) syncAttachments(ctx context.Context, m *protocol.Dispatch, dir 
 				if e != nil {
 					return e
 				}
-				e = attachment.CopyVerified(discardWriter{}, f, a)
+				e = agentuse.CopyVerified(discardWriter{}, f, a)
 				f.Close()
 				if e == nil {
 					return nil
@@ -76,7 +77,7 @@ func (d *Daemon) syncAttachments(ctx context.Context, m *protocol.Dispatch, dir 
 			} else if !errors.Is(e, os.ErrNotExist) {
 				return e
 			}
-			src, e := c.Content(ctx, a)
+			src, e := c.DownloadAttachment(ctx, "", a.SessionID, a.ID)
 			if e != nil {
 				return e
 			}
@@ -92,7 +93,7 @@ func (d *Daemon) syncAttachments(ctx context.Context, m *protocol.Dispatch, dir 
 			}
 			defer sub.Remove(tmp)
 			defer f.Close()
-			if e = attachment.CopyVerified(f, src, a); e != nil {
+			if e = agentuse.CopyVerified(f, src, a); e != nil {
 				return e
 			}
 			if e = f.Sync(); e != nil {

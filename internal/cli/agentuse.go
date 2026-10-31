@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/memory-co/agentuse/internal/version"
 	"os"
 
 	"github.com/memory-co/agentuse/internal/daemon"
@@ -74,7 +75,7 @@ func runDaemon(args []string) error {
 	if err != nil {
 		return err
 	}
-	daemon.Version = Version
+	daemon.Version = version.Version
 	d, err := daemon.New(cfg, nil)
 	if err != nil {
 		return err

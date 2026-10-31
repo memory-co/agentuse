@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/memory-co/agentuse/internal/daemon"
-	"github.com/memory-co/agentuse/internal/store"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 func splitAgents(s string) []string {
@@ -78,10 +78,10 @@ func runSession(args []string) error {
 	if *server == "" || *token == "" {
 		return errors.New("缺少服务地址或凭据")
 	}
-	c := &apiClient{server: strings.TrimRight(*server, "/"), token: *token}
+	c := &agentuse.Client{BaseURL: strings.TrimRight(*server, "/"), Token: *token}
 	if strings.HasPrefix(*token, "dk_") {
-		c.runID = os.Getenv("AGENTUSE_RUN")
-		c.attemptID = os.Getenv("AGENTUSE_ATTEMPT")
+		c.RunID = os.Getenv("AGENTUSE_RUN")
+		c.AttemptID = os.Getenv("AGENTUSE_ATTEMPT")
 	}
 	need := 0
 	if action == "send" || action == "cancel" {
@@ -100,7 +100,7 @@ func runSession(args []string) error {
 	switch action {
 	case "send":
 		var reply any
-		if err := c.do(ctx, "POST", base+"/messages", map[string]any{"prompt": pos[0], "target_agent_ids": splitAgents(*agents)}, &reply); err != nil {
+		if err := c.Request(ctx, "", "POST", base+"/messages", map[string]any{"prompt": pos[0], "target_agent_ids": splitAgents(*agents)}, &reply); err != nil {
 			return err
 		}
 		return json.NewEncoder(os.Stdout).Encode(reply)
@@ -108,11 +108,11 @@ func runSession(args []string) error {
 		deadline := time.Now().Add(*timeout)
 		for {
 			var detail struct {
-				Session  store.Session   `json:"session"`
-				Messages []store.Message `json:"messages"`
-				Runs     []store.Run     `json:"runs"`
+				Session  agentuse.Session   `json:"session"`
+				Messages []agentuse.Message `json:"messages"`
+				Runs     []agentuse.Run     `json:"runs"`
 			}
-			if err := c.do(ctx, "GET", base, nil, &detail); err != nil {
+			if err := c.Request(ctx, "", "GET", base, nil, &detail); err != nil {
 				return err
 			}
 			if action == "wait" && detail.Session.Status != "idle" && detail.Session.Status != "resolved" {
@@ -145,8 +145,8 @@ func runSession(args []string) error {
 			return nil
 		}
 	case "cancel":
-		var r store.Run
-		if err := c.do(ctx, "POST", base+"/runs/"+url.PathEscape(pos[0])+"/cancel", nil, &r); err != nil {
+		var r agentuse.Run
+		if err := c.Request(ctx, "", "POST", base+"/runs/"+url.PathEscape(pos[0])+"/cancel", nil, &r); err != nil {
 			return err
 		}
 		return json.NewEncoder(os.Stdout).Encode(r)

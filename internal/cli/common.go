@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/memory-co/agentuse/internal/version"
 	"io"
 	"os"
 	"os/signal"
@@ -16,7 +17,6 @@ import (
 )
 
 // Version 由构建时 -ldflags 注入。
-var Version = "dev"
 
 // errUsage 表示参数不对，退出码 2。
 var errUsage = errors.New("usage")
@@ -37,7 +37,7 @@ func dispatch(prog, usage string, args []string, cmds []command) int {
 		fmt.Print(usage)
 		return 0
 	case "version", "-v", "--version":
-		fmt.Println(Version)
+		fmt.Println(version.Version)
 		return 0
 	}
 	for _, c := range cmds {
