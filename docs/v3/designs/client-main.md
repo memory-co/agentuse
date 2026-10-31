@@ -23,7 +23,7 @@ Client 负责本地连接、领取、原生 session 和执行；server 负责 co
 | [settingService](client-setting.md) | 管端口、执行容量、各 harness 工作根目录和容量回收策略 | `~/.agentuse/setting.yaml` |
 | [sessionService](client-session.md) | 管理原生会话复用、执行锁、历史位置及空闲工作目录回收 | 每个原生会话的 `session.yaml` |
 | [runService](client-run.md) | 读取 endpoints 和设置，自行领取/执行、上报事件并触发清理 | 每个执行尝试的 `run.json` |
-| [harnessService](client-harness.md) | 本地接入包探测、原生 session 操作、启动执行、RPC/hook/skill、输出解释 | 本地接入包与原生资源文件 |
+| [harnessService](client-harness.md) | 本地接入包探测、原生 session 操作、启动执行、RPC/hook/skill、输出解释 | `~/.agentuse/harness/` 下的适配器与资源文件 |
 
 Client 共五个 service，全部以各自文件作为唯一持久化事实，不设本机数据库。Server 仍使用自己的业务数据库，不受本次调整影响。
 
@@ -112,7 +112,7 @@ Server Conversation C
 ~/.agentuse/
 ├── endpoints.yaml
 ├── setting.yaml
-├── harnesses/<harness>/<revision>/...
+├── harness/<harness>/<revision>/...
 ├── state/
 │   ├── sessions/<session_id>/session.yaml
 │   └── runs/<endpoint_id>/<run_id>/<attempt_id>/run.json

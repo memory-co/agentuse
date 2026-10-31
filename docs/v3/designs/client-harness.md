@@ -33,10 +33,10 @@ YAML、shell 命令、argv/env、脚本、原生 RPC 帧、hook 请求和控制�
 
 ## 三、接入包不只是 YAML
 
-YAML 能声明已有能力的接入方式，不能让原生程序凭空具有插话或提问能力。Client 本地的接入包按需包含：
+YAML 能声明已有能力的接入方式，不能让原生程序凭空具有插话或提问能力。所有 harness 适配器统一存放在 `~/.agentuse/harness/`，由 harnessService 从该目录加载。每种 harness 按标识分目录，再按接入包版本分目录；Codex、Claude Code 及后续适配器都遵循这一结构。接入包按需包含：
 
 ```text
-harness-package/
+~/.agentuse/harness/<harness>/<revision>/
 ├── harness.yaml       探测、启动、协议映射、能力和资源清单
 ├── hooks/             本地 hook / 桥接程序，可为空
 ├── skills/            文件、工作线程等业务操作说明，可为空
@@ -150,7 +150,9 @@ accepted 不等于模型已经理解或完成输入；client 必须报告确认�
 
 ## 八、文件存储与代码归属
 
-接入包及版本存于 client 本地文件，不新增 server harnesses 表。YAML、hook、skill、指令及原生适配代码属于 client；本地进程/RPC/回调原语也在 client 内复用。根共享部分只保留 run 业务协议、标准事件和必要 DTO，不放 harness YAML 或原生适配逻辑。
+`~/.agentuse/harness/` 是所有 harness 适配器及其版本的统一存储目录，例如 `~/.agentuse/harness/codex/<revision>/` 和 `~/.agentuse/harness/claude/<revision>/`。该目录保存适配器 YAML、hook、桥接程序、skill 和指令资源，不存放 session 的临时工作文件，也不参与工作目录容量回收。原生 Codex / Claude Code 程序由本机安装，适配器负责探测和调用。
+
+接入包通过本地文件管理，不新增 server harnesses 表。YAML、hook、skill、指令及原生适配代码属于 client；本地进程/RPC/回调原语也在 client 内复用。根共享部分只保留 run 业务协议、标准事件和必要 DTO，不放 harness YAML 或原生适配逻辑。
 
 本地执行记录由 client runService 写 run.json，会话映射由 sessionService 写 session.yaml；harnessService 只返回标准执行信息，不访问数据库。
 
