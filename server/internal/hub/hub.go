@@ -1,9 +1,11 @@
-package server
+package hub
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/memory-co/agentuse/server/internal/service"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -17,10 +19,11 @@ import (
 )
 
 // hub 管所有在线 daemon 的 WebSocket 连接，负责派活。
-type hub struct {
-	s     *Server
-	mu    sync.Mutex
-	conns map[string]*daemonConn // daemon id → 连接
+type Hub struct {
+	service *service.Service
+	log     *log.Logger
+	mu      sync.Mutex
+	conns   map[string]*daemonConn // daemon id → 连接
 }
 
 type daemonConn struct {
@@ -32,11 +35,16 @@ type daemonConn struct {
 	idle bool       // daemon 说过 ready、还没派活
 }
 
-func newHub(s *Server) *hub { return &hub{s: s, conns: map[string]*daemonConn{}} }
+func New(s *service.Service, logger *log.Logger) *Hub {
+	if logger == nil {
+		logger = log.Default()
+	}
+	return &Hub{service: s, log: logger, conns: map[string]*daemonConn{}}
+}
 
-func (h *hub) handleWS(w http.ResponseWriter, r *http.Request) {
+func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	d, err := h.s.store.DaemonByKey(r.Context(), key)
+	d, err := h.service.DaemonByKey(r.Context(), key)
 	if key == "" || err != nil {
 		writeErr(w, http.StatusUnauthorized, "daemon 密钥无效，请重新运行安装命令")
 		return
@@ -58,21 +66,21 @@ func (h *hub) handleWS(w http.ResponseWriter, r *http.Request) {
 	h.conns[d.ID] = c
 	h.mu.Unlock()
 
-	h.s.log.Printf("daemon %s (%s) 已连接", d.ID, d.Name)
+	h.log.Printf("daemon %s (%s) 已连接", d.ID, d.Name)
 	err = h.serve(ctx, c)
 
 	h.mu.Lock()
 	if h.conns[d.ID] == c {
 		delete(h.conns, d.ID)
-		_ = h.s.store.DaemonDisconnected(context.Background(), d.ID)
+		_ = h.service.DaemonDisconnected(context.Background(), d.ID)
 	}
 	h.mu.Unlock()
 	ws.Close(websocket.StatusNormalClosure, "")
-	h.s.log.Printf("daemon %s (%s) 已断开: %v", d.ID, d.Name, err)
+	h.log.Printf("daemon %s (%s) 已断开: %v", d.ID, d.Name, err)
 }
 
-func (h *hub) serve(ctx context.Context, c *daemonConn) error {
-	st := h.s.store
+func (h *Hub) serve(ctx context.Context, c *daemonConn) error {
+	st := h.service
 	for {
 		var m protocol.Message
 		if err := wsjson.Read(ctx, c.ws, &m); err != nil {
@@ -108,7 +116,7 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 				if e != nil {
 					return e
 				}
-				h.pushRunSteers(ds)
+				h.PushRunSteers(ds)
 			}
 			qs, e := st.PendingRunAnswers(ctx, c.d.ID)
 			if e != nil {
@@ -136,9 +144,9 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 					_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, RunID: m.RunID, AttemptID: m.AttemptID, MessageID: m.MessageID, Error: err.Error()})
 				}
 				if ds, e := st.PendingRunSteers(ctx); e == nil {
-					h.pushRunSteers(ds)
+					h.PushRunSteers(ds)
 				}
-				h.kickAll()
+				h.KickAll()
 				continue
 			}
 			_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, Error: "run_id and attempt_id are required"})
@@ -148,30 +156,30 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 	}
 }
 
-func (h *hub) dispatch(ctx context.Context, c *daemonConn) {
+func (h *Hub) dispatch(ctx context.Context, c *daemonConn) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.idle {
 		return
 	}
-	clRun, runErr := h.s.store.ClaimRun(ctx, c.d, protocol.LeaseSeconds)
+	clRun, runErr := h.service.ClaimRun(ctx, c.d, protocol.LeaseSeconds)
 	if runErr == nil {
 		c.idle = false
 		run := clRun.Run
 		msg := protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{ID: run.MessageID, RunID: run.ID, AttemptID: run.AttemptID, SessionID: run.SessionID, AgentID: run.AgentKey, Harness: run.Harness, Input: clRun.Input, TaskMessageIDs: clRun.TaskMessageIDs, ContextSeq: run.ContextSeq, Instructions: clRun.Instructions, WorkToken: clRun.WorkToken}}
 		if err := c.send(ctx, msg); err != nil {
-			h.s.log.Printf("send run: %v", err)
+			h.log.Printf("send run: %v", err)
 		}
 		return
 	}
 	if !errors.Is(runErr, store.ErrNotFound) {
-		h.s.log.Printf("claim run: %v", runErr)
+		h.log.Printf("claim run: %v", runErr)
 		return
 	}
 }
 
-// kickUser 有新活可派时，叫醒该用户所有空闲的 daemon。
-func (h *hub) kickUser(userID string) {
+// KickUser 有新活可派时，叫醒该用户所有空闲的 daemon。
+func (h *Hub) KickUser(userID string) {
 	h.mu.Lock()
 	var cs []*daemonConn
 	for _, c := range h.conns {
@@ -185,8 +193,8 @@ func (h *hub) kickUser(userID string) {
 	}
 }
 
-// disconnect 主动断开一台 daemon(删除 / 重置时)。
-func (h *hub) disconnect(daemonID string) {
+// Disconnect 主动断开一台 daemon(删除 / 重置时)。
+func (h *Hub) Disconnect(daemonID string) {
 	h.mu.Lock()
 	c := h.conns[daemonID]
 	h.mu.Unlock()
@@ -206,7 +214,7 @@ func (c *daemonConn) send(ctx context.Context, m protocol.Message) error {
 	return c.ws.Write(ctx, websocket.MessageText, b)
 }
 
-func (h *hub) kickAll() {
+func (h *Hub) KickAll() {
 	h.mu.Lock()
 	cs := make([]*daemonConn, 0, len(h.conns))
 	for _, c := range h.conns {
@@ -217,7 +225,7 @@ func (h *hub) kickAll() {
 		go h.dispatch(context.Background(), c)
 	}
 }
-func (h *hub) pushRun(daemon string, m protocol.Message) {
+func (h *Hub) PushRun(daemon string, m protocol.Message) {
 	h.mu.Lock()
 	c := h.conns[daemon]
 	h.mu.Unlock()
@@ -225,19 +233,25 @@ func (h *hub) pushRun(daemon string, m protocol.Message) {
 		_ = c.send(context.Background(), m)
 	}
 }
-func (h *hub) pushRunSteers(ds []store.Delivery) {
+func (h *Hub) PushRunSteers(ds []store.Delivery) {
 	for _, d := range ds {
 		if d.Kind != "steer" || d.Status != "pending" {
 			continue
 		}
-		run, err := h.s.store.GetRun(context.Background(), store.User{Role: store.RoleAdmin}, d.SessionID, d.RunID)
+		run, err := h.service.GetRun(context.Background(), store.User{Role: store.RoleAdmin}, d.SessionID, d.RunID)
 		if err != nil || run.Status != "running" {
 			continue
 		}
-		prompt, err := h.s.store.RunTaskPrompt(context.Background(), d.MessageID)
+		prompt, err := h.service.RunTaskPrompt(context.Background(), d.MessageID)
 		if err != nil || prompt == "" {
 			continue
 		}
-		h.pushRun(run.DaemonID, protocol.Message{Type: protocol.TypeSteer, Steer: &protocol.Steer{ID: d.ID, RunID: run.ID, AttemptID: run.AttemptID, MessageID: run.MessageID, Prompt: prompt}})
+		h.PushRun(run.DaemonID, protocol.Message{Type: protocol.TypeSteer, Steer: &protocol.Steer{ID: d.ID, RunID: run.ID, AttemptID: run.AttemptID, MessageID: run.MessageID, Prompt: prompt}})
 	}
+}
+
+func writeErr(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
