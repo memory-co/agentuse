@@ -16,8 +16,9 @@ type Spec struct {
 	DisplayName string `yaml:"display_name"`
 	Description string `yaml:"description"`
 	// Command 是默认可执行文件,daemon.json 里配了就用配的。
-	Command string `yaml:"command"`
-	Detect  struct {
+	Command   string `yaml:"command"`
+	Transport string `yaml:"transport"`
+	Detect    struct {
 		Version []string `yaml:"version"`
 	} `yaml:"detect"`
 	Run struct {
@@ -41,6 +42,7 @@ type Spec struct {
 
 // SteerClaudeHooks:Claude Code stream-json 的 control 协议注册 hook,回调时塞插话。
 const SteerClaudeHooks = "claude-hooks"
+const TransportCodexAppServer = "codex-app-server"
 
 // AskClaudePermission:Claude Code 的 can_use_tool 请求里等用户回答 AskUserQuestion。
 const AskClaudePermission = "claude-permission"

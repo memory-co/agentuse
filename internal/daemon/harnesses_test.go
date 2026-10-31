@@ -16,41 +16,6 @@ import (
 	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-// 假 codex:把参数写进 args.txt,按 codex exec --json 的格式输出 JSONL。
-const fakeCodex = `#!/bin/sh
-echo "$@" > args.txt
-echo '{"type":"thread.started","thread_id":"th-1"}'
-echo '{"type":"turn.started"}'
-echo '{"type":"item.completed","item":{"type":"command_execution","command":"ls"}}'
-echo '{"type":"item.completed","item":{"type":"agent_message","text":"done!"}}'
-echo '{"type":"turn.completed"}'
-`
-
-func TestRunCodexFresh(t *testing.T) {
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "codex")
-	os.WriteFile(bin, []byte(fakeCodex), 0o755)
-	sp, _ := harness.Get("codex")
-	la := localHarness{Name: "codex", Path: bin, Args: []string{"-s", "workspace-write"}, Spec: &sp}
-	var progress []string
-	report := func(_ string, p any) { b, _ := json.Marshal(p); progress = append(progress, string(b)) }
-
-	res := runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, nil, report)
-	if !res.OK || res.Output != "done!" || res.SessionID != "th-1" || len(progress) != 2 {
-		t.Fatalf("first: %+v %v", res, progress)
-	}
-	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
-	if got := strings.TrimSpace(string(args)); got != "exec --json --skip-git-repo-check -c sandbox_mode=workspace-write -c sandbox_workspace_write.network_access=true -s workspace-write hi" {
-		t.Fatalf("args: %q", got)
-	}
-
-	res = runHarness(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"again"}`)}, dir, nil, report)
-	args, _ = os.ReadFile(filepath.Join(dir, "args.txt"))
-	if got := strings.TrimSpace(string(args)); !res.OK || got != "exec --json --skip-git-repo-check -c sandbox_mode=workspace-write -c sandbox_workspace_write.network_access=true -s workspace-write again" {
-		t.Fatalf("resume: %+v %q", res, got)
-	}
-}
-
 // 假 claude:从 stdin 读一行消息，按 stream-json 输出,result 行给结果和会话 id;
 // 之后像真的 claude 一样等 stdin 关掉才退出。
 const fakeClaude = `#!/bin/sh
@@ -160,7 +125,11 @@ func TestRunCancelled(t *testing.T) {
 func TestRunSpecFinish(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	codex, _ := harness.Get("codex")
+	var codex harness.Spec
+	codex.Name = "jsonl"
+	codex.Run.New = []string{"{prompt}"}
+	codex.Finish.RequireOK = true
+	codex.Output.Rules = []harness.Rule{{Match: map[string]any{"type": "turn.failed"}, Error: "error.message"}, {Match: map[string]any{"type": "turn.completed"}, OK: true}}
 	claude, _ := harness.Get("claude")
 	run := func(sp harness.Spec, script string) Result {
 		la := localHarness{Name: sp.Name, Path: fakeBin(t, t.TempDir(), sp.Name, script), Spec: &sp}

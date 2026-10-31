@@ -6,7 +6,7 @@
 
 ## 连接与派活
 
-hello 上报 `harnesses`、`version`、`capabilities:["session-runs-v1","attachments-v1"]` 与 `active_runs:[{run_id,attempt_id}]`。welcome 返回 daemon_id、name、ignored 和 valid_runs。daemon 必须停止无效执行，再发 ready。
+hello 上报 `harnesses`、`version`、`capabilities:["session-runs-v1","attachments-v1","codex-steer-v1"]` 与 `active_runs:[{run_id,attempt_id}]`。welcome 返回 daemon_id、name、ignored 和 valid_runs。daemon 必须停止无效执行，再发 ready。
 
 服务只领取本 daemon、运行时可用的 pending run，一次派一个执行。派活消息：
 

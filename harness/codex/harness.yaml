@@ -1,40 +1,8 @@
 name: codex
 display_name: Codex
-description: OpenAI Codex CLI(codex exec)
-
+description: OpenAI Codex app-server，支持活动 turn 的实时插话
 command: codex
-
-# 会话在工作里时，工作的说明写成这个文件(docs/v2/designs/work.md)
+transport: codex-app-server
 instructions: AGENTS.md
-
 detect:
   version: [--version]
-
-# 默认沙箱改成 workspace-write 并放开网络:codex exec 默认是只读沙箱、不能联网，
-# 协调者的 agentuse work 调不到服务(它会绕开去用自带的子 agent),普通会话也干不了要联网的活。
-# 用 -c 配置而不是 --sandbox:daemon.json 里 args 再给 -s/--sandbox 时以它为准，不会冲突
-run:
-  new:    [exec, --json, --skip-git-repo-check, -c, sandbox_mode=workspace-write, -c, sandbox_workspace_write.network_access=true, "{args}", "{prompt}"]
-  resume: [exec, --json, --skip-git-repo-check, -c, sandbox_mode=workspace-write, -c, sandbox_workspace_write.network_access=true, "{args}", resume, "{resume}", "{prompt}"]
-
-output:
-  format: jsonl
-  rules:
-    - match: { type: thread.started }
-      session_id: thread_id
-    - match: { type: item.completed, item.type: agent_message }
-      progress: "{item.text}"
-      output: item.text             # 最后一条 agent_message 作为结果输出
-    - match: { type: item.completed, item.type: command_execution }
-      progress: "🔧 {item.command}"
-    - match: { type: turn.completed }
-      ok: true
-    - match: { type: turn.failed }
-      error: error.message
-    - match: { type: error }
-      progress: "{message}"
-      error: message
-
-# 收尾：要 turn.completed 且退出码 0 才算成功
-finish:
-  require_ok: true

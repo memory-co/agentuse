@@ -14,9 +14,6 @@ import (
 
 func TestWorkInstructions(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "codex")
-	// 假 codex:顺便把 AGENTS.md 和工作令牌打出来
-	os.WriteFile(bin, []byte(fakeCodex+"cat AGENTS.md > seen.txt 2>/dev/null; echo \"token=$AGENTUSE_WORK\" >> seen.txt\n"), 0o755)
 	sp, _ := harness.Get("codex")
 	if sp.Instructions != "AGENTS.md" {
 		t.Fatalf("codex instructions: %q", sp.Instructions)
@@ -24,7 +21,9 @@ func TestWorkInstructions(t *testing.T) {
 	run := func(m protocol.Dispatch) string {
 		t.Helper()
 		m.SessionID, m.Input = "ss_1", json.RawMessage(`{"prompt":"hi"}`)
-		la := localHarness{Name: "codex", Path: bin, Spec: &sp, Env: workEnv("http://srv", m)}
+		la := codexTestHarness(t, "instructions")
+		la.Env = append(la.Env, workEnv("http://srv", m)...)
+		la.Spec = &sp
 		if res := runHarness(context.Background(), la, m, dir, nil, func(string, any) {}); !res.OK {
 			t.Fatalf("run: %+v", res)
 		}

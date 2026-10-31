@@ -101,9 +101,11 @@ func (s Spec) validate(fsys fs.FS, dir string) error {
 		return fmt.Errorf("name %q 和目录名 %q 不一致", s.Name, dir)
 	case s.Command == "":
 		return fmt.Errorf("缺 command")
-	case len(s.Run.New) == 0 || len(s.Run.Resume) == 0:
+	case s.Transport != "" && s.Transport != TransportCodexAppServer:
+		return fmt.Errorf("不支持的 transport %q", s.Transport)
+	case s.Transport == "" && (len(s.Run.New) == 0 || len(s.Run.Resume) == 0):
 		return fmt.Errorf("缺 run.new / run.resume")
-	case s.Output.Format != "jsonl":
+	case s.Transport == "" && s.Output.Format != "jsonl":
 		return fmt.Errorf("不支持的 output.format %q", s.Output.Format)
 	}
 	return nil

@@ -23,13 +23,8 @@ func TestLoad(t *testing.T) {
 }
 
 func TestArgs(t *testing.T) {
-	sp, _ := Get("codex")
-	got, _ := sp.Args("hi", "th-1", []string{"-s", "x"})
-	if strings.Join(got, " ") != "exec --json --skip-git-repo-check -c sandbox_mode=workspace-write -c sandbox_workspace_write.network_access=true -s x resume th-1 hi" {
-		t.Fatalf("codex resume: %q", got)
-	}
-	sp, _ = Get("claude")
-	got, _ = sp.Args("hi", "", nil)
+	sp, _ := Get("claude")
+	got, _ := sp.Args("hi", "", nil)
 	if strings.Join(got, " ") != "-p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions --permission-prompt-tool stdio" {
 		t.Fatalf("claude new: %q", got)
 	}
@@ -122,19 +117,10 @@ func TestClaudeOutput(t *testing.T) {
 	}
 }
 
-func TestCodexOutput(t *testing.T) {
-	st, progress := run(t, "codex",
-		`{"type":"thread.started","thread_id":"th-1"}`,
-		`{"type":"item.completed","item":{"type":"command_execution","command":"ls"}}`,
-		`{"type":"item.completed","item":{"type":"agent_message","text":"done!"}}`,
-		`{"type":"turn.completed"}`,
-	)
-	if !reflect.DeepEqual(progress, []string{"🔧 ls", "done!"}) || st.SessionID != "th-1" || st.Output != "done!" || !st.SawOK {
-		t.Fatalf("%+v %q", st, progress)
-	}
-	st, _ = run(t, "codex", `{"type":"turn.failed","error":{"message":"boom"}}`)
-	if st.SawOK || st.Error != "boom" {
-		t.Fatalf("failed: %+v", st)
+func TestCodexTransport(t *testing.T) {
+	sp, _ := Get("codex")
+	if sp.Transport != TransportCodexAppServer || len(sp.Run.New) > 0 {
+		t.Fatal("Codex must use app-server", sp)
 	}
 }
 

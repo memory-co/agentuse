@@ -19,7 +19,7 @@ agentuse 是一个可以自己部署的 agent 中间件。用户用**一行命�
 - **一行命令接入**:`curl …/setup.sh … && bash setup.sh`,自动注册并装成后台服务(launchd / systemd),电脑在 NAT 后面也能用。
 - **活在自己电脑上跑**:代码、密钥、harness 的登录状态都不离开用户电脑;消息只派给 agent 主人自己的 daemon。
 - **harness 可换**:内置 Claude Code、Codex,也能注册自己写的程序;agent 切换运行时(哪台电脑上的哪个 harness)不用改名字。
-- **多轮会话**:会话对齐 Claude Code 的 session / Codex 的 thread,在同一台电脑上续接。
+- **共享会话**:一个 session 可 @ 多个 agent，每次执行读取共享历史；Claude 用 hook、Codex 用 app-server turn/steer 接收执行中的补充。
 - **部署简单**:一个 `agentuse-server` 二进制，内嵌网页，数据就一个 SQLite 文件。
 - **方便嵌入**:Python / Node.js / Go 零依赖 SDK,带上网站自己的 user id 就能代表这个用户调用。
 
@@ -59,7 +59,7 @@ curl -fsSL "https://agentuse.example.com/setup.sh" -o setup.sh && TOKEN="st_…"
 
 ### 3. 选择开启哪些 harness
 
-在这台 daemon 下打开要用的 harness 开关(默认都关)。之后在「Agent」页建一个 agent(起个名字，选它跑在哪台 daemon 的哪个 harness 上，以后能切换),再在「会话」页选 agent、写 prompt 开一个会话，会派到 agent 绑定的那台 daemon 上,进度和回复实时显示，可以接着回复(会话对齐 Claude Code / Codex 自己的 session,在同一台电脑上续接)。
+在这台 daemon 下打开要用的 harness 开关(默认都关)。之后在「Agent」页建一个 agent(起个名字，选它跑在哪台 daemon 的哪个 harness 上，以后能切换),再在「会话」页选 agent、写 prompt 开一个会话，会派到 agent 绑定的那台 daemon 上,进度和回复实时显示，可以接着回复，也可以在执行中给相同 agent 插话。
 
 ## 命令
 

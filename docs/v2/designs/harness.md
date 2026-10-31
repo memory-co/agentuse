@@ -91,39 +91,21 @@ finish:
 ```yaml
 name: codex
 display_name: Codex
-description: OpenAI Codex CLI(codex exec)
-
+description: OpenAI Codex app-server，支持活动 turn 的实时插话
 command: codex
-
+transport: codex-app-server
+instructions: AGENTS.md
 detect:
   version: [--version]
-
-run:
-  new:    [exec, --json, --skip-git-repo-check, -c, sandbox_mode=workspace-write, -c, sandbox_workspace_write.network_access=true, "{args}", "{prompt}"]
-  resume: [exec, --json, --skip-git-repo-check, -c, sandbox_mode=workspace-write, -c, sandbox_workspace_write.network_access=true, "{args}", resume, "{resume}", "{prompt}"]
-
-output:
-  format: jsonl
-  rules:
-    - match: { type: thread.started }
-      session_id: thread_id
-    - match: { type: item.completed, item.type: agent_message }
-      progress: "{item.text}"
-      output: item.text             # 最后一条 agent_message 作为结果输出
-    - match: { type: item.completed, item.type: command_execution }
-      progress: "🔧 {item.command}"
-    - match: { type: turn.completed }
-      ok: true
-    - match: { type: turn.failed }
-      error: error.message
-    - match: { type: error }
-      progress: "{message}"
-      error: message
-
-# 收尾：要 turn.completed 且退出码 0 才算成功
-finish:
-  require_ok: true
 ```
+
+Codex 使用 stdio JSON-RPC app-server，而非 exec JSONL。每次 run 经 initialize → thread/start → turn/start 创建新的原生会话，收到用户补充后调用 turn/steer，要求 expectedTurnId 与当前 turn 相同。只有成功响应的 turnId 匹配，才回报 steered；拒收或执行已经结束时保留未送达投递，交给后续 run。
+
+取消先发送 turn/interrupt，最多等待两秒后结束 app-server。进度从 item 事件获取，计划从 turn/plan/updated 获取；只有 turn/completed 的 completed 状态视为成功。
+
+默认 workspace-write、网络开启、approval_policy=never。daemon.json 的 Codex args 支持 -m/--model、-s/--sandbox、-a/--ask-for-approval、-p/--profile、-c/--config、--enable/--disable、--search、--full-auto、--yolo，转换成 app-server 参数和配置；未知参数明确报错。command 自定义路径及 AGENTUSE_* 环境变量照常生效。不支持的交互 RPC 返回错误，不自动批准。
+
+协议依据：[OpenAI Codex app-server](https://learn.chatgpt.com/docs/app-server)。本机 Codex CLI 0.165.0 已通过真实运行验证。
 
 ## 字段
 
@@ -132,6 +114,7 @@ finish:
 | `name` | 唯一名字，等于 [harnesses](../tables/harnesses.md).name,必须和目录名一致 |
 | `display_name` / `description` | 服务启动时写进 harnesses 表,`kind = builtin` |
 | `command` | 默认可执行文件;daemon.json 里配了 `command` 就用配的 |
+| `transport` | 缺省使用 JSONL 执行器；codex-app-server 使用原生 thread/turn RPC |
 | `detect.version` | 探测版本用的参数，不写就不探测 |
 | `run.new` | 第一条消息的参数(不含 command 本身) |
 | `run.resume` | 之后每条的参数，派活消息里有 `resume` 时用 |
@@ -185,7 +168,7 @@ harness 没报会话 id 时沿用续接的那个，这条对所有 harness 都�
 ## 谁读它
 
 - **服务**:启动时把每个 `harness/*/harness.yaml` 的 `name` / `display_name` / `description` upsert 进 harnesses 表(`kind = builtin`),代替 `internal/store/harnesses.go` 里写死的列表。目录删了的内置 harness 不自动删行，避免 agent、会话引用断掉。
-- **daemon**:探测和运行都按 yaml 来,`runClaude` / `runCodex` 合成一个通用的 jsonl 执行器。daemon.json 的 `harnesses.<name>` 仍然可以改 `command`、加 `args`、`disabled`,写法不变。
+- **daemon**:探测和运行都按 yaml 来,Claude 使用通用 JSONL 执行器，Codex 使用 app-server 适配器。daemon.json 的 `harnesses.<name>` 仍然可以改 `command`、加 `args`、`disabled`,写法不变。
 - **文档**:[connect](connect.md#本机怎么跑-harness) 的命令表改成指向 `harness/<name>/harness.yaml`,不再手抄。
 
 整个 `harness/` 用 `go:embed` 编进 `agentuse` 和 `agentuse-server`,不需要用户机器上有这个目录;改里面的东西要发新版本才生效，和改代码一样。

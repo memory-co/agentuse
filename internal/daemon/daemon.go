@@ -153,7 +153,7 @@ func (d *Daemon) session(ctx context.Context) error {
 
 	d.mu.Lock()
 	d.harnesses = detectHarnesses(d.cfg)
-	hello := protocol.Message{Type: protocol.TypeHello, Version: Version, Capabilities: []string{attachment.Capability, "session-runs-v1"}}
+	hello := protocol.Message{Type: protocol.TypeHello, Version: Version, Capabilities: []string{attachment.Capability, "session-runs-v1", "codex-steer-v1"}}
 	for _, a := range d.harnesses {
 		hello.Harnesses = append(hello.Harnesses, protocol.Harness{Name: a.Name, Version: a.Version})
 	}

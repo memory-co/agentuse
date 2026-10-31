@@ -65,10 +65,10 @@ func TestBuiltins(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, s := range all {
-		if s.DisplayName == "" || s.Description == "" || len(s.Detect.Version) == 0 || len(s.Output.Rules) == 0 {
+		if s.DisplayName == "" || s.Description == "" || len(s.Detect.Version) == 0 || (s.Transport == "" && len(s.Output.Rules) == 0) {
 			t.Errorf("%s: 字段不全 %+v", s.Name, s)
 		}
-		if !s.Finish.RequireResult && !s.Finish.RequireOK {
+		if s.Transport == "" && !s.Finish.RequireResult && !s.Finish.RequireOK {
 			t.Errorf("%s: 内置 harness 要写 finish", s.Name)
 		}
 	}

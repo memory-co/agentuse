@@ -33,6 +33,8 @@ func main() {
 		fmt.Println(Version)
 	case len(args) > 0 && args[0] == "-p":
 		os.Exit(claude(args))
+	case len(args) > 0 && args[0] == "app-server":
+		os.Exit(codexAppServer())
 	case len(args) > 0 && args[0] == "exec":
 		os.Exit(codex(args))
 	default:

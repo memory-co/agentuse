@@ -112,15 +112,18 @@ func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir s
 	}
 	var pi protocol.PromptInput
 	_ = json.Unmarshal(m.Input, &pi)
-	args, err := la.Spec.Args(pi.Prompt, "", la.Args)
-	if err != nil {
-		return Result{Error: err.Error()}
-	}
 	if err := la.Spec.Prepare(dir); err != nil {
 		return Result{Error: "准备工作目录: " + err.Error()}
 	}
 	if err := writeInstructions(dir, la.Spec.Instructions, instructionsFor(m)); err != nil {
 		return Result{Error: "写工作说明: " + err.Error()}
+	}
+	if la.Spec.Transport == harness.TransportCodexAppServer {
+		return runCodex(ctx, la, m, dir, in, report)
+	}
+	args, err := la.Spec.Args(pi.Prompt, "", la.Args)
+	if err != nil {
+		return Result{Error: err.Error()}
 	}
 	cmd := exec.CommandContext(ctx, la.Path, args...)
 	if env := append(la.Spec.Environ(m.ID, m.SessionID), la.Env...); len(env) > 0 {
