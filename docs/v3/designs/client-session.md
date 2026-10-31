@@ -34,7 +34,7 @@ Session 对应原生历史，不等于操作系统进程。一次 Claude print �
 
 - 为领取的 run 选择可复用的本地 session，或请求 harnessService 创建新的原生 session。
 - 保存本地 session 与原生会话 ID 的一对一映射。
-- 按 endpoint/conversation 管理唯一共享工作目录，保证不同 agent/harness 的 session 使用相同 work_root。
+- 按 endpoint/conversation 管理唯一共享工作目录，保证不同 agent/harness 的 session 使用相同的 workspace/ 启动目录。
 - 串行管理同一个 session 的执行，维护上下文同步位置。
 - 在 run 结束后保留 session，供后续领来的 run 继续使用。
 - 处理 session 恢复、失效、关闭及本地历史查询。
@@ -87,7 +87,7 @@ sessionService 依据 last_context_seq 读取共享历史增量，结合当前 r
 <session.work_root>/<endpoint_id>/<conversation_id>/sessions/<local_session_id>/session.yaml
 ```
 
-每个 session 必须属于一个 endpoint/conversation，状态文件直接放在该 conversation 的共享工作目录中。这里 session.work_root 指配置的默认父目录，已有 conversation 以 workspace.yaml 绑定的实际目录为准。每个文件对应一个确定的原生会话。id 是本机 UUID，native_session_id 是原生程序返回的 ID，创建成功后固定；首次创建尚未完成时为空。
+每个 session 必须属于一个 endpoint/conversation，状态文件放在 conversation 目录的 sessions/ 下，与 workspace/ 同级。这里 session.work_root 指配置的默认父目录，已有 conversation 以 workspace.yaml 绑定的实际目录为准。每个文件对应一个确定的原生会话。id 是本机 UUID，native_session_id 是原生程序返回的 ID，创建成功后固定；首次创建尚未完成时为空。
 
 ```yaml
 id: 7877d33b-788f-4f6c-9ff0-987c2128064e
@@ -98,7 +98,6 @@ harness: codex
 harness_revision: package-revision
 native_session_id: thread-1
 workspace_id: 512f5703-b9e0-48fc-9a66-8d33883c32db
-work_root: ~/.agentuse/tmp/<endpoint_id>/<conversation_id>
 status: idle
 last_context_seq: 12
 created_at: 1793443200000
@@ -122,24 +121,27 @@ sessionService 将目录绑定保存在 `~/.agentuse/state/workspaces/<endpoint_
 id: 512f5703-b9e0-48fc-9a66-8d33883c32db
 endpoint_id: 66c645f1-f128-4c83-b29a-93bd1f181017
 conversation_id: 550e8400-e29b-41d4-a716-446655440000
-work_root: ~/.agentuse/tmp/<endpoint_id>/<conversation_id>
+conversation_root: ~/.agentuse/tmp/<endpoint_id>/<conversation_id>
 state: present
 ```
 
-workspace.yaml 是该 conversation 目录绑定及存在状态的唯一持久化来源；session.yaml 的 workspace_id/work_root 是关联信息，加载时以映射和实际目录核对修正。workspace.yaml 保留在工作目录之外以记录目录绑定；session.yaml 随 conversation 工作目录一起管理和回收。
+workspace.yaml 是该 conversation 目录绑定及存在状态的唯一持久化来源；session.yaml 只通过 workspace_id 关联 conversation 目录，不再保存 work_root；启动目录统一由 conversation_root/workspace 推导。workspace.yaml 保留在工作目录之外以记录目录绑定；session.yaml 随 conversation 工作目录一起管理和回收。
 
 首次按 setting.yaml 的 session.work_root 分配目录，后续相同 endpoint/conversation 的所有 session 复用映射。更换 harness、原生 session 或配置父目录都不能把已有 conversation 拆成不同目录。容量检查遍历已登记映射，因此配置变更后旧根目录仍纳入受管目录统计。目录回收会删除其中所有 session.yaml 并移除对应内存索引；之后在原绑定路径重建工作区时创建新 session 和新 UUID，不能因为同一路径重新出现就恢复旧上下文。
 
-session 的执行锁只保证单个原生 session 串行，不独占整个工作目录。多个 session 在同一目录并发时登记使用占用；清理须确认所有占用均已释放。业务文件直接共享，并发修改同一文件或 Git 状态仍需 agent 协调；不会自动获得文件事务。hook、临时配置和控制资源按 run/attempt 隔离，不能相互覆盖。服务端 fileService 用于文件传输与交付，同机共享工作区不需要通过上传下载模拟同步。
+session 的执行锁只保证单个原生 session 串行，不独占整个工作目录。多个 session 在同一目录并发时登记使用占用；清理须确认所有占用均已释放。业务文件直接共享，并发修改同一文件或 Git 状态仍需 agent 协调；不会自动获得文件事务。hook、临时配置和控制资源放在 sessions/<session_id>/runs/<run_id>/<attempt_id>/ 下，与 workspace/ 分开，通过绝对路径启动参数加载，不能相互覆盖。服务端 fileService 用于文件传输与交付，同机共享工作区不需要通过上传下载模拟同步。
 
 ## 七、工作目录怎样组织
+
+conversation 目录包含 workspace/ 与 sessions/ 两个同级目录：前者是所有 agent 的共享 cwd，后者保存会话和执行记录。所有 harness 均从 workspace/ 启动，不从 conversation 根目录或某个 session 目录启动。quota 仍统计整个 conversation 目录，回收时一起删除 workspace/ 与 sessions/，避免留下可被误恢复的旧记录。
 
 ```text
 <session.work_root>/
   <endpoint_id>/
     <conversation_id>/
       .agentuse-workspace.json
-      ...同一 conversation 的所有 agent / harness 共享的业务文件...
+      workspace/
+        ...同一 conversation 的所有 agent / harness 共享的业务文件...
       sessions/<local_session_id>/
         session.yaml
         runs/<run_id>/<attempt_id>/
@@ -147,9 +149,9 @@ session 的执行锁只保证单个原生 session 串行，不独占整个工作
           ...本次执行独立的 hook、临时配置和执行资源...
 ```
 
-sessionService 按 `(endpoint_id, conversation_id)` 分配并持久化唯一工作目录。同一 conversation 的所有原生 session（包括 Codex 和 Claude Code）使用同一个 work_root，可以同时运行；不同 endpoint/conversation 分开。原生上下文仍各自独立，工作文件则直接共享。
+sessionService 按 `(endpoint_id, conversation_id)` 分配唯一 conversation 目录。其中 workspace/ 是实际工作目录，所有 Codex、Claude Code 都以该目录作为 cwd 启动或恢复，可以同时运行；不同 endpoint/conversation 分开。原生上下文仍各自独立，工作文件则直接共享。
 
-setting.yaml 的 session.work_root 是分配新 conversation 目录的默认父目录；实际目录记录在 sessionService 的 workspace.yaml 中，并写入各 session.yaml 的 work_root。已有 conversation 新建或更换 harness/session 时沿用已绑定目录，不重新分配。目录绑定文件的结构见上节。
+setting.yaml 的 session.work_root 是分配新 conversation 目录的默认父目录；conversation 根目录记录在 sessionService 的 workspace.yaml 中；实际启动目录固定为该目录下的 workspace/，不在 session.yaml 中冗余保存。已有 conversation 新建或更换 harness/session 时沿用已绑定目录，不重新分配。目录绑定文件的结构见上节。
 
 `.agentuse-workspace.json` 标识 client 创建的受管目录，记录 endpoint/conversation/workspace_id；会话状态文件通过 workspace_id 关联该目录。没有标识的用户目录不作为清理对象。不得把 home、磁盘根目录、原生工具全局用户目录或设置/状态/适配器目录作为可回收工作根目录。
 

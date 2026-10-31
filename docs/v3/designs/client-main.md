@@ -116,13 +116,14 @@ Server Conversation C
 ├── state/
 │   └── workspaces/<endpoint_id>/<conversation_id>/workspace.yaml
 ├── tmp/<endpoint_id>/<conversation_id>/
+│   ├── workspace/    所有 Codex / Claude Code 的共享启动目录
 │   └── sessions/<session_id>/
 │       ├── session.yaml
 │       └── runs/<run_id>/<attempt_id>/run.json
 └── ui.token
 ```
 
-tmp 是默认父目录，可通过 setting.yaml 的 session.work_root 配置。sessionService 按 endpoint/conversation 绑定唯一工作目录，同一 conversation 的 Codex、Claude Code 等原生 session 使用该目录，并允许并行运行。配置、workspace 映射和适配器不放入可回收目录；session.yaml、run.json 和执行资源按 conversation/session 层级放入工作目录，随目录一起回收；server fileService 负责上传下载和交付。
+tmp 是默认父目录，可通过 setting.yaml 的 session.work_root 配置。sessionService 按 endpoint/conversation 绑定唯一工作目录，同一 conversation 的 Codex、Claude Code 等原生 session 都从该目录下的 workspace/ 启动，并允许并行运行；sessions/ 与 workspace/ 同级保存元数据，session.yaml 不保存 work_root。配置、workspace 映射和适配器不放入可回收目录；session.yaml、run.json 和执行资源按 conversation/session 层级放入工作目录，随目录一起回收；server fileService 负责上传下载和交付。
 
 | 文件 | 唯一负责写入的 Service |
 |---|---|
