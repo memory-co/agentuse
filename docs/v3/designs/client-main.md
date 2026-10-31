@@ -15,7 +15,7 @@ Client 是设备上的常驻执行程序：通过 manageService 管理一个或�
 | 每中心主循环 | 为所属中心维护连接、上线登记、能力上报、一次领取、心跳、重连与执行对账 |
 | Run 管理 | 按 center/run/attempt 跟踪本机执行，准备共享上下文和文件，路由插话/答案/取消，记录执行状态并上报事件 |
 | harnessService | 管理本地接入包，探测程序，准备资源，执行原生 harness，处理 RPC/hook/skill 和输出解释 |
-| 本机 store | 保存设备实际收到过的执行记录和 token 用量；分成 Writer 和 Reader |
+| 本机 store | SQLite 保存 centers、manage_settings 及执行账本；配置接口归 manageService，账本分 Writer/Reader |
 | 本机 controller | 只使用 store.Reader，提供 GET 查询和嵌入网页，不调用执行服务 |
 | 本机 frontend | 执行清单、详情和用量统计，不提供启动/取消任务或执行命令入口 |
 
@@ -49,7 +49,7 @@ WebSocket 只承载 run 业务协议：
 
 | 数据 | 放在哪里 / 谁管理 |
 |---|---|
-| 中心列表、各自地址/device_id/凭据、本机容量 | manageService 管理本地配置，按中心启动主循环，凭据不跨中心共享 |
+| 中心列表、各自地址/device_id/凭据、本机容量 | manageService 存入本机 SQLite 的 centers / manage_settings，按中心启动主循环，凭据不跨中心共享 |
 | Harness 接入包 | 本机安装目录，按名称和 revision 管理；harnessService 读取 |
 | 本机可执行程序路径覆盖 | 本地配置，不上传原始启动命令 |
 | Conversation 工作目录 | 按 center_id + conversation UUID 隔离；同 conversation 的执行共享业务文件和历史来源 |
@@ -65,7 +65,7 @@ WebSocket 只承载 run 业务协议：
 
 ### 4.1 启动与上线
 
-1. CLI 启动 manageService 读取中心列表；对新增中心分别用安装令牌交换 device 身份和凭据。
+1. 打开 client 本机 SQLite；CLI 启动 manageService 从 centers / manage_settings 读取中心列表和本机容量；对新增中心分别用安装令牌交换 device 身份和凭据。
 2. 打开本机账本，启动可选的只读 HTTP 页面，准备工作目录和本地接入包。
 3. harnessService 在本机探测程序、版本与真实功能；各中心主循环按自身权限把探测结论分别上报，不回传探测命令或原始协议细节。
 4. 为每个启用中心独立建立 WebSocket 并握手；重连只提交该中心的活跃执行，由对应 server 确认。
@@ -110,16 +110,17 @@ Agent 上传产物后，以 conversation 文件空间相对路径填入回复的
 
 账本按 center_id、run_id、attempt_id 区分执行，同时保存服务地址，记录收到/结束时间、状态、错误、设备/agent/conversation、harness、工作目录、插话与文件数量、用量和耗时。默认只保存正文前 200 字摘要，不复制完整服务端对话。
 
-执行 service 只拿 store.Writer；本机 controller 只拿 store.Reader，使用独立只读数据库连接。Controller 与执行 service 不互相调用，不通过页面启动任务或修改执行状态。
+Run 管理使用账本 store.Writer，manageService 使用配置存储接口；本机 controller 只拿账本 store.Reader，使用独立只读数据库连接。Controller 与执行 service 不互相调用，不通过页面启动任务或修改执行状态。
 
 本机页面默认监听 `127.0.0.1:7801`，可以关闭；校验 Host、使用本机访问令牌，仅允许 GET，不开放 CORS。两页是执行清单与用量统计。CLI 负责给出访问链接，本机网页是账本的视图。
 
-本机 SQLite 中即便使用 runs 这个表名，也只属于本机账本，与 server 的 runs 不是同一份数据；它不能替代 server 的消息/任务分配关系。本文不新增其他本机业务表。
+本机 SQLite 包含 manageService 的 centers、manage_settings，以及本机执行账本。账本即便使用 runs 这个表名，也与 server 的 runs 不是同一份数据，不能替代 server 的任务分配。配置表结构见 [manageService](client-manage.md)。
 
 ## 八、依赖方向
 
 ```text
 CLI → manageService → 各中心主循环 → Run 管理 → harnessService
+manageService → 配置存储接口 → 本机 SQLite（centers / manage_settings）
 Run 管理 → store.Writer → 本机账本
 CLI → controller → store.Reader → 本机账本
 controller → 本机 frontend

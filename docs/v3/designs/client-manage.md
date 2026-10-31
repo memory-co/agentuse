@@ -1,6 +1,6 @@
 # Client manageService：多个任务中心的管理
 
-> v3 目标设计，尚未实现。中心指一套独立的 agentuse server；一个 client 可以同时登记并连接多个中心。整体结构见 [client-main.md](client-main.md)。
+> v3 目标设计，尚未实现。manageService 使用 client 本机 SQLite 保存配置；不访问 server 数据库，不使用外键。中心指一套独立的 agentuse server；一个 client 可以同时登记并连接多个中心。整体结构见 [client-main.md](client-main.md)。
 
 ## 一、职责
 
@@ -24,37 +24,58 @@ manageService 不执行 harness，不决定 server 内的任务顺序，也不�
 | server_url | 该中心的访问地址，HTTP 与 WebSocket 使用同一业务中心配置 |
 | enabled | 是否允许连接并领取新任务；关闭后已有执行先完成收尾 |
 | device_id | 这台设备在该中心登记后的身份 |
-| credential_ref | 指向本机该中心的设备凭据，不共享其他中心密钥 |
+| device_key | 该中心签发的设备凭据，存本机 SQLite，不与其他中心共享 |
 
-配置示意：
+配置的权威来源是本机 SQLite，不再保存一份中心 JSON 配置或单独凭据引用文件。CLI 通过 manageService 读写，主循环读取已提交配置启动对应连接。
 
-```json
-{
-  "max_running_runs": 1,
-  "centers": [
-    {
-      "center_id": "66c645f1-f128-4c83-b29a-93bd1f181017",
-      "name": "公司中心",
-      "server_url": "https://company.example.com",
-      "enabled": true,
-      "device_id": "device-company",
-      "credential_ref": "centers/company.key"
-    },
-    {
-      "center_id": "cc9b6a6f-3d19-4cdd-b5e8-217eb15e7784",
-      "name": "个人中心",
-      "server_url": "https://personal.example.com",
-      "enabled": true,
-      "device_id": "device-personal",
-      "credential_ref": "centers/personal.key"
-    }
-  ]
-}
+每个中心分别注册。相同电脑在不同中心可以有不同 device_id、用户归属和权限。改展示名称不改变 center_id；连接另一套 server 时新增中心记录，不复用旧执行的命名空间。
+
+### centers：中心连接配置
+
+`id` 为本机生成的 UUID，对外及其他本地记录称为 center_id。新增尚未注册时，device_id、device_key 都为空；注册后在一个本机事务内一起保存；未注册完成的中心不建立业务连接、不参与领取。name 用于显示，server_url 保存中心业务地址。
+
+```sql
+CREATE TABLE centers (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    server_url TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+    device_id TEXT,
+    device_key TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    CHECK (
+        (device_id IS NULL AND device_key IS NULL)
+        OR (device_id IS NOT NULL AND device_key IS NOT NULL)
+    )
+);
+CREATE INDEX centers_enabled ON centers(enabled,id);
 ```
 
-每个中心分别注册。相同电脑可以在不同中心有不同 device_id、用户归属和权限，不要求中心互相知道彼此。修改展示名称不改变 center_id；连接到另一套 server 时新增中心身份，不复用旧执行的命名空间。
+Connection 状态、重连计时和领取预留属于运行时内存，不写进 centers；进程重启后重新建连接和对账，不用旧 online 标记判断设备仍在线。
 
-这些配置和凭据存本机文件，不新增 server 表，也不为中心配置新增本机 SQL 表。CLI 负责修改配置；本机只读页面仍不提供配置写入或执行控制。
+### manage_settings：本机共享领取设置
+
+单行配置，id 固定为 1；max_running_runs 是所有中心合计的执行上限，不是每中心各有一份。首次打开本机库时建立默认记录。
+
+```sql
+CREATE TABLE manage_settings (
+    id INTEGER NOT NULL PRIMARY KEY CHECK(id=1),
+    max_running_runs INTEGER NOT NULL DEFAULT 1 CHECK(max_running_runs>0),
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+```
+
+降低容量时，已有执行继续收尾；运行数降到限制以内前不再领新任务。内存中的槽位预留由 manageService 串行/原子管理，不通过新增“槽位表”恢复进程。
+
+### 与执行账本的关联
+
+本机账本保留 center_id，按 `(center_id, run_id, attempt_id)` 唯一区分执行，并保留任务接收时的服务地址。它与 centers 不声明外键，移除中心记录不删除历史账本；重新添加中心生成新的 UUID，不接管旧记录。
+
+这两张配置表与执行账本共用 client 本机 SQLite。manageService 使用专用的配置存储接口，负责读取设备凭据和修改配置；本机页面的 Reader 只暴露执行记录/统计，不提供 centers.device_key 或原始配置查询。
+
+本机数据库及其备份按设备凭据文件管理，限制为当前系统用户访问。CLI 状态输出不打印 device_key；本机只读页面也不增加中心写入接口。
 
 ## 三、与主循环和执行层的关系
 
@@ -111,11 +132,13 @@ CLI → manageService
 
 ## 六、修改配置与退出
 
-- **新增中心**：保存本地身份，单独注册并建连接，上报能力后参与领取。
-- **停领中心**：立即停止新领取，保留已有执行的连接、续租和结果回报，完成后退出该中心连接。
-- **移除中心**：先停领，已有任务结束后再移除配置/凭据；需要立即终止时显式取消，不能直接删掉凭据留下失管进程。
+- **新增中心**：插入 centers 记录，单独注册并事务保存该中心身份/凭据，再建连接，上报能力后参与领取。
+- **停领中心**：将 centers.enabled 设为 0，立即停止新领取，保留已有执行的连接、续租和结果回报，完成后退出该中心连接。
+- **移除中心**：先停领，已有任务结束后再删除 centers 配置及凭据记录，保留历史账本；需要立即终止时显式取消，不能直接删掉凭据留下失管进程。
 - **中心掉线**：只重连该中心；其执行仍占本机槽位，直到恢复、终结或确认租约失效后清理。
 - **client 退出/重启**：各中心分别收尾/对账，不能把一个中心的 valid_runs 用于其他中心。
+
+配置写入提交后通知运行中的 manageService 重载；启动及定期核对也以 SQLite 为准，不仅依赖一次内存通知。数据库事务不跨越注册请求、WebSocket 建连或进程执行。
 
 本机配置管理与本机页面的只读边界保持不变。manageService 的配置写入入口是本地 CLI，不开放给任意远端中心。
 
