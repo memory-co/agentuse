@@ -1,69 +1,63 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1560" height="1040" viewBox="0 0 1560 1040" font-family="-apple-system, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" role="img" aria-labelledby="title desc">
-<title id="title">Client 的四个业务 Service</title><desc id="desc">endpointService 只管注册信息，runService 自行连接并领取任务，sessionService 管原生会话复用，harnessService 管本地执行。四张本机表与只读页面分离。</desc>
-<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker></defs>
-<rect width="1560" height="1040" rx="16" fill="white"/>
-<text x="30" y="40" font-size="25" fill="#0f172a" font-weight="600">Client：管理中心、原生会话、任务执行和 Harness 接入</text>
-<text x="30" y="80" font-size="17" fill="#475569">Conversation 在 server；Session 是本地原生上下文，一个 Session 可以执行多个领来的 Run。</text>
-<rect x="410" y="115" width="1120" height="875" rx="14" fill="#f5fff9" stroke="#cbd5e1"/>
-<text x="430" y="147" font-size="18" fill="#065f46" font-weight="600">Device · Client（CLI 装配）</text>
-<rect x="30" y="200" width="270" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
-<text x="48" y="230" font-size="19" fill="#0f172a" font-weight="600">中心 A / Server</text>
-<text x="48" y="262" font-size="15" fill="#475569">自己的 conversation / run</text>
-<text x="48" y="288" font-size="15" fill="#475569">独立身份、凭据和连接</text>
-<rect x="30" y="430" width="270" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
-<text x="48" y="460" font-size="19" fill="#0f172a" font-weight="600">中心 B / Server</text>
-<text x="48" y="492" font-size="15" fill="#475569">自己的 conversation / run</text>
-<text x="48" y="518" font-size="15" fill="#475569">不共享其他中心的执行状态</text>
-<rect x="450" y="180" width="300" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
-<text x="468" y="210" font-size="19" fill="#0f172a" font-weight="600">runService</text>
-<text x="468" y="242" font-size="15" fill="#475569">自行连接各 Server，领取任务</text>
-<text x="468" y="268" font-size="15" fill="#475569">共享容量、交互、执行与账本</text>
-<text x="468" y="294" font-size="15" fill="#475569">本机 runs / run_settings</text>
-<rect x="830" y="180" width="300" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
-<text x="848" y="210" font-size="19" fill="#0f172a" font-weight="600">endpointService</text>
-<text x="848" y="242" font-size="15" fill="#475569">只保存向哪些 Server 注册了</text>
-<text x="848" y="268" font-size="15" fill="#475569">地址、设备身份与凭据</text>
-<text x="848" y="294" font-size="15" fill="#475569">本机 endpoints</text>
-<rect x="830" y="420" width="300" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
-<text x="848" y="450" font-size="19" fill="#0f172a" font-weight="600">sessionService</text>
-<text x="848" y="482" font-size="15" fill="#475569">原生会话创建 / 恢复 / 复用</text>
-<text x="848" y="508" font-size="15" fill="#475569">同 session 串行执行多个 run</text>
-<text x="848" y="534" font-size="15" fill="#475569">本机 sessions</text>
-<rect x="1210" y="420" width="300" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
-<text x="1228" y="450" font-size="19" fill="#0f172a" font-weight="600">harnessService</text>
-<text x="1228" y="482" font-size="15" fill="#475569">本地 YAML / hook / skill</text>
-<text x="1228" y="508" font-size="15" fill="#475569">原生协议与输出解释</text>
-<text x="1228" y="534" font-size="15" fill="#475569">不通过 server 驱动原生命令</text>
-<path d="M300 260 H450" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="325" y="240" font-size="13" fill="#475569">业务连接</text>
-<path d="M300 500 H380 V290 H450" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<path d="M750 250 H830" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="760" y="230" font-size="13" fill="#475569">读取</text>
-<path d="M650 325 V380 H980 V420" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<path d="M1130 490 H1210" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<path d="M750 285 H780 V365 H1360 V420" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="1215" y="350" font-size="14" fill="#475569">本次执行</text>
-<rect x="1210" y="625" width="300" height="120" rx="10" fill="#fffbeb" stroke="#cbd5e1"/>
-<text x="1228" y="655" font-size="19" fill="#0f172a" font-weight="600">原生程序 / 会话历史</text>
-<text x="1228" y="687" font-size="15" fill="#475569">Codex thread / Claude session</text>
-<text x="1228" y="713" font-size="15" fill="#475569">run 完成后历史仍可保留</text>
-<path d="M1360 565 V625" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<rect x="450" y="790" width="680" height="150" rx="10" fill="#ecfdf5" stroke="#cbd5e1"/>
-<text x="468" y="820" font-size="19" fill="#0f172a" font-weight="600">本机 store · SQLite</text>
-<text x="468" y="852" font-size="15" fill="#475569">endpoints：注册信息；run_settings：执行容量</text>
-<text x="468" y="878" font-size="15" fill="#475569">sessions：原生会话映射；runs：每次任务执行记录</text>
-<text x="468" y="904" font-size="15" fill="#475569">不使用 server 数据库；Reader 不暴露设备密钥</text>
-<path d="M600 325 V790" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="615" y="680" font-size="14" fill="#475569">runs / run_settings</text>
-<path d="M900 325 V380 H790 V790" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="800" y="720" font-size="14" fill="#475569">endpoints</text>
-<path d="M980 565 V790" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="995" y="680" font-size="14" fill="#475569">会话存储</text>
-<rect x="1210" y="815" width="300" height="125" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
-<text x="1228" y="845" font-size="19" fill="#0f172a" font-weight="600">只读 controller + 网页</text>
-<text x="1228" y="877" font-size="15" fill="#475569">session / 执行清单 / 用量</text>
-<text x="1228" y="903" font-size="15" fill="#475569">只拿只读 Reader，不控制执行</text>
-<path d="M1210 880 H1130" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="1142" y="862" font-size="13" fill="#475569">Reader</text>
-<text x="450" y="970" font-size="16" fill="#475569">四个 Service 管业务；连接循环、原生协议原语都是内部机制，不是并列顶层服务。</text>
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1040" viewBox="0 0 1500 1040">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="none" stroke="#64748b"/>
+    </marker>
+  </defs>
+  <rect width="1500" height="1040" fill="#fff"/>
+  <g font-family="sans-serif" fill="#0f172a">
+    <text x="45" y="48" font-size="30">Client：五个 Service，文件是唯一持久化事实</text>
+    <rect x="45" y="85" width="1410" height="95" rx="14" fill="#f8fafc" stroke="#94a3b8"/>
+    <text x="65" y="119" font-size="23">CLI / 本机只读页面</text>
+    <text x="65" y="152" font-size="17">CLI 装配与配置操作；页面经只读文件 Reader 查询状态，执行服务由 CLI 启动。</text>
+    <rect x="45" y="225" width="420" height="135" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
+    <text x="65" y="259" font-size="23">endpointService</text>
+    <text x="65" y="292" font-size="17">注册了哪些 server / device 身份与凭据</text>
+    <text x="65" y="319" font-size="17">仅管理注册文件，不连接、不领任务</text>
+    <rect x="535" y="225" width="430" height="135" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
+    <text x="555" y="259" font-size="23">settingService</text>
+    <text x="555" y="292" font-size="17">本机端口、执行并发、harness 工作根目录</text>
+    <text x="555" y="319" font-size="17">容量开关、字节上限、清理周期与目标</text>
+    <rect x="1035" y="225" width="420" height="135" rx="14" fill="#fff7ed" stroke="#94a3b8"/>
+    <text x="1055" y="259" font-size="23">Server（多个 endpoint）</text>
+    <text x="1055" y="292" font-size="17">conversation / run / fileService</text>
+    <text x="1055" y="319" font-size="17">只交换业务协议，不下发执行命令</text>
+    <rect x="45" y="440" width="420" height="170" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
+    <text x="65" y="474" font-size="23">runService</text>
+    <text x="65" y="507" font-size="17">连接、心跳、领取、全局容量与上报</text>
+    <text x="65" y="534" font-size="17">持久化每次执行尝试；触发目录检查</text>
+    <text x="65" y="561" font-size="17">读取 endpointService / settingService</text>
+    <rect x="535" y="440" width="430" height="170" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
+    <text x="555" y="474" font-size="23">sessionService</text>
+    <text x="555" y="507" font-size="17">原生 Session 复用与互斥</text>
+    <text x="555" y="534" font-size="17">按配置选择目录、回收空闲工作区</text>
+    <text x="555" y="561" font-size="17">一份 Session 可承载若干 Run</text>
+    <rect x="1035" y="440" width="420" height="170" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
+    <text x="1055" y="474" font-size="23">harnessService</text>
+    <text x="1055" y="507" font-size="17">Codex / Claude Code 本地适配</text>
+    <text x="1055" y="534" font-size="17">创建 / 恢复 / 执行 / 插话 / 取消</text>
+    <text x="1055" y="561" font-size="17">本地 YAML、RPC、hook 与 skill</text>
+    <path d="M255,360 L255,440" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
+    <path d="M750,360 L750,440" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
+    <path d="M1245,360 L1245,395 L350,395 L350,440" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
+    <path d="M465,530 L535,530" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
+    <path d="M965,530 L1035,530" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
+    <rect x="45" y="690" width="920" height="170" rx="14" fill="#ecfdf5" stroke="#94a3b8"/>
+    <text x="65" y="724" font-size="23">~/.agentuse/：配置与状态文件</text>
+    <text x="65" y="757" font-size="17">endpoints.yaml → endpointService      setting.yaml → settingService</text>
+    <text x="65" y="784" font-size="17">state/sessions/&lt;session&gt;/session.yaml → sessionService</text>
+    <text x="65" y="811" font-size="17">state/runs/&lt;endpoint&gt;/&lt;run&gt;/&lt;attempt&gt;/run.json → runService</text>
+    <rect x="1035" y="690" width="420" height="170" rx="14" fill="#ecfdf5" stroke="#94a3b8"/>
+    <text x="1055" y="724" font-size="23">各 harness 临时工作根目录</text>
+    <text x="1055" y="757" font-size="17">Codex、Claude Code 分开配置</text>
+    <text x="1055" y="784" font-size="17">空闲受管目录按最近使用时间回收</text>
+    <text x="1055" y="811" font-size="17">保护执行中 / 等待答案 / 已锁定目录</text>
+    <path d="M255,610 L255,690" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
+    <path d="M750,610 L750,690" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
+    <path d="M1245,610 L1245,690" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
+    <rect x="45" y="910" width="1410" height="95" rx="14" fill="#f8fafc" stroke="#94a3b8"/>
+    <text x="65" y="944" font-size="23">持久化与恢复原则</text>
+    <text x="65" y="977" font-size="17">原子替换、排他写入；内存索引可重建；不设 SQLite。重启核对 server / 原生状态，不能凭旧 running 自动重跑。</text>
+  </g>
 </svg>

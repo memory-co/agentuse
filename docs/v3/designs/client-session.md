@@ -1,6 +1,6 @@
 # Client sessionService：原生 Session 与领来的 Run
 
-> v3 目标设计，尚未实现。Session 是 client 本地的原生执行会话记录，直接对应 Codex thread 或 Claude Code session。Conversation 是 server 的共享对话，二者不再混用。配置、session 与执行账本共用 client 本机 SQLite，关联字段不使用外键；本篇时间字段使用 Unix 毫秒。
+> v3 目标设计，尚未实现。Session 是 client 本地的原生执行会话记录，直接对应 Codex thread 或 Claude Code session。Conversation 是 server 的共享对话，二者不再混用。Client 不使用 SQLite；本地会话状态由 session.yaml 保存，时间字段使用 Unix 毫秒。
 
 ## 一、三个对象的关系
 
@@ -10,7 +10,7 @@
 | session | client / 原生 harness | 一个可继续使用的原生执行上下文 |
 | run | server 分配，client 领取 | 一次任务；绑定本机 session 后执行 |
 
-一个 session 包含若干个从 server 领取的 run。Client 不创建独立于 server 的业务 run，也不因调用了原生 API 就另造一个 run_id；本机 runs 表记录 server run 的执行尝试。
+一个 session 包含若干个从 server 领取的 run。Client 不创建独立于 server 的业务 run，也不因调用了原生 API 就另造一个 run_id；本机 run.json 文件记录 server run 的执行尝试。
 
 ```text
 中心 A / Conversation C / Agent coder
@@ -38,7 +38,7 @@ Session 对应原生历史，不等于操作系统进程。一次 Claude print �
 - 在 run 结束后保留 session，供后续领来的 run 继续使用。
 - 处理 session 恢复、失效、关闭及本地历史查询。
 
-endpointService 只管已注册 server 的信息；client runService 管连接、领取、本机容量和 run/attempt 生命周期；sessionService 管跨 run 的原生上下文；harnessService 管创建、恢复、输入和原生交互的具体实现。
+settingService 提供端口、目录和清理配置；endpointService 只管已注册 server 的信息；client runService 管连接、领取、本机容量和 run/attempt 生命周期；sessionService 管跨 run 的原生上下文；harnessService 管创建、恢复、输入和原生交互的具体实现。
 
 ## 三、收到 Run 后怎样选 Session
 
@@ -52,7 +52,7 @@ endpointService 只管已注册 server 的信息；client runService 管连接�
 
 同一个 session 同时最多执行一个 run。已忙碌的 session 不能被另一个任务强行复用，插话则进入当前 run 的输入，不因此创建另一个 session。
 
-中心、conversation、agent 或 harness 不同不能复用；接入包版本变化、原生历史丢失或不可恢复时，将旧 session 标为非当前，再创建新的 session。不得把旧记录的 native_session_id 改成另一个原生会话 ID。
+中心、conversation、agent 或 harness 不同不能复用；接入包版本变化、原生历史丢失或不可恢复时，将旧 session 标为关闭或不可恢复，再创建新的 session。不得把旧记录的 native_session_id 改成另一个原生会话 ID。
 
 ## 四、Codex 与 Claude Code 怎样对应
 
@@ -78,40 +78,42 @@ sessionService 依据 last_context_seq 读取共享历史增量，结合当前 r
 
 同一个 session 执行多个 run 时，用量按本次 turn/执行的新增量记录。若原生通知提供累积值，需要按本次基线计算，不能每个 run 都重复累计整个 session 的历史用量。
 
-## 六、本机表结构
+## 六、会话状态文件
 
-### sessions
+### session.yaml
 
-每行对应一个确定的原生 session。id 是本机生成的 UUID；native_session_id 是原生程序返回的 opaque ID，不要求符合 UUID 格式。创建尚未完成时 native_session_id 为空，成功后固定不变。
-
-```sql
-CREATE TABLE sessions (
-    id TEXT NOT NULL PRIMARY KEY,
-    endpoint_id TEXT NOT NULL,
-    conversation_id TEXT NOT NULL,
-    agent_id TEXT NOT NULL,
-    harness TEXT NOT NULL,
-    harness_revision TEXT NOT NULL,
-    native_session_id TEXT,
-    directory TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'creating'
-        CHECK(status IN ('creating','idle','running','unavailable','closed')),
-    is_current INTEGER NOT NULL DEFAULT 1 CHECK(is_current IN (0,1)),
-    last_context_seq INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
-);
-CREATE UNIQUE INDEX sessions_current
-    ON sessions(endpoint_id,conversation_id,agent_id,harness)
-    WHERE is_current=1;
-CREATE UNIQUE INDEX sessions_native
-    ON sessions(harness,native_session_id)
-    WHERE native_session_id IS NOT NULL;
+```text
+~/.agentuse/state/sessions/<local_session_id>/session.yaml
 ```
 
-directory 是恢复该原生 session 时使用的工作目录；同 conversation 的业务文件可共享，原生会话 ID 和控制资源仍独立。status 表示本地执行/可恢复状态，等待问题期间仍属 running，不是 server conversation 的聚合状态。is_current 表示相同业务上下文后续 run 的默认选择；替换当前 session 时在本机事务里更新旧标记并创建新记录，历史保留。
+每个文件对应一个确定的原生会话。id 是本机 UUID，native_session_id 是原生程序返回的 ID，创建成功后固定；首次创建尚未完成时为空。
 
-本机 runs 表由 [client runService](client-run.md) 维护，session_id 关联这里的 sessions.id。每个 session 包含若干个领来的 run；同一个 run 的不同 attempt 可以各有本地执行记录，不另造服务端任务。
+```yaml
+id: 7877d33b-788f-4f6c-9ff0-987c2128064e
+endpoint_id: 66c645f1-f128-4c83-b29a-93bd1f181017
+conversation_id: 550e8400-e29b-41d4-a716-446655440000
+agent_id: coder
+harness: codex
+harness_revision: package-revision
+native_session_id: thread-1
+directory: ~/.agentuse/tmp/codex/<endpoint_id>/<conversation_id>/<local_session_id>
+status: idle
+workspace_state: present
+last_context_seq: 12
+created_at: 1793443200000
+last_used_at: 1793443205100
+updated_at: 1793443205100
+```
+
+status 为 creating/idle/running/unavailable/closed，等待问题期间仍是 running。workspace_state 为 present/missing；临时工作目录被容量策略回收后改为 missing，不再直接恢复该原生上下文。
+
+不再保存 sessions 表、原生 ID 唯一索引或单独的 current 指针。sessionService 扫描这些文件构建可重建的内存索引：按 endpoint/conversation/agent/harness 筛选空闲、版本匹配、目录存在的会话，再取最近使用的有效记录。同一 session 的选择、执行与清理共用排他保护。
+
+原生 ID 的一对一映射和单 session 串行执行由 sessionService 校验。新建会话不修改旧文件的 native_session_id；替换/关闭写回对应状态文件。不要靠删除一条数据库记录来表示原生历史已被销毁。
+
+本机 run.json 由 [client runService](client-run.md) 管理，其中 session_id 指向本文件的 id。多个从 server 领来的 run 可以引用同一个会话文件。
+
+工作根目录从 [settingService](client-setting.md) 按 harness 取得。不同根目录的工作副本不承诺物理共享；共享业务文件通过 server fileService 上传/下载。原生会话继续使用自己的既定目录，运行中不迁移。
 
 ## 七、恢复和清理
 
@@ -119,8 +121,8 @@ directory 是恢复该原生 session 时使用的工作目录；同 conversation
 - client 重启先对账，不因本地存在 session 就自动恢复执行旧 run；只有领到或确认有效的任务才能开始工作。
 - 原生历史缺失或恢复失败则标记不可用；重新建立 session 时保留旧执行关联和失败原因。
 - 取消 run 结束当前执行，不必删除原生 session；本地适配确认历史仍可恢复时，后续 run 可以继续使用。
-- 默认 90 天的执行账本清理只处理过期执行记录，不删除当前 session、在用目录或原生 transcript。关闭/清理原生 session 是独立本地操作，不删除 server conversation。
+- 执行记录保留期和临时目录容量是两项独立规则。容量超限按 settingService 配置回收空闲受管目录；在用会话受保护，回收后保留 session.yaml 并标记目录缺失，不删除 server conversation 或文件。
 
 ## 相关设计
 
-[client runService](client-run.md) · [Client 总览](client-main.md) · [endpointService](client-endpoint.md) · [harnessService](client-harness.md) · [Server conversation](server-conversation.md) · [Server run](server-run.md)
+[settingService](client-setting.md) · [client runService](client-run.md) · [Client 总览](client-main.md) · [endpointService](client-endpoint.md) · [harnessService](client-harness.md) · [Server conversation](server-conversation.md) · [Server run](server-run.md)

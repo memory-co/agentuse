@@ -56,7 +56,7 @@ YAML 优先表达声明式规则；复杂协议需要适配代码时，也放在
 
 Client 维护本地接入包及其内容摘要 harness_revision，摘要包括 YAML、hook、skill 和指令资源。探测结论携带该版本上报；run 固定 server 选定的本地版本，缺少版本时回报错误，不静默替换。
 
-每次执行把需准备的资源放到当前 run/attempt 的独立目录，通过本次启动参数加载；同 conversation 的并行 agent 不互相覆盖 hook 配置、AGENTS.md 或 CLAUDE.md。小型协议关联信息与原生连接对象只保存在本地执行期间，进程结束后清理，conversation 文件空间保留。
+每次执行把需准备的资源放到当前 run/attempt 的独立目录，通过本次启动参数加载；同 conversation 的并行 agent 不互相覆盖 hook 配置、AGENTS.md 或 CLAUDE.md。小型协议关联信息与原生连接对象只保存在本地执行期间，进程结束后清理，服务端 conversation 文件空间不受本地临时目录回收影响。
 
 session 的创建/恢复选择由 [client sessionService](client-session.md) 负责；harnessService 实现原生 create/resume/run 操作，不自行按每个 run 新建上下文。
 
@@ -148,12 +148,12 @@ accepted 不等于模型已经理解或完成输入；client 必须报告确认�
 
 每个接入包至少验证：探测、首个任务、进度/计划、结果/用量、执行中与结束前插话、提问/回答/超时、取消、错误退出、资源隔离、文件交付。升级接入包后重新验证再上报能力。
 
-## 八、存储与代码归属
+## 八、文件存储与代码归属
 
 接入包及版本存于 client 本地文件，不新增 server harnesses 表。YAML、hook、skill、指令及原生适配代码属于 client；本地进程/RPC/回调原语也在 client 内复用。根共享部分只保留 run 业务协议、标准事件和必要 DTO，不放 harness YAML 或原生适配逻辑。
 
-本地账本仍由 client store 负责，harnessService 向主循环返回标准执行信息，不混入 server 数据库访问。
+本地执行记录由 client runService 写 run.json，会话映射由 sessionService 写 session.yaml；harnessService 只返回标准执行信息，不访问数据库。
 
 ## 相关设计
 
-[client sessionService](client-session.md) · [client runService](client-run.md) · [endpointService](client-endpoint.md) · [Server 总览](server-main.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [runService](server-run.md) · [fileService](server-file.md)
+[settingService](client-setting.md) · [client sessionService](client-session.md) · [client runService](client-run.md) · [endpointService](client-endpoint.md) · [Server 总览](server-main.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [runService](server-run.md) · [fileService](server-file.md)
