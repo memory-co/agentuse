@@ -25,7 +25,7 @@ M2 @coder（R1 仍在执行）
   → P3：run=R1，message=M2，复制 M2 内容，作为 R1 的补充输入
 ```
 
-一条消息 @ 两个 agent，写两条 run_prompts。一个 run 可有多条 run_prompts。副本包含内容和格式，执行时以副本为准，不每次回查原始 messages 重建输入；运行时上下文仍可读取同 session 的共享历史。
+一条消息 @ 两个 agent，写两条 run_prompts。一个 run 可有多条 run_prompts。副本保存消息正文，执行时以副本为准，不每次回查原始 messages 重建输入；运行时上下文仍可读取同 session 的共享历史。
 
 run.message_id 仅标识主任务。run_prompts.run_id 创建后不改变：未消费的输入需要后续 run 时，复制到新 run 的新 run_prompts，旧行保留并标记 deferred，用 superseded_by 连接后续副本。这样旧 run 当时收到的输入仍可追溯。
 
@@ -88,7 +88,7 @@ CREATE INDEX runs_dispatch
 
 ### run_prompts
 
-每行属于一个确定的 run，并引用原始 message；content/format 是冗余快照。kind 为 initial/supplement，表示首次任务或补充输入；prepared_attempt 标识准备该输入的执行尝试。相同 run/message 只能插一行，但同一 message 可以在多个 run 各有副本。
+每行属于一个确定的 run，并引用原始 message；content 是消息正文的冗余快照。kind 为 initial/supplement，表示首次任务或补充输入；prepared_attempt 标识准备该输入的执行尝试。相同 run/message 只能插一行，但同一 message 可以在多个 run 各有副本。
 
 ```sql
 CREATE TABLE run_prompts (
@@ -96,7 +96,6 @@ CREATE TABLE run_prompts (
     run_id TEXT NOT NULL,
     message_id INTEGER NOT NULL,
     content TEXT NOT NULL,
-    format TEXT NOT NULL CHECK(format IN ('prompt','json')),
     kind TEXT NOT NULL CHECK(kind IN ('initial','supplement')),
     status TEXT NOT NULL DEFAULT 'pending',
     prepared_attempt TEXT NOT NULL DEFAULT '',

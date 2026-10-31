@@ -20,7 +20,7 @@
 <rect x="40" y="495" width="430" height="145" rx="10" fill="#ecfdf5" stroke="#94a3b8"/>
 <text x="60" y="528" font-size="21" fill="#334155">run_prompts</text>
 <text x="60" y="560" font-size="15" fill="#334155">一条原始消息 × 一个目标 run</text>
-<text x="60" y="586" font-size="15" fill="#334155">冗余 content / format，记录消费状态</text>
+<text x="60" y="586" font-size="15" fill="#334155">冗余消息正文 content，记录消费状态</text>
 <text x="60" y="612" font-size="15" fill="#334155">归属固定；后续 run 创建新的副本</text>
 <rect x="650" y="495" width="430" height="145" rx="10" fill="#fffbeb" stroke="#94a3b8"/>
 <text x="670" y="528" font-size="21" fill="#334155">Attempt</text>

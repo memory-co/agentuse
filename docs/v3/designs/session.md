@@ -69,7 +69,7 @@ CREATE INDEX sessions_created_by
 
 ### messages
 
-共享对话的原始消息。`format` 直接区分 prompt/json；`user_id` 记录发送用户，`agent_key/name` 记录回复作者快照。`target_agent_ids` 保存原始 @ 目标数组，即使执行分配变化，对话仍能显示当时 @ 了谁。
+共享对话的原始消息。`content` 统一保存对话正文；`user_id` 记录发送用户，`agent_key/name` 记录回复作者快照。`target_agent_ids` 保存原始 @ 目标数组，即使执行分配变化，对话仍能显示当时 @ 了谁。
 
 message 永远回复另一条 message，不回复 run。`reply_to_message_id` 表示被回复的消息，开头的根消息为空；后续用户消息、agent 回复都可以引用同 session 中已有的消息。messages 不保存 run_id，也不以 run 为对话层级。
 
@@ -90,7 +90,6 @@ CREATE TABLE messages (
     session_id TEXT NOT NULL,
     role TEXT NOT NULL CHECK(role IN ('user','assistant')),
     content TEXT NOT NULL,
-    format TEXT NOT NULL DEFAULT 'prompt' CHECK(format IN ('prompt','json')),
     user_id TEXT,
     target_agent_ids TEXT NOT NULL DEFAULT '[]',
     agent_key TEXT,
@@ -110,7 +109,7 @@ CREATE UNIQUE INDEX messages_request ON messages(session_id,user_id,request_key)
 
 | 原表 | v3 处理 |
 |---|---|
-| message_formats | 不再建表，格式直接保存在 messages.format；执行副本复制到 run_prompts.format |
+| message_formats | 不再建表，也不保留 format 字段；消息与执行副本均保存正文 |
 | message_authors | 不再建表，回复作者直接保存在 messages.agent_key/name；回复关系使用 reply_to_message_id，执行关联留在 runs |
 | session_requests | 不再建表；保留发送幂等需求，用 messages 的 user_id、request_key、request_digest 和唯一索引实现 |
 
