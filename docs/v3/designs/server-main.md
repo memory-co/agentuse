@@ -6,7 +6,7 @@ Conversation 表示共享对话，由 conversationService 管理；原 session �
 
 Server 保存对话、组织任务并跟踪执行。用户的一台执行设备称为 **device**，设备上运行的程序称为 **client**。Client 从 server 领取 run，由本地 harnessService 解析 YAML、准备资源、执行 harness 并处理交互。Server 的职责到 run 调度和业务状态为止，不理解原生 harness 协议。
 
-一台 client 可以连接多个独立中心，由本地 [manageService](client-manage.md) 管理；每个 server 只看到本中心注册的 device，不共享其他中心的任务或凭据。
+一台 client 可以向多个独立 server 注册，由本地 [endpointService](client-endpoint.md) 保存注册信息，[client runService](client-run.md) 负责连接和领取任务；每个 server 只看到本中心注册的 device，不共享其他中心的任务或凭据。
 
 ## 一、整体关系
 

@@ -38,14 +38,14 @@ Session 对应原生历史，不等于操作系统进程。一次 Claude print �
 - 在 run 结束后保留 session，供后续领来的 run 继续使用。
 - 处理 session 恢复、失效、关闭及本地历史查询。
 
-manageService 管中心和全局领取容量；client runService管某个 run/attempt 的生命周期；sessionService 管跨 run 的原生上下文；harnessService 管创建、恢复、输入和原生交互的具体实现。
+endpointService 只管已注册 server 的信息；client runService 管连接、领取、本机容量和 run/attempt 生命周期；sessionService 管跨 run 的原生上下文；harnessService 管创建、恢复、输入和原生交互的具体实现。
 
 ## 三、收到 Run 后怎样选 Session
 
-默认按 `(center_id, conversation_id, agent_id, harness)` 查找当前 session，并检查 harness_revision 与本地可恢复条件。
+默认按 `(endpoint_id, conversation_id, agent_id, harness)` 查找当前 session，并检查 harness_revision 与本地可恢复条件。
 
-1. manageService 预留执行槽位，从某中心领到 run。
-2. client runService登记 `(center_id, run_id, attempt_id)`，交 sessionService 选择会话。
+1. client runService 从 endpointService 读取注册信息，预留本机槽位并向对应 server 领取 run。
+2. client runService登记 `(endpoint_id, run_id, attempt_id)`，交 sessionService 选择会话。
 3. 有可恢复、空闲且版本匹配的当前 session，则复用；没有则建立新的本地记录，让 harnessService 创建原生会话并回填 native_session_id。
 4. 获得 session 执行锁后绑定本机 run 记录，准备当前输入和上下文，交 harnessService 开始本次执行。
 5. 结束 run 后更新账本，释放 session 锁与全局槽位；session 恢复 idle，保留历史，不随 run 完成关闭。
@@ -87,7 +87,7 @@ sessionService 依据 last_context_seq 读取共享历史增量，结合当前 r
 ```sql
 CREATE TABLE sessions (
     id TEXT NOT NULL PRIMARY KEY,
-    center_id TEXT NOT NULL,
+    endpoint_id TEXT NOT NULL,
     conversation_id TEXT NOT NULL,
     agent_id TEXT NOT NULL,
     harness TEXT NOT NULL,
@@ -102,7 +102,7 @@ CREATE TABLE sessions (
     updated_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX sessions_current
-    ON sessions(center_id,conversation_id,agent_id,harness)
+    ON sessions(endpoint_id,conversation_id,agent_id,harness)
     WHERE is_current=1;
 CREATE UNIQUE INDEX sessions_native
     ON sessions(harness,native_session_id)
@@ -123,4 +123,4 @@ directory 是恢复该原生 session 时使用的工作目录；同 conversation
 
 ## 相关设计
 
-[client runService](client-run.md) · [Client 总览](client-main.md) · [manageService](client-manage.md) · [harnessService](client-harness.md) · [Server conversation](server-conversation.md) · [Server run](server-run.md)
+[client runService](client-run.md) · [Client 总览](client-main.md) · [endpointService](client-endpoint.md) · [harnessService](client-harness.md) · [Server conversation](server-conversation.md) · [Server run](server-run.md)

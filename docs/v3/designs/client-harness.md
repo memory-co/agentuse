@@ -156,4 +156,4 @@ accepted 不等于模型已经理解或完成输入；client 必须报告确认�
 
 ## 相关设计
 
-[client sessionService](client-session.md) · [client runService](client-run.md) · [manageService](client-manage.md) · [Server 总览](server-main.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [runService](server-run.md) · [fileService](server-file.md)
+[client sessionService](client-session.md) · [client runService](client-run.md) · [endpointService](client-endpoint.md) · [Server 总览](server-main.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [runService](server-run.md) · [fileService](server-file.md)
