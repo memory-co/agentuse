@@ -1,6 +1,6 @@
 # Session 与 Run：共享历史、任务分配和一次执行
 
-> 本文描述当前实现，与 [Server 设计](server.md) 配套。数据定义以 [基础 schema](../../../server/internal/store/store.go)、[run schema](../../../server/internal/store/run_schema.go) 和 [Go SDK 模型](../../../sdk/golang/types.go) 为准。
+> 本文描述会话与执行模型，与 [Server 设计](server.md) 配套。正文统一使用 device 表示执行设备；现有实现中的对应名称仍为 daemon，代码、接口和字段重命名尚未实施。数据定义以 [基础 schema](../../../server/internal/store/store.go)、[run schema](../../../server/internal/store/run_schema.go) 和 [Go SDK 模型](../../../sdk/golang/types.go) 为准。
 
 Session 是一段持续存在的共享会话；run 是某个 agent 在这段会话里承担的一次任务。Session 可以没有 run，也可以先后或同时有多个 run。Agent 的选择发生在每条消息上，具体执行信息保存在 run 中。
 
@@ -11,7 +11,7 @@ Session 是一段持续存在的共享会话；run 是某个 agent 在这段会�
 | session | 这些交流属于哪段共享历史？ | `sessions` |
 | message | 用户说了什么，或者 agent 最终回复了什么？ | `messages` |
 | delivery | 这条用户消息交给哪个 agent，交到哪里，处理到哪一步？ | `message_deliveries` |
-| run | 哪个 agent 使用哪个 daemon/harness 承担这次任务？ | `session_runs` |
+| run | 哪个 agent 使用哪个 device/harness 承担这次任务？ | `session_runs` |
 | attempt | 这个 run 当前由哪一次实际执行持有？ | run 的 `attempt_id / lease_until`；事件、问题等也带 attempt_id |
 
 ## 一、关系图
@@ -42,7 +42,7 @@ Session 不保存“当前只属于哪个 agent”的绑定。多 agent 模式�
 
 ### 1.3 Run 是任务，不等于一条消息
 
-Run 创建时确定 session、主任务 message、agent、daemon 和 harness，并保存 agent key/name/owner 等快照。后续关联的补充消息通过 delivery 找到这个 run。
+Run 创建时确定 session、主任务 message、agent、device 和 harness，并保存 agent key/name/owner 等快照。后续关联的补充消息通过 delivery 找到这个 run。
 
 | 关系 | 当前规则 |
 |---|---|
@@ -52,14 +52,14 @@ Run 创建时确定 session、主任务 message、agent、daemon 和 harness，�
 | run → delivery | 一个 run 可以消费多条不同消息的 delivery |
 | user message → run | 通过 delivery，可以关联多个 agent 的 run |
 | session + agent → 活跃 run | 最多一个，活跃指 pending/running/waiting |
-| 同一 agent → 不同 session 的 run | 可以各有活跃 run；实际领取仍受 daemon ready 状态限制 |
+| 同一 agent → 不同 session 的 run | 可以各有活跃 run；实际领取仍受 device ready 状态限制 |
 | run → attempt | 每次重新领取生成一个新 attempt；run 行只保存当前 attempt |
 
 `session_runs.message_id` 是创建 run 的主任务 ID，**不是 run 消费过的全部消息**。全部分配要看 `message_deliveries`。`result_message_id` 指向最终 assistant 结果；进度、计划和插话确认保存在 `run_events`，不都变成普通聊天消息。
 
 ### 1.4 Attempt 是执行身份，不是新的 Run
 
-Run 刚创建时 pending，attempt_id 为空。daemon 领取后，server 生成 `ra_...`，把 run 改为 running 并设租约。
+Run 刚创建时 pending，attempt_id 为空。client 在 device 上领取后，server 生成 `ra_...`，把 run 改为 running 并设租约。
 
 租约过期或重连对账发现执行已丢失时，原 run 可以重新变成 pending。再次领取仍使用同一个 run_id，但生成新的 attempt_id。旧 attempt 的事件和问题可保留在各自表中；当前实现没有单独的 `run_attempts` 历史表。
 
@@ -81,7 +81,7 @@ Content-Type: application/json
 
 | 目标当前状态 | 创建什么 | 后续行为 |
 |---|---|---|
-| 没有活跃 run | pending run + new_run/pending delivery | 叫醒 daemon，等 ready 后领取 |
+| 没有活跃 run | pending run + new_run/pending delivery | 叫醒 device，等 ready 后领取 |
 | 已有 pending run | steer/pending delivery，关联已有 run | 连续文本 prompt 可在领取时合并；结构化 input 不会无条件拼进去 |
 | 已有 running run | steer/pending delivery，关联已有 run | 提交后尝试推送插话，等待确认 |
 | 已有 waiting run | steer/pending delivery，关联已有 run | 等恢复 running 后再尝试，或结束后回退到后续 run |
@@ -104,7 +104,7 @@ Session S 中发 M1：“修复并评审”，目标 coder、reviewer；两者�
 | run | R1：coder，主任务 M1；R2：reviewer，主任务 M1 |
 | delivery | D1：M1 → coder → R1，new_run；D2：M1 → reviewer → R2，new_run |
 
-R1/R2 由各自 daemon 领取，形成各自 attempt。它们可以同时执行；如果位于同一 daemon，则按该连接 ready 的节奏领取，不能仅凭两个 pending run 判断已经并行开跑。
+R1/R2 由各自 device 上的 client 领取，形成各自 attempt。它们可以同时执行；如果位于同一 device，则按该连接 ready 的节奏领取，不能仅凭两个 pending run 判断已经并行开跑。
 
 这条消息同时触发两个 agent，不自动建立“先 coder 后 reviewer”的依赖。若评审必须看到 coder 最终产物，应在结果出现后再给 reviewer 发消息。
 
@@ -118,7 +118,7 @@ R1/R2 由各自 daemon 领取，形成各自 attempt。它们可以同时执行�
 | run | 仍是 R1/R2，不新建 R3 |
 | delivery | 新增 D3：M2 → coder → R1，steer/pending |
 
-Server 尝试对 R1 当前 attempt 发 steer。daemon 真正注入并上报 `steered` 后，D3 才变 delivered。R1 主任务仍是 M1，补充任务通过 D3 追踪。
+Server 尝试对 R1 当前 attempt 发 steer。client 真正注入并上报 `steered` 后，D3 才变 delivered。R1 主任务仍是 M1，补充任务通过 D3 追踪。
 
 Reviewer 没被 M2 主动触发。它下一次读取共享历史时可能看到 M2，但当前正在运行的上下文不会因为数据库多了一条消息就自动刷新；实时注入需要明确的目标和执行端确认。
 
@@ -204,7 +204,7 @@ Session 状态由其中的活跃 run 聚合，优先级是：
 
 Session 的消息和附件是共享数据。每次执行从它们准备上下文，内置 harness 为该次执行建立原生会话，不维护“每个 agent 一个长期独立聊天上下文”的服务端实体。
 
-领取时，`ClaimRun` 计算初始 `task_message_ids / context_seq`。随后 client 的 [`loadRunHistory`](../../../client/internal/service/session_history.go) 用 daemon 凭据及 run/attempt 头读取最新 session 快照，并把读到的最后消息 ID 更新为 context_seq；started 再把实际读取边界报回 server。因此 **context_seq 不是 run 创建时冻结的历史快照**，两个同时开始的 agent 也不保证读到完全相同的消息末尾。
+领取时，`ClaimRun` 计算初始 `task_message_ids / context_seq`。随后 client 的 [`loadRunHistory`](../../../client/internal/service/session_history.go) 用 device 凭据及 run/attempt 头读取最新 session 快照，并把读到的最后消息 ID 更新为 context_seq；started 再把实际读取边界报回 server。因此 **context_seq 不是 run 创建时冻结的历史快照**，两个同时开始的 agent 也不保证读到完全相同的消息末尾。
 
 - `task_message_ids` 表示本次明确要处理的任务消息。
 - `context_seq` 表示这次执行准备时读到的历史上界；message 的 seq 就是 ID，不要求在单个 session 内连续。
