@@ -133,13 +133,46 @@ workspace.yaml 是该 conversation 目录绑定及存在状态的唯一持久化
 
 session 的执行锁只保证单个原生 session 串行，不独占整个工作目录。多个 session 在同一目录并发时登记使用占用；清理须确认所有占用均已释放。业务文件直接共享，并发修改同一文件或 Git 状态仍需 agent 协调；不会自动获得文件事务。hook、临时配置和控制资源按 run/attempt 隔离，不能相互覆盖。服务端 fileService 用于文件传输与交付，同机共享工作区不需要通过上传下载模拟同步。
 
-## 七、恢复和清理
+## 七、工作目录怎样组织
+
+```text
+<session.work_root>/
+  <endpoint_id>/
+    <conversation_id>/
+      .agentuse-workspace.json
+      ...同一 conversation 的所有 agent / harness 共享的业务文件...
+      .agentuse/runs/<run_id>/<attempt_id>/
+        ...本次执行独立的 hook、临时配置和执行资源...
+```
+
+sessionService 按 `(endpoint_id, conversation_id)` 分配并持久化唯一工作目录。同一 conversation 的所有原生 session（包括 Codex 和 Claude Code）使用同一个 work_root，可以同时运行；不同 endpoint/conversation 分开。原生上下文仍各自独立，工作文件则直接共享。
+
+setting.yaml 的 session.work_root 是分配新 conversation 目录的默认父目录；实际目录记录在 sessionService 的 workspace.yaml 中，并写入各 session.yaml 的 work_root。已有 conversation 新建或更换 harness/session 时沿用已绑定目录，不重新分配。目录绑定文件的结构见上节。
+
+`.agentuse-workspace.json` 标识 client 创建的受管目录，记录 endpoint/conversation/workspace_id；会话状态文件通过 workspace_id 关联该目录。没有标识的用户目录不作为清理对象。不得把 home、磁盘根目录、原生工具全局用户目录或设置/状态/适配器目录作为可回收工作根目录。
+
+容量只统计这些受管工作目录，不统计 endpoint 密钥、session/run 状态文件、接入包，也不擅自扫描删除 `~/.codex`、`~/.claude` 等原生全局历史。
+
+## 八、恢复和清理
 
 - 网络重连保持仍受控的 session/run；server 确认的 valid_runs 只用于恢复对应中心的执行身份。
 - client 重启先对账，不因本地存在 session 就自动恢复执行旧 run；只有领到或确认有效的任务才能开始工作。
 - 原生历史缺失或恢复失败则标记不可用；重新建立 session 时保留旧执行关联和失败原因。
 - 取消 run 结束当前执行，不必删除原生 session；本地适配确认历史仍可恢复时，后续 run 可以继续使用。
 - 执行记录保留期和临时目录容量是两项独立规则。容量超限按 settingService 配置回收整个空闲 conversation 目录；任一关联 session 在用时都受保护，回收后保留映射及所有 session.yaml 并标记目录缺失。即使崩溃导致部分会话文件尚未更新，也以 workspace 映射和实际目录为准，不能恢复旧工作区；不删除 server conversation 或文件。
+
+## 九、超过容量后怎样自动清理
+
+
+1. 声明 quota 后，runService 在启动、领取执行前后及内置周期检查时触发 sessionService 检查。周期由实现内部管理，不暴露 cleanup 配置。
+2. sessionService 统计所有受管 conversation 目录，每个共享目录只计算一次；未声明 quota 或未超限则不因容量删除文件。
+3. 超限后取 conversation 内所有 session 最近使用时间的最大值，按该时间从旧到新回收**整个空闲 conversation 工作目录**，直到总用量不超过 session.quota.max_bytes。
+4. 任一关联 session 正在执行、等待用户答案、持有执行锁，或已分配给即将启动任务时，整个目录都不能删除。目录使用登记允许多个 session 并发，清理必须取得 conversation 工作目录的独占权限，不能边执行边清理。
+5. 回收后将 workspace.yaml 标记为 missing，并更新所有关联 session.yaml 的 workspace_state 为 missing，使其不可直接恢复。后续有效任务建立新原生 session，从 server 历史和文件准备输入，不假装旧工作区仍在。
+
+文件应先通过 fileService 上传再作为产物交付；清理只处理本机临时工作副本，不删除 server 文件。未上传的空闲工作目录内容会随回收删除，这就是启用临时目录回收的语义。
+
+如果超限但只有在用目录，暂不再启动需要该工作空间容量的新任务，等待资源释放并重试清理。正在运行的任务可继续，不能为达容量目标杀掉任务或删除其目录。因此这是清理/准入策略，不是文件系统硬配额，执行中的瞬时用量可能超过上限。
 
 ## 相关设计
 
