@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { ArrowUp, AtSign, ChevronDown, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -7,20 +7,19 @@ import { Input } from '@/components/ui/input';
 import { useT } from '@/lib/i18n';
 import type { Agent } from '@/lib/types';
 
-export function MentionComposer({ agents, busy, onSend, defaultAgent, placeholder, children, showAgentPicker = false }: {
+export function MentionComposer({ agents, busy, onSend, initialTargets = [], placeholder, children, showAgentPicker = false }: {
   agents: Agent[]; busy?: boolean; onSend: (text: string, targets: string[]) => Promise<unknown>;
-  defaultAgent?: string; placeholder: string; children?: ReactNode; showAgentPicker?: boolean;
+  initialTargets?: string[]; placeholder: string; children?: ReactNode; showAgentPicker?: boolean;
 }) {
   const t = useT();
   const [text, setText] = useState('');
-  const [targets, setTargets] = useState<string[]>([]);
+  const [targets, setTargets] = useState<string[]>(() => [...initialTargets]);
   const [query, setQuery] = useState<string | null>(null);
   const [cursor, setCursor] = useState(0);
   const [pickerQuery, setPickerQuery] = useState('');
   const textarea = useRef<HTMLTextAreaElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const mention = useRef<{ start: number; end: number } | null>(null);
-  useEffect(() => { if (defaultAgent) setTargets([defaultAgent]); }, [defaultAgent]);
 
   const options = agents.filter(a => !targets.includes(a.id) && `${a.id} ${a.name}`.toLowerCase().includes((query ?? '').toLowerCase()));
   const manual = query && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(query)

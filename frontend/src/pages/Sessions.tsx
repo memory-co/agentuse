@@ -97,6 +97,8 @@ export function Conversation({ id, onDeleted, placeholder,defaultAgent }: { id: 
   if (q.isError) return <div className="px-6 py-6"><ErrorState error={q.error} /></div>;
   const { session: x, messages, events } = q.data;
   const questions = q.data.questions ?? [];
+  const lastUserMessage = [...messages].reverse().find(message => message.role === 'user' && message.target_agent_ids?.length);
+  const initialTargets = lastUserMessage ? lastUserMessage.target_agent_ids ?? [] : defaultAgent ? [defaultAgent] : [];
   const meta = t("mention.shared");
   const coordinator = x.work_role === 'coordinator';
   const settled = x.status === 'idle' || x.status === 'resolved';
@@ -122,7 +124,7 @@ export function Conversation({ id, onDeleted, placeholder,defaultAgent }: { id: 
     </div>
     <div className="mx-auto w-full max-w-3xl px-4 pb-4">
       {reply.isError && <div className="pb-2"><ErrorState error={reply.error} /></div>}
-      <MentionComposer agents={agents.data??[]} defaultAgent={defaultAgent} placeholder={placeholder??t('session.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets)=>reply.mutateAsync({prompt,targets})}/>
+      <MentionComposer key={id} agents={agents.data??[]} initialTargets={initialTargets} placeholder={placeholder??t('session.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets)=>reply.mutateAsync({prompt,targets})}/>
 
     </div>
   </div>;
