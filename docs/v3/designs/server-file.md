@@ -52,4 +52,4 @@ fileService 只处理 session 文件空间；文件如何用于 prompt、怎样�
 
 ## 相关设计
 
-[Server 总览](server.md) · [sessionService](session.md) · [runService](run.md) · [workService](work.md)
+[Server 总览](server-main.md) · [sessionService](server-session.md) · [runService](server-run.md) · [workService](server-work.md)

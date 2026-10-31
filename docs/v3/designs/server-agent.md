@@ -14,7 +14,7 @@ agent 是用户在会话中选择的任务角色。agentService 管名称、说�
 | 查询执行选择 | 向 runService 提供当前 device、harness 和角色信息 |
 | 删除 agent | 删除未来可选择的角色，已有 run 保留原 agent_id；读取时关联不到则显示已删除状态 |
 
-userService 提供当前身份；deviceService 提供设备归属和能力；harnessService 提供执行配置。创建配置和当前能够执行是两个检查：runService 建立/领取任务时仍需检查运行时是否可用。
+userService 提供当前身份；deviceService 提供设备归属和能力；client 本地 harnessService 负责执行配置，server 只检查 deviceService 中的上报信息。创建配置和当前能够执行是两个检查：runService 建立/领取任务时仍需检查运行时是否可用。
 
 run 创建后保存本次 agent、device、harness 的选择。修改 agent 不改写已有 run；删除设备时由 deviceService 协调 agentService 清空 agent.device_id，之后该字段可以为空，必须重新配置才能继续使用。
 
@@ -41,4 +41,4 @@ CREATE UNIQUE INDEX agents_user_name
 
 ## 相关设计
 
-[Server 总览](server.md) · [userService](user.md) · [deviceService](device.md) · [harnessService](harness.md) · [sessionService](session.md) · [runService](run.md) · [fileService](file.md) · [workService](work.md)
+[Server 总览](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [Client harnessService](client-harness.md) · [sessionService](server-session.md) · [runService](server-run.md) · [fileService](server-file.md) · [workService](server-work.md)

@@ -41,4 +41,4 @@ CREATE UNIQUE INDEX users_token
 
 ## 相关设计
 
-[Server 总览](server.md) · [deviceService](device.md) · [agentService](agent.md) · [harnessService](harness.md) · [sessionService](session.md) · [runService](run.md) · [fileService](file.md) · [workService](work.md)
+[Server 总览](server-main.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [Client harnessService](client-harness.md) · [sessionService](server-session.md) · [runService](server-run.md) · [fileService](server-file.md) · [workService](server-work.md)

@@ -9,7 +9,7 @@ runService 管一次业务执行任务。一个 run 属于一个 session，确�
 ## 与其他 Service 的关系
 
 - sessionService 在发送事务中调用 runService，为每个目标建立分配；runService 不反向调用 sessionService。
-- agentService 提供角色及执行选择，deviceService 提供设备能力，harnessService 将固定版本 YAML 转成标准执行描述并归一化交互。
+- agentService 提供角色及执行选择，deviceService 提供设备能力，client 的 harnessService 在本地管理配置并归一化交互；server 不调用 harnessService。
 - workService 提供工作说明和执行范围的授权；与 run 同寿命的工作令牌由 workService 管理。
 - runService 持久化结果事件后通知 sessionService 消费；由 sessionService 在事务内检查并绑定 runs.result_message_id，防止重复回复；messages 不需要 run_id。
 
@@ -45,19 +45,19 @@ Run 状态是 pending/running/waiting/succeeded/failed/cancelled；run_prompts �
 
 所有终态来源（包括取消、运行时不可用、设备删除）都必须写可恢复的终态事件。run_events 同时保存执行端事件和 server 生成的生命周期事件；server 合成事件在事务内分配不冲突的 event_seq。处理终态与后续输入在统一事务内完成，网络通知在提交后进行。
 
-## v3 执行配置快照
+## Server 与本地执行的边界
 
-建立 run 时，harnessService 固定整个接入包的 harness_revision，保存仅供 server 使用的 harness_config_yaml，并编译包含版本化 hook/skill/指令资源清单的 execution_spec（版本化 JSON 标准执行描述）。Client 只收到 execution_spec 和任务输入，不解析 YAML、不按 harness 名称分支。
+runService 固定 agent、device、设备上报的 harness 标识和 harness_revision。Client 按本地接入包执行，不从 server 接收 YAML、shell 命令或执行描述；已建立的 run 不因配置更新自动换版本。本地缺少对应版本时明确报错，不静默改用新版本，包安装/升级属于设备本地管理。
 
-原始输出/交互先由 harnessService 解释为标准事件，再由 runService 更新进度、结果、问题和消费状态。runService 的插话、答案、取消也经 harnessService 转换成通用执行动作。Client 仅确认通道读写不等于业务接受，steer accepted 必须有输入被消费的确认。
+WebSocket 下行只含 run/attempt、harness 标识/版本、run_prompts、上下文/文件引用、补充输入、答案和取消。Client 本地处理原生进程、RPC、hook、skill 和指令，将进度、问题、消费确认、用量、结果转成标准上行事件。共享上下文和文件仍可通过 HTTP 获取。
 
-execution_spec 声明所需协议版本和原语；领取前核对 device 能力。更新同名配置不会改变排队/重试任务及 server 的解释规则；创建后续新 run 时重新选择配置。
+Server 不解释原始 stdout 或原生工具帧；runService 只校验 attempt/租约和标准事件后推进业务状态。steer 确认由本地 harnessService 按原生接入依据生成，只有通道写入回执时不能冒充输入被接受。
 
 ## 表结构
 
 ### runs
 
-一次执行任务。`first_message_id` 是触发本 run 的第一条消息，`result_message_id` 是执行结果的内部关联；最终回复通过 messages.reply_to_message_id 指向主任务消息，而不是回复这个 run。agent 名称和所属用户通过 agent_id 关联 agents 查询，不在 runs 中冗余保存；agent 删除后保留原 agent_id，读取时用 LEFT JOIN 展示已删除状态。设备删除时由 service 清空当前 device_id 引用。attempt_id/lease_until 表示当前执行租约，context_seq 对应 messages.seq，表示上下文读取边界；first_message_id 和 result_message_id 保存消息 UUID，不用 UUID 比较先后。配置快照是 v3 新增字段。
+一次执行任务。`first_message_id` 是触发本 run 的第一条消息，`result_message_id` 是执行结果的内部关联；最终回复通过 messages.reply_to_message_id 指向主任务消息，而不是回复这个 run。agent 名称和所属用户通过 agent_id 关联 agents 查询，不在 runs 中冗余保存；agent 删除后保留原 agent_id，读取时用 LEFT JOIN 展示已删除状态。设备删除时由 service 清空当前 device_id 引用。attempt_id/lease_until 表示当前执行租约，context_seq 对应 messages.seq，表示上下文读取边界；first_message_id 和 result_message_id 保存消息 UUID，不用 UUID 比较先后。harness_revision 是本地接入包的版本标识，不是服务端执行配置。
 
 ```sql
 CREATE TABLE runs (
@@ -68,8 +68,6 @@ CREATE TABLE runs (
     device_id TEXT,
     harness TEXT NOT NULL,
     harness_revision TEXT NOT NULL,
-    harness_config_yaml TEXT NOT NULL,
-    execution_spec TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     attempt_id TEXT NOT NULL DEFAULT '',
     lease_until INTEGER,
@@ -160,4 +158,4 @@ CREATE TABLE run_questions (
 
 ## 相关设计
 
-[Server 总览](server.md) · [userService](user.md) · [deviceService](device.md) · [agentService](agent.md) · [harnessService](harness.md) · [sessionService](session.md) · [fileService](file.md) · [workService](work.md)
+[Server 总览](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [Client harnessService](client-harness.md) · [sessionService](server-session.md) · [fileService](server-file.md) · [workService](server-work.md)

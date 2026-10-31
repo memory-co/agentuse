@@ -2,7 +2,7 @@
 
 > 本文定义 v3 的目标业务划分。service 名称和 device 命名是设计约定，现有源码、表和接口尚未全部按此调整。本稿先说明业务关系，不逐文件展开实现。
 
-Server 保存对话、组织任务并跟踪执行。用户的一台执行设备称为 **device**，设备上运行的程序称为 **client**。Client 从 server 领取 run，按标准执行描述在设备上启动命令并转发交互；具体 harness 的差异由 server 理解。
+Server 保存对话、组织任务并跟踪执行。用户的一台执行设备称为 **device**，设备上运行的程序称为 **client**。Client 从 server 领取 run，由本地 harnessService 解析 YAML、准备资源、执行 harness 并处理交互。Server 的职责到 run 调度和业务状态为止，不理解原生 harness 协议。
 
 ## 一、整体关系
 
@@ -11,7 +11,7 @@ Server 保存对话、组织任务并跟踪执行。用户的一台执行设备�
 Server 分为三层：
 
 - **controller**：HTTP / WebSocket 入口，处理身份、请求和响应，把业务交给 service。
-- **service**：按业务对象划分职责，决定如何保存对话、分配任务、管理设备和执行配置。
+- **service**：按业务对象划分职责，决定如何保存对话、分配任务、管理设备和业务状态。
 - **store**：表、查询和事务；各 service 通过它保存自己的业务数据。
 
 设备的在线连接由连接管理组件维护。Service 通过通知接口让它派活、推送插话、取消或答案；连接本身不承担 session/run 的业务规则。
@@ -20,18 +20,17 @@ Server 分为三层：
 
 | Service | 负责什么 | 主要拥有的表或数据 |
 |---|---|---|
-| [userService](user.md) | 用户、角色、访问令牌和身份校验 | `users` |
-| [deviceService](device.md) | 执行设备的登记、凭据、在线状态、可用 harness 和执行能力 | `devices`、`device_harnesses`、`device_capabilities` |
-| [agentService](agent.md) | Agent 的名称、说明、归属，以及选择哪台 device、哪种 harness 执行 | `agents` |
-| [harnessService](harness.md) | 在 server 解析 YAML，将探测、执行及各种交互转换为标准协议 | `harnesses` 和版本化接入包（YAML、hook、skill、指令） |
-| [sessionService](session.md) | 清晰、持续的对话：创建会话、保存消息、读取共享历史；调用 runService 分配任务，接收结果事件并保存回复 | `sessions`、`messages` |
-| [runService](run.md) | 建立任务、关联任务消息、派发与领取、跟踪执行、插话、提问、取消和执行恢复 | `runs`、`run_prompts`、`run_events`、`run_questions` |
-| [fileService](file.md) | 按 session 隔离文件空间，支持本地和 S3 的上传、下载 | 本地目录或 S3 对象前缀，无数据库表 |
-| [workService](work.md) | 把多个 session 组织成一项工作，管理协调 agent、线程关系和结果汇总 | `works`、`work_run_tokens`、`run_notifications` |
+| [userService](server-user.md) | 用户、角色、访问令牌和身份校验 | `users` |
+| [deviceService](server-device.md) | 执行设备的登记、凭据、在线状态、可用 harness 和执行能力 | `devices`、`device_harnesses`、`device_capabilities` |
+| [agentService](server-agent.md) | Agent 的名称、说明、归属，以及选择哪台 device、哪种 harness 执行 | `agents` |
+| [sessionService](server-session.md) | 清晰、持续的对话：创建会话、保存消息、读取共享历史；调用 runService 分配任务，接收结果事件并保存回复 | `sessions`、`messages` |
+| [runService](server-run.md) | 建立任务、关联任务消息、派发与领取、跟踪执行、插话、提问、取消和执行恢复 | `runs`、`run_prompts`、`run_events`、`run_questions` |
+| [fileService](server-file.md) | 按 session 隔离文件空间，支持本地和 S3 的上传、下载 | 本地目录或 S3 对象前缀，无数据库表 |
+| [workService](server-work.md) | 把多个 session 组织成一项工作，管理协调 agent、线程关系和结果汇总 | `works`、`work_run_tokens`、`run_notifications` |
 
 这里的“拥有”指主要维护职责，不表示其他 service 不能读取。跨业务修改通过所属 service 完成；由编排操作统一事务，不能把各次调用做成互不相关的独立提交。
 
-各 service 的详细职责、操作和完整目标 SQL 见上表链接；15 张业务表各有一篇负责维护；fileService 不使用数据库表。表结构中的 device 命名，以及 harness 配置快照、回复去重约束都是目标设计，尚未应用到运行中的数据库。
+各 service 的详细职责、操作和完整目标 SQL 见上表链接；14 张服务端业务表各有一篇负责维护；fileService 不使用数据库表。表结构中的 device 命名，以及 设备运行能力、执行身份与结果关联都是目标设计，尚未应用到运行中的数据库。
 
 所有表不声明数据库外键，只保存关联 ID。创建/修改时由 service 检查目标存在、归属和状态；删除时协调相关 service 显式清理或清空关联字段，并在同一事务提交。数据库保留主键、唯一索引和必要的 CHECK 约束，不依赖自动级联。
 
@@ -48,20 +47,20 @@ sessionService 负责发送消息的业务编排，调用 runService 建立任�
 
 **Device 是执行位置，agent 是任务角色，harness 是执行方式。** 三者不能合并成一个概念。
 
-### 2.2 harnessService
+### 2.2 Client 的 harnessService
 
-harnessService 在 server 管理和解析 YAML，把不同 harness 的探测、启动、输入输出、插话、提问、取消收敛为标准执行协议。Client 不持有 YAML，也不需要知道某个命令属于哪种 harness。
+harnessService 放在 client，不属于 server service。YAML、hook、skill、指令资源和原生交互都由 client 本地管理，详情见 [Client harness 设计](client-harness.md)。
 
-| Server 负责 | Client 负责 |
+| Server 负责 | Client 的 harnessService 负责 |
 |---|---|
-| 解析 YAML，生成版本化标准执行描述 | 执行命令、准备环境和文件 |
-| 生成探测动作，解释设备返回的结果 | 执行探测并返回原始结果 |
-| 将插话、答案和取消映射成具体动作 | 提供流、JSON-RPC、本地 HTTP/hook 等通用交互原语 |
-| 将原始输出归一化为业务事件 | 回传输出、协议帧和本地回调 |
+| 保存消息、建立 run 和任务输入 | 读取本地 YAML、hook、skill 与指令资源 |
+| 按 device 和上报能力分配任务 | 本地探测 harness，报告可用性和业务能力 |
+| 下发 run、补充输入、答案、取消 | 启动进程，进行原生 RPC、hook 与工具交互 |
+| 接收标准进度、问题、用量和结果 | 本地解释原始输出，转换为标准业务事件 |
 
-统一业务语义是 probe、start、progress/result/error、steer accepted/rejected、question/answer、cancel。能力可以缺失；比如不支持可确认插话时，由 runService 回退到后续任务，而不是 client 增加某个 harness 的特殊分支。
+WebSocket 只传 run 业务协议，不传 shell 命令、argv/env、YAML、执行脚本、原生 RPC 帧或 hook 请求。原生交互在设备上闭环，减少代理/WAF 对执行类消息的误判；这不保证任意业务正文都不会触发 WAF。
 
-runService 下发标准执行描述，不下发 YAML。执行时的规则和配置版本固定；共享代码只保留标准协议数据结构；按需的 hook/桥接程序、skill 和指令作为接入包资源下发，client 不为其增加专用分支。详情见 [harnessService](harness.md)。
+Server 只认识设备上报的 harness 标识、版本和能力，不设 harnessService 或 harnesses 配置表，也不维护接入包分发服务。
 
 ### 2.3 sessionService 与 runService
 
@@ -116,11 +115,11 @@ Run 是一次业务执行任务。设备故障导致重试时，用 attempt 区�
 | 业务 | 主要调用关系 |
 |---|---|
 | 登录和身份检查 | controller → userService |
-| 登记设备、上报在线能力 | controller / 连接入口 → deviceService；deviceService 核对 harnessService 的定义 |
+| 登记设备、上报在线能力 | controller / 连接入口 → deviceService；登记 client 本地探测后上报的 harness、版本及业务能力 |
 | 配置 agent | controller → agentService；agentService 核对用户、device 和 harness |
 | 发送会话消息 | controller → sessionService → runService |
-| 建立 run | runService 读取 agentService 的执行选择，核对 deviceService 的能力和 harnessService 的配置 |
-| client 领取任务 | 连接入口 → runService；返回统一任务与标准执行描述，不下发 YAML |
+| 建立 run | runService 读取 agentService 的执行选择，核对 deviceService 保存的可用性及业务能力 |
+| client 领取任务 | 连接入口 → runService；返回 run 身份、harness 标识/版本及任务输入，不下发执行描述 |
 | client 上报执行事件 | 连接入口 → runService；结果事件 → sessionService 保存回复 |
 | 上传和读取附件 | controller → fileService；结合 user/session/run 的访问范围检查权限 |
 | 组织工作、汇总线程结果 | controller 或任务完成通知 → workService → sessionService |
@@ -131,10 +130,10 @@ Run 是一次业务执行任务。设备故障导致重试时，用 attempt 区�
 
 1. **controller 接收。** 校验身份，解析消息、session 和目标 agent，交给 sessionService。
 2. **sessionService 保存对话。** 检查会话权限，保存一条 user message；共享 messages 只保存一条，各目标 run 分别写 run_prompts 副本。
-3. **runService 建立分配。** 对每个目标 agent，创建 run 或把消息加入已有活跃 run，写入当前 run 的消息副本 run_prompts；读取 agent/device/harness 的执行配置。
+3. **runService 建立分配。** 对每个目标 agent，创建 run 或把消息加入已有活跃 run，写入当前 run 的消息副本 run_prompts；固定 agent/device 及设备上报的 harness 标识/版本。
 4. **统一提交。** 消息和任务分配一并成功或失败。提交后通知在线 device 有任务或插话，HTTP 返回保存结果。
-5. **client 领取并执行。** runService 确定当前执行身份；client 读取共享消息和文件，按标准执行描述启动命令并转发协议交互。
-6. **上报与呈现。** client 上报进度、问题和结果；runService 更新执行记录并发出结果事件，sessionService 消费后追加最终回复；workService 按需汇总线程结果。
+5. **client 领取并执行。** runService 确定当前执行身份；client 读取共享消息和文件，由本地 harnessService 完成探测、启动、交互和输出解释。
+6. **上报与呈现。** client 上报标准进度、问题、消费确认、用量和结果；runService 更新执行记录并发出结果事件，sessionService 消费后追加最终回复；workService 按需汇总线程结果。
 
 对话是否已保存、任务是否已领取、补充消息是否已接收、执行是否已完成是不同的状态。页面可以把它们放在同一会话里展示，数据模型仍各自清楚。
 

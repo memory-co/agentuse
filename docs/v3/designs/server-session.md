@@ -125,4 +125,4 @@ CREATE INDEX messages_replies ON messages(session_id,reply_to_message_id,seq);
 
 ## 相关设计
 
-[Server 总览](server.md) · [userService](user.md) · [deviceService](device.md) · [agentService](agent.md) · [harnessService](harness.md) · [runService](run.md) · [fileService](file.md) · [workService](work.md)
+[Server 总览](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [Client harnessService](client-harness.md) · [runService](server-run.md) · [fileService](server-file.md) · [workService](server-work.md)
