@@ -5,14 +5,15 @@ LDFLAGS := -s -w -X github.com/memory-co/agentuse/internal/version.Version=$(VER
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 SERVER_PLATFORMS := $(PLATFORMS)
 
-# 网页:frontend/ 构建到 frontend/dist,编译 agentuse-server 时嵌进去
+# 两个独立前端分别构建到各自 dist，嵌入 client 和 server 二进制
 web:
-	cd frontend && npm ci && npm run build
+	cd client/frontend && npm ci && npm run build
+	cd server/frontend && npm ci && npm run build
 
 # bin/agentuse(用户电脑)和 bin/agentuse-server(服务端，带网页)
 build: web
-	go build -ldflags "$(LDFLAGS)" -o bin/agentuse ./cmd/agentuse
-	go build -ldflags "$(LDFLAGS)" -o bin/agentuse-server ./cmd/agentuse-server
+	go build -ldflags "$(LDFLAGS)" -o bin/agentuse ./client/cmd/agentuse
+	go build -ldflags "$(LDFLAGS)" -o bin/agentuse-server ./server/cmd/agentuse-server
 
 # 交叉编译各平台的 agentuse 到 dist/,服务的 setup.sh 从这里下载
 dist:
@@ -20,7 +21,7 @@ dist:
 	@for p in $(PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; \
 		echo "build dist/agentuse-$$os-$$arch"; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o dist/agentuse-$$os-$$arch ./cmd/agentuse || exit 1; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o dist/agentuse-$$os-$$arch ./client/cmd/agentuse || exit 1; \
 	done
 
 # 发布制品:dist/ 下 agentuse、agentuse-server 各平台 + SHA256SUMS
@@ -28,7 +29,7 @@ release: dist web
 	@for p in $(SERVER_PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; \
 		echo "build dist/agentuse-server-$$os-$$arch"; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o dist/agentuse-server-$$os-$$arch ./cmd/agentuse-server || exit 1; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -ldflags "$(LDFLAGS)" -o dist/agentuse-server-$$os-$$arch ./server/cmd/agentuse-server || exit 1; \
 	done
 	cd dist && sha256sum agentuse-* > SHA256SUMS
 

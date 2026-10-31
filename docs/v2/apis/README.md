@@ -13,6 +13,7 @@ agentuse 服务对外的全部接口。一组接口一个文件:
 | [sessions](sessions.md) | 开会话、发消息、看消息和回报 | 网页 / 脚本 |
 | [attachments](attachments.md) | session 附件上传、列表、下载、删除 | 网页 / SDK / agentuse 客户端 |
 | [setup](setup.md) | `setup.sh` 和二进制下载 | 用户电脑上的 curl |
+| [本机页面](local.md) | 本机账本、命令清单、token 统计（只读） | 本机浏览器 |
 | [daemon](daemon.md) | daemon 注册、自检、WebSocket 消息 | daemon |
 
 ## 约定

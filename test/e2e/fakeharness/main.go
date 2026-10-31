@@ -286,6 +286,10 @@ func custom() int {
 		emit(map[string]any{"type": "result", "ok": true, "output": string(out), "session_id": "native-" + in.RunID})
 		return 0
 	}
+	if in.Input.Prompt == "ledger" {
+		emit(map[string]any{"type": "result", "ok": true, "output": "ledger result", "usage": map[string]int64{"input_tokens": 1234, "output_tokens": 56, "cache_read_tokens": 100, "cache_write_tokens": 20}, "cost_usd": 0.0123})
+		return 0
+	}
 	if in.Input.Prompt == "attachments" {
 		if len(in.Attachments) != 1 {
 			fmt.Fprintln(os.Stderr, "missing attachment context")

@@ -18,7 +18,7 @@ func TestMessageJSON(t *testing.T) {
 		{Message{Type: TypeEvent, MessageID: 1, Kind: "done", Payload: json.RawMessage(`{"ok":true}`)},
 			`{"type":"event","message_id":1,"kind":"done","payload":{"ok":true}}`},
 		{Message{Type: TypeRun, Run: &Dispatch{ID: 1, SessionID: "ss_1", Harness: "claude", Input: json.RawMessage(`{"prompt":"hi"}`)}},
-			`{"run":{"id":1,"session_id":"ss_1","harness":"claude","input":{"prompt":"hi"}},"type":"run"}`},
+			`{"run":{"sender":{"id":"","name":""},"id":1,"session_id":"ss_1","harness":"claude","input":{"prompt":"hi"}},"type":"run"}`},
 	} {
 		b, err := json.Marshal(c.msg)
 		if err != nil || string(b) != c.want {

@@ -2,7 +2,7 @@
 
 ## 一句话
 
-仓库顶层加一个 `harness/` 目录，**一个 harness 一个子目录**,里面的 `harness.yaml` 写清楚这个 CLI 的命令入口点位：怎么探测、第一条消息怎么起、之后怎么续接、输出怎么读出进度 / 结果 / 会话 id。daemon 和服务都从这里读，加一个新 harness 只要加一个目录，不用再写 Go。以后这个 harness 专属的 hook、plugin、skills 也放进它自己的目录。
+仓库顶层加一个 `internal/harness/` 目录，**一个 harness 一个子目录**,里面的 `harness.yaml` 写清楚这个 CLI 的命令入口点位：怎么探测、第一条消息怎么起、之后怎么续接、输出怎么读出进度 / 结果 / 会话 id。daemon 和服务都从这里读，加一个新 harness 只要加一个目录，不用再写 Go。以后这个 harness 专属的 hook、plugin、skills 也放进它自己的目录。
 
 ```
 harness/
@@ -22,11 +22,11 @@ harness/
 
 现在 harness 的知识散在代码里：
 
-- `internal/store/harnesses.go`:内置 harness 的名字、显示名、说明(写进 [harnesses](../tables/harnesses.md) 表)。
-- `internal/daemon/harnesses.go`:默认命令、`--version` 探测、拼参数(`-p` / `--resume` / `exec … resume`)、`runClaude` / `runCodex` 两套解析。
+- `server/internal/store/seed.go`:内置 harness 的名字、显示名、说明(写进 [harnesses](../tables/harnesses.md) 表)。
+- `client/internal/service/harnesses.go`:默认命令、`--version` 探测、拼参数(`-p` / `--resume` / `exec … resume`)、`runClaude` / `runCodex` 两套解析。
 - [connect](connect.md#本机怎么跑-harness) 里再抄一遍命令表。
 
-三处要一起改，加 Gemini CLI、opencode 之类就得写一套新的 Go 解析。收进 `harness/<name>/` 以后，这个目录就是这个 harness 的全部事实。
+三处要一起改，加 Gemini CLI、opencode 之类就得写一套新的 Go 解析。收进 `internal/harness/<name>/` 以后，这个目录就是这个 harness 的全部事实。
 
 ## harness.yaml 长什么样
 
@@ -120,7 +120,7 @@ Codex 使用 stdio JSON-RPC app-server，而非 exec JSONL。每次 run 经 init
 | `run.resume` | 之后每条的参数，派活消息里有 `resume` 时用 |
 | `input` | 不写:stdin 为空,prompt 只能用 `{prompt}` 放进参数(codex)。`format: stream-json`:把 `message` 里的占位符换掉，序列化成一行写进 stdin,stdin 保持打开，读到 `result` 行后关闭 |
 | `env` | 起进程时追加的环境变量，值里的 `{message_id}` / `{session_id}` 换成这条消息、这个会话的 id |
-| `workdir` | `harness/<name>/` 下的子目录 → 会话目录里的相对路径，起进程前整个拷过去(覆盖同名文件);不写就什么也不拷 |
+| `workdir` | `internal/harness/<name>/` 下的子目录 → 会话目录里的相对路径，起进程前整个拷过去(覆盖同名文件);不写就什么也不拷 |
 | `output.format` | 目前只有 `jsonl`:stdout 每行一个 JSON,不是 JSON 的行当文本进度 |
 | `output.session_id` | 全局规则：哪个字段是 harness 的会话 id |
 | `output.rules` | 逐行匹配的规则列表，见下 |
@@ -167,15 +167,15 @@ harness 没报会话 id 时沿用续接的那个，这条对所有 harness 都�
 
 ## 谁读它
 
-- **服务**:启动时把每个 `harness/*/harness.yaml` 的 `name` / `display_name` / `description` upsert 进 harnesses 表(`kind = builtin`),代替 `internal/store/harnesses.go` 里写死的列表。目录删了的内置 harness 不自动删行，避免 agent、会话引用断掉。
+- **服务**:启动时把每个 `internal/harness/*/harness.yaml` 的 `name` / `display_name` / `description` upsert 进 harnesses 表(`kind = builtin`),代替 `server/internal/store/seed.go` 里写死的列表。目录删了的内置 harness 不自动删行，避免 agent、会话引用断掉。
 - **daemon**:探测和运行都按 yaml 来,Claude 使用通用 JSONL 执行器，Codex 使用 app-server 适配器。daemon.json 的 `harnesses.<name>` 仍然可以改 `command`、加 `args`、`disabled`,写法不变。
-- **文档**:[connect](connect.md#本机怎么跑-harness) 的命令表改成指向 `harness/<name>/harness.yaml`,不再手抄。
+- **文档**:[connect](connect.md#本机怎么跑-harness) 的命令表改成指向 `internal/harness/<name>/harness.yaml`,不再手抄。
 
-整个 `harness/` 用 `go:embed` 编进 `agentuse` 和 `agentuse-server`,不需要用户机器上有这个目录;改里面的东西要发新版本才生效，和改代码一样。
+整个 `internal/harness/` 用 `go:embed` 编进 `agentuse` 和 `agentuse-server`,不需要用户机器上有这个目录;改里面的东西要发新版本才生效，和改代码一样。
 
 ## 自定义 harness
 
-不变：用户在服务上注册名字，在 daemon.json 里配命令，按 stdin `{"session_id","resume","input"}` / stdout `{"type":"progress"|"result",…}` 的约定跑([harnesses](../tables/harnesses.md))。`harness/` 只放内置的。
+不变：用户在服务上注册名字，在 daemon.json 里配命令，按 stdin `{"session_id","resume","input"}` / stdout `{"type":"progress"|"result",…}` 的约定跑([harnesses](../tables/harnesses.md))。`internal/harness/` 只放内置的。
 
 ## 工作目录
 
@@ -197,14 +197,14 @@ codex 暂时不拷东西，只是也在锁定的目录里跑。
 
 - **插话**:已单独设计，见 [steer](steer.md)。harness.yaml 用 `steer: claude-hooks` 打开。
 - **提问**:已单独设计，见 [question](question.md)。harness.yaml 用 `ask: claude-permission` 打开，claude 的参数里 `--disallowedTools AskUserQuestion` 换成 `--permission-prompt-tool stdio`。
-- **hook / plugin**:放在 `harness/<name>/` 下对应的子目录里，跑时带上;回调式 hook 由 daemon 在 stdin 注册，需要落盘的再通过 `workdir` 拷进去。
+- **hook / plugin**:放在 `internal/harness/<name>/` 下对应的子目录里，跑时带上;回调式 hook 由 daemon 在 stdin 注册，需要落盘的再通过 `workdir` 拷进去。
 - **用户自己的目录**:允许 daemon 读 `~/.agentuse/harness/<name>/harness.yaml`,让手搓的 harness 不用改成 agentuse 的 stdin/stdout 约定。先不做。
 
 ## 实现步骤
 
-已完成：`harness/` 目录和加载代码、服务用 yaml 写 harnesses 表、daemon 通用执行器;stream-json 输入和锁定工作目录也已完成：
+已完成：`internal/harness/` 目录和加载代码、服务用 yaml 写 harnesses 表、daemon 通用执行器;stream-json 输入和锁定工作目录也已完成：
 
-1. `harness.Spec` 加 `input`、`workdir`,`embed.go` 把 `skills/` 等子目录也编进去;加 `harness/claude/skills/agentuse/SKILL.md`。
+1. `harness.Spec` 加 `input`、`workdir`,`embed.go` 把 `skills/` 等子目录也编进去;加 `internal/harness/claude/skills/agentuse/SKILL.md`。
 2. claude 的 `run` 改成上面的样子;`runSpec` 按 `input` 写 stdin,读到 `result` 后关 stdin。
 3. daemon 固定会话目录、起进程前按 `workdir` 拷文件;去掉 daemon.json 的 `workdir`、派活消息的 `cwd`。
 4. 服务去掉 `sessions.cwd`、`POST /api/sessions` 的 `cwd`,SDK 和前端新会话里的工作目录输入框一起去掉(不做兼容，删库重建)。
