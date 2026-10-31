@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/memory-co/agentuse/internal/daemon"
+	daemon "github.com/memory-co/agentuse/client/internal/service"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 

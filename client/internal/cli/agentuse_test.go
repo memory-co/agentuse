@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/memory-co/agentuse/internal/daemon"
+	daemon "github.com/memory-co/agentuse/client/internal/service"
 )
 
 func TestAgentuseCommands(t *testing.T) {

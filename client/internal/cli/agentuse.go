@@ -8,7 +8,7 @@ import (
 	"github.com/memory-co/agentuse/internal/version"
 	"os"
 
-	"github.com/memory-co/agentuse/internal/daemon"
+	daemon "github.com/memory-co/agentuse/client/internal/service"
 )
 
 const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 agentuse 服务领活

@@ -67,7 +67,7 @@ daemon 还把自己所在的目录放到 PATH 最前面，保证找得到 `agent
 | `codex` | `~/.agentuse/work/<session_id>/AGENTS.md` |
 | 自定义 | 不写文件,stdin 里多一个 `"instructions": "…"` 字段 |
 
-- 写哪个文件由 `harness/<name>/harness.yaml` 的 `instructions: CLAUDE.md` 一项指定([harness](harness.md))。
+- 写哪个文件由 `internal/harness/<name>/harness.yaml` 的 `instructions: CLAUDE.md` 一项指定([harness](harness.md))。
 - **每条消息都重写**:说明改了，下一条就用新的;没有说明就删掉这个文件。这个文件归 agentuse 管,harness 自己改了也会被覆盖。
 
 ## 网页

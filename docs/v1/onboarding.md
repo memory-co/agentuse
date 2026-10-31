@@ -44,7 +44,7 @@
 ### 1.2 安装
 
 ```bash
-go install github.com/memory-co/agentuse/cmd/agentuse@latest
+go install github.com/memory-co/agentuse/client/cmd/agentuse@latest
 agentuse version
 ```
 
@@ -316,7 +316,7 @@ function verify(req: { headers: Record<string, string>; rawBody: string }, secre
 - 装 agentuse,并确认它在 `PATH` 里。agent 在运行里要调 `agentuse reply`,找不到命令就交不了活:
 
 ```bash
-go install github.com/memory-co/agentuse/cmd/agentuse@latest
+go install github.com/memory-co/agentuse/client/cmd/agentuse@latest
 which agentuse
 ```
 
