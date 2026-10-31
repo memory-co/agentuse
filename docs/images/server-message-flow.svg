@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1250" viewBox="0 0 1280 1250" font-family="-apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" role="img" aria-labelledby="title desc">
+<title id="title">用户消息在 Server 中的处理流程</title><desc id="desc">HTTP 鉴权后在同一事务内保存消息、幂等记录和各 agent 的 delivery。提交后异步派活或插话，收到执行端确认与终态事件后保存结果。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker><marker id="notify" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d97706"/></marker></defs>
+<rect width="1280" height="1250" rx="16" fill="#fff"/>
+<text x="35" y="40" text-anchor="start" font-size="23" fill="#0f172a" font-weight="600">一条用户消息：保存 → 分配 → 确认 → 结束</text>
+<rect x="290" y="75" width="700" height="100" rx="10" fill="#eef2ff" stroke="#818cf8"/>
+<text x="308" y="105" text-anchor="start" font-size="18" fill="#3730a3" font-weight="600">① HTTP 接收 · api.go</text>
+<text x="308" y="133" text-anchor="start" font-size="14" fill="#475569">POST /api/sessions/{id}/messages · workAuth</text>
+<text x="308" y="157" text-anchor="start" font-size="14" fill="#475569">校验身份 / work scope，解析 prompt 或 input 和 target_agent_ids</text>
+<path d="M640 175 V220" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="230" y="220" width="820" height="188" rx="10" fill="#ecfdf5" stroke="#6ee7b7"/>
+<text x="248" y="250" text-anchor="start" font-size="18" fill="#065f46" font-weight="600">② service 事务 · runs.go → sendMultiTx</text>
+<text x="248" y="278" text-anchor="start" font-size="14" fill="#475569">检查 session → 目标去重 → 幂等校验（同 key 返回原结果）</text>
+<text x="248" y="302" text-anchor="start" font-size="14" fill="#475569">写 1 条 messages + message_formats；每个目标写 1 条 delivery</text>
+<text x="248" y="326" text-anchor="start" font-size="14" fill="#475569">无活跃 run 则创建 pending run；已有 run 则关联为 steer</text>
+<text x="248" y="350" text-anchor="start" font-size="14" fill="#475569">更新标题 / session 聚合状态 / session_requests；全部成功才提交</text>
+<path d="M640 408 V460" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="660" y="427" text-anchor="start" font-size="15" fill="#92400e" font-weight="600">COMMIT 后才通知；HTTP 201 ≠ 已执行</text>
+<rect x="35" y="460" width="370" height="136" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+<text x="53" y="490" text-anchor="start" font-size="18" fill="#0f172a" font-weight="600">③a 目标为空</text>
+<text x="53" y="518" text-anchor="start" font-size="14" fill="#475569">只有共享历史消息</text>
+<text x="53" y="542" text-anchor="start" font-size="14" fill="#475569">不建 run / delivery</text>
+<text x="53" y="566" text-anchor="start" font-size="14" fill="#475569">未来执行读取时可见</text>
+<rect x="455" y="460" width="370" height="136" rx="10" fill="#eef2ff" stroke="#818cf8"/>
+<text x="473" y="490" text-anchor="start" font-size="18" fill="#3730a3" font-weight="600">③b 目标没有活跃 run</text>
+<text x="473" y="518" text-anchor="start" font-size="14" fill="#475569">new_run / pending</text>
+<text x="473" y="542" text-anchor="start" font-size="14" fill="#475569">Kick → daemon ready → ClaimRun</text>
+<text x="473" y="566" text-anchor="start" font-size="14" fill="#475569">生成 attempt / 租约 / context_seq</text>
+<rect x="875" y="460" width="370" height="136" rx="10" fill="#fffbeb" stroke="#fbbf24"/>
+<text x="893" y="490" text-anchor="start" font-size="18" fill="#92400e" font-weight="600">③c 目标已有活跃 run</text>
+<text x="893" y="518" text-anchor="start" font-size="14" fill="#475569">steer / pending</text>
+<text x="893" y="542" text-anchor="start" font-size="14" fill="#475569">running：尝试 WS steer</text>
+<text x="893" y="566" text-anchor="start" font-size="14" fill="#475569">pending / waiting：合并或稍后处理</text>
+<path d="M640 435 H220 V460" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M640 435 H1060 V460" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M640 596 V665" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<path d="M1060 596 V625 H800 V665" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="400" y="665" width="700" height="120" rx="10" fill="#eef2ff" stroke="#818cf8"/>
+<text x="418" y="695" text-anchor="start" font-size="18" fill="#3730a3" font-weight="600">④ hub 与 daemon 交换协议消息</text>
+<text x="418" y="723" text-anchor="start" font-size="14" fill="#475569">run：带任务 ID / context_seq，不内联完整历史</text>
+<text x="418" y="747" text-anchor="start" font-size="14" fill="#475569">daemon 经受 run/attempt 保护的 HTTP 拉共享消息和附件</text>
+<text x="418" y="771" text-anchor="start" font-size="14" fill="#475569">started / steered 确认消费；heartbeat 续租</text>
+<path d="M750 785 V830" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="230" y="830" width="820" height="140" rx="10" fill="#ecfdf5" stroke="#6ee7b7"/>
+<text x="248" y="860" text-anchor="start" font-size="18" fill="#065f46" font-weight="600">⑤ ReportRunEvent · 另一个事务</text>
+<text x="248" y="888" text-anchor="start" font-size="14" fill="#475569">按 run + attempt + event_seq 去重；检查租约和执行身份</text>
+<text x="248" y="912" text-anchor="start" font-size="14" fill="#475569">保存事件 / 问题；started 或 steered 后 delivery 才为 delivered</text>
+<text x="248" y="936" text-anchor="start" font-size="14" fill="#475569">done / failed：assistant 结果、run 终态、delivery 终态、撤销 work token</text>
+<text x="248" y="960" text-anchor="start" font-size="14" fill="#475569">未消费插话 → 后续 run；线程全部结束 → 给协调 session 汇总</text>
+<path d="M640 970 V1020" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="290" y="1020" width="700" height="95" rx="10" fill="#eef2ff" stroke="#818cf8"/>
+<text x="308" y="1050" text-anchor="start" font-size="18" fill="#3730a3" font-weight="600">⑥ 提交后通知 + 页面读取</text>
+<text x="308" y="1078" text-anchor="start" font-size="14" fill="#475569">再推 pending steer / Kick；GET session → ReadSession 一致快照</text>
+<text x="308" y="1102" text-anchor="start" font-size="14" fill="#475569">一次返回 messages / runs / deliveries / events / questions</text>
+<text x="35" y="1170" text-anchor="start" font-size="16" fill="#475569">恢复路径：租约超时重排 · hello 对账 · 旧 attempt 拒绝 · 取消终止关联 delivery</text>
+<text x="35" y="1204" text-anchor="start" font-size="16" fill="#92400e">状态分开理解：HTTP 保存成功 → delivery 已接收 → run 最终成功 / 失败 / 取消</text>
+</svg>
