@@ -1,4 +1,4 @@
-package cli
+package command
 
 import (
 	"bytes"
@@ -37,15 +37,15 @@ func capture(t *testing.T, fn func()) (stdout, stderr string) {
 
 func TestDispatch(t *testing.T) {
 	var got []string
-	cmds := []command{
+	cmds := []Command{
 		{"ok", func(args []string) error { got = args; return nil }},
 		{"fail", func([]string) error { return errors.New("boom") }},
-		{"usage", func([]string) error { return errUsage }},
+		{"usage", func([]string) error { return ErrUsage }},
 		{"help", func([]string) error { return flag.ErrHelp }},
 	}
 	run := func(args ...string) (int, string, string) {
 		var code int
-		out, errOut := capture(t, func() { code = dispatch("prog", "USAGE\n", args, cmds) })
+		out, errOut := capture(t, func() { code = Dispatch("prog", "USAGE\n", args, cmds) })
 		return code, out, errOut
 	}
 	if code, _, errOut := run(); code != 2 || errOut != "USAGE\n" {
@@ -78,16 +78,16 @@ func TestDispatch(t *testing.T) {
 }
 
 func TestParse(t *testing.T) {
-	fs := newFlags("x")
+	fs := NewFlags("x")
 	n := fs.Int("n", 0, "")
 	capture(t, func() {
-		if err := parse(fs, []string{"-n", "3"}); err != nil || *n != 3 {
+		if err := Parse(fs, []string{"-n", "3"}); err != nil || *n != 3 {
 			t.Fatalf("ok: %v", err)
 		}
-		if err := parse(newFlags("x"), []string{"-zzz"}); !errors.Is(err, errUsage) {
+		if err := Parse(NewFlags("x"), []string{"-zzz"}); !errors.Is(err, ErrUsage) {
 			t.Fatalf("unknown flag: %v", err)
 		}
-		if err := parse(newFlags("x"), []string{"-h"}); !errors.Is(err, flag.ErrHelp) {
+		if err := Parse(NewFlags("x"), []string{"-h"}); !errors.Is(err, flag.ErrHelp) {
 			t.Fatalf("help: %v", err)
 		}
 	})
@@ -95,7 +95,7 @@ func TestParse(t *testing.T) {
 
 func TestPrintTable(t *testing.T) {
 	var b bytes.Buffer
-	printTable(&b, [][]string{{"名字", "命令", "版本"}, {"claude", "/usr/bin/claude", "2.0"}, {"中文名", "-", "未安装"}})
+	PrintTable(&b, [][]string{{"名字", "命令", "版本"}, {"claude", "/usr/bin/claude", "2.0"}, {"中文名", "-", "未安装"}})
 	want := "名字    命令             版本\n" +
 		"claude  /usr/bin/claude  2.0\n" +
 		"中文名  -                未安装\n"
@@ -111,11 +111,11 @@ func TestPrintTable(t *testing.T) {
 
 func TestEnvOr(t *testing.T) {
 	t.Setenv("AGENTUSE_TEST_X", "")
-	if envOr("AGENTUSE_TEST_X", "def") != "def" {
+	if EnvOr("AGENTUSE_TEST_X", "def") != "def" {
 		t.Fatal("empty env")
 	}
 	t.Setenv("AGENTUSE_TEST_X", "v")
-	if envOr("AGENTUSE_TEST_X", "def") != "v" {
+	if EnvOr("AGENTUSE_TEST_X", "def") != "v" {
 		t.Fatal("env")
 	}
 }

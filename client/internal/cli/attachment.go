@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/memory-co/agentuse/internal/command"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,14 +16,14 @@ import (
 
 func runAttachment(args []string) error {
 	if len(args) == 0 {
-		return usageErr("用法: agentuse attachment upload <文件> | list | download <id> --output <文件>")
+		return command.UsageErr("用法: agentuse attachment upload <文件> | list | download <id> --output <文件>")
 	}
 	action := args[0]
-	fs := newFlags("agentuse attachment " + action)
+	fs := command.NewFlags("agentuse attachment " + action)
 	session := fs.String("session", os.Getenv("AGENTUSE_SESSION"), "会话 id")
 	server := fs.String("server", os.Getenv("AGENTUSE_SERVER"), "服务地址")
 	token := fs.String("token", os.Getenv("AGENTUSE_TOKEN"), "用户或工作令牌")
-	cfgPath := fs.String("config", envOr("AGENTUSE_CONFIG", daemon.DefaultConfigPath()), "daemon 配置")
+	cfgPath := fs.String("config", command.EnvOr("AGENTUSE_CONFIG", daemon.DefaultConfigPath()), "daemon 配置")
 	name := fs.String("name", "", "上传文件名")
 	output := fs.String("output", "", "下载目标文件")
 	force := fs.Bool("force", false, "允许覆盖下载目标")
@@ -42,7 +43,7 @@ func runAttachment(args []string) error {
 			key := strings.TrimLeft(strings.SplitN(arg, "=", 2)[0], "-")
 			if !strings.Contains(arg, "=") && key != "json" && key != "force" && key != "h" && key != "help" {
 				if i+1 >= len(args) {
-					return usageErr("%s 缺少值", arg)
+					return command.UsageErr("%s 缺少值", arg)
 				}
 				i++
 				flags = append(flags, args[i])
@@ -51,7 +52,7 @@ func runAttachment(args []string) error {
 			positionals = append(positionals, arg)
 		}
 	}
-	if err := parse(fs, flags); err != nil {
+	if err := command.Parse(fs, flags); err != nil {
 		return err
 	}
 	if *session == "" {
@@ -83,13 +84,13 @@ func runAttachment(args []string) error {
 			return errors.New("缺少 AGENTUSE_ATTEMPT")
 		}
 	}
-	ctx, cancel := signalContext()
+	ctx, cancel := command.SignalContext()
 	defer cancel()
-	printJSON := func(v any) error { return json.NewEncoder(os.Stdout).Encode(v) }
+	printAttachmentJSON := func(v any) error { return json.NewEncoder(os.Stdout).Encode(v) }
 	switch action {
 	case "upload":
 		if len(positionals) != 1 {
-			return usageErr("upload 需要一个文件路径")
+			return command.UsageErr("upload 需要一个文件路径")
 		}
 		f, err := os.Open(positionals[0])
 		if err != nil {
@@ -112,30 +113,30 @@ func runAttachment(args []string) error {
 			return fmt.Errorf("上传失败（连接中断时可能已经成功，请先 list 检查）: %w", err)
 		}
 		if *asJSON {
-			return printJSON(a)
+			return printAttachmentJSON(a)
 		}
 		fmt.Printf("%s\t%s\t%d bytes\n%s\n", a.ID, a.Filename, a.SizeBytes, a.DownloadPath)
 		return nil
 	case "list":
 		if len(positionals) != 0 {
-			return usageErr("list 不接受位置参数")
+			return command.UsageErr("list 不接受位置参数")
 		}
 		list, err := c.AllAttachments(ctx, "", *session)
 		if err != nil {
 			return err
 		}
 		if *asJSON {
-			return printJSON(list)
+			return printAttachmentJSON(list)
 		}
 		rows := [][]string{{"id", "文件名", "字节", "下载路径"}}
 		for _, a := range list {
 			rows = append(rows, []string{a.ID, a.Filename, strconv.FormatInt(a.SizeBytes, 10), a.DownloadPath})
 		}
-		printTable(os.Stdout, rows)
+		command.PrintTable(os.Stdout, rows)
 		return nil
 	case "download":
 		if len(positionals) != 1 || *output == "" {
-			return usageErr("download <id> --output <文件> [--force]")
+			return command.UsageErr("download <id> --output <文件> [--force]")
 		}
 		a, err := c.GetAttachment(ctx, "", *session, positionals[0])
 		if err != nil {
@@ -145,11 +146,11 @@ func runAttachment(args []string) error {
 			return err
 		}
 		if *asJSON {
-			return printJSON(map[string]any{"attachment": a, "output": *output})
+			return printAttachmentJSON(map[string]any{"attachment": a, "output": *output})
 		}
 		fmt.Println(*output)
 		return nil
 	default:
-		return usageErr("未知 attachment 命令 %s", action)
+		return command.UsageErr("未知 attachment 命令 %s", action)
 	}
 }
