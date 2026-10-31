@@ -108,7 +108,7 @@ Session S
 
 这里 M1 对应 R1、R2；R1 同时处理 M1、M2。Session 不绑定某个 agent，每条消息的目标决定任务分配。
 
-`runs.message_id` 即使保留，也只表示主任务，不能拿它表达完整 N:M；完整输入关系由 run_prompts 承载。没有目标的消息可以只进入对话，不创建 run。
+`runs.first_message_id` 表示触发 run 的第一条消息，不能拿它表达完整 N:M；完整输入关系由 run_prompts 承载。没有目标的消息可以只进入对话，不创建 run。
 
 Run 是一次业务执行任务。设备故障导致重试时，用 attempt 区分同一个 run 的不同执行尝试；尚未消费的补充任务转入后续执行时，可以建立新的 run。具体恢复规则不在本篇展开。
 

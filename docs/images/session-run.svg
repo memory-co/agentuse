@@ -15,7 +15,7 @@
 <rect x="650" y="275" width="430" height="145" rx="10" fill="#eef2ff" stroke="#94a3b8"/>
 <text x="670" y="308" font-size="21" fill="#334155">Run</text>
 <text x="670" y="340" font-size="15" fill="#334155">某 agent 在本 session 承担的一次任务</text>
-<text x="670" y="366" font-size="15" fill="#334155">message_id 是主任务，不是全部输入</text>
+<text x="670" y="366" font-size="15" fill="#334155">first_message_id 是首条消息，非全部输入</text>
 <text x="670" y="392" font-size="15" fill="#334155">一个 run 可处理多条 run_prompts</text>
 <rect x="40" y="495" width="430" height="145" rx="10" fill="#ecfdf5" stroke="#94a3b8"/>
 <text x="60" y="528" font-size="21" fill="#334155">run_prompts</text>

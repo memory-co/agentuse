@@ -27,7 +27,7 @@ M2 @coder（R1 仍在执行）
 
 一条消息 @ 两个 agent，写两条 run_prompts。一个 run 可有多条 run_prompts。副本保存消息正文和 attachments 路径列表，执行时以副本为准，不每次回查原始 messages 重建输入；运行时上下文仍可读取同 session 的共享历史。
 
-run.message_id 仅标识主任务。run_prompts.run_id 创建后不改变：未消费的输入需要后续 run 时，复制到新 run 的新 run_prompts，旧行保留并标记 deferred，用 superseded_by 连接后续副本。这样旧 run 当时收到的输入仍可追溯。
+run.first_message_id 仅标识主任务。run_prompts.run_id 创建后不改变：未消费的输入需要后续 run 时，复制到新 run 的新 run_prompts，旧行保留并标记 deferred，用 superseded_by 连接后续副本。这样旧 run 当时收到的输入仍可追溯。
 
 ## 生命周期
 
@@ -53,13 +53,13 @@ runs 增加 harness_revision、harness_config_yaml。建立 run 时复制 harnes
 
 ### runs
 
-一次执行任务。`message_id` 是主任务，`result_message_id` 是执行结果的内部关联；最终回复通过 messages.reply_to_message_id 指向主任务消息，而不是回复这个 run。`agent_key/name` 是历史身份快照；agent 所属用户通过 agent_id 关联 agents.user_id 查询，不在 runs 中冗余保存；设备删除时由 service 清空当前 device_id 引用，历史身份快照仍保留。attempt_id/lease_until 表示当前执行租约，context_seq 对应 messages.seq，表示上下文读取边界；message_id 和 result_message_id 保存消息 UUID，不用 UUID 比较先后。配置快照是 v3 新增字段。
+一次执行任务。`first_message_id` 是触发本 run 的第一条消息，`result_message_id` 是执行结果的内部关联；最终回复通过 messages.reply_to_message_id 指向主任务消息，而不是回复这个 run。`agent_key/name` 是历史身份快照；agent 所属用户通过 agent_id 关联 agents.user_id 查询，不在 runs 中冗余保存；设备删除时由 service 清空当前 device_id 引用，历史身份快照仍保留。attempt_id/lease_until 表示当前执行租约，context_seq 对应 messages.seq，表示上下文读取边界；first_message_id 和 result_message_id 保存消息 UUID，不用 UUID 比较先后。配置快照是 v3 新增字段。
 
 ```sql
 CREATE TABLE runs (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
-    message_id TEXT NOT NULL,
+    first_message_id TEXT NOT NULL,
     agent_id TEXT,
     agent_key TEXT NOT NULL,
     agent_name TEXT NOT NULL,
