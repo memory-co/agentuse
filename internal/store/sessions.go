@@ -213,7 +213,10 @@ func (s *Store) DeleteSession(ctx context.Context, u User, id string) error {
 }
 
 func (s *Store) Messages(ctx context.Context, sessionID string) ([]Message, error) {
-	rows, err := s.db.QueryContext(ctx, messageCols+` WHERE session_id = ? ORDER BY id`, sessionID)
+	return messages(ctx, s.db, sessionID)
+}
+func messages(ctx context.Context, q rowsQuerier, sessionID string) ([]Message, error) {
+	rows, err := q.QueryContext(ctx, messageCols+` WHERE session_id = ? ORDER BY id`, sessionID)
 	if err != nil {
 		return nil, err
 	}

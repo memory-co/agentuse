@@ -156,7 +156,10 @@ func (s *Store) recoverRunAnswers(ctx context.Context, tx *sql.Tx, r Run, where 
 	return nil
 }
 func (s *Store) RunEvents(ctx context.Context, session string) ([]SessionEvent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,session_id,run_id,attempt_id,message_id,daemon_id,kind,payload,created_at FROM run_events WHERE session_id=? ORDER BY id`, session)
+	return runEvents(ctx, s.db, session)
+}
+func runEvents(ctx context.Context, q rowsQuerier, session string) ([]SessionEvent, error) {
+	rows, err := q.QueryContext(ctx, `SELECT id,session_id,run_id,attempt_id,message_id,daemon_id,kind,payload,created_at FROM run_events WHERE session_id=? ORDER BY id`, session)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +180,10 @@ func (s *Store) RunQuestions(ctx context.Context, session string) ([]Question, e
 	return s.runQuestions(ctx, `session_id=?`, session)
 }
 func (s *Store) runQuestions(ctx context.Context, where string, args ...any) ([]Question, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,session_id,run_id,attempt_id,message_id,tool_use_id,questions,answers,COALESCE(answered_by,''),status,created_at FROM run_questions WHERE `+where+` ORDER BY id`, args...)
+	return queryRunQuestions(ctx, s.db, where, args...)
+}
+func queryRunQuestions(ctx context.Context, q rowsQuerier, where string, args ...any) ([]Question, error) {
+	rows, err := q.QueryContext(ctx, `SELECT id,session_id,run_id,attempt_id,message_id,tool_use_id,questions,answers,COALESCE(answered_by,''),status,created_at FROM run_questions WHERE `+where+` ORDER BY id`, args...)
 	if err != nil {
 		return nil, err
 	}

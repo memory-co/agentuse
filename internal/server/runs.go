@@ -59,37 +59,12 @@ func (s *Server) createMultiSession(w http.ResponseWriter, r *http.Request, work
 	writeJSON(w, 201, out)
 }
 func (s *Server) getMultiSession(w http.ResponseWriter, r *http.Request, ss store.Session) {
-	ctx := r.Context()
-	messages, err := s.store.Messages(ctx, ss.ID)
+	detail, err := s.store.ReadSession(r.Context(), currentUser(r), ss.ID)
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	runs, err := s.store.Runs(ctx, ss.ID)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	ds, err := s.store.Deliveries(ctx, ss.ID)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	events, err := s.store.RunEvents(ctx, ss.ID)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	questions, err := s.store.RunQuestions(ctx, ss.ID)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	counts := map[string]int{}
-	for _, run := range runs {
-		counts[run.Status]++
-	}
-	writeJSON(w, 200, map[string]any{"session": ss, "messages": messages, "runs": runs, "deliveries": ds, "events": events, "questions": questions, "run_counts": counts})
+	writeJSON(w, 200, detail)
 }
 func (s *Server) sessionReadAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

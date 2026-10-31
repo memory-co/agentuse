@@ -70,7 +70,10 @@ func (s *Store) GetRun(ctx context.Context, u User, session, id string) (Run, er
 	return scanRun(s.db.QueryRowContext(ctx, runCols+` WHERE session_id=? AND id=?`, session, id))
 }
 func (s *Store) Runs(ctx context.Context, session string) ([]Run, error) {
-	rows, err := s.db.QueryContext(ctx, runCols+` WHERE session_id=? ORDER BY message_id,created_at,id`, session)
+	return runs(ctx, s.db, session)
+}
+func runs(ctx context.Context, q rowsQuerier, session string) ([]Run, error) {
+	rows, err := q.QueryContext(ctx, runCols+` WHERE session_id=? ORDER BY message_id,created_at,id`, session)
 	if err != nil {
 		return nil, err
 	}
