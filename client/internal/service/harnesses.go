@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"io"
 	"os"
 	"os/exec"
@@ -88,9 +89,10 @@ func truncate(s string, n int) string {
 
 // Result 是 harness 回一条消息的最终结果，作为 done / failed 的 payload。
 type Result struct {
-	OK     bool   `json:"ok"`
-	Output string `json:"output,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Usage  *agentuse.Usage `json:"usage,omitempty"`
+	OK     bool            `json:"ok"`
+	Output string          `json:"output,omitempty"`
+	Error  string          `json:"error,omitempty"`
 	// SessionID 仅作为本次 harness 运行的诊断信息。
 	SessionID string  `json:"session_id,omitempty"`
 	CostUSD   float64 `json:"cost_usd,omitempty"`
@@ -228,7 +230,7 @@ func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, input []byte, 
 	wg.Wait()
 	werr := cmd.Wait()
 
-	res := Result{SessionID: st.SessionID, Output: st.Output, Error: st.Error, CostUSD: st.CostUSD}
+	res := Result{Usage: st.Usage, SessionID: st.SessionID, Output: st.Output, Error: st.Error, CostUSD: st.CostUSD}
 	switch {
 	case sp.Finish.RequireResult:
 		res.OK = st.SawResult && st.ResultOK && werr == nil

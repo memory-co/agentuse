@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"strings"
 )
 
@@ -46,6 +47,8 @@ type MultiReply struct {
 	Deliveries []Delivery `json:"deliveries"`
 }
 type RunClaim struct {
+	Sender                  agentuse.Sender
+	WorkID                  string
 	Run                     Run
 	Input                   json.RawMessage
 	Messages                []Message

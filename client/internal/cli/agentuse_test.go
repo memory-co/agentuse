@@ -12,6 +12,8 @@ import (
 )
 
 func TestAgentuseCommands(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AGENTUSE_UI_ADDR", "")
 	var deleted bool
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if deleted {

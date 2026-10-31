@@ -25,6 +25,7 @@ func fakeCodexRPC(mode string) {
 	send := func(v any) { _ = enc.Encode(v) }
 	notify := func(method string, p any) { send(map[string]any{"method": method, "params": p}) }
 	finish := func(status, text string) {
+		notify("thread/tokenUsage/updated", map[string]any{"threadId": "thread-1", "turnId": "turn-1", "tokenUsage": map[string]any{"total": map[string]int64{"inputTokens": 100, "outputTokens": 10, "cachedInputTokens": 40}}})
 		notify("item/completed", map[string]any{"threadId": "thread-1", "turnId": "turn-1", "item": map[string]any{"type": "agentMessage", "text": text}})
 		notify("turn/completed", map[string]any{"threadId": "thread-1", "turn": map[string]any{"id": "turn-1", "status": status, "error": map[string]string{"message": "failed test turn"}}})
 	}
@@ -126,7 +127,7 @@ func TestCodexLiveSteerAcknowledgement(t *testing.T) {
 					accepted++
 				}
 			})
-			if !res.OK || res.SessionID != "thread-1" {
+			if !res.OK || res.SessionID != "thread-1" || res.Usage == nil || res.Usage.InputTokens != 100 || res.Usage.CacheReadTokens != 40 {
 				t.Fatalf("result %+v", res)
 			}
 			if mode == "success" || mode == "late-ack" {

@@ -41,6 +41,12 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build embedded frontends
+        run: make web
+
       - name: E2E
         run: go test -count=1 -v ./test/e2e/${{ matrix.scenario }}/
 
@@ -54,8 +60,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: server/frontend/package-lock.json
+          cache-dependency-path: |
+            server/frontend/package-lock.json
+            client/frontend/package-lock.json
 
       - name: Build
         working-directory: server/frontend
+        run: npm ci && npm run build
+
+      - name: Build local frontend
+        working-directory: client/frontend
         run: npm ci && npm run build

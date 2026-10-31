@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/memory-co/agentuse/internal/command"
-	"github.com/memory-co/agentuse/internal/version"
+	"log"
 	"os"
+	"strings"
+	"time"
 
 	daemon "github.com/memory-co/agentuse/client/internal/service"
 )
@@ -16,6 +18,7 @@ const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 age
 用法:
   agentuse register -server URL -token 安装令牌   注册这台电脑(setup.sh 会替你跑)
   agentuse daemon                                 前台运行 daemon(后台服务跑的就是它)
+  agentuse ui [-open]                             本机只读账本与 token 统计
   agentuse status                                 看本机的注册和连接状态
   agentuse harnesses [-json]                         看本机检测到哪些 harness
   agentuse work …                                 工作的协调者用来开线程、看线程(见 agentuse work help)
@@ -29,13 +32,14 @@ const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 age
 // Main 是用户电脑上的 agentuse。
 func Main(args []string) int {
 	return command.Dispatch("agentuse", agentuseUsage, args, []command.Command{
-		{"register", runRegister},
-		{"daemon", runDaemon},
-		{"status", runStatus},
-		{"harnesses", runHarnesses},
-		{"work", runWork},
-		{"attachment", runAttachment},
-		{"session", runSession},
+		{Name: "register", Run: runRegister},
+		{Name: "daemon", Run: runDaemon},
+		{Name: "ui", Run: runUI},
+		{Name: "status", Run: runStatus},
+		{Name: "harnesses", Run: runHarnesses},
+		{Name: "work", Run: runWork},
+		{Name: "attachment", Run: runAttachment},
+		{Name: "session", Run: runSession},
 	})
 }
 
@@ -76,13 +80,39 @@ func runDaemon(args []string) error {
 	if err != nil {
 		return err
 	}
-	daemon.Version = version.Version
-	d, err := daemon.New(cfg, nil)
+	ctx, stop := command.SignalContext()
+	defer stop()
+	ledger, err := startLedger(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	ctx, stop := command.SignalContext()
-	defer stop()
+	defer ledger.Close()
+	closeUI, err := startLocalUI(cfg, ledger.Reader())
+	if err != nil {
+		return err
+	}
+	defer closeUI()
+	if err = ledger.Writer().Reconcile(ctx); err != nil {
+		return err
+	}
+	d, err := daemon.New(cfg, nil, ledger.Writer())
+	if err != nil {
+		return err
+	}
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if e := ledger.Writer().Purge(ctx, time.Now().AddDate(0, 0, -cfg.RetentionDays())); e != nil {
+					log.Printf("账本清理: %v", e)
+				}
+			}
+		}
+	}()
 	if err := d.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
@@ -111,6 +141,7 @@ func runStatus(args []string) error {
 		{"配置", *cfgPath},
 		{"服务连通", conn},
 		{"后台服务", daemon.ServiceStatus()},
+		{"本机页面", localUIAddress(cfg)},
 	})
 	return nil
 }
@@ -143,4 +174,14 @@ func runHarnesses(args []string) error {
 	}
 	command.PrintTable(os.Stdout, rows)
 	return nil
+}
+
+func localUIAddress(cfg daemon.Config) string {
+	if cfg.UIAddress() == "" {
+		return "已关闭"
+	}
+	if b, e := os.ReadFile(localPath("ui.addr")); e == nil {
+		return strings.TrimSpace(string(b))
+	}
+	return "http://" + cfg.UIAddress() + "（未启动）"
 }

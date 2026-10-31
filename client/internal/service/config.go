@@ -18,10 +18,12 @@ import (
 
 // Config 是 ~/.agentuse/daemon.json。
 type Config struct {
-	ConfigPath string `json:"-"`
-	Server     string `json:"server"`
-	DaemonID   string `json:"daemon_id"`
-	Key        string `json:"key"`
+	UIAddr              *string `json:"ui_addr,omitempty"`
+	LedgerRetentionDays int     `json:"ledger_retention_days,omitempty"`
+	ConfigPath          string  `json:"-"`
+	Server              string  `json:"server"`
+	DaemonID            string  `json:"daemon_id"`
+	Key                 string  `json:"key"`
 	// Harnesses 配置本机 harness 的启动命令。内置的(claude / codex)不配也会自动检测;
 	// 自定义 harness 必须在这里配，名字要和服务上注册的一致。
 	Harnesses map[string]HarnessConfig `json:"harnesses,omitempty"`
@@ -114,4 +116,20 @@ func Register(ctx context.Context, server, token, configPath string) (Config, er
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func (c Config) UIAddress() string {
+	if v, ok := os.LookupEnv("AGENTUSE_UI_ADDR"); ok {
+		return v
+	}
+	if c.UIAddr == nil {
+		return "127.0.0.1:7801"
+	}
+	return *c.UIAddr
+}
+func (c Config) RetentionDays() int {
+	if c.LedgerRetentionDays > 0 {
+		return c.LedgerRetentionDays
+	}
+	return 90
 }

@@ -7,6 +7,7 @@ SERVER_PLATFORMS := $(PLATFORMS)
 
 # 网页:frontend/ 构建到 frontend/dist,编译 agentuse-server 时嵌进去
 web:
+	cd client/frontend && npm ci && npm run build
 	cd server/frontend && npm ci && npm run build
 
 # bin/agentuse(用户电脑)和 bin/agentuse-server(服务端，带网页)

@@ -74,6 +74,7 @@ output:
         output: result
         error: subtype
         cost_usd: total_cost_usd
+        usage: usage
 
 # 收尾：没出现 result 行就算失败;有 result 但退出码非 0 也算失败
 finish:

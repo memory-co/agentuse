@@ -213,3 +213,10 @@ func TestClaudePlan(t *testing.T) {
 		t.Fatalf("Task*: %+v %v", st.Plan, progress)
 	}
 }
+
+func TestClaudeTokenUsage(t *testing.T) {
+	st, _ := run(t, "claude", `{"type":"result","subtype":"success","is_error":false,"result":"ok","usage":{"input_tokens":10,"output_tokens":4,"cache_read_input_tokens":3,"cache_creation_input_tokens":2},"total_cost_usd":0.05}`)
+	if st.Usage == nil || st.Usage.InputTokens != 15 || st.Usage.OutputTokens != 4 || st.Usage.CacheReadTokens != 3 || st.Usage.CacheWriteTokens != 2 || st.CostUSD != .05 {
+		t.Fatalf("usage %+v cost %f", st.Usage, st.CostUSD)
+	}
+}

@@ -178,3 +178,7 @@ agentuse attachment download at_xxx --output ./report.pdf
 ```
 
 返回 `{message, runs, deliveries}`。也支持 `agentuse session send ss_xxx --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有会话统一使用共享模型，未传 mode 也创建 multi_agent。需要服务端和 daemon 一起升级（`session-runs-v1`）。[设计](docs/v2/designs/session-mentions.md) · [API](docs/v2/apis/sessions.md)。
+
+### 本机执行账本
+
+新版 daemon 默认在 `127.0.0.1:7801` 提供只读页面，运行 `agentuse ui` 获取登录链接。记录本机执行的命令摘要、来源、状态和 token 用量，断网时也能看。默认保留 90 天，`daemon.json` 中 `ui_addr: ""` 可关闭页面。详见 [本机 API](docs/v2/apis/local.md)。
