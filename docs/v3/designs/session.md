@@ -32,7 +32,7 @@ runService 先持久化终态与结果事件；sessionService 消费后，在同
 
 Session 状态是 run 的聚合投影，优先 waiting、running、pending，再到 idle；resolved 是用户的完成标记。投影由 sessionService 通过 runService 查询当前状态后更新，run 状态变化和最终结果事件都触发重算；重算读取当前 run 集合，不用旧事件直接覆盖投影。idle 不表示历史任务全部成功。
 
-有活跃 run 时拒绝删除，检查与删除共用事务；回复消费前也要重新检查会话是否存在，已删除的会话不恢复创建。删除会话由 sessionService 协调相关 service，在同一事务内清理消息、run、run_prompts、事件、问题及辅助记录；磁盘附件由 attachmentService 清理。Work 的协调会话和线程归属由 workService 决定。
+有活跃 run 时拒绝删除，检查与删除共用事务；回复消费前也要重新检查会话是否存在，已删除的会话不恢复创建。删除会话由 sessionService 协调相关 service，在同一事务内清理消息、run、run_prompts、事件、问题及辅助记录；本地目录或 S3 对象前缀由 fileService 清理。Work 的协调会话和线程归属由 workService 决定。
 
 ## 幂等
 
@@ -119,4 +119,4 @@ CREATE UNIQUE INDEX messages_request ON messages(session_id,author_user_id,reque
 
 ## 相关设计
 
-[Server 总览](server.md) · [userService](user.md) · [deviceService](device.md) · [agentService](agent.md) · [harnessService](harness.md) · [runService](run.md) · [attachmentService](attachment.md) · [workService](work.md)
+[Server 总览](server.md) · [userService](user.md) · [deviceService](device.md) · [agentService](agent.md) · [harnessService](harness.md) · [runService](run.md) · [fileService](file.md) · [workService](work.md)

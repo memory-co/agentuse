@@ -81,4 +81,4 @@ CREATE TABLE device_capabilities (
 
 ## 相关设计
 
-[Server 总览](server.md) · [userService](user.md) · [agentService](agent.md) · [harnessService](harness.md) · [sessionService](session.md) · [runService](run.md) · [attachmentService](attachment.md) · [workService](work.md)
+[Server 总览](server.md) · [userService](user.md) · [agentService](agent.md) · [harnessService](harness.md) · [sessionService](session.md) · [runService](run.md) · [fileService](file.md) · [workService](work.md)

@@ -26,12 +26,12 @@ Server 分为三层：
 | [harnessService](harness.md) | 用统一 YAML config 描述不同 harness，使 client 能把任务转为认识的执行方式 | `harnesses` 和 harness YAML 配置 |
 | [sessionService](session.md) | 清晰、持续的对话：创建会话、保存消息、读取共享历史；调用 runService 分配任务，接收结果事件并保存回复 | `sessions`、`messages` |
 | [runService](run.md) | 建立任务、关联任务消息、派发与领取、跟踪执行、插话、提问、取消和执行恢复 | `runs`、`run_prompts`、`run_events`、`run_questions` |
-| [attachmentService](attachment.md) | 会话附件的上传、下载、访问权限、配额、元数据和文件生命周期 | `attachments` 与附件正文 |
+| [fileService](file.md) | 按 session 隔离文件空间，支持本地和 S3 的上传、下载 | 本地目录或 S3 对象前缀，无数据库表 |
 | [workService](work.md) | 把多个 session 组织成一项工作，管理协调 agent、线程关系和结果汇总 | `works`、`work_run_tokens`、`run_notifications` |
 
 这里的“拥有”指主要维护职责，不表示其他 service 不能读取。跨业务修改通过所属 service 完成；由编排操作统一事务，不能把各次调用做成互不相关的独立提交。
 
-各 service 的详细职责、操作和完整目标 SQL 见上表链接；16 张业务表各有一篇负责维护。表结构中的 device 命名，以及 harness 配置快照、回复去重约束都是目标设计，尚未应用到运行中的数据库。
+各 service 的详细职责、操作和完整目标 SQL 见上表链接；15 张业务表各有一篇负责维护；fileService 不使用数据库表。表结构中的 device 命名，以及 harness 配置快照、回复去重约束都是目标设计，尚未应用到运行中的数据库。
 
 所有表不声明数据库外键，只保存关联 ID。创建/修改时由 service 检查目标存在、归属和状态；删除时协调相关 service 显式清理或清空关联字段，并在同一事务提交。数据库保留主键、唯一索引和必要的 CHECK 约束，不依赖自动级联。
 
@@ -73,9 +73,9 @@ YAML 收敛配置差异；复杂协议仍由适配器实现。Server 不直接�
 
 进度、计划、问题和插话确认属于 run 的执行记录；需要作为最终回复展示的结果进入 messages。读取会话时可以组合这些数据，但不能把执行事件全当作普通聊天消息。
 
-### 2.4 attachmentService、workService
+### 2.4 fileService、workService
 
-附件属于 session，由同一会话里的执行共享，不为每个 agent 或 run 复制一份。attachmentService 管文件，sessionService 管对话，runService 在执行时引用附件。
+每个 session 对应一个文件目录或 S3 对象前缀，同一会话里的执行共享其中的文件。fileService 只管上传、下载和文件空间，不写文件数据库记录；sessionService 管对话，client 在执行时使用这些文件。
 
 Work 是多个 session 的组织方式。workService 维护协调 session、工作线程和协调 agent，在线程任务完成后汇总结果，再经 sessionService 给协调 session 发消息。它复用同一套消息与 run 机制，不另建一种执行模型。
 
@@ -121,7 +121,7 @@ Run 是一次业务执行任务。设备故障导致重试时，用 attempt 区�
 | 建立 run | runService 读取 agentService 的执行选择，核对 deviceService 的能力和 harnessService 的配置 |
 | client 领取任务 | 连接入口 → runService；返回统一任务与可解析的 harness 配置引用 |
 | client 上报执行事件 | 连接入口 → runService；结果事件 → sessionService 保存回复 |
-| 上传和读取附件 | controller → attachmentService；结合 user/session/run 的访问范围检查权限 |
+| 上传和读取附件 | controller → fileService；结合 user/session/run 的访问范围检查权限 |
 | 组织工作、汇总线程结果 | controller 或任务完成通知 → workService → sessionService |
 
 调用方使用的是 service 提供的业务操作，不直接修改其他 service 所属的表。需要发送给 device 的网络通知发生在业务提交之后，避免 client 收到数据库里尚不存在的任务。

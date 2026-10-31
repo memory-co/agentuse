@@ -34,8 +34,8 @@
 <text x="793" y="609" font-size="20" fill="#0f172a" font-weight="600">harnessService</text>
 <text x="793" y="637" font-size="15" fill="#475569">YAML config → client 可理解的执行描述</text>
 <rect x="400" y="690" width="335" height="85" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
-<text x="418" y="719" font-size="20" fill="#0f172a" font-weight="600">attachmentService</text>
-<text x="418" y="747" font-size="15" fill="#475569">共享附件、配额与正文文件</text>
+<text x="418" y="719" font-size="20" fill="#0f172a" font-weight="600">fileService</text>
+<text x="418" y="747" font-size="15" fill="#475569">Session 文件空间：本地 / S3</text>
 <rect x="775" y="690" width="335" height="85" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
 <text x="793" y="719" font-size="20" fill="#0f172a" font-weight="600">workService</text>
 <text x="793" y="747" font-size="15" fill="#475569">协调 session、线程及结果汇总</text>
@@ -57,12 +57,12 @@
 <text x="1218" y="352" font-size="15" fill="#475569">sessions / messages</text>
 <text x="1218" y="377" font-size="15" fill="#475569">runs / run_prompts</text>
 <text x="1218" y="402" font-size="15" fill="#475569">run_events / run_questions</text>
-<text x="1218" y="427" font-size="15" fill="#475569">attachments / works</text>
+<text x="1218" y="427" font-size="15" fill="#475569">works / 工作相关辅助表</text>
 <text x="1218" y="452" font-size="15" fill="#475569">及消息、工作相关辅助表</text>
 <path d="M1140 380 H1200" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
 <rect x="1200" y="590" width="290" height="110" rx="10" fill="#ecfdf5" stroke="#cbd5e1"/>
-<text x="1218" y="619" font-size="20" fill="#0f172a" font-weight="600">附件正文 / YAML</text>
-<text x="1218" y="647" font-size="15" fill="#475569">文件数据和配置描述</text>
+<text x="1218" y="619" font-size="20" fill="#0f172a" font-weight="600">文件存储 / YAML</text>
+<text x="1218" y="647" font-size="15" fill="#475569">本地目录或 S3 / 配置描述</text>
 <text x="1218" y="672" font-size="15" fill="#475569">由对应业务 service 管理</text>
 <rect x="30" y="720" width="270" height="110" rx="10" fill="#fffbeb" stroke="#cbd5e1"/>
 <text x="48" y="749" font-size="20" fill="#0f172a" font-weight="600">client @ device</text>
