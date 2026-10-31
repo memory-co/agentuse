@@ -1,7 +1,7 @@
 .PHONY: build web dist release test e2e vet fmt run
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS := -s -w -X github.com/memory-co/agentuse/internal/cli.Version=$(VERSION)
+LDFLAGS := -s -w -X github.com/memory-co/agentuse/internal/version.Version=$(VERSION)
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 SERVER_PLATFORMS := $(PLATFORMS)
 

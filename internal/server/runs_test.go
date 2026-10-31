@@ -9,6 +9,7 @@ import (
 
 	"github.com/memory-co/agentuse/internal/attachment"
 	"github.com/memory-co/agentuse/internal/store"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 func enableRuns(t *testing.T, e *env, u store.User, d store.Daemon) {
@@ -199,13 +200,13 @@ func TestMultiInputQueueAndFencing(t *testing.T) {
 	if err = e.st.ReportRunEvent(ctx, f.d.ID, cl3.Run.ID, cl3.Run.AttemptID, 1, "done", json.RawMessage(`{"ok":true}`), 60); err != store.ErrStaleMessage {
 		t.Fatal("old attempt accepted", err)
 	}
-	c := attachment.Client{Server: e.ts.URL, Token: f.key, RunID: cl3.Run.ID, AttemptID: cl3.Run.AttemptID}
-	if _, err = c.Upload(ctx, ss.ID, "late.txt", strings.NewReader("x")); err == nil {
+	c := agentuse.Client{BaseURL: e.ts.URL, Token: f.key, RunID: cl3.Run.ID, AttemptID: cl3.Run.AttemptID}
+	if _, err = c.UploadAttachment(ctx, "", ss.ID, "late.txt", strings.NewReader("x")); err == nil {
 		t.Fatal("stale upload")
 	}
 	c.RunID = cl4.Run.ID
 	c.AttemptID = cl4.Run.AttemptID
-	a, err := c.Upload(ctx, ss.ID, "result.txt", strings.NewReader("data"))
+	a, err := c.UploadAttachment(ctx, "", ss.ID, "result.txt", strings.NewReader("data"))
 	if err != nil || a.CreatedByRunID != cl4.Run.ID {
 		t.Fatal("run upload", a, err)
 	}
@@ -213,7 +214,7 @@ func TestMultiInputQueueAndFencing(t *testing.T) {
 	if err != nil || cancel.Status != "cancelled" {
 		t.Fatal(cancel, err)
 	}
-	if _, err = c.List(ctx, ss.ID); err == nil {
+	if _, err = c.AllAttachments(ctx, "", ss.ID); err == nil {
 		t.Fatal("ended run still reads")
 	}
 	runs, _ := e.st.Runs(ctx, ss.ID)

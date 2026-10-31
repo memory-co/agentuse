@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/memory-co/agentuse/internal/attachment"
 	"github.com/memory-co/agentuse/internal/daemon"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 func runAttachment(args []string) error {
@@ -75,7 +75,7 @@ func runAttachment(args []string) error {
 	if *server == "" || *token == "" {
 		return errors.New("缺少服务地址或凭据")
 	}
-	c := attachment.Client{Server: *server, Token: *token}
+	c := agentuse.Client{BaseURL: *server, Token: *token}
 	if strings.HasPrefix(*token, "dk_") {
 		c.RunID = *runID
 		c.AttemptID = *attemptID
@@ -107,7 +107,7 @@ func runAttachment(args []string) error {
 		if filename == "" {
 			filename = filepath.Base(positionals[0])
 		}
-		a, err := c.Upload(ctx, *session, filename, f)
+		a, err := c.UploadAttachment(ctx, "", *session, filename, f)
 		if err != nil {
 			return fmt.Errorf("上传失败（连接中断时可能已经成功，请先 list 检查）: %w", err)
 		}
@@ -120,7 +120,7 @@ func runAttachment(args []string) error {
 		if len(positionals) != 0 {
 			return usageErr("list 不接受位置参数")
 		}
-		list, err := c.List(ctx, *session)
+		list, err := c.AllAttachments(ctx, "", *session)
 		if err != nil {
 			return err
 		}
@@ -137,11 +137,11 @@ func runAttachment(args []string) error {
 		if len(positionals) != 1 || *output == "" {
 			return usageErr("download <id> --output <文件> [--force]")
 		}
-		a, err := c.Get(ctx, *session, positionals[0])
+		a, err := c.GetAttachment(ctx, "", *session, positionals[0])
 		if err != nil {
 			return err
 		}
-		if err = c.Download(ctx, a, *output, *force); err != nil {
+		if err = c.DownloadAttachmentFile(ctx, "", *a, *output, *force); err != nil {
 			return err
 		}
 		if *asJSON {

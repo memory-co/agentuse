@@ -2,11 +2,16 @@ package agentuse
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -44,6 +49,7 @@ func (c *Client) attachmentRequest(ctx context.Context, user, method, path, ctyp
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
+	c.runHeaders(req)
 	if user != "" {
 		req.Header.Set(UserHeader, user)
 	}
@@ -118,4 +124,66 @@ func (c *Client) DownloadAttachment(ctx context.Context, user, session, id strin
 }
 func (c *Client) DeleteAttachment(ctx context.Context, user, session, id string) error {
 	return c.do(ctx, user, "DELETE", attachmentPath(session)+"/"+esc(id), nil, nil)
+}
+
+func CopyVerified(dst io.Writer, src io.Reader, a Attachment) error {
+	if a.SizeBytes < 0 || a.SizeBytes == int64(^uint64(0)>>1) {
+		return fmt.Errorf("不合法的附件大小")
+	}
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(dst, h), io.LimitReader(src, a.SizeBytes+1))
+	if err != nil {
+		return err
+	}
+	if n != a.SizeBytes || hex.EncodeToString(h.Sum(nil)) != a.SHA256 {
+		return fmt.Errorf("附件大小或 SHA-256 校验失败")
+	}
+	return nil
+}
+
+func (c *Client) DownloadAttachmentFile(ctx context.Context, user string, a Attachment, path string, force bool) error {
+	src, err := c.DownloadAttachment(ctx, user, a.SessionID, a.ID)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	f, err := os.CreateTemp(filepath.Dir(path), ".agentuse-download-")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if err = CopyVerified(f, src, a); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	if force {
+		return os.Rename(f.Name(), path)
+	}
+	// Link fails atomically when output exists, unlike a check followed by rename.
+	return os.Link(f.Name(), path)
+}
+
+func (c *Client) AllAttachments(ctx context.Context, user, session string) ([]Attachment, error) {
+	out := []Attachment{}
+	cursor := ""
+	for {
+		p, e := c.ListAttachments(ctx, user, session, 100, cursor)
+		if e != nil {
+			return nil, e
+		}
+		out = append(out, p.Attachments...)
+		if p.NextCursor == nil {
+			return out, nil
+		}
+		if *p.NextCursor == cursor {
+			return nil, fmt.Errorf("重复的分页游标")
+		}
+		cursor = *p.NextCursor
+	}
 }

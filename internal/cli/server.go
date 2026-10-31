@@ -15,6 +15,7 @@ import (
 
 	"github.com/memory-co/agentuse/internal/server"
 	"github.com/memory-co/agentuse/internal/store"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 const serverUsage = `agentuse-server —— agentuse 服务端
@@ -184,18 +185,18 @@ func runLogin(args []string) error {
 	if *srvURL == "" || *token == "" {
 		return usageErr("需要 -server 和 -token")
 	}
-	c := &apiClient{server: strings.TrimRight(*srvURL, "/"), token: *token}
-	me, err := c.me(context.Background())
+	c := &agentuse.Client{BaseURL: strings.TrimRight(*srvURL, "/"), Token: *token}
+	me, err := c.Me(context.Background(), "")
 	if err != nil {
 		return err
 	}
 	if me.Role != store.RoleAdmin {
 		return fmt.Errorf("%s 不是管理员，管理命令需要管理员令牌", me.Name)
 	}
-	if err := saveClientConfig(*path, clientConfig{Server: c.server, Token: c.token}); err != nil {
+	if err := saveClientConfig(*path, clientConfig{Server: c.BaseURL, Token: c.Token}); err != nil {
 		return err
 	}
-	fmt.Printf("已登录 %s(管理员 %s),配置已写入 %s\n", c.server, me.Name, *path)
+	fmt.Printf("已登录 %s(管理员 %s),配置已写入 %s\n", c.BaseURL, me.Name, *path)
 	return nil
 }
 
@@ -241,7 +242,7 @@ func runUserCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := c.createUser(context.Background(), *id, name, *role)
+	res, err := c.CreateUser(context.Background(), agentuse.CreateUserRequest{ID: *id, Name: name, Role: *role})
 	if err != nil {
 		return err
 	}
@@ -260,7 +261,7 @@ func runUserList(args []string) error {
 	if err != nil {
 		return err
 	}
-	users, err := c.listUsers(context.Background())
+	users, err := c.ListUsers(context.Background())
 	if err != nil {
 		return err
 	}
@@ -288,7 +289,7 @@ func runUserToken(args []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := c.resetToken(context.Background(), id)
+	res, err := c.ResetUserToken(context.Background(), id)
 	if err != nil {
 		return err
 	}

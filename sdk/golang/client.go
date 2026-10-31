@@ -21,9 +21,10 @@ const UserHeader = "X-Agentuse-User"
 // 除了用户管理，每个方法 ctx 之后的参数 user 是网站的 user id,请求带 X-Agentuse-User
 // 按那个用户的身份执行;传 "" 就是 admin 本身。
 type Client struct {
-	BaseURL    string
-	Token      string
-	HTTPClient *http.Client // 为空时用 http.DefaultClient
+	RunID, AttemptID string
+	BaseURL          string
+	Token            string
+	HTTPClient       *http.Client // 为空时用 http.DefaultClient
 }
 
 // New 返回一个以 token 身份调用 baseURL 的客户端。
@@ -64,6 +65,7 @@ func (c *Client) do(ctx context.Context, user, method, path string, body, out an
 		}
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
+	c.runHeaders(req)
 	req.Header.Set("Accept", "application/json")
 	if user != "" {
 		req.Header.Set(UserHeader, user)
@@ -303,5 +305,16 @@ func (c *Client) WaitSession(ctx context.Context, user, sessionID string, interv
 			return d, ctx.Err()
 		case <-t.C:
 		}
+	}
+}
+
+// Request uses the same authenticated transport as the typed SDK methods.
+func (c *Client) Request(ctx context.Context, user, method, path string, body, out any) error {
+	return c.do(ctx, user, method, path, body, out)
+}
+func (c *Client) runHeaders(r *http.Request) {
+	if c.RunID != "" {
+		r.Header.Set("X-Agentuse-Run", c.RunID)
+		r.Header.Set("X-Agentuse-Attempt", c.AttemptID)
 	}
 }

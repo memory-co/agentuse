@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"github.com/memory-co/agentuse/internal/version"
 	"io"
 	"os"
 	"strings"
@@ -55,8 +56,8 @@ func TestDispatch(t *testing.T) {
 			t.Fatalf("%s: %d %q", h, code, out)
 		}
 	}
-	Version = "v1.2.3"
-	defer func() { Version = "dev" }()
+	version.Version = "v1.2.3"
+	defer func() { version.Version = "dev" }()
 	for _, v := range []string{"version", "-v", "--version"} {
 		if code, out, _ := run(v); code != 0 || out != "v1.2.3\n" {
 			t.Fatalf("%s: %d %q", v, code, out)

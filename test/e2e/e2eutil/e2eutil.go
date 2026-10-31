@@ -75,7 +75,7 @@ func Binary(t *testing.T, name string) string {
 	b := v.(*build)
 	b.once.Do(func() {
 		b.path = filepath.Join(binDir, name)
-		cmd := exec.Command("go", "build", "-ldflags", "-X "+module+"/internal/cli.Version=e2e", "-o", b.path, pkg)
+		cmd := exec.Command("go", "build", "-ldflags", "-X "+module+"/internal/version.Version=e2e", "-o", b.path, pkg)
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			b.err = fmt.Errorf("go build %s: %v\n%s", pkg, err, out)
