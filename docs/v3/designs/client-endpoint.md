@@ -42,7 +42,7 @@ endpoints:
 
 endpointService 不保存在线状态、连接实例、重连、领取授权或执行槽位。runService 读取文件后维护运行时连接，配置提交后的通知只表示“注册信息改变”。启动和定期核对同样以 YAML 为准。
 
-本机端口、执行容量与临时目录策略归 [settingService](client-setting.md) 的 setting.yaml，不放到 endpoints.yaml。
+本机端口与临时目录容量策略归 [settingService](client-setting.md) 的 setting.yaml，不放到 endpoints.yaml。
 
 停用 endpoint 后，runService 停止新领取并保留已有任务的续租和结果回报。正常移除先由 runService 停领收尾，再删除 YAML 项；endpointService 不直接取消执行或关闭原生 session。
 

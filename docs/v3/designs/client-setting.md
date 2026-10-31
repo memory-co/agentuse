@@ -4,7 +4,7 @@
 
 ## 一、职责
 
-settingService 加载、校验并提供本机设置：本地页面监听地址/端口、执行容量、sessionService 的统一临时工作根目录，以及容量限制和自动清理策略。
+settingService 加载、校验并提供本机设置：本地页面监听地址/端口、sessionService 的统一临时工作根目录，以及容量限制和自动清理策略。
 
 它不保存 endpoint 注册信息，不领取任务，也不直接删除 conversation 工作目录。endpointService 管 `endpoints.yaml`；runService 执行领取调度；sessionService 按设置选择和清理工作目录。
 
@@ -16,9 +16,6 @@ local_http:
   host: 127.0.0.1
   port: 7801
 
-execution:
-  max_running_runs: 1
-
 session:
   work_root: ~/.agentuse/tmp
   quota:
@@ -28,13 +25,12 @@ session:
 | 设置 | 含义 |
 |---|---|
 | local_http | 本机只读页面的开关、监听地址和端口；仅允许回环地址 |
-| execution.max_running_runs | 所有 endpoint 共用的执行上限，不是各 server 分别计算 |
 | session.work_root | sessionService 为新 conversation 分配工作目录的默认根目录，不按 harness 划分 |
 | session.quota.max_bytes | 所有受管 conversation 工作目录的总容量上限，正整数字节数 |
 
-默认本机端口 7801、总并发 1；默认工作根目录为 `~/.agentuse/tmp`。声明 session.quota 就启用容量限制与自动清理，不再配置 enabled 或 cleanup。省略 quota 表示不限容量、不因容量回收；声明时 max_bytes 必须为正整数。所有 harness 共用这一目录分配规则。
+默认本机端口 7801；默认工作根目录为 `~/.agentuse/tmp`。声明 session.quota 就启用容量限制与自动清理，不再配置 enabled 或 cleanup。省略 quota 表示不限容量、不因容量回收；声明时 max_bytes 必须为正整数。所有 harness 共用这一目录分配规则。
 
-缺少配置文件时首次生成默认文件再使用，不另存隐藏配置表。端口须合法、执行容量须正数，路径扩展 `~` 后规范化；非法配置在启动时明确报错。运行时修改无效则拒绝应用，保留当前有效内存快照并报告错误，不能静默写回另一份“权威配置”。
+缺少配置文件时首次生成默认文件再使用，不另存隐藏配置表。端口须合法，路径扩展 `~` 后规范化；非法配置在启动时明确报错。运行时修改无效则拒绝应用，保留当前有效内存快照并报告错误，不能静默写回另一份“权威配置”。
 
 ## 三、工作目录怎样组织
 
@@ -73,7 +69,6 @@ setting.yaml 的 session.work_root 是分配新 conversation 目录的默认父�
 | 变化 | 应用方式 |
 |---|---|
 | 端口/监听设置变化 | 明确重启本机 HTTP 组件，不中断现有 run |
-| 执行上限降低 | runService 等已有执行收尾，不为满足新限制强制取消 |
 | 工作根目录变化 | 只对尚未绑定工作目录的新 conversation 生效；已有 conversation 的所有 session 继续使用原绑定目录，不搬迁、不拆分。sessionService 依据已登记映射继续管理旧根目录中的受管目录，不扫描任意旧路径 |
 | 容量策略变化 | 后续检查按新策略执行，仍保护在用目录 |
 

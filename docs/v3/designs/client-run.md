@@ -18,7 +18,7 @@ Client 不创建独立的业务 run。run_id 和 attempt_id 来自中心；本�
 | Service | 协作 |
 |---|---|
 | endpointService | 提供 endpoints.yaml 中的注册身份，连接与领取由 runService 管理 |
-| settingService | 提供端口之外的本机执行上限、工作目录及容量策略；runService 消费这些设置，不另存 run_settings |
+| settingService | 提供工作目录及磁盘容量策略；runService 消费这些设置，不另存 run_settings |
 | sessionService | 选择/恢复原生会话、执行锁、历史增量位置；run 结束后保留 session |
 | harnessService | 在已选 session 中执行任务，将原生交互转换成标准事件 |
 
@@ -28,7 +28,7 @@ Client 不创建独立的业务 run。run_id 和 attempt_id 来自中心；本�
 
 runService 启动时读取启用的 endpoints，为每个已注册 server 建立独立连接。一次连接失败只对该 endpoint 退避重连，不阻塞其他 endpoint。探测由本地 harnessService 完成，由 runService 向各 server 上报标准能力。
 
-所有 endpoint 共用 setting.yaml 的 execution.max_running_runs，默认 1。runService 原子预留空闲槽位，再按轮询顺序对某个 endpoint 发起一次有界领取，明确得到 run 或 no_task。无任务立即尝试下一 endpoint；不能向多个 server 广播长期有效的 ready，避免重复派活超过本机容量。
+所有 endpoint 共用 runService 内部的领取与并发调度，不在 setting.yaml 暴露执行数量或槽位配置。不同 session 可以并行，同一 session 保持串行。runService 先在内部原子预留本次执行机会，再按轮询顺序对某个 endpoint 发起一次有界领取，明确得到 run 或 no_task。无任务立即尝试下一 endpoint；不能向多个 server 广播长期有效的 ready，避免重复派活超过本机容量。
 
 领取超时的晚到任务需重新核对授权，失效则拒绝/交原 server 租约恢复，不能绕过槽位检查直接启动。等待用户答案的 run 仍占容量，长任务不因轮询被抢占。结束后由 runService 自己释放槽位并继续领取。
 
@@ -55,7 +55,7 @@ runService 启动时读取启用的 endpoints，为每个已注册 server 建立
   <endpoint_id>/<run_id>/<attempt_id>/run.json
 ```
 
-每个执行尝试一个文件，唯一定位为 endpoint/run/attempt，不再有本机 runs 表或 run_settings 表。本机容量只读 setting.yaml，领取预留、连接状态和执行槽位只存在运行时内存中。
+每个执行尝试一个文件，唯一定位为 endpoint/run/attempt，不再有本机 runs 表或 run_settings 表。磁盘容量策略读取 setting.yaml；领取预留、连接状态和执行槽位由 runService 内部管理，只存在运行时内存中。
 
 ```json
 {

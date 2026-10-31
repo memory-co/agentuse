@@ -20,7 +20,7 @@ Client 负责本地连接、领取、原生 session 和执行；server 负责 co
 | Service | 负责什么 | 主要拥有的数据 |
 |---|---|---|
 | [endpointService](client-endpoint.md) | 管已注册 server 的地址、device 身份和凭据 | `~/.agentuse/endpoints.yaml` |
-| [settingService](client-setting.md) | 管端口、执行容量、session 共享工作根目录和容量回收策略 | `~/.agentuse/setting.yaml` |
+| [settingService](client-setting.md) | 管端口、session 共享工作根目录和容量回收策略 | `~/.agentuse/setting.yaml` |
 | [sessionService](client-session.md) | 管理原生会话复用、执行锁、历史位置及空闲工作目录回收 | 每个原生会话的 `session.yaml` 与 conversation 的 `workspace.yaml` |
 | [runService](client-run.md) | 读取 endpoints 和设置，自行领取/执行、上报事件并触发清理 | 每个执行尝试的 `run.json` |
 | [harnessService](client-harness.md) | 本地接入包探测、原生 session 操作、启动执行、RPC/hook/skill、输出解释 | `~/.agentuse/harness/` 下的适配器与资源文件 |
@@ -35,7 +35,7 @@ endpointService 不创建中心连接，不领取任务，不管理槽位，也�
 
 ### 2.2 settingService：本地运行配置
 
-settingService 读取 setting.yaml，管理本机 HTTP 端口、执行总容量、sessionService 使用的统一临时工作根目录，以及容量限制和自动清理策略。它提供校验后的配置，不领任务、不直接删目录。
+settingService 读取 setting.yaml，管理本机 HTTP 端口、sessionService 使用的统一临时工作根目录，以及容量限制和自动清理策略。它提供校验后的配置，不领任务、不直接删目录。
 
 配置容量超限时，由 runService 触发 sessionService 回收空闲受管工作目录；正在执行或等待答案的目录受保护。声明 quota 即启用自动清理，不额外配置 cleanup。根目录容量属于清理/准入策略，不是会强杀进程的硬配额。
 
@@ -47,7 +47,7 @@ Client session 直接对应原生 harness 的会话：Codex 的 thread、Claude 
 
 ### 2.4 runService：一次领来的任务
 
-runService 从 endpointService 读取启用的注册信息，自行连接各 server，维护心跳、重连和对账，并在本机共享容量内轮询领取任务。执行上限读取 setting.yaml，默认总并发 1，不能向多个 endpoint 同时广播长期 ready。
+runService 从 endpointService 读取启用的注册信息，自行连接各 server，维护心跳、重连和对账，并在本机共享容量内轮询领取任务。领取预留与并发调度由 runService 内部管理，不向用户暴露执行数量配置；不同 session 可同时运行，不能向多个 endpoint 同时广播长期 ready。
 
 runService 不在本机另造业务任务。run_id/attempt_id 来自 server，本地用 `(endpoint_id, run_id, attempt_id)` 区分执行，将它绑定到本机 session.yaml 的 id 后执行。
 
