@@ -62,7 +62,13 @@ func runAttachment(args []string) error {
 		*token = os.Getenv("AGENTUSE_WORK")
 	}
 	if *server == "" || *token == "" {
-		cfg, err := daemon.LoadConfig(*cfgPath)
+		var cfg daemon.Config
+		var err error
+		if *server != "" {
+			cfg, err = daemon.LoadConfigForServer(*cfgPath, *server)
+		} else {
+			cfg, err = daemon.LoadConfig(*cfgPath)
+		}
 		if err != nil {
 			return err
 		}

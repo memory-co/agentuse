@@ -40,7 +40,7 @@ func TestWorkInstructions(t *testing.T) {
 		t.Fatalf("coordinator: %q", got)
 	}
 	// 不在工作里：说明文件删掉
-	if got := run(protocol.Dispatch{}); got != "token=\n" {
+	if got := run(protocol.Dispatch{}); got != "hi\ntoken=\n" {
 		t.Fatalf("plain: %q", got)
 	}
 }

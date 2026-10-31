@@ -6,7 +6,10 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"github.com/memory-co/agentuse/internal/harness"
+	"gopkg.in/yaml.v3"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -82,10 +85,33 @@ func waitStatus(t *testing.T, c *agentuse.Client, user, id, status string) {
 	})
 }
 
-func writeJSON(t *testing.T, path string, v any) {
+func writeAdapterConfig(t *testing.T, path string, v map[string]any) {
 	t.Helper()
-	b, _ := json.MarshalIndent(v, "", "  ")
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		t.Fatal(err)
+	root := filepath.Join(filepath.Dir(path), "harness")
+	if e := harness.InstallBuiltins(root); e != nil {
+		t.Fatal(e)
+	}
+	for name, raw := range v["harnesses"].(map[string]any) {
+		opts := raw.(map[string]any)
+		dir := filepath.Join(root, name, "local")
+		if e := os.MkdirAll(dir, 0700); e != nil {
+			t.Fatal(e)
+		}
+		doc := map[string]any{"name": name, "custom": true}
+		if sp, ok := harness.Get(name); ok {
+			if e := harness.CopyBuiltin(name, dir); e != nil {
+				t.Fatal(e)
+			}
+			b, _ := yaml.Marshal(sp)
+			yaml.Unmarshal(b, &doc)
+			doc["custom"] = false
+		}
+		for k, val := range opts {
+			doc[k] = val
+		}
+		b, _ := yaml.Marshal(doc)
+		if e := os.WriteFile(filepath.Join(dir, "harness.yaml"), b, 0600); e != nil {
+			t.Fatal(e)
+		}
 	}
 }

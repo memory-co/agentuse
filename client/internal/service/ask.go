@@ -9,7 +9,7 @@ import (
 	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-// defaultAskTimeout 是等用户回答提问的默认最长时间,daemon.json 的 ask_timeout 可改。
+// defaultAskTimeout bounds an unanswered native question.
 const defaultAskTimeout = 30 * time.Minute
 
 // inbox 是一条正在跑的消息从服务那边收到的东西：插话和提问的答案。nil 表示都不收。

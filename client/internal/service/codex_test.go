@@ -50,16 +50,31 @@ func fakeCodexRPC(mode string) {
 				continue
 			}
 			ack(map[string]any{})
-		case "thread/start":
+		case "thread/start", "thread/resume":
+			if mode == "resume-only" && msg.Method != "thread/resume" {
+				send(map[string]any{"id": msg.ID, "error": map[string]any{"code": -32000, "message": "expected resume"}})
+				continue
+			}
 			ack(map[string]any{"thread": map[string]string{"id": "thread-1"}})
 		case "turn/start":
 			ack(map[string]any{"turn": map[string]string{"id": "turn-1"}})
 			notify("turn/started", map[string]any{"threadId": "thread-1", "turn": map[string]string{"id": "turn-1"}})
 			notify("item/started", map[string]any{"threadId": "thread-1", "turnId": "turn-1", "item": map[string]string{"type": "commandExecution", "command": "sleep 10"}})
 			if mode == "instructions" {
-				b, _ := os.ReadFile("AGENTS.md")
+				var inputs []struct {
+					Text string `json:"text"`
+				}
+				_ = json.Unmarshal(msg.Params["input"], &inputs)
+				var b []byte
+				for _, in := range inputs {
+					b = append(b, []byte(in.Text)...)
+				}
+				b = []byte(strings.SplitN(string(b), "\n\n# 本次任务\n", 2)[0] + "\n")
 				os.WriteFile("seen.txt", append(b, []byte("token="+os.Getenv("AGENTUSE_WORK")+"\n")...), 0600)
 				finish("completed", "done")
+			}
+			if mode == "resume-only" {
+				finish("completed", "resumed thread")
 			}
 			if mode == "failed" {
 				finish("failed", "")
@@ -205,5 +220,19 @@ func TestCodexCancellationInterruptsTurn(t *testing.T) {
 	}
 	if _, err := os.Stat(interrupted); err != nil {
 		t.Fatal("turn/interrupt was not sent", err)
+	}
+}
+
+func TestCodexResumesSavedNativeThread(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	la := codexTestHarness(t, "resume-only")
+	la.ResumeID = "thread-1"
+	r := runHarness(ctx, la, protocol.Dispatch{Input: json.RawMessage(`{"prompt":"continue"}`)}, t.TempDir(), nil, func(string, any) {})
+	if !r.OK || r.SessionID != "thread-1" || r.Output != "resumed thread" {
+		t.Fatal(r)
+	}
+	if r.Usage != nil {
+		t.Fatal("cumulative usage incorrectly counted for resumed session", r.Usage)
 	}
 }

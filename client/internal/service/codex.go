@@ -17,7 +17,7 @@ import (
 	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-// codexArgs translates daemon.json's Codex options to app-server config overrides.
+// codexArgs translates local adapter options to app-server config overrides.
 // Defaults match our noninteractive exec environment; explicit options follow them.
 func codexArgs(extra []string) ([]string, error) {
 	var prefix []string
@@ -86,7 +86,7 @@ func codexText(text string) []map[string]any {
 	return []map[string]any{{"type": "text", "text": text, "text_elements": []any{}}}
 }
 
-// runCodex owns one fresh thread/turn. Only a matching turn/steer response can
+// runCodex creates or resumes a thread and owns the current turn. Only a matching turn/steer response can
 // acknowledge delivery; a write to stdin alone is never treated as acceptance.
 func runCodex(ctx context.Context, la localHarness, m protocol.Dispatch, dir string, in *inbox, report reportFn) Result {
 	args, err := codexArgs(la.Args)
@@ -269,9 +269,13 @@ func runCodex(ctx context.Context, la localHarness, m protocol.Dispatch, dir str
 				switch p.method {
 				case "initialize":
 					if err = writer.writeJSON(map[string]any{"method": "initialized", "params": map[string]any{}}); err == nil {
-						err = request("thread/start", map[string]any{"cwd": dir}, nil)
+						if la.ResumeID != "" {
+							err = request("thread/resume", map[string]any{"threadId": la.ResumeID, "cwd": dir}, nil)
+						} else {
+							err = request("thread/start", map[string]any{"cwd": dir}, nil)
+						}
 					}
-				case "thread/start":
+				case "thread/start", "thread/resume":
 					var v struct {
 						Thread struct {
 							ID string `json:"id"`
@@ -303,11 +307,8 @@ func runCodex(ctx context.Context, la localHarness, m protocol.Dispatch, dir str
 			}
 			var v struct {
 				TokenUsage *struct {
-					Total struct {
-						Input  int64 `json:"inputTokens"`
-						Output int64 `json:"outputTokens"`
-						Cached int64 `json:"cachedInputTokens"`
-					} `json:"total"`
+					Total codexUsage  `json:"total"`
+					Last  *codexUsage `json:"last"`
 				} `json:"tokenUsage"`
 
 				ThreadID string `json:"threadId"`
@@ -339,6 +340,11 @@ func runCodex(ctx context.Context, la localHarness, m protocol.Dispatch, dir str
 			case "thread/tokenUsage/updated":
 				if v.TokenUsage != nil {
 					usage := v.TokenUsage.Total
+					if v.TokenUsage.Last != nil {
+						usage = *v.TokenUsage.Last
+					} else if la.ResumeID != "" {
+						continue
+					}
 					result.Usage = &agentuse.Usage{InputTokens: usage.Input, OutputTokens: usage.Output, CacheReadTokens: usage.Cached}
 				}
 			case "turn/started":
@@ -389,4 +395,10 @@ func (q *steerQueue) restore(items []protocol.Steer) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.items = append(items, q.items...)
+}
+
+type codexUsage struct {
+	Input  int64 `json:"inputTokens"`
+	Output int64 `json:"outputTokens"`
+	Cached int64 `json:"cachedInputTokens"`
 }

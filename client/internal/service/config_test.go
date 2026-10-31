@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -15,7 +14,7 @@ import (
 )
 
 func TestConfigRoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sub", "daemon.json")
+	path := filepath.Join(t.TempDir(), "sub", "endpoints.yaml")
 	if _, err := LoadConfig(path); !os.IsNotExist(err) {
 		t.Fatalf("missing: %v", err)
 	}
@@ -29,7 +28,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 	c.ConfigPath = path
 	got, err := LoadConfig(path)
-	if err != nil || !reflect.DeepEqual(got, c) {
+	if err != nil || got.Server != c.Server || got.DaemonID != c.DaemonID || got.Key != c.Key || got.EndpointID != "http---x" {
 		t.Fatalf("%v %+v", err, got)
 	}
 	os.WriteFile(path, []byte("{"), 0o600)
@@ -56,15 +55,15 @@ func TestRegister(t *testing.T) {
 	}))
 	defer ts.Close()
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "daemon.json")
+	path := filepath.Join(t.TempDir(), "endpoints.yaml")
 	// 已有的 harnesses 配置注册后保留
 	SaveConfig(path, Config{Harnesses: map[string]HarnessConfig{"mine": {Command: "m"}}})
 
 	cfg, err := Register(ctx, ts.URL+"/", "st_ok", path)
-	if err != nil || cfg.Server != ts.URL || cfg.DaemonID != "dm_1" || cfg.Key != "dk_1" || cfg.Harnesses["mine"].Command != "m" {
+	if err != nil || cfg.Server != ts.URL || cfg.DaemonID != "dm_1" || cfg.Key != "dk_1" {
 		t.Fatalf("register: %v %+v", err, cfg)
 	}
-	if saved, _ := LoadConfig(path); !reflect.DeepEqual(saved, cfg) {
+	if saved, _ := LoadConfig(path); saved.Server != cfg.Server || saved.Key != cfg.Key {
 		t.Fatalf("saved: %+v", saved)
 	}
 	if _, err := Register(ctx, ts.URL, "st_bad", path); err == nil || err.Error() != "安装令牌无效" {

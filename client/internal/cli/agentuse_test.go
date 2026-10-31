@@ -39,7 +39,7 @@ func TestAgentuseCommands(t *testing.T) {
 	}))
 	defer ts.Close()
 	d := struct{ ID, SetupToken string }{"dm_test", "st_good"}
-	cfg := filepath.Join(t.TempDir(), "daemon.json")
+	cfg := filepath.Join(t.TempDir(), "endpoints.yaml")
 	t.Setenv("PATH", t.TempDir()) // 本机没有 claude / codex
 	t.Setenv("TOKEN", "")
 	run := func(args ...string) (int, string, string) {

@@ -24,21 +24,59 @@ func localPath(name string) string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".agentuse", name)
 }
-func startLocalUI(cfg daemon.Config, reader store.Reader) (func(), error) {
+func startLocalUI(cfg daemon.Config, reader store.Reader, managers ...*daemon.RunService) (func(), error) {
 	addr := cfg.UIAddress()
 	if addr == "" {
 		return func() {}, nil
 	}
 	ln, err := controller.Listen(addr)
 	if err != nil {
-		return nil, fmt.Errorf("本机页面监听失败（ui_addr 可设为空关闭）: %w", err)
+		return nil, fmt.Errorf("本机页面监听失败（setting.yaml 的 local_http.enabled 可关闭页面）: %w", err)
 	}
 	token, err := controller.Token(localPath("ui.token"))
 	if err != nil {
 		ln.Close()
 		return nil, err
 	}
-	handler, err := controller.New(reader, ln.Addr().String(), token)
+	handler, err := controller.New(reader, ln.Addr().String(), token, controller.PublicData{
+		Endpoints: func() any {
+			items, e := (daemon.EndpointService{Path: cfg.ConfigPath}).List()
+			if e != nil {
+				return controller.ReadFailure{Err: e}
+			}
+			out := []map[string]any{}
+			for _, ep := range items {
+				out = append(out, map[string]any{"endpoint_id": ep.ID(), "server_url": ep.ServerURL, "name": ep.Name, "enabled": ep.Enabled})
+			}
+			return map[string]any{"items": out}
+		},
+		Settings: func() any {
+			if len(managers) > 0 {
+				value := managers[0].Settings.Get()
+				restart := []string{}
+				if value.Session.WorkRoot != cfg.Settings.Session.WorkRoot {
+					restart = append(restart, "session.work_root")
+				}
+				if value.LocalHTTP != cfg.Settings.LocalHTTP {
+					restart = append(restart, "local_http")
+				}
+				return map[string]any{"config": value, "active_work_root": cfg.Settings.Session.WorkRoot, "restart_required": restart}
+			}
+			return cfg.Settings
+		},
+		Harnesses: func() any {
+			if len(managers) > 0 {
+				return managers[0].Harnesses()
+			}
+			return []daemon.HarnessInfo{}
+		},
+		Status: func() any {
+			if len(managers) > 0 {
+				return managers[0].Snapshot()
+			}
+			return map[string]any{"state": "running"}
+		},
+	})
 	if err != nil {
 		ln.Close()
 		return nil, err
@@ -64,22 +102,19 @@ func runUI(args []string) error {
 	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
-	cfg, err := loadDaemonConfig(*config)
+	_, err := loadDaemonConfig(*config)
 	if err != nil {
 		return err
 	}
-	if cfg.UIAddress() == "" {
-		return errors.New("本机页面已在 ui_addr 中关闭")
-	}
 	b, err := os.ReadFile(localPath("ui.addr"))
 	if err != nil {
-		return errors.New("本机页面尚未启动，请先运行 agentuse daemon")
+		return errors.New("本机页面尚未启动，请先运行 agentuse start")
 	}
 	token, err := controller.Token(localPath("ui.token"))
 	if err != nil {
 		return err
 	}
-	link := strings.TrimSpace(string(b)) + "/?token=" + url.QueryEscape(token)
+	link := strings.TrimSpace(string(b)) + "/#token=" + url.QueryEscape(token)
 	fmt.Println(link)
 	if *open {
 		name := "xdg-open"
@@ -91,14 +126,14 @@ func runUI(args []string) error {
 	return nil
 }
 func startLedger(ctx context.Context, cfg daemon.Config) (*store.Ledger, error) {
-	ledger, err := store.Open(localPath("ledger.db"))
+	root := cfg.Settings.Session.WorkRoot
+	if root == "" {
+		root = daemon.DefaultSettings().Session.WorkRoot
+	}
+	ledger, err := store.Open(root)
 	if err != nil {
 		return nil, err
 	}
-	err = ledger.Writer().Purge(ctx, time.Now().AddDate(0, 0, -cfg.RetentionDays()))
-	if err != nil {
-		ledger.Close()
-		return nil, err
-	}
+
 	return ledger, nil
 }

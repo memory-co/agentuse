@@ -26,7 +26,7 @@ func TestNew(t *testing.T) {
 	}
 	t.Setenv("HOME", "/home/x")
 	d, err := New(Config{Server: "http://x", Key: "dk"}, nil)
-	if err != nil || d.workdir != "/home/x/.agentuse/work" {
+	if err != nil || d.workdir != "/home/x/.agentuse/tmp" {
 		t.Fatalf("workdir: %v %q", err, d.workdir)
 	}
 }
@@ -48,7 +48,7 @@ func TestSessionDir(t *testing.T) {
 	t.Setenv("HOME", home)
 	d, _ := New(Config{Server: "http://x", Key: "dk"}, log.New(io.Discard, "", 0))
 	dir, err := d.sessionDir(protocol.Dispatch{SessionID: "ss_1"})
-	if st, _ := os.Stat(dir); err != nil || dir != filepath.Join(home, ".agentuse", "work", "ss_1") || !st.IsDir() {
+	if st, _ := os.Stat(dir); err != nil || dir != filepath.Join(home, ".agentuse", "tmp", "http---x", "ss_1", "workspace") || !st.IsDir() {
 		t.Fatalf("session dir: %v %q", err, dir)
 	}
 	for _, id := range []string{"", "..", "../x", "a/b"} {

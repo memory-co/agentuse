@@ -39,12 +39,12 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 	c := agentuse.New(server.URL, server.AdminToken)
 	user := "codex-steer-test"
 	home := t.TempDir()
-	cfg := filepath.Join(home, "daemon.json")
+	cfg := filepath.Join(home, "endpoints.yaml")
 	d, err := c.CreateDaemon(ctx, user, "codex test machine")
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeJSON(t, cfg, map[string]any{"harnesses": map[string]any{"claude": map[string]any{"disabled": true}, "codex": map[string]any{"command": codex}}})
+	writeAdapterConfig(t, cfg, map[string]any{"harnesses": map[string]any{"claude": map[string]any{"disabled": true}, "codex": map[string]any{"command": codex}}})
 	var extra []string
 	if real {
 		codexHome := os.Getenv("CODEX_HOME")

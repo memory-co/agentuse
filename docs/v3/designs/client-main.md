@@ -1,6 +1,6 @@
 # Client 设计
 
-> 本文定义 v3 client 的目标业务划分，尚未据此完整重构代码。Client 通过多个中心领取 run，并在设备本地 session 中执行。服务端总览见 [server-main.md](server-main.md)。
+> 本文定义 v3 client 的业务划分；文件配置、目录存储、多个 endpoint 的任务领取及本机页面已接入，原生能力仍以本机适配器探测和验证为准。Client 通过多个中心领取 run，并在设备本地 session 中执行。服务端总览见 [server-main.md](server-main.md)。
 
 ## 一、整体关系
 
@@ -186,6 +186,7 @@ CLI 负责配置管理和提供页面链接。页面展示执行、所属 sessio
 
 | 方法与路径 | 查询参数 | 返回内容 |
 |---|---|---|
+| GET /api/endpoints | 无 | endpoints.yaml 中的平台展示信息及推导的 endpoint_id，不返回 device_key |
 | GET /api/status | 无 | client 版本、启动时间、运行中/等待回答的数量、各 endpoint 连接状态、当前资源不足原因 |
 | GET /api/settings | 无 | 当前生效的 local_http、session.work_root、quota，以及配置是否需要重启才能生效；不暴露 ui.token |
 | GET /api/harnesses | harness（可选） | 已安装 harness/revision、最近探测的程序版本、可用性和能力；无探测结果时为 unknown，不因查询启动程序 |
@@ -233,7 +234,7 @@ HTTP 路径中的 endpoint_id 是逻辑 ID，按标准 URL 路径段编码一次
 | Save | 完整配置 → 应用结果 | CLI 调用，校验后原子替换 setting.yaml，返回已应用/需重启的字段 |
 | Reload | 无 → 应用结果 | 用户直接编辑 YAML 后重读；非法内容返回错误，保留当前有效内存配置 |
 
-省略 quota 表示不限容量；声明 quota 即自动清理。没有 cleanup、quota.enabled 或执行并发配置。端口改变只重启本机 HTTP，根目录改变按 settingService 的配置变更规则停任务并重启 client；根目录切换期间不允许把新旧路径混用于执行。
+省略 quota 表示不限容量；声明 quota 即自动清理。没有 cleanup、quota.enabled 或执行并发配置。当前实现中，端口改变标记为需要重启 client，重启后监听新端口；根目录改变按 settingService 的配置变更规则停任务并重启 client；根目录切换期间不允许把新旧路径混用于执行。
 
 ### 9.5 sessionService：会话与工作目录接口
 
@@ -280,7 +281,7 @@ Acquire 不领取 server 任务、不生成 run_id，且只允许对有效的已
 | Cancel | ExecutionHandle、原因 → 空 | 原生取消，超时终止进程树，终态通过回调确认 |
 | Release | 原生句柄 → 空 | 释放进程、连接和回调，不删除全局原生历史 |
 
-标准事件包含 started、progress、plan、prompt_delivery、question、usage、result、error、cancelled。每条带当前执行关联和本机时间；回调按执行串行处理。Create/Resume 失败须释放 Acquire 已登记的目录占用。适配器包安装/升级由本地安装流程完成，不提供从 server 或页面任意下载执行资源的 API。
+标准事件包含 started、progress、plan、prompt_delivery、question、usage、result、error、cancelled。终态由 server 保存后回 event_ack，未确认的回报保存在 run.json，重启后按原执行身份重发。每条带当前执行关联和本机时间；回调按执行串行处理。Create/Resume 失败须释放 Acquire 已登记的目录占用。适配器包安装/升级由本地安装流程完成，不提供从 server 或页面任意下载执行资源的 API。
 
 ### 9.8 中心通信与原生回调
 
@@ -289,7 +290,7 @@ Acquire 不领取 server 任务、不生成 run_id，且只允许对有效的已
 | 方向 | 接口语义 | 主要输入 / 输出 |
 |---|---|---|
 | client → server | Connect / RegisterCapabilities | device 身份、本地 harness/revision、程序版本和能力 → 连接与授权结果 |
-| client → server | Claim | 单次有效领取意愿、可执行能力 → RunAssignment 或 no_task；请求有界，晚到结果重新校验 |
+| client → server | Claim（claim / no_task） | 单次有效领取意愿、可执行能力 → RunAssignment 或 no_task；请求有界，晚到结果重新校验 |
 | 双向 | Heartbeat / Reconcile | 活跃 run/attempt、租约 → 续租及有效/失效执行集合 |
 | client → server | ReadInputs | run_prompts、conversation 历史位置和文件引用 → 执行输入及历史增量 |
 | server → client | DeliverPrompts / Answer / Cancel | 指定 run/attempt 的补充输入、指定 question 的答案或取消 |

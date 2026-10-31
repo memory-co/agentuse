@@ -83,9 +83,10 @@ func claude(args []string) int {
 		fmt.Fprintln(os.Stderr, "bad stdin:", string(line))
 		return 2
 	}
-	if _, err := os.Stat(filepath.Join(".claude", "skills", "agentuse", "SKILL.md")); err != nil {
-		fmt.Fprintln(os.Stderr, "missing skill:", err)
-		return 2
+	// Adapter instructions are now passed with the input, without mutating cwd.
+	instructionText := in.Message.Content
+	if parts := strings.SplitN(in.Message.Content, "\n\n# 本次任务\n", 2); len(parts) == 2 {
+		in.Message.Content = parts[1]
 	}
 	defer io.Copy(io.Discard, stdin)
 	prompt := in.Message.Content
@@ -107,8 +108,8 @@ func claude(args []string) int {
 		return 1
 	}
 	out := reply("claude", prompt, resume)
-	if b, err := os.ReadFile("CLAUDE.md"); err == nil {
-		first, _, _ := strings.Cut(string(b), "\n")
+	if instructionText != in.Message.Content {
+		first, _, _ := strings.Cut(instructionText, "\n")
 		if first != "" {
 			out += " claude.md=" + first
 		}

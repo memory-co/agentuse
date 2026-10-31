@@ -2,7 +2,7 @@ package controller
 
 import (
 	"context"
-	"net/http"
+	"encoding/json"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -12,29 +12,24 @@ import (
 	"github.com/memory-co/agentuse/client/internal/store"
 )
 
-func TestReadOnlyUIAuthenticationAndHost(t *testing.T) {
-	dir := t.TempDir()
-	ledger, err := store.Open(filepath.Join(dir, "ledger.db"))
-	if err != nil {
-		t.Fatal(err)
+func TestScopedFileAPIAndAuthentication(t *testing.T) {
+	root := t.TempDir()
+	l, _ := store.Open(root)
+	ctx := context.Background()
+	s, _, e := l.AcquireSession(ctx, "http---localhost%3A8090", "c", "coder", "codex", "v1")
+	if e != nil {
+		t.Fatal(e)
 	}
-	defer ledger.Close()
-	if err = ledger.Writer().Receive(context.Background(), store.Run{RunID: "r1", AttemptID: "a1", Summary: "visible summary"}); err != nil {
-		t.Fatal(err)
+	if e = l.ForEndpoint(s.EndpointID).Receive(ctx, store.Run{EndpointID: s.EndpointID, ConversationID: "c", SessionID: s.ID, RunID: "r", AttemptID: "a", Summary: "visible summary"}); e != nil {
+		t.Fatal(e)
 	}
-	token, err := Token(filepath.Join(dir, "ui.token"))
-	if err != nil {
-		t.Fatal(err)
+	token, e := Token(filepath.Join(t.TempDir(), "ui.token"))
+	if e != nil {
+		t.Fatal(e)
 	}
-	if again, _ := Token(filepath.Join(dir, "ui.token")); again != token {
-		t.Fatal("token changed across restart")
-	}
-	if st, _ := os.Stat(filepath.Join(dir, "ui.token")); st.Mode().Perm() != 0600 {
-		t.Fatal(st.Mode())
-	}
-	ui, err := New(ledger.Reader(), "127.0.0.1:7801", token)
-	if err != nil {
-		t.Fatal(err)
+	ui, e := New(l.Reader(), "127.0.0.1:7801", token)
+	if e != nil {
+		t.Fatal(e)
 	}
 	call := func(method, path, host, credential string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "http://127.0.0.1:7801"+path, nil)
@@ -48,38 +43,96 @@ func TestReadOnlyUIAuthenticationAndHost(t *testing.T) {
 		}
 		return w
 	}
+	base := "/api/conversations/http---localhost%253A8090/c/sessions/" + s.ID
 	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"} {
-		if w := call(method, "/api/runs", "127.0.0.1:7801", token); w.Code != 405 {
+		if w := call(method, base, "localhost:7801", token); w.Code != 405 {
 			t.Fatal(method, w.Code)
 		}
 	}
 	for _, host := range []string{"evil.example:7801", "localhost.evil:7801", "127.0.0.1:9999"} {
-		if w := call("GET", "/api/runs", host, token); w.Code != 403 {
+		if w := call("GET", base, host, token); w.Code != 403 {
 			t.Fatal(host, w.Code)
 		}
 	}
-	if w := call("GET", "/api/runs", "localhost:7801", "bad"); w.Code != 401 {
+	if w := call("GET", base, "localhost:7801", "bad"); w.Code != 401 {
 		t.Fatal(w.Code)
 	}
-	if w := call("GET", "/api/runs", "localhost:7801", token); w.Code != 200 || !strings.Contains(w.Body.String(), "visible summary") {
-		t.Fatal(w.Code, w.Body.String())
+	for _, path := range []string{base, base + "/runs", base + "/runs/r/attempts/a", base + "/usage", "/api/conversations?endpoint_id=http---localhost%253A8090"} {
+		w := call("GET", path, "localhost:7801", token)
+		if w.Code != 200 || !json.Valid(w.Body.Bytes()) {
+			t.Fatal(path, w.Code, w.Body.String())
+		}
 	}
-	login := call("GET", "/?token="+token, "localhost:7801", "")
-	if login.Code != 303 || strings.Contains(login.Header().Get("Location"), token) {
-		t.Fatal("token not removed from URL")
+	if w := call("GET", base+"/runs/r/attempts/a", "localhost:7801", token); !strings.Contains(w.Body.String(), "visible summary") {
+		t.Fatal(w.Body.String())
 	}
-	cookies := login.Result().Cookies()
-	if len(cookies) != 1 || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteStrictMode {
-		t.Fatal("cookie security", cookies)
+	for _, path := range []string{"/api/runs", "/api/usage", "/api/stats"} {
+		if w := call("GET", path, "localhost:7801", token); w.Code != 404 {
+			t.Fatal("global scan endpoint exists", path, w.Code)
+		}
 	}
-	request := httptest.NewRequest("GET", "http://localhost:7801/api/runs", nil)
-	request.AddCookie(cookies[0])
-	w := httptest.NewRecorder()
-	ui.ServeHTTP(w, request)
-	if w.Code != 200 {
-		t.Fatal("cookie authentication", w.Code)
+	if w := call("GET", "/api/conversations", "localhost:7801", token); w.Code != 400 {
+		t.Fatal("unscoped conversations accepted")
 	}
-	if _, err = Listen("0.0.0.0:0"); err == nil {
+	if w := call("GET", base+"/runs?limit=bad", "localhost:7801", token); w.Code != 400 {
+		t.Fatal(w.Code)
+	}
+	// Listing conversations must not open nested state files.
+	os.WriteFile(filepath.Join(root, s.EndpointID, "c", "sessions", s.ID, "session.yaml"), []byte("{broken"), 0600)
+	if w := call("GET", "/api/conversations?endpoint_id=http---localhost%253A8090", "localhost:7801", token); w.Code != 200 {
+		t.Fatal("conversation list read session content", w.Code)
+	}
+	if w := call("GET", base, "localhost:7801", token); w.Code != 500 {
+		t.Fatal("damaged state hidden", w.Code)
+	}
+	if _, e = Listen("0.0.0.0:0"); e == nil {
 		t.Fatal("non-loopback bind accepted")
+	}
+}
+func TestTokenFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ui.token")
+	first, e := Token(path)
+	if e != nil {
+		t.Fatal(e)
+	}
+	again, e := Token(path)
+	if e != nil || first != again {
+		t.Fatal("token changed", e)
+	}
+	st, _ := os.Stat(path)
+	if st.Mode().Perm() != 0600 {
+		t.Fatal(st.Mode())
+	}
+}
+
+func TestPaginationCursorIsBoundToParent(t *testing.T) {
+	ctx := context.Background()
+	l, _ := store.Open(t.TempDir())
+	l.AcquireSession(ctx, "ep", "c", "a", "codex", "v")
+	l.AcquireSession(ctx, "ep", "c", "b", "claude", "v")
+	token := strings.Repeat("x", 64)
+	ui, _ := New(l.Reader(), "localhost:7801", token)
+	call := func(path string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", "http://localhost:7801"+path, nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		ui.ServeHTTP(w, r)
+		return w
+	}
+	first := call("/api/conversations/ep/c/sessions?limit=1")
+	var page struct {
+		Items  []store.Session `json:"items"`
+		Cursor string          `json:"next_cursor"`
+	}
+	if e := json.Unmarshal(first.Body.Bytes(), &page); e != nil || len(page.Items) != 1 || page.Cursor == "" {
+		t.Fatal(first.Code, first.Body.String(), e)
+	}
+	second := call("/api/conversations/ep/c/sessions?limit=1&cursor=" + page.Cursor)
+	if second.Code != 200 {
+		t.Fatal(second.Code, second.Body.String())
+	}
+	other := call("/api/conversations/ep/other/sessions?limit=1&cursor=" + page.Cursor)
+	if other.Code != 400 {
+		t.Fatal("cursor crossed conversation", other.Code)
 	}
 }

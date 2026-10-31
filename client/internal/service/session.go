@@ -1,0 +1,38 @@
+package service
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/memory-co/agentuse/client/internal/store"
+)
+
+// SessionService owns native session selection and conversation workspace policy.
+// File persistence is delegated to store; harness execution remains separate.
+type SessionService struct {
+	Files    *store.Ledger
+	Settings *SettingService
+}
+
+func (s *SessionService) Acquire(ctx context.Context, endpoint, conversation, agent, harness, revision string) (store.Session, string, error) {
+	cfg := s.Settings.Get()
+	if cfg.Session.WorkRoot != s.Files.Root {
+		return store.Session{}, "", fmt.Errorf("session.work_root changed; restart client after migrating existing directories")
+	}
+	if q := cfg.Session.Quota; q != nil {
+		if _, e := s.Files.Reclaim(ctx, q.MaxBytes); e != nil {
+			return store.Session{}, "", e
+		}
+	}
+	return s.Files.AcquireSession(ctx, endpoint, conversation, agent, harness, revision)
+}
+func (s *SessionService) Release(session store.Session, native string, seq int64, valid bool, run, attempt string) error {
+	return s.Files.ReleaseSession(session, native, seq, valid, run, attempt)
+}
+func (s *SessionService) Reclaim(ctx context.Context) (int64, error) {
+	cfg := s.Settings.Get()
+	if cfg.Session.Quota == nil {
+		return 0, nil
+	}
+	return s.Files.Reclaim(ctx, cfg.Session.Quota.MaxBytes)
+}

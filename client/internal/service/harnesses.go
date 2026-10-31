@@ -18,11 +18,16 @@ import (
 
 // localHarness 是本机一个可用的 harness。Spec 为 nil 的是自定义 harness。
 type localHarness struct {
-	Name    string
-	Path    string
-	Args    []string
-	Version string
-	Spec    *harness.Spec
+	HistoryPath string
+	PackageDir  string
+	Disabled    bool
+	Revision    string
+	ResumeID    string
+	Name        string
+	Path        string
+	Args        []string
+	Version     string
+	Spec        *harness.Spec
 	// Env 是这一次起进程要多带的环境变量(协调者的工作令牌等),跟着消息变。
 	Env []string
 }
@@ -30,34 +35,35 @@ type localHarness struct {
 // detectHarnesses 找出本机可用的 harness:内置的(harness/*/harness.yaml)按默认命令探测，配置文件里的按配置。
 func detectHarnesses(cfg Config) map[string]localHarness {
 	out := map[string]localHarness{}
-	want := map[string]HarnessConfig{}
-	builtins, _ := harness.All()
-	for _, sp := range builtins {
-		want[sp.Name] = HarnessConfig{Command: sp.Command}
+	packages, err := (HarnessService{Root: HarnessRoot(cfg)}).Packages()
+	if err != nil {
+		return out
 	}
-	for name, ac := range cfg.Harnesses {
-		if sp, ok := harness.Get(name); ok && ac.Command == "" {
-			ac.Command = sp.Command
+	for name, c := range cfg.Harnesses {
+		la := packages[name]
+		la.Name = name
+		if c.Command != "" {
+			la.Path = c.Command
 		}
-		want[name] = ac
+		la.Args = c.Args
+		la.Disabled = c.Disabled
+		packages[name] = la
 	}
-	for name, ac := range want {
-		if ac.Disabled || ac.Command == "" {
+	for name, la := range packages {
+		if la.Disabled || la.Path == "" {
 			continue
 		}
-		path, err := exec.LookPath(expandHome(ac.Command))
+		path, err := exec.LookPath(expandHome(la.Path))
 		if err != nil {
 			continue
 		}
-		la := localHarness{Name: name, Path: path, Args: ac.Args}
-		if sp, ok := harness.Get(name); ok {
-			la.Spec = &sp
-			if len(sp.Detect.Version) > 0 {
-				la.Version = probeVersion(path, sp.Detect.Version)
-			}
+		la.Path = path
+		if la.Spec != nil && len(la.Spec.Detect.Version) > 0 {
+			la.Version = probeVersion(path, la.Spec.Detect.Version)
 		}
 		out[name] = la
 	}
+
 	return out
 }
 
@@ -101,11 +107,15 @@ type Result struct {
 // reportFn 回报一条进度(kind 是 progress、plan 或 steered),payload 是 JSON 对象。
 type reportFn func(kind string, payload any)
 
-// runHarness 每次启动新的原生会话，并通过 report 汇报进度。
+// runHarness creates or resumes the selected native session and reports this run.
 // in 是这条消息收到的插话和提问答案，harness 能插话、能提问时从里面取。
 func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir string, in *inbox, report reportFn) Result {
 	if la.Spec == nil {
-		in, _ := json.Marshal(protocol.HarnessInput{SessionID: m.SessionID, Instructions: instructionsFor(m), Input: m.Input, Attachments: m.Attachments, RunID: m.RunID, AgentID: m.AgentID, TaskMessageIDs: m.TaskMessageIDs, SessionMessages: m.SessionMessages})
+		instructions := instructionsFor(m)
+		if la.HistoryPath != "" {
+			instructions = strings.ReplaceAll(instructions, ".agentuse/session-history.json", la.HistoryPath)
+		}
+		in, _ := json.Marshal(protocol.HarnessInput{SessionID: m.SessionID, Instructions: instructions, Input: m.Input, Attachments: m.Attachments, RunID: m.RunID, AgentID: m.AgentID, TaskMessageIDs: m.TaskMessageIDs, SessionMessages: m.SessionMessages})
 		cmd := exec.CommandContext(ctx, la.Path, la.Args...)
 		if len(la.Env) > 0 {
 			cmd.Env = append(os.Environ(), la.Env...)
@@ -114,16 +124,26 @@ func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir s
 	}
 	var pi protocol.PromptInput
 	_ = json.Unmarshal(m.Input, &pi)
-	if err := la.Spec.Prepare(dir); err != nil {
-		return Result{Error: "准备工作目录: " + err.Error()}
+	skills := ""
+	if la.PackageDir != "" {
+		var err error
+		skills, err = harness.SkillInstructions(la.PackageDir)
+		if err != nil {
+			return Result{Error: err.Error()}
+		}
 	}
-	if err := writeInstructions(dir, la.Spec.Instructions, instructionsFor(m)); err != nil {
-		return Result{Error: "写工作说明: " + err.Error()}
+	text := instructionsFor(m) + skills
+	if la.HistoryPath != "" {
+		text = strings.ReplaceAll(text, ".agentuse/session-history.json", la.HistoryPath)
+	}
+	if text != "" {
+		pi.Prompt = text + "\n\n# 本次任务\n" + pi.Prompt
+		m.Input, _ = json.Marshal(pi)
 	}
 	if la.Spec.Transport == harness.TransportCodexAppServer {
 		return runCodex(ctx, la, m, dir, in, report)
 	}
-	args, err := la.Spec.Args(pi.Prompt, "", la.Args)
+	args, err := la.Spec.Args(pi.Prompt, la.ResumeID, la.Args)
 	if err != nil {
 		return Result{Error: err.Error()}
 	}

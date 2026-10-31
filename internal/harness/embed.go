@@ -97,7 +97,7 @@ func (s Spec) validate(fsys fs.FS, dir string) error {
 		return fmt.Errorf("ask: claude-permission 要求 input.format: stream-json")
 	case !nameRe.MatchString(s.Name):
 		return fmt.Errorf("name %q 只能用小写字母、数字和 -", s.Name)
-	case s.Name != dir:
+	case dir != "." && s.Name != dir:
 		return fmt.Errorf("name %q 和目录名 %q 不一致", s.Name, dir)
 	case s.Command == "":
 		return fmt.Errorf("缺 command")

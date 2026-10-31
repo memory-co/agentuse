@@ -107,7 +107,7 @@ func (h *Hub) serve(ctx context.Context, c *daemonConn) error {
 			for _, run := range valid {
 				refs = append(refs, protocol.RunRef{RunID: run.ID, AttemptID: run.AttemptID})
 			}
-			if err := c.send(ctx, protocol.Message{Type: protocol.TypeWelcome, DaemonID: c.d.ID, Name: c.d.Name, Ignored: ignored, ValidRuns: refs}); err != nil {
+			if err := c.send(ctx, protocol.Message{Type: protocol.TypeWelcome, DaemonID: c.d.ID, Name: c.d.Name, Ignored: ignored, ValidRuns: refs, Capabilities: []string{"bounded-claim-v1", "event-ack-v1"}}); err != nil {
 				return err
 			}
 			for _, run := range valid {
@@ -124,6 +124,22 @@ func (h *Hub) serve(ctx context.Context, c *daemonConn) error {
 			for _, q := range qs {
 				_ = c.send(ctx, protocol.Message{Type: protocol.TypeAnswer, Answer: &protocol.Answer{RunID: q.RunID, AttemptID: q.AttemptID, MessageID: q.MessageID, ToolUseID: q.ToolUseID, Answers: q.Answers}})
 			}
+		case protocol.TypeClaim:
+			if m.ClaimID == "" {
+				_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, Error: "claim_id required"})
+				continue
+			}
+			claimed, e := st.ClaimRun(ctx, c.d, protocol.LeaseSeconds)
+			if e != nil {
+				if errors.Is(e, service.ErrNotFound) {
+					_ = c.send(ctx, protocol.Message{Type: protocol.TypeNoTask, ClaimID: m.ClaimID})
+				} else {
+					_ = c.send(ctx, protocol.Message{Type: protocol.TypeNoTask, ClaimID: m.ClaimID, Error: e.Error()})
+				}
+				continue
+			}
+			run := claimed.Run
+			_ = c.send(ctx, protocol.Message{Type: protocol.TypeRun, ClaimID: m.ClaimID, Run: &protocol.Dispatch{Sender: claimed.Sender, WorkID: claimed.WorkID, ID: run.MessageID, RunID: run.ID, AttemptID: run.AttemptID, SessionID: run.SessionID, AgentID: run.AgentKey, Harness: run.Harness, Input: claimed.Input, TaskMessageIDs: claimed.TaskMessageIDs, ContextSeq: run.ContextSeq, Instructions: claimed.Instructions, WorkToken: claimed.WorkToken}})
 		case protocol.TypeReady:
 			c.mu.Lock()
 			c.idle = true
@@ -140,7 +156,13 @@ func (h *Hub) serve(ctx context.Context, c *daemonConn) error {
 		case protocol.TypeEvent:
 			if m.RunID != "" {
 				if err := st.ReportRunEvent(ctx, c.d.ID, m.RunID, m.AttemptID, m.EventSeq, m.Kind, m.Payload, protocol.LeaseSeconds); err != nil {
-					_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, RunID: m.RunID, AttemptID: m.AttemptID, MessageID: m.MessageID, Error: err.Error()})
+					code := ""
+					if errors.Is(err, service.ErrStaleMessage) || errors.Is(err, service.ErrNotFound) {
+						code = "stale_attempt"
+					}
+					_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, ErrorCode: code, RunID: m.RunID, AttemptID: m.AttemptID, MessageID: m.MessageID, Error: err.Error()})
+				} else if m.Kind == "done" || m.Kind == "failed" {
+					_ = c.send(ctx, protocol.Message{Type: protocol.TypeEventAck, RunID: m.RunID, AttemptID: m.AttemptID, EventSeq: m.EventSeq})
 				}
 				continue
 			}

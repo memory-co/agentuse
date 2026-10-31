@@ -28,7 +28,7 @@ Client 不创建独立的业务 run。run_id 和 attempt_id 来自中心；本�
 
 runService 启动时读取启用的 endpoints，为每个已注册 server 建立独立连接。一次连接失败只对该 endpoint 退避重连，不阻塞其他 endpoint。探测由本地 harnessService 完成，由 runService 向各 server 上报标准能力。
 
-所有 endpoint 共用 runService 内部的领取与并发调度，不在 setting.yaml 暴露执行数量或槽位配置。不同 session 可以并行，同一 session 保持串行。runService 先在内部原子预留本次执行机会，再按轮询顺序对某个 endpoint 发起一次有界领取，明确得到 run 或 no_task。无任务立即尝试下一 endpoint；不能向多个 server 广播长期有效的 ready，避免重复派活超过本机容量。
+所有 endpoint 共用 runService 内部的领取与并发调度，不在 setting.yaml 暴露执行数量或槽位配置。不同 session 可以并行，同一 session 保持串行。runService 先在内部原子预留本次执行机会，再按轮询顺序对某个 endpoint 发起一次有界领取，明确得到 run 或 no_task。无任务立即尝试下一 endpoint；通过带 claim_id 的 claim 请求单次领取，server 回 run/no_task；所有 endpoint 共享内部执行容量。不能向多个 server 广播长期有效的 ready，避免重复派活超过本机容量。
 
 领取超时的晚到任务需重新核对授权，失效则拒绝/交原 server 租约恢复，不能绕过槽位检查直接启动。等待用户答案的 run 仍占容量，长任务不因轮询被抢占。结束后由 runService 自己释放槽位并继续领取。
 
@@ -87,7 +87,7 @@ session_id 必须是所在目录的本机 session UUID，不是 server conversat
 
 run.json 是该执行记录的持久化事实。状态、耗时和计量由 runService 通过临时文件写完后原子替换；同一执行串行写入。Reader 读取文件的完整版本，不使用数据库索引，也不把内存缓存当成唯一记录。
 
-状态包括 received/running/waiting/succeeded/failed/cancelled/rejected/interrupted。本机终态不代表 server 已接受结果。日志可以单独保存，但不是另一份决定业务状态的账本。
+状态包括 received/running/waiting/succeeded/failed/cancelled/rejected/interrupted。本机终态不代表 server 已接受结果。终态回报先保存为 run.json 的 pending_report，收到 server 的 event_ack 后清除并记录 server_confirmed；重启或重连时可重发同一回报，中心按原 event_seq 核对。日志可以单独保存，但不是另一份决定业务状态的账本。
 
 删除 endpoint 不主动删除 run 文件。回收 conversation 工作目录时，其中 session.yaml、run.json 和执行资源一起删除；本机页面不再展示这些已清理记录，历史业务状态由原 server 保存。不另设独立 run 归档目录或固定保留期。尚未结束、等待答案或结果尚未被 server 确认的执行都保护整个工作目录，不能作为清理候选。
 

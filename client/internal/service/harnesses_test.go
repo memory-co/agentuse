@@ -44,8 +44,8 @@ func TestRunClaudeFresh(t *testing.T) {
 	if got := strings.TrimSpace(string(in)); got != `{"message":{"content":"hi","role":"user"},"type":"user"}` {
 		t.Fatalf("stdin: %q", got)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", "agentuse", "SKILL.md")); err != nil {
-		t.Fatalf("skill 没拷进会话目录: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, ".claude")); !os.IsNotExist(err) {
+		t.Fatal("adapter modified shared workspace configuration", err)
 	}
 
 	// 没有 result 行 → 失败

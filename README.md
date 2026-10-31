@@ -181,6 +181,41 @@ agentuse attachment download at_xxx --output ./report.pdf
 
 返回 `{message, runs, deliveries}`。也支持 `agentuse session send ss_xxx --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有会话统一使用共享模型，未传 mode 也创建 multi_agent。需要服务端和 daemon 一起升级（`session-runs-v1`）。[设计](docs/v2/designs/session-mentions.md) · [API](docs/v2/apis/sessions.md)。
 
-### 本机执行账本
+### Client 本机页面与文件配置
 
-新版 daemon 默认在 `127.0.0.1:7801` 提供只读页面，运行 `agentuse ui` 获取登录链接。记录本机执行的命令摘要、来源、状态和 token 用量，断网时也能看。默认保留 90 天，`daemon.json` 中 `ui_addr: ""` 可关闭页面。详见 [本机 API](docs/v2/apis/local.md)。
+运行 `agentuse start` 连接已注册的平台，`agentuse ui -open` 打开本机只读页面（默认 `127.0.0.1:7801`）。页面沿用 server 的布局：左侧切换 endpoint、浏览 conversation，右侧查看 session、run 和详情弹窗。查询只读取所选目录，不提供全局 runs 扫描。
+
+平台注册信息保存在 `~/.agentuse/endpoints.yaml`，支持多个平台；endpoint_id 从地址推导，不用手动填写。重复运行 `agentuse register -server URL -token 安装令牌` 可注册其他平台。旧 `daemon.json` 不再读取，已有设备需重新注册。`agentuse daemon` 命令作为安装脚本的启动入口仍可使用。
+
+本机设置保存在 `~/.agentuse/setting.yaml`：
+
+```yaml
+local_http:
+  enabled: true
+  host: 127.0.0.1
+  port: 7801
+session:
+  work_root: ~/.agentuse/tmp
+  quota:
+    max_bytes: 21474836480
+```
+
+省略 quota 则不限容量；声明即自动清理空闲 conversation 目录，运行中、等待回答和未获中心确认的结果均受保护。端口或根目录修改后重启 client，根目录变更需要保留记录时先完整迁移目录。端口变更不会自动重启正在运行的进程。
+
+适配器位于 `~/.agentuse/harness/<harness>/<revision>/`。默认适配器首次自动写入本机目录，后续从文件加载。自定义命令适配器可在该目录的 `harness.yaml` 中声明 `name`、`command`、`custom: true` 及可选 `args`；设置 `disabled: true` 可禁用适配器。
+
+Client 不再使用 SQLite，文件结构为：
+
+```text
+<session.work_root>/<endpoint_id>/<conversation_id>/
+  workspace/                    # 所有 Codex / Claude Code 的共同 cwd
+  sessions/<local_session_id>/
+    session.yaml
+    runs/<run_id>/<attempt_id>/
+      run.json
+      history.json
+```
+
+工作说明与 skill 内容随本次输入加载，不覆盖共享 workspace 中的 AGENTS.md / CLAUDE.md。Codex 恢复指定 thread，Claude Code 恢复指定 session；不同 session 可并行执行。终态结果先写文件，中心确认后解除目录保护；配套 server 增加单次领取和终态确认协议，升级时应使用同一版本的 client/server。
+
+详见 [Client 设计与 API](docs/v3/designs/client-main.md)。

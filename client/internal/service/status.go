@@ -27,6 +27,7 @@ type HarnessInfo struct {
 	Version  string `json:"version,omitempty"`
 	Found    bool   `json:"found"`
 	Disabled bool   `json:"disabled,omitempty"`
+	Revision string `json:"revision,omitempty"`
 }
 
 // ListHarnesses 按 daemon 的检测逻辑列出本机 harness,包括没装上的内置 harness 和配置里禁用的。
@@ -37,6 +38,10 @@ func ListHarnesses(cfg Config) []HarnessInfo {
 	for _, sp := range builtins {
 		names[sp.Name] = true
 	}
+	packages, _ := (HarnessService{Root: HarnessRoot(cfg)}).Packages()
+	for n := range packages {
+		names[n] = true
+	}
 	for n := range cfg.Harnesses {
 		names[n] = true
 	}
@@ -45,6 +50,7 @@ func ListHarnesses(cfg Config) []HarnessInfo {
 		info := HarnessInfo{Name: n, Disabled: cfg.Harnesses[n].Disabled}
 		if la, ok := found[n]; ok {
 			info.Path, info.Version, info.Found = la.Path, la.Version, true
+			info.Revision = la.Revision
 		}
 		out = append(out, info)
 	}

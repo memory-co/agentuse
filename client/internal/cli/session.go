@@ -65,7 +65,13 @@ func runSession(args []string) error {
 		*token = os.Getenv("AGENTUSE_WORK")
 	}
 	if *server == "" || *token == "" {
-		cfg, e := daemon.LoadConfig(*config)
+		var cfg daemon.Config
+		var e error
+		if *server != "" {
+			cfg, e = daemon.LoadConfigForServer(*config, *server)
+		} else {
+			cfg, e = daemon.LoadConfig(*config)
+		}
 		if e != nil {
 			return e
 		}

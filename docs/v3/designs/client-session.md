@@ -1,6 +1,6 @@
 # Client sessionService：原生 Session 与领来的 Run
 
-> v3 目标设计，尚未实现。Session 是 client 本地的原生执行会话记录，直接对应 Codex thread 或 Claude Code session。Conversation 是 server 的共享对话，二者不再混用。Client 不使用 SQLite；本地会话状态由 session.yaml 保存，时间字段使用 Unix 毫秒。
+> v3 Client 会话设计。Session 是 client 本地的原生执行会话记录，直接对应 Codex thread 或 Claude Code session。Conversation 是 server 的共享对话，二者不再混用。Client 不使用 SQLite；本地会话状态由 session.yaml 保存，时间字段使用 Unix 毫秒。
 
 ## 一、三个对象的关系
 

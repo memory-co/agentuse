@@ -42,18 +42,21 @@ type MeResponse struct {
 // 消息类型。
 const (
 	// daemon → 服务
-	TypeHello     = "hello"     // 连上后第一条：本机可用 harness、正在回的消息
+	TypeHello     = "hello" // 连上后第一条：本机可用 harness、正在回的消息
+	TypeClaim     = "claim" // bounded task claim
+	TypeNoTask    = "no_task"
 	TypeReady     = "ready"     // 空闲，可以接活
 	TypeEvent     = "event"     // 进度 / 结果
 	TypeHeartbeat = "heartbeat" // 续租
 
 	// 服务 → daemon
-	TypeWelcome = "welcome" // 回应 hello
-	TypeRun     = "run"
-	TypeCancel  = "cancel"
-	TypeSteer   = "steer"  // 推一条插话
-	TypeAnswer  = "answer" // 推一个提问的答案
-	TypeError   = "error"
+	TypeWelcome  = "welcome" // 回应 hello
+	TypeRun      = "run"
+	TypeCancel   = "cancel"
+	TypeSteer    = "steer"     // 推一条插话
+	TypeAnswer   = "answer"    // 推一个提问的答案
+	TypeEventAck = "event_ack" // terminal result persisted by server
+	TypeError    = "error"
 )
 
 // Message 是 WebSocket 上的一条消息，按 Type 取用对应字段。
@@ -63,6 +66,8 @@ type RunRef struct {
 }
 
 type Message struct {
+	ErrorCode  string    `json:"error_code,omitempty"`
+	ClaimID    string    `json:"claim_id,omitempty"`
 	RunID      string    `json:"run_id,omitempty"`
 	AttemptID  string    `json:"attempt_id,omitempty"`
 	EventSeq   int64     `json:"event_seq,omitempty"`

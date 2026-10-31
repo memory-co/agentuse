@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/memory-co/agentuse/client/internal/store"
 	"github.com/memory-co/agentuse/internal/command"
-	"log"
 	"os"
+	"path/filepath"
 	"strings"
-	"time"
 
 	daemon "github.com/memory-co/agentuse/client/internal/service"
 )
@@ -17,8 +17,8 @@ const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 age
 
 用法:
   agentuse register -server URL -token 安装令牌   注册这台电脑(setup.sh 会替你跑)
-  agentuse daemon                                 前台运行 daemon(后台服务跑的就是它)
-  agentuse ui [-open]                             本机只读账本与 token 统计
+  agentuse start                                  启动 client，连接已启用的 endpoints
+  agentuse ui [-open]                             本机 Conversation、Session 与 Run
   agentuse status                                 看本机的注册和连接状态
   agentuse harnesses [-json]                         看本机检测到哪些 harness
   agentuse work …                                 工作的协调者用来开线程、看线程(见 agentuse work help)
@@ -26,13 +26,14 @@ const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 age
   agentuse attachment upload <文件> | list | download <id> --output <文件>
   agentuse version
 
-所有命令都可以用 -config 指定配置文件，默认 ~/.agentuse/daemon.json。
+所有命令都可以用 -config 指定配置文件，默认 ~/.agentuse/endpoints.yaml。
 `
 
 // Main 是用户电脑上的 agentuse。
 func Main(args []string) int {
 	return command.Dispatch("agentuse", agentuseUsage, args, []command.Command{
 		{Name: "register", Run: runRegister},
+		{Name: "start", Run: runDaemon},
 		{Name: "daemon", Run: runDaemon},
 		{Name: "ui", Run: runUI},
 		{Name: "status", Run: runStatus},
@@ -58,7 +59,7 @@ func runRegister(args []string) error {
 	if err != nil {
 		return fmt.Errorf("注册失败: %w", err)
 	}
-	fmt.Printf("注册成功: daemon %s,配置已写入 %s\n", cfg.DaemonID, *cfgPath)
+	fmt.Printf("注册成功: device %s,配置已写入 %s\n", cfg.DaemonID, *cfgPath)
 	return nil
 }
 
@@ -87,7 +88,19 @@ func runDaemon(args []string) error {
 		return err
 	}
 	defer ledger.Close()
-	closeUI, err := startLocalUI(cfg, ledger.Reader())
+	unlock, err := store.Lock(filepath.Join(ledger.Root, ".client.lock"))
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err = ledger.RecoverSessions(ctx); err != nil {
+		return err
+	}
+	manager, err := daemon.NewRunService(*cfgPath, ledger)
+	if err != nil {
+		return err
+	}
+	closeUI, err := startLocalUI(cfg, ledger.Reader(), manager)
 	if err != nil {
 		return err
 	}
@@ -95,27 +108,10 @@ func runDaemon(args []string) error {
 	if err = ledger.Writer().Reconcile(ctx); err != nil {
 		return err
 	}
-	d, err := daemon.New(cfg, nil, ledger.Writer())
-	if err != nil {
+	if err = manager.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
-	go func() {
-		ticker := time.NewTicker(24 * time.Hour)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if e := ledger.Writer().Purge(ctx, time.Now().AddDate(0, 0, -cfg.RetentionDays())); e != nil {
-					log.Printf("账本清理: %v", e)
-				}
-			}
-		}
-	}()
-	if err := d.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		return err
-	}
+
 	return nil
 }
 

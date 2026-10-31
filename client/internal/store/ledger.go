@@ -1,31 +1,37 @@
-// Package store owns the machine-local execution ledger. HTTP code only receives
-// Reader, backed by a separate SQLite mode=ro/query_only connection.
+// Package store persists client state in YAML/JSON files. Readers expose only
+// parent-scoped queries; there is no client database or persistent index.
 package store
 
 import (
 	"context"
-	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	_ "modernc.org/sqlite"
 )
 
 type Run struct {
+	ServerConfirmed bool            `json:"server_confirmed"`
+	PendingReport   json.RawMessage `json:"pending_report,omitempty"`
+	EndpointID      string          `json:"endpoint_id"`
+	ConversationID  string          `json:"conversation_id"`
 	RunID           string          `json:"run_id"`
 	AttemptID       string          `json:"attempt_id"`
-	Server          string          `json:"server"`
-	DaemonID        string          `json:"daemon_id"`
+	Server          string          `json:"server,omitempty"`
+	DaemonID        string          `json:"device_id,omitempty"`
 	Sender          agentuse.Sender `json:"sender"`
 	AgentID         string          `json:"agent_id"`
 	SessionID       string          `json:"session_id"`
 	WorkID          string          `json:"work_id,omitempty"`
 	Harness         string          `json:"harness"`
+	HarnessRevision string          `json:"harness_revision,omitempty"`
 	Summary         string          `json:"summary"`
 	Directory       string          `json:"directory,omitempty"`
 	ReceivedAt      int64           `json:"received_at"`
@@ -33,27 +39,37 @@ type Run struct {
 	DurationMS      int64           `json:"duration_ms"`
 	Status          string          `json:"status"`
 	Error           string          `json:"error,omitempty"`
+	Output          string          `json:"output,omitempty"`
 	SteerCount      int             `json:"steer_count"`
+	SteerIDs        []int64         `json:"steer_ids,omitempty"`
 	AttachmentCount int             `json:"attachment_count"`
-	Usage           *agentuse.Usage `json:"usage,omitempty"`
-	CostUSD         float64         `json:"cost_usd"`
+	Usage           *agentuse.Usage `json:"usage"`
+	CostUSD         *float64        `json:"cost_usd"`
+	Events          []Event         `json:"events,omitempty"`
+}
+type Event struct {
+	Kind    string          `json:"kind"`
+	At      int64           `json:"at"`
+	Payload json.RawMessage `json:"payload"`
 }
 type Finish struct {
-	Status, Error   string
-	AttachmentCount int
-	Usage           *agentuse.Usage
-	CostUSD         float64
+	Status, Error, Output string
+	AttachmentCount       int
+	Usage                 *agentuse.Usage
+	CostUSD               float64
 }
 type Filter struct {
-	Sender, Agent, Status string
-	After, Before         int64
-	Limit, Offset         int
+	Endpoint, Conversation, Session string
+	Sender, Agent, Status           string
+	After, Before                   int64
+	Limit, Offset                   int
 }
 type Page struct {
-	Runs   []Run `json:"runs"`
-	Total  int   `json:"total"`
-	Limit  int   `json:"limit"`
-	Offset int   `json:"offset"`
+	Runs       []Run  `json:"items"`
+	Total      int    `json:"total"`
+	Limit      int    `json:"limit"`
+	Offset     int    `json:"offset"`
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 type Statistic struct {
 	Key       string         `json:"key"`
@@ -67,206 +83,386 @@ type Writer interface {
 	Complete(context.Context, string, string, Finish) error
 	Steer(context.Context, string, string, int64) error
 	Reconcile(context.Context) error
-	Purge(context.Context, time.Time) error
 }
 type Reader interface {
 	List(context.Context, Filter) (Page, error)
-	Get(context.Context, string, string) (Run, error)
 	Stats(context.Context, string, Filter) ([]Statistic, error)
+	Conversations(context.Context, string) ([]Conversation, error)
+	Sessions(context.Context, string, string) ([]Session, error)
+	Session(context.Context, string, string, string) (Session, error)
+	Detail(context.Context, string, string, string, string, string) (Run, error)
 }
 type Ledger struct {
-	writer *writeStore
-	reader *readStore
+	Root  string
+	mu    sync.Mutex
+	paths map[string]string
 }
-type writeStore struct{ db *sql.DB }
-type readStore struct{ db *sql.DB }
-
-func (l *Ledger) Writer() Writer { return l.writer }
-func (l *Ledger) Reader() Reader { return l.reader }
-func (l *Ledger) Close() error   { return errors.Join(l.reader.db.Close(), l.writer.db.Close()) }
-
-const schema = `CREATE TABLE IF NOT EXISTS runs (
- run_id TEXT NOT NULL,attempt_id TEXT NOT NULL,server TEXT NOT NULL,daemon_id TEXT NOT NULL,
- sender_id TEXT NOT NULL,sender_name TEXT NOT NULL,agent_id TEXT NOT NULL,session_id TEXT NOT NULL,work_id TEXT NOT NULL,harness TEXT NOT NULL,
- summary TEXT NOT NULL,directory TEXT NOT NULL,received_at INTEGER NOT NULL,finished_at INTEGER,duration_ms INTEGER NOT NULL DEFAULT 0,
- status TEXT NOT NULL,error TEXT NOT NULL DEFAULT '',steer_count INTEGER NOT NULL DEFAULT 0,steer_ids TEXT NOT NULL DEFAULT '[]',attachment_count INTEGER NOT NULL DEFAULT 0,
- input_tokens INTEGER,output_tokens INTEGER,cache_read_tokens INTEGER,cache_write_tokens INTEGER,cost_usd REAL NOT NULL DEFAULT 0,
- PRIMARY KEY(run_id,attempt_id));
- CREATE INDEX IF NOT EXISTS runs_received ON runs(received_at DESC);
- CREATE INDEX IF NOT EXISTS runs_agent ON runs(agent_id,received_at DESC);
- CREATE INDEX IF NOT EXISTS runs_sender ON runs(sender_id,received_at DESC);`
-
-func Open(path string) (*Ledger, error) {
-	path, err := filepath.Abs(path)
-	if err != nil {
-		return nil, err
-	}
-	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return nil, err
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
-	}
-	f.Close()
-	if err = os.Chmod(path, 0600); err != nil {
-		return nil, err
-	}
-	uri := (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String()
-	w, err := sql.Open("sqlite", uri+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate")
-	if err != nil {
-		return nil, err
-	}
-	w.SetMaxOpenConns(1)
-	if _, err = w.Exec(schema); err != nil {
-		w.Close()
-		return nil, err
-	}
-	r, err := sql.Open("sqlite", uri+"?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(5000)")
-	if err != nil {
-		w.Close()
-		return nil, err
-	}
-	r.SetMaxOpenConns(4)
-	if err = r.Ping(); err != nil {
-		r.Close()
-		w.Close()
-		return nil, err
-	}
-	return &Ledger{writer: &writeStore{w}, reader: &readStore{r}}, nil
+type writeStore struct {
+	l        *Ledger
+	endpoint string
 }
+type readStore struct{ l *Ledger }
+
+func Open(root string) (*Ledger, error) {
+	p, e := SafePath(root)
+	if e != nil {
+		return nil, e
+	}
+	if e = os.MkdirAll(p, 0700); e != nil {
+		return nil, e
+	}
+	return &Ledger{Root: p, paths: map[string]string{}}, nil
+}
+func (l *Ledger) Writer() Writer               { return &writeStore{l: l} }
+func (l *Ledger) ForEndpoint(id string) Writer { return &writeStore{l: l, endpoint: id} }
+func (l *Ledger) Reader() Reader               { return &readStore{l} }
+func (l *Ledger) Close() error                 { return nil }
+func key(endpoint, run, attempt string) string { return endpoint + "/" + run + "/" + attempt }
 func (w *writeStore) Receive(ctx context.Context, r Run) error {
-	if r.RunID == "" || r.AttemptID == "" {
-		return fmt.Errorf("ledger run_id and attempt_id required")
+	if e := ctx.Err(); e != nil {
+		return e
+	}
+	w.l.mu.Lock()
+	defer w.l.mu.Unlock()
+	if r.EndpointID == "" {
+		r.EndpointID = w.endpoint
+	}
+	if r.EndpointID == "" {
+		_, r.EndpointID, _ = NormalizeEndpoint(r.Server)
+	}
+	p, e := SafePath(w.l.Root, r.EndpointID, r.ConversationID, "sessions", r.SessionID, "runs", r.RunID, r.AttemptID, "run.json")
+	if e != nil {
+		return e
 	}
 	if r.ReceivedAt == 0 {
 		r.ReceivedAt = time.Now().UnixMilli()
 	}
-	summary := []rune(r.Summary)
-	if len(summary) > 200 {
-		summary = summary[:200]
+	rs := []rune(r.Summary)
+	if len(rs) > 200 {
+		r.Summary = string(rs[:200])
 	}
-	_, err := w.db.ExecContext(ctx, `INSERT INTO runs(run_id,attempt_id,server,daemon_id,sender_id,sender_name,agent_id,session_id,work_id,harness,summary,directory,received_at,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'running') ON CONFLICT DO NOTHING`, r.RunID, r.AttemptID, r.Server, r.DaemonID, r.Sender.ID, r.Sender.Name, r.AgentID, r.SessionID, r.WorkID, r.Harness, string(summary), r.Directory, r.ReceivedAt)
-	return err
+	r.Status = "running"
+	if _, err := os.Stat(p); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if e = writeJSON(p, r); e != nil {
+			return e
+		}
+	}
+	w.l.paths[key(r.EndpointID, r.RunID, r.AttemptID)] = p
+	return nil
+}
+func (w *writeStore) update(ctx context.Context, run, attempt string, fn func(*Run)) error {
+	if e := ctx.Err(); e != nil {
+		return e
+	}
+	w.l.mu.Lock()
+	defer w.l.mu.Unlock()
+	p := w.l.paths[key(w.endpoint, run, attempt)]
+	if p == "" && w.endpoint == "" {
+		for k, path := range w.l.paths {
+			if strings.HasSuffix(k, "/"+run+"/"+attempt) {
+				if p != "" {
+					return ErrInvalid
+				}
+				p = path
+			}
+		}
+	}
+	if p == "" {
+		return os.ErrNotExist
+	}
+	var r Run
+	if e := readRun(p, &r); e != nil {
+		return e
+	}
+	fn(&r)
+	return writeJSON(p, r)
 }
 func (w *writeStore) Complete(ctx context.Context, run, attempt string, f Finish) error {
-	var input, output, read, write any
-	if f.Usage != nil {
-		input = f.Usage.InputTokens
-		output = f.Usage.OutputTokens
-		read = f.Usage.CacheReadTokens
-		write = f.Usage.CacheWriteTokens
-	}
-	now := time.Now().UnixMilli()
-	_, err := w.db.ExecContext(ctx, `UPDATE runs SET status=?,error=?,finished_at=?,duration_ms=MAX(0,?-received_at),attachment_count=?,input_tokens=?,output_tokens=?,cache_read_tokens=?,cache_write_tokens=?,cost_usd=? WHERE run_id=? AND attempt_id=? AND status='running'`, f.Status, f.Error, now, now, f.AttachmentCount, input, output, read, write, f.CostUSD, run, attempt)
-	return err
+	return w.update(ctx, run, attempt, func(r *Run) {
+		now := time.Now().UnixMilli()
+		r.Status = f.Status
+		r.Error = f.Error
+		r.Output = f.Output
+		r.FinishedAt = &now
+		r.DurationMS = max(0, now-r.ReceivedAt)
+		r.Usage = f.Usage
+		if f.CostUSD > 0 {
+			cost := f.CostUSD
+			r.CostUSD = &cost
+		} else {
+			r.CostUSD = nil
+		}
+		r.AttachmentCount = f.AttachmentCount
+	})
 }
 func (w *writeStore) Steer(ctx context.Context, run, attempt string, id int64) error {
-	_, err := w.db.ExecContext(ctx, `UPDATE runs SET steer_count=steer_count+1,steer_ids=json_insert(steer_ids,'$[#]',?) WHERE run_id=? AND attempt_id=? AND NOT EXISTS(SELECT 1 FROM json_each(steer_ids) WHERE value=?)`, id, run, attempt, id)
-	return err
+	return w.update(ctx, run, attempt, func(r *Run) {
+		for _, v := range r.SteerIDs {
+			if v == id {
+				return
+			}
+		}
+		r.SteerIDs = append(r.SteerIDs, id)
+		r.SteerCount = len(r.SteerIDs)
+	})
+}
+func (l *Ledger) Event(ctx context.Context, endpoint, run, attempt, kind string, payload json.RawMessage) error {
+	return (&writeStore{l: l, endpoint: endpoint}).update(ctx, run, attempt, func(r *Run) {
+		if len(r.Events) >= 200 {
+			r.Events = r.Events[1:]
+		}
+		r.Events = append(r.Events, Event{kind, time.Now().UnixMilli(), payload})
+		if kind == "question" {
+			r.Status = "waiting"
+		}
+		if kind == "answered" {
+			r.Status = "running"
+		}
+	})
 }
 func (w *writeStore) Reconcile(ctx context.Context) error {
-	now := time.Now().UnixMilli()
-	_, err := w.db.ExecContext(ctx, `UPDATE runs SET status='failed',error='主循环在执行完成前退出',finished_at=?,duration_ms=MAX(0,?-received_at) WHERE status='running'`, now, now)
-	return err
-}
-func (w *writeStore) Purge(ctx context.Context, before time.Time) error {
-	_, err := w.db.ExecContext(ctx, `DELETE FROM runs WHERE received_at<? AND status!='running'`, before.UnixMilli())
-	return err
-}
-func where(f Filter) (string, []any) {
-	q := " WHERE 1=1"
-	args := []any{}
-	if f.Sender != "" {
-		q += " AND (sender_id=? OR sender_name LIKE ?)"
-		args = append(args, f.Sender, "%"+f.Sender+"%")
-	}
-	if f.Agent != "" {
-		q += " AND agent_id=?"
-		args = append(args, f.Agent)
-	}
-	if f.Status != "" {
-		q += " AND status=?"
-		args = append(args, f.Status)
-	}
-	if f.After > 0 {
-		q += " AND received_at>=?"
-		args = append(args, f.After)
-	}
-	if f.Before > 0 {
-		q += " AND received_at<?"
-		args = append(args, f.Before)
-	}
-	return q, args
+	return filepath.WalkDir(w.l.Root, func(path string, d os.DirEntry, e error) error {
+		if e != nil {
+			return e
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if d.IsDir() {
+			rel, _ := filepath.Rel(w.l.Root, path)
+			parts := strings.Split(rel, string(filepath.Separator))
+			if len(parts) == 3 && parts[2] == "workspace" {
+				return filepath.SkipDir
+			}
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symlink in client state")
+		}
+		if !isRunRecord(w.l.Root, path) {
+			return nil
+		}
+		var r Run
+		if e = readRun(path, &r); e != nil {
+			return e
+		}
+		if w.endpoint != "" && r.EndpointID != w.endpoint {
+			return nil
+		}
+		w.l.mu.Lock()
+		defer w.l.mu.Unlock()
+		w.l.paths[key(r.EndpointID, r.RunID, r.AttemptID)] = path
+		if r.Status == "running" || r.Status == "waiting" {
+			now := time.Now().UnixMilli()
+			r.Status = "interrupted"
+			r.Error = "client restarted before execution completed"
+			r.FinishedAt = &now
+			r.DurationMS = max(0, now-r.ReceivedAt)
+			return writeJSON(path, r)
+		}
+		return nil
+	})
 }
 
-const columns = `SELECT run_id,attempt_id,server,daemon_id,sender_id,sender_name,agent_id,session_id,work_id,harness,summary,directory,received_at,finished_at,duration_ms,status,error,steer_count,attachment_count,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd FROM runs`
-
-type scanner interface{ Scan(...any) error }
-
-func scan(row scanner) (Run, error) {
-	var r Run
-	var end, input, output, read, write sql.NullInt64
-	err := row.Scan(&r.RunID, &r.AttemptID, &r.Server, &r.DaemonID, &r.Sender.ID, &r.Sender.Name, &r.AgentID, &r.SessionID, &r.WorkID, &r.Harness, &r.Summary, &r.Directory, &r.ReceivedAt, &end, &r.DurationMS, &r.Status, &r.Error, &r.SteerCount, &r.AttachmentCount, &input, &output, &read, &write, &r.CostUSD)
-	if end.Valid {
-		r.FinishedAt = &end.Int64
+func readRun(p string, r *Run) error {
+	if _, e := SafePath(filepath.Dir(p), filepath.Base(p)); e != nil {
+		return e
 	}
-	if input.Valid {
-		r.Usage = &agentuse.Usage{InputTokens: input.Int64, OutputTokens: output.Int64, CacheReadTokens: read.Int64, CacheWriteTokens: write.Int64}
+	b, e := os.ReadFile(p)
+	if e != nil {
+		return e
 	}
-	return r, err
+	return json.Unmarshal(b, r)
+}
+func (r *readStore) Detail(ctx context.Context, endpoint, conversation, session, run, attempt string) (Run, error) {
+	var v Run
+	if e := ctx.Err(); e != nil {
+		return v, e
+	}
+	p, e := SafePath(r.l.Root, endpoint, conversation, "sessions", session, "runs", run, attempt, "run.json")
+	if e != nil {
+		return v, e
+	}
+	e = readRun(p, &v)
+	if e == nil && (v.EndpointID != endpoint || v.ConversationID != conversation || v.SessionID != session || v.RunID != run || v.AttemptID != attempt) {
+		e = fmt.Errorf("run identity mismatch")
+	}
+	return v, e
 }
 func (r *readStore) List(ctx context.Context, f Filter) (Page, error) {
-	if f.Limit <= 0 || f.Limit > 100 {
-		f.Limit = 50
-	}
-	if f.Offset < 0 {
-		f.Offset = 0
-	}
 	p := Page{Runs: []Run{}, Limit: f.Limit, Offset: f.Offset}
-	q, args := where(f)
-	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM runs"+q, args...).Scan(&p.Total); err != nil {
-		return p, err
+	if p.Limit <= 0 || p.Limit > 200 {
+		p.Limit = 50
 	}
-	rows, err := r.db.QueryContext(ctx, columns+q+" ORDER BY received_at DESC,run_id,attempt_id LIMIT ? OFFSET ?", append(args, f.Limit, f.Offset)...)
-	if err != nil {
-		return p, err
+	root, e := SafePath(r.l.Root, f.Endpoint, f.Conversation, "sessions", f.Session, "runs")
+	if e != nil {
+		return p, e
 	}
-	defer rows.Close()
-	for rows.Next() {
-		v, e := scan(rows)
+	entries, e := os.ReadDir(root)
+	if errors.Is(e, os.ErrNotExist) {
+		return p, nil
+	}
+	if e != nil {
+		return p, e
+	}
+	for _, run := range entries {
+		if !run.IsDir() || !Segment(run.Name()) {
+			continue
+		}
+		path, e := SafePath(root, run.Name())
 		if e != nil {
 			return p, e
 		}
-		p.Runs = append(p.Runs, v)
+		attempts, e := os.ReadDir(path)
+		if e != nil {
+			return p, e
+		}
+		for _, attempt := range attempts {
+			if !attempt.IsDir() {
+				continue
+			}
+			v, e := r.Detail(ctx, f.Endpoint, f.Conversation, f.Session, run.Name(), attempt.Name())
+			if errors.Is(e, os.ErrNotExist) {
+				continue
+			}
+			if e != nil {
+				return p, e
+			}
+			if f.Status != "" && v.Status != f.Status || f.Agent != "" && v.AgentID != f.Agent || f.After > 0 && v.ReceivedAt < f.After || f.Before > 0 && v.ReceivedAt >= f.Before {
+				continue
+			}
+			p.Runs = append(p.Runs, v)
+		}
 	}
-	return p, rows.Err()
-}
-func (r *readStore) Get(ctx context.Context, run, attempt string) (Run, error) {
-	return scan(r.db.QueryRowContext(ctx, columns+" WHERE run_id=? AND attempt_id=?", run, attempt))
+	sort.Slice(p.Runs, func(i, j int) bool {
+		return p.Runs[i].RunID+"/"+p.Runs[i].AttemptID < p.Runs[j].RunID+"/"+p.Runs[j].AttemptID
+	})
+	p.Total = len(p.Runs)
+	start := min(max(0, f.Offset), p.Total)
+	end := min(start+p.Limit, p.Total)
+	p.Runs = p.Runs[start:end]
+	if end < p.Total {
+		p.NextCursor = fmt.Sprint(end)
+	}
+	return p, nil
 }
 func (r *readStore) Stats(ctx context.Context, group string, f Filter) ([]Statistic, error) {
-	groups := map[string]string{"day": "strftime('%Y-%m-%d',received_at/1000,'unixepoch')", "sender": "sender_id", "agent": "agent_id", "harness": "harness"}
-	key, ok := groups[group]
-	if !ok {
-		return nil, fmt.Errorf("invalid statistics group")
+	if group != "harness" && group != "day" && group != "agent" && group != "sender" {
+		return nil, ErrInvalid
 	}
-	q, args := where(f)
-	rows, err := r.db.QueryContext(ctx, "SELECT "+key+",COUNT(*),COUNT(input_tokens),COALESCE(SUM(input_tokens),0),COALESCE(SUM(output_tokens),0),COALESCE(SUM(cache_read_tokens),0),COALESCE(SUM(cache_write_tokens),0),COALESCE(SUM(cost_usd),0) FROM runs"+q+" GROUP BY "+key+" ORDER BY "+key+" DESC", args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []Statistic{}
-	for rows.Next() {
-		var s Statistic
-		if err = rows.Scan(&s.Key, &s.Runs, &s.UsageRuns, &s.Usage.InputTokens, &s.Usage.OutputTokens, &s.Usage.CacheReadTokens, &s.Usage.CacheWriteTokens, &s.CostUSD); err != nil {
-			return nil, err
+	counts := map[string]*Statistic{}
+	f.Limit = 200
+	for {
+		p, e := r.List(ctx, f)
+		if e != nil {
+			return nil, e
 		}
-		out = append(out, s)
+		for _, v := range p.Runs {
+			k := v.Harness
+			switch group {
+			case "day":
+				k = time.UnixMilli(v.ReceivedAt).UTC().Format("2006-01-02")
+			case "agent":
+				k = v.AgentID
+			case "sender":
+				k = v.Sender.ID
+			}
+			if counts[k] == nil {
+				counts[k] = &Statistic{Key: k}
+			}
+			s := counts[k]
+			s.Runs++
+			if v.Usage != nil {
+				s.UsageRuns++
+				s.Usage.InputTokens += v.Usage.InputTokens
+				s.Usage.OutputTokens += v.Usage.OutputTokens
+				s.Usage.CacheReadTokens += v.Usage.CacheReadTokens
+				s.Usage.CacheWriteTokens += v.Usage.CacheWriteTokens
+			}
+			if v.CostUSD != nil {
+				s.CostUSD += *v.CostUSD
+			}
+		}
+		f.Offset += len(p.Runs)
+		if f.Offset >= p.Total {
+			break
+		}
 	}
-	return out, rows.Err()
+	out := []Statistic{}
+	for _, s := range counts {
+		out = append(out, *s)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out, nil
 }
 
-var _ Writer = (*writeStore)(nil)
-var _ Reader = (*readStore)(nil)
+func (l *Ledger) PrepareReport(ctx context.Context, endpoint, run, attempt string, b json.RawMessage) error {
+	return (&writeStore{l: l, endpoint: endpoint}).update(ctx, run, attempt, func(r *Run) { r.PendingReport = b; r.ServerConfirmed = false })
+}
+func (l *Ledger) Confirm(ctx context.Context, endpoint, run, attempt string) error {
+	w := &writeStore{l: l, endpoint: endpoint}
+	var snapshot Run
+	if err := w.update(ctx, run, attempt, func(r *Run) { r.ServerConfirmed = true; r.PendingReport = nil; snapshot = *r }); err != nil {
+		return err
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	s, e := l.Reader().Session(ctx, endpoint, snapshot.ConversationID, snapshot.SessionID)
+	if e != nil {
+		return e
+	}
+	if s.Status == "pending_report" {
+		s.Status = "idle"
+		return l.SaveSession(s)
+	}
+	return nil
+}
+func (l *Ledger) Pending(endpoint string) []json.RawMessage {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := []json.RawMessage{}
+	for _, p := range l.paths {
+		var r Run
+		if readRun(p, &r) == nil && r.EndpointID == endpoint && len(r.PendingReport) > 0 && !r.ServerConfirmed {
+			out = append(out, r.PendingReport)
+		}
+	}
+	return out
+}
+
+func isRunRecord(root, path string) bool {
+	rel, e := filepath.Rel(root, path)
+	if e != nil {
+		return false
+	}
+	p := strings.Split(rel, string(filepath.Separator))
+	return len(p) == 8 && p[2] == "sessions" && p[4] == "runs" && p[7] == "run.json"
+}
+
+func (l *Ledger) RejectReport(ctx context.Context, endpoint, run, attempt, reason string) error {
+	var record Run
+	w := &writeStore{l: l, endpoint: endpoint}
+	if e := w.update(ctx, run, attempt, func(r *Run) {
+		if len(r.PendingReport) > 0 {
+			r.PendingReport = nil
+			r.Status = "interrupted"
+			r.Error = "server rejected stale result: " + reason
+		}
+		record = *r
+	}); e != nil {
+		return e
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	s, e := l.Reader().Session(ctx, endpoint, record.ConversationID, record.SessionID)
+	if e != nil {
+		return e
+	}
+	if s.Status == "pending_report" {
+		s.Status = "unavailable"
+		return l.SaveSession(s)
+	}
+	return nil
+}

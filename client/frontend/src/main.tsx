@@ -1,29 +1,696 @@
-import React, { useEffect, useState } from 'react';
-import { createRoot } from 'react-dom/client';
-import './style.css';
-import { Button } from '@/components/ui/button';
+import React, { useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useInfiniteQuery,
+  useQuery,
+} from "@tanstack/react-query";
+import * as Dialog from "@radix-ui/react-dialog";
+import {
+  ArrowLeftRight,
+  Bot,
+  Check,
+  ChevronRight,
+  Circle,
+  FolderOpen,
+  Loader2,
+  Monitor,
+  Settings,
+  Terminal,
+  X,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+} from "@/components/ui/command";
+import {
+  Sidebar,
+  SidebarProvider,
+  SidebarHeader,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarFooter,
+  SidebarInset,
+  SidebarTrigger,
+  SidebarRail,
+} from "@/components/ui/sidebar";
+import { Separator } from "@/components/ui/separator";
+import "./style.css";
 
-type Usage={input_tokens:number;output_tokens:number;cache_read_tokens:number;cache_write_tokens:number};
-type Run={run_id:string;attempt_id:string;server:string;daemon_id:string;sender:{id:string;name:string};agent_id:string;session_id:string;work_id?:string;harness:string;summary:string;directory:string;received_at:number;finished_at?:number;duration_ms:number;status:string;error?:string;steer_count:number;attachment_count:number;usage?:Usage;cost_usd:number};
-type Page={runs:Run[];total:number;limit:number;offset:number};
-type Statistic={key:string;runs:number;usage_runs:number;usage:Usage;cost_usd:number};
-const number=(n:number)=>n.toLocaleString();
-const date=(n?:number)=>n?new Date(n).toLocaleString():'—';
-const status:Record<string,string>={running:'执行中',done:'已完成',failed:'失败',canceled:'已取消',rejected:'已拒绝'};
-async function get<T,>(path:string,signal?:AbortSignal):Promise<T>{const r=await fetch(path,{signal});if(!r.ok)throw Error(await r.text());return r.json();}
-function App(){
- const [tab,setTab]=useState<'runs'|'stats'>('runs');const [sender,setSender]=useState('');const [agent,setAgent]=useState('');const [state,setState]=useState('');const [from,setFrom]=useState('');const [to,setTo]=useState('');const [offset,setOffset]=useState(0);const [group,setGroup]=useState('day');
- const [page,setPage]=useState<Page>({runs:[],total:0,limit:50,offset:0});const [stats,setStats]=useState<Statistic[]>([]);const [selected,setSelected]=useState<Run|null>(null);const [error,setError]=useState('');const [loading,setLoading]=useState(true);
- const query=new URLSearchParams({sender,agent,status:state,from,to,offset:String(offset),limit:'50',group}).toString();
- useEffect(()=>{const controller=new AbortController();setLoading(true);const load=async()=>{try{if(tab==='runs')setPage(await get<Page>('/api/runs?'+query,controller.signal));else setStats(await get<Statistic[]>('/api/stats?'+query,controller.signal));setError('');}catch(e){if(!controller.signal.aborted)setError(String(e));}finally{if(!controller.signal.aborted)setLoading(false);}};void load();const timer=setInterval(()=>void load(),5000);return()=>{controller.abort();clearInterval(timer);};},[tab,query]);
- const filterChange=(set:(v:string)=>void)=>(event:React.ChangeEvent<HTMLInputElement|HTMLSelectElement>)=>{set(event.target.value);setOffset(0);};
- return <main><header><div><span className="eyebrow">AGENTUSE · 本机账本</span><h1>这台机器的执行记录</h1><p>仅展示本机收到的命令与用量，断网时也可查看。</p></div><span className="readonly">只读</span></header>
- <nav aria-label="页面"><Button aria-current={tab==='runs'?'page':undefined} onClick={()=>setTab('runs')}>命令清单</Button><Button aria-current={tab==='stats'?'page':undefined} onClick={()=>setTab('stats')}>Token 统计</Button></nav>
- <section className="filters" aria-label="筛选"><label>发起人<input value={sender} onChange={filterChange(setSender)} placeholder="ID 或名字"/></label><label>Agent<input value={agent} onChange={filterChange(setAgent)} placeholder="agent ID"/></label><label>状态<select value={state} onChange={filterChange(setState)}><option value="">全部状态</option>{Object.entries(status).map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label><label>开始日期<input type="date" value={from} onChange={filterChange(setFrom)}/></label><label>结束日期<input type="date" value={to} onChange={filterChange(setTo)}/></label></section>
- {error&&<p role="alert" className="error">{error}</p>}
- {tab==='runs'?<><div className="section-heading"><h2>命令清单</h2><span>{page.total} 条记录{loading?' · 加载中…':''}</span></div><section className="run-list">{!page.runs.length&&!loading&&<p className="empty">还没有符合条件的记录。daemon 收到命令后会在这里显示。</p>}{page.runs.map(run=><Button className="run" key={run.run_id+run.attempt_id} onClick={()=>setSelected(run)}><div className="run-top"><strong>@{run.agent_id}</strong><span className={'status '+run.status}>{status[run.status]??run.status}</span><time>{date(run.received_at)}</time></div><p>{run.summary||'无文本摘要'}</p><div className="run-meta"><span>{run.sender.name||run.sender.id||'未知发起人'}</span><span>{run.harness}</span><span>{Math.round(run.duration_ms/1000)} 秒</span><span>{run.usage?number(run.usage.input_tokens+run.usage.output_tokens)+' tokens':'未提供 token 用量'}</span></div></Button>)}</section><footer><Button disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-page.limit))}>上一页</Button><span>{offset+1}–{Math.min(offset+page.limit,page.total)} / {page.total}</span><Button disabled={offset+page.limit>=page.total} onClick={()=>setOffset(offset+page.limit)}>下一页</Button></footer></>:<><div className="section-heading"><h2>Token 统计</h2><label>分组<select value={group} onChange={e=>setGroup(e.target.value)}><option value="day">按天（UTC）</option><option value="sender">按发起人</option><option value="agent">按 agent</option><option value="harness">按 harness</option></select></label></div><p className="muted">输入 token 包含缓存部分。未提供用量的执行不计入 token 合计。</p><div className="table-scroll"><table><thead><tr>{['分组','执行次数','有用量记录','输入','输出','缓存读取','缓存写入','费用（USD）'].map(v=><th key={v}>{v}</th>)}</tr></thead><tbody>{stats.map(row=><tr key={row.key}><td>{row.key||'未知'}</td><td>{number(row.runs)}</td><td>{number(row.usage_runs)}</td><td>{number(row.usage.input_tokens)}</td><td>{number(row.usage.output_tokens)}</td><td>{number(row.usage.cache_read_tokens)}</td><td>{number(row.usage.cache_write_tokens)}</td><td>{row.cost_usd.toFixed(4)}</td></tr>)}</tbody></table>{!stats.length&&!loading&&<p className="empty">暂无统计数据。</p>}</div></>}
- {selected&&<RunDetail run={page.runs.find(run=>run.run_id===selected.run_id&&run.attempt_id===selected.attempt_id)??selected} close={()=>setSelected(null)}/>}
- </main>;
+type Endpoint = {
+  endpoint_id: string;
+  server_url: string;
+  name: string;
+  enabled: boolean;
+};
+type Conversation = { id: string; endpoint_id: string; workspace: string };
+type Session = {
+  id: string;
+  agent_id: string;
+  harness: string;
+  harness_revision: string;
+  native_session_id: string;
+  status: string;
+  last_context_seq: number;
+  created_at: number;
+  last_used_at: number;
+};
+type Usage = {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+};
+type Run = {
+  run_id: string;
+  attempt_id: string;
+  conversation_id: string;
+  session_id: string;
+  agent_id: string;
+  harness: string;
+  status: string;
+  summary: string;
+  output?: string;
+  error?: string;
+  received_at: number;
+  finished_at?: number;
+  duration_ms: number;
+  usage: Usage | null;
+  cost_usd?: number;
+  steer_count: number;
+  attachment_count: number;
+  events?: { kind: string; at: number; payload: unknown }[];
+};
+type Page<T> = { items: T[]; next_cursor?: string };
+const client = new QueryClient({
+  defaultOptions: { queries: { retry: false, refetchOnWindowFocus: true } },
+});
+let token = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
+if (token) history.replaceState(null, "", location.pathname + location.search);
+class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
 }
-function RunDetail({run,close}:{run:Run;close:()=>void}){const ref=React.useRef<HTMLDialogElement>(null);useEffect(()=>{ref.current?.showModal();},[]);return <dialog ref={ref} onClose={close} onClick={e=>{if(e.target===e.currentTarget)close();}}><div className="dialog-head"><h2>@{run.agent_id} · 执行详情</h2><Button onClick={close} aria-label="关闭">×</Button></div><p className="summary">{run.summary}</p><dl>{[['状态',status[run.status]??run.status],['服务地址',run.server],['发起人',`${run.sender.name} (${run.sender.id})`],['Session',run.session_id],['Work',run.work_id||'—'],['Harness',run.harness],['Run',run.run_id],['Attempt',run.attempt_id],['收到时间',date(run.received_at)],['结束时间',date(run.finished_at)],['耗时',`${run.duration_ms} ms`],['会话目录',run.directory||'—'],['插话次数',run.steer_count],['附件数',run.attachment_count],['输入 / 输出',run.usage?`${run.usage.input_tokens} / ${run.usage.output_tokens}`:'未提供'],['缓存读取 / 写入',run.usage?`${run.usage.cache_read_tokens} / ${run.usage.cache_write_tokens}`:'未提供'],['费用（USD）',run.cost_usd.toFixed(4)]].map(([key,value])=><React.Fragment key={key}><dt>{key}</dt><dd>{value}</dd></React.Fragment>)}</dl>{run.error&&<p className="error">{run.error}</p>}<p className="muted">账本仅保存前 200 字摘要，不保存完整 prompt。</p></dialog>}
-createRoot(document.getElementById('root')!).render(<App/>);
+async function api<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const r = await fetch(path, {
+    signal,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await r.json();
+  if (!r.ok) throw new ApiError(r.status, data.error?.message ?? "请求失败");
+  return data;
+}
+const enc = encodeURIComponent;
+const date = (n?: number) => (n ? new Date(n).toLocaleString() : "—");
+const labels: Record<string, string> = {
+  creating: "创建中",
+  idle: "空闲",
+  running: "执行中",
+  waiting: "等待回答",
+  pending_report: "待回报",
+  succeeded: "已完成",
+  done: "已完成",
+  failed: "失败",
+  unavailable: "不可恢复",
+  closed: "已关闭",
+  cancelled: "已取消",
+  canceled: "已取消",
+  interrupted: "已中断",
+  rejected: "已拒绝",
+};
+function Status({ value }: { value: string }) {
+  return (
+    <Badge variant="outline" className="gap-1.5 font-normal">
+      <Circle
+        className={`size-2 fill-current ${value === "running" || value === "waiting" ? "text-emerald-500" : value === "failed" ? "text-red-500" : "text-muted-foreground"}`}
+      />
+      {labels[value] ?? value}
+    </Badge>
+  );
+}
+function ErrorNotice({ error }: { error: unknown }) {
+  return error ? (
+    <div
+      role="alert"
+      className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+    >
+      {error instanceof Error ? error.message : String(error)}
+      {error instanceof ApiError && error.status === 401 && (
+        <p className="mt-2">请运行 agentuse ui 获取新的本机页面链接。</p>
+      )}
+    </div>
+  ) : null;
+}
+function usePages<T>(key: unknown[], path: string, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: key,
+    initialPageParam: "",
+    queryFn: ({ pageParam, signal }) =>
+      api<Page<T>>(
+        path + (path.includes("?") ? "&" : "?") + "cursor=" + enc(pageParam),
+        signal,
+      ),
+    getNextPageParam: (last) => last.next_cursor || undefined,
+    enabled,
+    refetchInterval: 3000,
+  });
+}
+function App() {
+  const endpoints = useQuery({
+    queryKey: ["endpoints"],
+    queryFn: ({ signal }) => api<Page<Endpoint>>("/api/endpoints", signal),
+    refetchInterval: 5000,
+  });
+  const [endpoint, setEndpoint] = useState(() => {
+    try {
+      return localStorage.getItem("agentuse.client.endpoint") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [conversation, setConversation] = useState("");
+  const [session, setSession] = useState("");
+  const [selected, setSelected] = useState<Run | null>(null);
+  const [switcher, setSwitcher] = useState(false);
+  const [settings, setSettings] = useState(false);
+  const items = endpoints.data?.items ?? [];
+  useEffect(() => {
+    if (endpoints.data && !items.some((e) => e.endpoint_id === endpoint)) {
+      setEndpoint(items[0]?.endpoint_id ?? "");
+      setConversation("");
+      setSession("");
+      setSelected(null);
+    }
+  }, [endpoints.data, endpoint]);
+  const current = items.find((e) => e.endpoint_id === endpoint);
+  const conversations = usePages<Conversation>(
+    ["conversations", endpoint],
+    `/api/conversations?endpoint_id=${enc(endpoint)}`,
+    !!current,
+  );
+  const base = `/api/conversations/${enc(endpoint)}/${enc(conversation)}`;
+  const sessions = usePages<Session>(
+    ["sessions", endpoint, conversation],
+    base + "/sessions",
+    !!current && !!conversation,
+  );
+  const sessionItems = sessions.data?.pages.flatMap((p) => p.items) ?? [];
+  useEffect(() => {
+    if (sessions.data && !sessionItems.some((s) => s.id === session)) {
+      setSession(sessionItems[0]?.id ?? "");
+      setSelected(null);
+    }
+  }, [sessions.data, session]);
+  const activeSession = sessionItems.find((s) => s.id === session);
+  const runs = usePages<Run>(
+    ["runs", endpoint, conversation, session],
+    base + `/sessions/${enc(session)}/runs`,
+    !!activeSession,
+  );
+  function changeEndpoint(id: string) {
+    setEndpoint(id);
+    try {
+      localStorage.setItem("agentuse.client.endpoint", id);
+    } catch {}
+    setConversation("");
+    setSession("");
+    setSelected(null);
+    setSwitcher(false);
+  }
+  const conversationItems =
+    conversations.data?.pages.flatMap((p) => p.items) ?? [];
+  return (
+    <SidebarProvider>
+      <Sidebar collapsible="icon">
+        <SidebarHeader className="gap-3 p-3">
+          <div className="flex h-8 items-center gap-2 px-1 group-data-[collapsible=icon]:hidden">
+            <Terminal className="size-5" />
+            <span className="font-semibold tracking-tight">agentuse</span>
+            <Badge variant="secondary" className="ml-auto text-[10px]">
+              Client
+            </Badge>
+          </div>
+          <Popover open={switcher} onOpenChange={setSwitcher}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="h-auto min-h-11 w-full justify-between px-2 text-left"
+                aria-label="切换 endpoint"
+              >
+                <div className="min-w-0 group-data-[collapsible=icon]:hidden">
+                  <div className="truncate text-sm font-medium">
+                    {current?.name || "选择 Endpoint"}
+                  </div>
+                  <div className="truncate text-xs font-normal text-muted-foreground">
+                    {current?.server_url || "尚未注册平台"}
+                  </div>
+                </div>
+                <ArrowLeftRight className="size-4 shrink-0" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-80 p-0">
+              <Command>
+                <CommandInput placeholder="搜索 endpoint…" />
+                <CommandList>
+                  <CommandEmpty>没有已注册的 endpoint</CommandEmpty>
+                  <CommandGroup heading="Endpoints">
+                    {items.map((e) => (
+                      <CommandItem
+                        key={e.endpoint_id}
+                        value={e.name + " " + e.server_url}
+                        onSelect={() => changeEndpoint(e.endpoint_id)}
+                      >
+                        <Monitor className="mr-2 size-4" />
+                        <div className="min-w-0 flex-1">
+                          <div>
+                            {e.name || e.server_url}
+                            {!e.enabled && " · 已停用"}
+                          </div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            {e.server_url}
+                          </div>
+                        </div>
+                        {endpoint === e.endpoint_id && (
+                          <Check className="size-4" />
+                        )}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        </SidebarHeader>
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupLabel>Conversations</SidebarGroupLabel>
+            <SidebarMenu>
+              {conversations.isPending && current && (
+                <li className="p-3 text-xs text-muted-foreground">加载中…</li>
+              )}
+              {conversationItems.map((c) => (
+                <SidebarMenuItem key={c.id}>
+                  <SidebarMenuButton
+                    isActive={conversation === c.id}
+                    onClick={() => {
+                      setConversation(c.id);
+                      setSession("");
+                      setSelected(null);
+                    }}
+                    tooltip={c.id}
+                  >
+                    <FolderOpen className="size-4" />
+                    <span className="truncate">{c.id}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+              {!conversations.isPending &&
+                current &&
+                !conversationItems.length && (
+                  <li className="px-2 py-4 text-xs leading-relaxed text-muted-foreground">
+                    暂无本机会话。Client 从此平台领取任务后会在这里显示。
+                  </li>
+                )}
+              {conversations.hasNextPage && (
+                <li>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={conversations.isFetchingNextPage}
+                    onClick={() => void conversations.fetchNextPage()}
+                  >
+                    加载更多
+                  </Button>
+                </li>
+              )}
+            </SidebarMenu>
+          </SidebarGroup>
+        </SidebarContent>
+        <SidebarFooter>
+          <Button
+            variant="ghost"
+            className="justify-start"
+            onClick={() => setSettings(true)}
+          >
+            <Settings className="size-4" />
+            <span className="group-data-[collapsible=icon]:hidden">
+              本机设置
+            </span>
+          </Button>
+          <div className="px-2 pb-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+            本机文件 · 只读
+          </div>
+        </SidebarFooter>
+        <SidebarRail />
+      </Sidebar>
+      <SidebarInset>
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
+          <SidebarTrigger />
+          <Separator orientation="vertical" className="h-4" />
+          <span className="truncate text-sm text-muted-foreground">
+            {current?.name || "Client"}
+          </span>
+          {conversation && (
+            <>
+              <ChevronRight className="size-3 text-muted-foreground" />
+              <span className="truncate text-sm">{conversation}</span>
+            </>
+          )}
+          <Badge variant="outline" className="ml-auto shrink-0">
+            只读
+          </Badge>
+        </header>
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="flex flex-1 flex-col gap-5 p-4 outline-none md:p-8"
+        >
+          <ErrorNotice
+            error={
+              endpoints.error ||
+              conversations.error ||
+              sessions.error ||
+              runs.error
+            }
+          />
+          {!current ? (
+            <Empty
+              title="连接你的平台"
+              text="运行 agentuse register -server URL -token 安装令牌，注册后启动 client。"
+            />
+          ) : !conversation ? (
+            <Empty
+              title="选择一个 Conversation"
+              text="从左侧选择会话，查看本机 Session 与执行记录。"
+            />
+          ) : (
+            <>
+              <div>
+                <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Conversation
+                </div>
+                <h1 className="break-all text-xl font-semibold tracking-tight">
+                  {conversation}
+                </h1>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  原生 Session 各自保留上下文，共享此会话的 workspace。
+                </p>
+              </div>
+              <section aria-label="Sessions" className="space-y-3">
+                <h2 className="text-sm font-medium">Sessions</h2>
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {sessionItems.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => {
+                        setSession(s.id);
+                        setSelected(null);
+                      }}
+                      aria-pressed={session === s.id}
+                      className={`rounded-xl border p-4 text-left transition-colors hover:bg-accent/50 ${session === s.id ? "border-foreground/40 bg-accent/40" : "bg-background"}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Bot className="size-4" />
+                        <strong className="min-w-0 flex-1 truncate text-sm">
+                          @{s.agent_id}
+                        </strong>
+                        <Status value={s.status} />
+                      </div>
+                      <div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                        <span>{s.harness}</span>
+                        <time>{date(s.last_used_at)}</time>
+                      </div>
+                      <div className="mt-2 truncate font-mono text-[11px] text-muted-foreground">
+                        {s.id}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                {sessions.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  !sessionItems.length && (
+                    <p className="text-sm text-muted-foreground">
+                      此 conversation 没有可查看的 Session。
+                    </p>
+                  )
+                )}
+                {sessions.hasNextPage && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void sessions.fetchNextPage()}
+                  >
+                    更多 Sessions
+                  </Button>
+                )}
+              </section>
+              {activeSession && (
+                <section className="mt-2 space-y-3" aria-label="Runs">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-medium">Runs</h2>
+                    <ChevronRight className="size-3 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">
+                      @{activeSession.agent_id} · {activeSession.harness}
+                    </span>
+                  </div>
+                  {(runs.data?.pages.flatMap((p) => p.items) ?? []).map((r) => (
+                    <button
+                      key={r.run_id + "/" + r.attempt_id}
+                      onClick={() => setSelected(r)}
+                      className="block w-full rounded-xl border bg-background p-4 text-left transition-colors hover:bg-accent/40"
+                    >
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Status value={r.status} />
+                        <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+                          {r.run_id}
+                        </span>
+                        <time className="text-xs text-muted-foreground">
+                          {date(r.received_at)}
+                        </time>
+                        <ChevronRight className="size-4 text-muted-foreground" />
+                      </div>
+                      <p className="mt-3 line-clamp-2 whitespace-pre-wrap break-words text-sm leading-relaxed">
+                        {r.summary || "无文本摘要"}
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
+                        <span>{Math.round(r.duration_ms / 1000)} 秒</span>
+                        <span>
+                          {r.usage
+                            ? `${(r.usage.input_tokens + r.usage.output_tokens).toLocaleString()} tokens`
+                            : "用量未知"}
+                        </span>
+                        {r.steer_count > 0 && (
+                          <span>{r.steer_count} 次插话</span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                  {runs.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    !runs.data?.pages[0]?.items.length && (
+                      <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                        暂无执行记录。
+                      </p>
+                    )
+                  )}
+                  {runs.hasNextPage && (
+                    <Button
+                      variant="outline"
+                      onClick={() => void runs.fetchNextPage()}
+                    >
+                      更多 Runs
+                    </Button>
+                  )}
+                </section>
+              )}
+            </>
+          )}
+        </main>
+      </SidebarInset>
+      {selected && activeSession && (
+        <RunDetail
+          base={base + `/sessions/${enc(session)}`}
+          run={selected}
+          close={() => setSelected(null)}
+        />
+      )}
+      <SettingsDialog open={settings} close={() => setSettings(false)} />
+    </SidebarProvider>
+  );
+}
+function Empty({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center px-4 py-24 text-center">
+      <Terminal className="mb-5 size-10 stroke-1 text-muted-foreground" />
+      <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+      <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">
+        {text}
+      </p>
+    </div>
+  );
+}
+function RunDetail({
+  base,
+  run,
+  close,
+}: {
+  base: string;
+  run: Run;
+  close: () => void;
+}) {
+  const q = useQuery({
+    queryKey: ["run", base, run.run_id, run.attempt_id],
+    queryFn: ({ signal }) =>
+      api<Run>(
+        `${base}/runs/${enc(run.run_id)}/attempts/${enc(run.attempt_id)}`,
+        signal,
+      ),
+    refetchInterval: 2000,
+  });
+  const r = q.data ?? run;
+  return (
+    <Dialog.Root
+      open
+      onOpenChange={(open) => {
+        if (!open) close();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-background p-6 shadow-lg">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <Dialog.Title className="font-semibold">
+                @{r.agent_id} · Run details
+              </Dialog.Title>
+              <Dialog.Description className="mt-1 text-sm text-muted-foreground">
+                {r.harness} · {labels[r.status] ?? r.status}
+              </Dialog.Description>
+            </div>
+            <Dialog.Close asChild>
+              <Button variant="ghost" size="icon" aria-label="关闭详情">
+                <X className="size-4" />
+              </Button>
+            </Dialog.Close>
+          </div>
+          <div className="mt-5">
+            <ErrorNotice error={q.error} />
+          </div>
+          <p className="my-5 whitespace-pre-wrap break-words text-sm leading-relaxed">
+            {r.summary}
+          </p>
+          <dl className="grid grid-cols-[90px_minmax(0,1fr)] gap-x-4 gap-y-3 text-xs">
+            {[
+              ["Run", r.run_id],
+              ["Attempt", r.attempt_id],
+              ["Session", r.session_id],
+              ["收到时间", date(r.received_at)],
+              ["结束时间", date(r.finished_at)],
+              ["耗时", `${r.duration_ms} ms`],
+              [
+                "输入 / 输出",
+                r.usage
+                  ? `${r.usage.input_tokens} / ${r.usage.output_tokens}`
+                  : "未知",
+              ],
+              ["插话 / 文件", `${r.steer_count} / ${r.attachment_count}`],
+            ].map(([k, v]) => (
+              <React.Fragment key={k}>
+                <dt className="text-muted-foreground">{k}</dt>
+                <dd className="break-all">{v}</dd>
+              </React.Fragment>
+            ))}
+          </dl>
+          {r.error && (
+            <pre className="mt-5 whitespace-pre-wrap break-words rounded-lg bg-destructive/5 p-3 text-xs text-destructive">
+              {r.error}
+            </pre>
+          )}
+          {r.output && (
+            <section className="mt-6">
+              <h3 className="mb-2 text-sm font-medium">结果</h3>
+              <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted/50 p-4 text-sm leading-relaxed">
+                {r.output}
+              </pre>
+            </section>
+          )}
+          {!!r.events?.length && (
+            <section className="mt-6 space-y-3">
+              <h3 className="text-sm font-medium">执行事件</h3>
+              {r.events.map((e, i) => (
+                <div key={i} className="rounded-lg border p-3">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{e.kind}</span>
+                    <time>{date(e.at)}</time>
+                  </div>
+                  <pre className="mt-2 whitespace-pre-wrap break-words text-xs">
+                    {JSON.stringify(e.payload, null, 2)}
+                  </pre>
+                </div>
+              ))}
+            </section>
+          )}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+function SettingsDialog({ open, close }: { open: boolean; close: () => void }) {
+  const q = useQuery({
+    queryKey: ["settings"],
+    queryFn: ({ signal }) => api<unknown>("/api/settings", signal),
+    enabled: open,
+  });
+  return (
+    <Dialog.Root
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) close();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-background p-6 shadow-lg">
+          <Dialog.Title className="font-semibold">本机设置</Dialog.Title>
+          <Dialog.Description className="mt-2 text-sm text-muted-foreground">
+            配置保存在 ~/.agentuse/setting.yaml。此页面只读。
+          </Dialog.Description>
+          <ErrorNotice error={q.error} />
+          <pre className="my-5 overflow-auto rounded-lg bg-muted p-4 text-xs">
+            {JSON.stringify(q.data, null, 2)}
+          </pre>
+          <Dialog.Close asChild>
+            <Button variant="outline">关闭</Button>
+          </Dialog.Close>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+createRoot(document.getElementById("root")!).render(
+  <QueryClientProvider client={client}>
+    <App />
+  </QueryClientProvider>,
+);

@@ -2,95 +2,212 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
-func TestLedgerPersistsUsageAndReadOnlyBoundary(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "ledger.db")
-	l, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
+func TestFileLedgerHierarchyAndRestart(t *testing.T) {
+	root := t.TempDir()
+	l, e := Open(root)
+	if e != nil {
+		t.Fatal(e)
 	}
 	ctx := context.Background()
-	run := Run{RunID: "r1", AttemptID: "a1", Server: "http://server", DaemonID: "d1", Sender: agentuse.Sender{ID: "alice", Name: "Alice"}, AgentID: "coder", SessionID: "s1", Harness: "codex", Summary: strings.Repeat("中", 220) + "FULL_PROMPT_SECRET", ReceivedAt: time.Now().Add(-time.Minute).UnixMilli()}
-	if err = l.Writer().Receive(ctx, run); err != nil {
-		t.Fatal(err)
+	s, workspace, e := l.AcquireSession(ctx, "https---one.example", "conversation", "coder", "codex", "v1")
+	if e != nil {
+		t.Fatal(e)
 	}
-	if err = l.Writer().Receive(ctx, run); err != nil {
-		t.Fatal(err)
+	w := l.ForEndpoint(s.EndpointID)
+	r := Run{EndpointID: s.EndpointID, ConversationID: s.ConversationID, SessionID: s.ID, RunID: "run", AttemptID: "attempt", Harness: "codex", Summary: strings.Repeat("中", 220) + "SECRET"}
+	if e = w.Receive(ctx, r); e != nil {
+		t.Fatal(e)
 	}
 	for i := 0; i < 2; i++ {
-		if err = l.Writer().Steer(ctx, "r1", "a1", 7); err != nil {
-			t.Fatal(err)
+		if e = w.Steer(ctx, "run", "attempt", 7); e != nil {
+			t.Fatal(e)
 		}
 	}
-	if err = l.Writer().Complete(ctx, "r1", "a1", Finish{Status: "done", Usage: &agentuse.Usage{InputTokens: 100, OutputTokens: 20, CacheReadTokens: 40}, CostUSD: .1, AttachmentCount: 2}); err != nil {
-		t.Fatal(err)
+	if e = w.Complete(ctx, "run", "attempt", Finish{Status: "succeeded", Output: "answer", Usage: &agentuse.Usage{InputTokens: 100, OutputTokens: 20}}); e != nil {
+		t.Fatal(e)
 	}
-	if _, err = l.reader.db.ExecContext(ctx, "UPDATE runs SET summary='tampered'"); err == nil {
-		t.Fatal("Reader connection allowed a write")
+	if e = l.Confirm(ctx, s.EndpointID, "run", "attempt"); e != nil {
+		t.Fatal(e)
 	}
-	if err = l.Close(); err != nil {
-		t.Fatal(err)
+	if e = l.ReleaseSession(s, "thread-1", 9, true, "run", "attempt"); e != nil {
+		t.Fatal(e)
 	}
-	l, err = Open(path)
-	if err != nil {
-		t.Fatal(err)
+	path := filepath.Join(filepath.Dir(workspace), "sessions", s.ID, "runs", "run", "attempt", "run.json")
+	if st, e := os.Stat(path); e != nil || st.Mode().Perm() != 0600 {
+		t.Fatal(st, e)
 	}
-	defer l.Close()
-	got, err := l.Reader().Get(ctx, "r1", "a1")
-	if err != nil {
-		t.Fatal(err)
+	l, _ = Open(root)
+	got, e := l.Reader().Detail(ctx, s.EndpointID, s.ConversationID, s.ID, "run", "attempt")
+	if e != nil || got.Output != "answer" || got.SteerCount != 1 || len([]rune(got.Summary)) != 200 || strings.Contains(got.Summary, "SECRET") {
+		t.Fatal(got, e)
 	}
-	if got.Status != "done" || got.SteerCount != 1 || got.AttachmentCount != 2 || got.Usage == nil || got.Usage.InputTokens != 100 || len([]rune(got.Summary)) != 200 || strings.Contains(got.Summary, "SECRET") {
-		t.Fatalf("ledger %+v", got)
+	same, cwd, e := l.AcquireSession(ctx, s.EndpointID, s.ConversationID, "coder", "codex", "v1")
+	if e != nil || same.ID != s.ID || same.NativeSessionID != "thread-1" || cwd != workspace {
+		t.Fatal(same, cwd, e)
 	}
-	if got.DurationMS < 59000 || got.FinishedAt == nil {
-		t.Fatal("timing missing", got)
+	other, cwd, e := l.AcquireSession(ctx, s.EndpointID, s.ConversationID, "reviewer", "claude", "v1")
+	if e != nil || other.ID == s.ID || cwd != workspace {
+		t.Fatal(other, cwd, e)
 	}
-	stats, err := l.Reader().Stats(ctx, "sender", Filter{})
-	if err != nil || len(stats) != 1 || stats[0].Runs != 1 || stats[0].Usage.InputTokens != 100 || stats[0].UsageRuns != 1 {
-		t.Fatal(stats, err)
+	if _, _, e = l.AcquireSession(ctx, s.EndpointID, s.ConversationID, "coder", "codex", "v1"); e == nil {
+		t.Fatal("busy session reused")
 	}
-	page, err := l.Reader().List(ctx, Filter{Agent: "other"})
-	if err != nil || page.Total != 0 {
-		t.Fatal(page, err)
+	if _, e = l.Reader().List(ctx, Filter{}); !errors.Is(e, ErrInvalid) {
+		t.Fatal("unscoped query allowed", e)
 	}
-	if st, _ := os.Stat(path); st.Mode().Perm() != 0600 {
-		t.Fatalf("ledger permissions %v", st.Mode())
+	if _, e = l.Reader().Detail(ctx, s.EndpointID, "../escape", s.ID, "run", "attempt"); !errors.Is(e, ErrInvalid) {
+		t.Fatal("path traversal", e)
 	}
 }
-func TestLedgerRecoveryRetentionAndAttempts(t *testing.T) {
-	l, err := Open(filepath.Join(t.TempDir(), "ledger.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
+func TestEndpointIsolationAndQuota(t *testing.T) {
+	l, _ := Open(t.TempDir())
 	ctx := context.Background()
-	old := time.Now().AddDate(0, 0, -100).UnixMilli()
-	for _, attempt := range []string{"a1", "a2"} {
-		if err = l.Writer().Receive(ctx, Run{RunID: "same-run", AttemptID: attempt, ReceivedAt: old}); err != nil {
-			t.Fatal(err)
+	var first Session
+	for _, ep := range []string{"https---one", "https---two"} {
+		s, dir, e := l.AcquireSession(ctx, ep, "same", "agent", "custom", "v1")
+		if e != nil {
+			t.Fatal(e)
+		}
+		if first.ID == "" {
+			first = s
+		}
+		os.WriteFile(filepath.Join(dir, "large"), make([]byte, 4096), 0600)
+		w := l.ForEndpoint(ep)
+		if e = w.Receive(ctx, Run{EndpointID: ep, ConversationID: "same", SessionID: s.ID, RunID: "same", AttemptID: "same"}); e != nil {
+			t.Fatal(e)
+		}
+		if e = w.Complete(ctx, "same", "same", Finish{Status: "succeeded", Output: ep}); e != nil {
+			t.Fatal(e)
+		}
+		if e = l.Confirm(ctx, ep, "same", "same"); e != nil {
+			t.Fatal(e)
+		}
+		if ep == "https---two" {
+			if e = l.ReleaseSession(s, "", 0, true, "same", "same"); e != nil {
+				t.Fatal(e)
+			}
 		}
 	}
-	if err = l.Writer().Reconcile(ctx); err != nil {
-		t.Fatal(err)
+	_, e := l.Reclaim(ctx, 1)
+	if e == nil {
+		t.Fatal("quota should block with in-use workspace")
 	}
-	p, err := l.Reader().List(ctx, Filter{})
-	if err != nil || p.Total != 2 || p.Runs[0].Status != "failed" || p.Runs[0].Usage != nil {
-		t.Fatal(p, err)
+	if _, e = l.Reader().Session(ctx, "https---one", "same", first.ID); e != nil {
+		t.Fatal("active conversation removed", e)
 	}
-	if err = l.Writer().Purge(ctx, time.Now().AddDate(0, 0, -90)); err != nil {
-		t.Fatal(err)
+	cs, e := l.Reader().Conversations(ctx, "https---two")
+	if e != nil || len(cs) != 0 {
+		t.Fatal("idle conversation not removed", cs, e)
 	}
-	p, err = l.Reader().List(ctx, Filter{})
-	if err != nil || p.Total != 0 {
-		t.Fatal(p, err)
+	external := t.TempDir()
+	os.WriteFile(filepath.Join(external, "secret"), []byte("safe"), 0600)
+	if e = os.Symlink(external, filepath.Join(l.Root, "linked")); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = l.Reader().Conversations(ctx, "linked"); e == nil {
+		t.Fatal("symlink root followed")
+	}
+	if b, _ := os.ReadFile(filepath.Join(external, "secret")); string(b) != "safe" {
+		t.Fatal("external data touched")
+	}
+}
+func TestPendingResultSurvivesRestart(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	l, _ := Open(root)
+	s, _, e := l.AcquireSession(ctx, "ep", "c", "a", "custom", "v")
+	if e != nil {
+		t.Fatal(e)
+	}
+	w := l.ForEndpoint("ep")
+	w.Receive(ctx, Run{EndpointID: "ep", ConversationID: "c", SessionID: s.ID, RunID: "r", AttemptID: "a"})
+	w.Complete(ctx, "r", "a", Finish{Status: "succeeded"})
+	l.PrepareReport(ctx, "ep", "r", "a", json.RawMessage(`{"type":"event","kind":"done"}`))
+	l.ReleaseSession(s, "", 0, true, "r", "a")
+	l, _ = Open(root)
+	if e = l.Writer().Reconcile(ctx); e != nil {
+		t.Fatal(e)
+	}
+	if len(l.Pending("ep")) != 1 {
+		t.Fatal("pending result lost")
+	}
+	if _, e = l.Reclaim(ctx, 1); e == nil {
+		t.Fatal("unconfirmed result reclaimed")
+	}
+	if e = l.Confirm(ctx, "ep", "r", "a"); e != nil {
+		t.Fatal(e)
+	}
+	if len(l.Pending("ep")) != 0 {
+		t.Fatal("confirmed result remains queued")
+	}
+	if _, e = l.Reclaim(ctx, 1); e != nil {
+		t.Fatal(e)
+	}
+}
+
+func TestProcessLockProtectsSingleWriter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".client.lock")
+	release, e := Lock(path)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if second, e := Lock(path); e == nil {
+		second()
+		t.Fatal("second writer acquired lock")
+	}
+	release()
+	next, e := Lock(path)
+	if e != nil {
+		t.Fatal(e)
+	}
+	next()
+}
+
+func TestBusinessFilesAreNotExecutionMetadata(t *testing.T) {
+	l, _ := Open(t.TempDir())
+	ctx := context.Background()
+	s, cwd, e := l.AcquireSession(ctx, "ep", "c", "a", "custom", "v")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = os.WriteFile(filepath.Join(cwd, "run.json"), []byte("business contents, not JSON"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e = l.Writer().Reconcile(ctx); e != nil {
+		t.Fatal("recovery parsed business file", e)
+	}
+	l.ReleaseSession(s, "", 0, true)
+	if _, e = l.Reclaim(ctx, 1); e != nil {
+		t.Fatal("cleanup parsed business file", e)
+	}
+}
+
+func TestStalePendingReportCanBeReclaimed(t *testing.T) {
+	ctx := context.Background()
+	l, _ := Open(t.TempDir())
+	s, _, _ := l.AcquireSession(ctx, "ep", "c", "a", "custom", "v")
+	w := l.ForEndpoint("ep")
+	w.Receive(ctx, Run{EndpointID: "ep", ConversationID: "c", SessionID: s.ID, RunID: "r", AttemptID: "a"})
+	w.Complete(ctx, "r", "a", Finish{Status: "succeeded"})
+	l.PrepareReport(ctx, "ep", "r", "a", json.RawMessage(`{"kind":"done"}`))
+	l.ReleaseSession(s, "native", 1, true, "r", "a")
+	if e := l.RejectReport(ctx, "ep", "r", "a", "lease expired"); e != nil {
+		t.Fatal(e)
+	}
+	if len(l.Pending("ep")) != 0 {
+		t.Fatal("stale result still queued")
+	}
+	if _, e := l.Reclaim(ctx, 1); e != nil {
+		t.Fatal("stale result permanently protected directory", e)
 	}
 }

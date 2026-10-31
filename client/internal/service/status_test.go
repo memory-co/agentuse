@@ -70,6 +70,7 @@ func TestListHarnesses(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 	for i := range want {
+		got[i].Revision = ""
 		if got[i] != want[i] {
 			t.Errorf("[%d] got %+v want %+v", i, got[i], want[i])
 		}

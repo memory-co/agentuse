@@ -13,6 +13,7 @@ import (
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/test/e2e/e2eutil"
+	"net/url"
 )
 
 func runDaemonForMulti(t *testing.T, c *agentuse.Client, user, home, cli, fake string, native bool) *agentuse.Daemon {
@@ -22,7 +23,7 @@ func runDaemonForMulti(t *testing.T, c *agentuse.Client, user, home, cli, fake s
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := filepath.Join(home, "custom", "daemon.json")
+	cfg := filepath.Join(home, "custom", "endpoints.yaml")
 	os.MkdirAll(filepath.Dir(cfg), 0700)
 	hs := map[string]any{"fake": map[string]any{"command": fake}, "claude": map[string]any{"disabled": true}, "codex": map[string]any{"disabled": true}}
 	count := 1
@@ -30,7 +31,7 @@ func runDaemonForMulti(t *testing.T, c *agentuse.Client, user, home, cli, fake s
 		hs["claude"] = map[string]any{"command": fake}
 		count = 2
 	}
-	writeJSON(t, cfg, map[string]any{"harnesses": hs})
+	writeAdapterConfig(t, cfg, map[string]any{"harnesses": hs})
 	cmd := exec.Command(cli, "register", "-server", c.BaseURL, "-token", d.SetupToken, "-config", cfg)
 	cmd.Env = e2eutil.Env(home)
 	e2eutil.MustRun(t, cmd)
@@ -122,7 +123,9 @@ func TestMultiAgentSession(t *testing.T) {
 	if err != nil || aResult.Run.Status != "running" {
 		t.Fatal("A should still hold", aResult, err)
 	}
-	os.WriteFile(filepath.Join(homeA, ".agentuse", "work", id, "release"), []byte("go"), 0600)
+	u, _ := url.Parse(c.BaseURL)
+	endpoint := "http---" + strings.ReplaceAll(u.Host, ":", "%3A")
+	os.WriteFile(filepath.Join(homeA, ".agentuse", "tmp", endpoint, id, "workspace", "release"), []byte("go"), 0600)
 	detail, err := c.WaitMessageRuns(ctx, user, id, second.Message.ID, 50*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)

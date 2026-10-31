@@ -13,17 +13,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memory-co/agentuse/client/internal/store"
 	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-// Config 是 ~/.agentuse/daemon.json。
+// Config is an in-memory endpoint execution context, loaded from YAML files.
 type Config struct {
-	UIAddr              *string `json:"ui_addr,omitempty"`
-	LedgerRetentionDays int     `json:"ledger_retention_days,omitempty"`
-	ConfigPath          string  `json:"-"`
-	Server              string  `json:"server"`
-	DaemonID            string  `json:"daemon_id"`
-	Key                 string  `json:"key"`
+	EndpointID string          `json:"-"`
+	Enabled    bool            `json:"-"`
+	Settings   Settings        `json:"-"`
+	Slots      chan struct{}   `json:"-"`
+	Sessions   *SessionService `json:"-"`
+	LocalStore *store.Ledger   `json:"-"`
+	UIAddr     *string         `json:"ui_addr,omitempty"`
+	ConfigPath string          `json:"-"`
+	Server     string          `json:"server"`
+	DaemonID   string          `json:"daemon_id"`
+	Key        string          `json:"key"`
 	// Harnesses 配置本机 harness 的启动命令。内置的(claude / codex)不配也会自动检测;
 	// 自定义 harness 必须在这里配，名字要和服务上注册的一致。
 	Harnesses map[string]HarnessConfig `json:"harnesses,omitempty"`
@@ -48,32 +54,56 @@ type HarnessConfig struct {
 
 func DefaultConfigPath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".agentuse", "daemon.json")
+	return filepath.Join(home, ".agentuse", "endpoints.yaml")
 }
 
-func LoadConfig(path string) (Config, error) {
-	var c Config
-	b, err := os.ReadFile(path)
+// Config is an in-memory execution identity. Only endpoints.yaml and setting.yaml
+// are persistent configuration; no legacy JSON configuration is read.
+func LoadConfigs(path string) ([]Config, error) {
+	endpoints, err := (EndpointService{Path: path}).List()
 	if err != nil {
-		return c, err
+		return nil, err
 	}
-	if err := json.Unmarshal(b, &c); err != nil {
-		return c, fmt.Errorf("%s: %w", path, err)
+	settings, err := NewSettingService(filepath.Join(filepath.Dir(path), "setting.yaml"))
+	if err != nil {
+		return nil, err
 	}
-	c.ConfigPath, _ = filepath.Abs(path)
-	return c, nil
+	var out []Config
+	for _, ep := range endpoints {
+		c := Config{ConfigPath: path, Server: ep.ServerURL, DaemonID: ep.DeviceID, Key: ep.DeviceKey, EndpointID: ep.ID(), Enabled: ep.Enabled, Settings: settings.Get()}
+		out = append(out, c)
+	}
+	return out, nil
 }
-
+func LoadConfig(path string) (Config, error) {
+	all, e := LoadConfigs(path)
+	if e != nil {
+		return Config{}, e
+	}
+	wanted := os.Getenv("AGENTUSE_SERVER")
+	for _, c := range all {
+		if wanted != "" && c.Server == strings.TrimRight(wanted, "/") {
+			return c, nil
+		}
+	}
+	if wanted != "" {
+		return Config{}, fmt.Errorf("server is not registered: %s", wanted)
+	}
+	for _, c := range all {
+		if c.Enabled {
+			return c, nil
+		}
+	}
+	if len(all) > 0 {
+		return all[0], nil
+	}
+	return Config{}, fmt.Errorf("no registered endpoints in %s", path)
+}
 func SaveConfig(path string, c Config) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := saveCommandAdapters(filepath.Join(filepath.Dir(path), "harness"), c.Harnesses); err != nil {
 		return err
 	}
-	b, _ := json.MarshalIndent(c, "", "  ")
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return (EndpointService{Path: path}).Save(Endpoint{Name: c.Server, ServerURL: c.Server, Enabled: true, DeviceID: c.DaemonID, DeviceKey: c.Key})
 }
 
 // Register 用安装令牌向服务注册这台电脑，把拿到的密钥写进配置文件(保留已有的 harnesses 配置)。
@@ -107,15 +137,11 @@ func Register(ctx context.Context, server, token, configPath string) (Config, er
 	if err := json.NewDecoder(resp.Body).Decode(&rr); err != nil {
 		return Config{}, err
 	}
-	cfg, err := LoadConfig(configPath)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return Config{}, err
-	}
-	cfg.Server, cfg.DaemonID, cfg.Key = server, rr.DaemonID, rr.Key
+	cfg := Config{Server: server, DaemonID: rr.DaemonID, Key: rr.Key}
 	if err := SaveConfig(configPath, cfg); err != nil {
 		return Config{}, err
 	}
-	return cfg, nil
+	return LoadConfigForServer(configPath, server)
 }
 
 func (c Config) UIAddress() string {
@@ -123,13 +149,27 @@ func (c Config) UIAddress() string {
 		return v
 	}
 	if c.UIAddr == nil {
+		if c.Settings.LocalHTTP.Host != "" {
+			return c.Settings.UIAddress()
+		}
 		return "127.0.0.1:7801"
 	}
 	return *c.UIAddr
 }
-func (c Config) RetentionDays() int {
-	if c.LedgerRetentionDays > 0 {
-		return c.LedgerRetentionDays
+
+func LoadConfigForServer(path, server string) (Config, error) {
+	all, e := LoadConfigs(path)
+	if e != nil {
+		return Config{}, e
 	}
-	return 90
+	u, _, e := store.NormalizeEndpoint(server)
+	if e != nil {
+		return Config{}, e
+	}
+	for _, c := range all {
+		if c.Server == u {
+			return c, nil
+		}
+	}
+	return Config{}, os.ErrNotExist
 }

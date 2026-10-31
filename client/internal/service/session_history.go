@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/memory-co/agentuse/client/internal/store"
 	"github.com/memory-co/agentuse/internal/protocol"
 	"net/http"
 	"net/url"
@@ -45,7 +46,7 @@ func writeSessionHistory(m protocol.Dispatch, dir string) error {
 	return renameAttachment(managed, tmp, name)
 }
 
-func (d *Daemon) loadRunHistory(ctx context.Context, m *protocol.Dispatch) error {
+func (d *endpointConnection) loadRunHistory(ctx context.Context, m *protocol.Dispatch) error {
 	if m.RunID == "" {
 		return nil
 	}
@@ -80,5 +81,52 @@ func (d *Daemon) loadRunHistory(ctx context.Context, m *protocol.Dispatch) error
 	if len(ids) > 0 {
 		m.ContextSeq = ids[len(ids)-1].ID
 	}
+	return nil
+}
+
+func (d *endpointConnection) prepareHistory(m *protocol.Dispatch, s store.Session, la *localHarness, dir string) error {
+	if s.ID == "" {
+		return writeSessionHistory(*m, dir)
+	}
+	path, err := store.SafePath(d.workdir, d.cfg.EndpointID, m.SessionID, "sessions", s.ID, "runs", m.RunID, m.AttemptID, "history.json")
+	if err != nil {
+		return err
+	}
+	var messages []map[string]json.RawMessage
+	if err = json.Unmarshal(m.SessionMessages, &messages); err != nil {
+		return err
+	}
+	filtered := []map[string]json.RawMessage{}
+	for _, msg := range messages {
+		var id int64
+		_ = json.Unmarshal(msg["id"], &id)
+		if s.NativeSessionID != "" && id <= s.LastContextSeq {
+			continue
+		}
+		task := false
+		for _, taskID := range m.TaskMessageIDs {
+			if id == taskID {
+				task = true
+			}
+		}
+		if task {
+			continue
+		}
+		var author string
+		_ = json.Unmarshal(msg["agent_key"], &author)
+		if s.NativeSessionID != "" && author == m.AgentID {
+			continue
+		}
+		filtered = append(filtered, msg)
+	}
+	b, err := json.Marshal(filtered)
+	if err != nil {
+		return err
+	}
+	if err = store.Atomic(path, b); err != nil {
+		return err
+	}
+	la.HistoryPath = path
+	// Path is outside the shared workspace; native tools receive it explicitly.
 	return nil
 }
