@@ -4,7 +4,7 @@
 
 ## 职责
 
-runService 管一次业务执行任务。一个 run 属于一个 session，确定 agent、device、harness；关联多条任务消息。每次重新领取通过 attempt 区分实际执行身份，不另建一条 run 代表网络重试。
+runService 管一次业务执行任务。一个 run 属于一个 session，确定 agent、device、harness；通过 run_prompt 保存多条任务输入副本。每次重新领取通过 attempt 区分实际执行身份，不另建一条 run 代表网络重试。
 
 ## 与其他 Service 的关系
 
@@ -13,40 +13,50 @@ runService 管一次业务执行任务。一个 run 属于一个 session，确�
 - workService 提供工作说明和执行范围的授权；与 run 同寿命的工作令牌由 workService 管理。
 - runService 持久化结果事件后通知 sessionService 消费；回复入库后由 sessionService 调用事务内结果绑定操作。
 
-## Message 与 Run 为什么需要关联表
+## run_prompt：面向一次 Run 的消息副本
 
-`message_deliveries` 表达任务输入的 N:M，也保存投递状态。一条消息给两个 agent 对应两条 delivery；同 agent 已有活跃 run 时，补充消息增加 delivery，不必新建 run。
+messages 保存用户在 session 中说过什么；run_prompt 保存“这次 run 实际要处理什么”。它既建立 message 与 run 的 N:M 关系，也保存输入内容快照和消费状态，不再另建 message_deliveries。
 
-run.message_id 只表示主任务，完整输入集合通过 delivery 查找。未消费补充任务转入新 run 时，delivery ID 保留而 run_id 可变；因此它不是不可变投递审计日志。
+```text
+M1 @coder @reviewer
+  → P1：run=R1，message=M1，复制 M1 内容，供 coder 执行
+  → P2：run=R2，message=M1，复制 M1 内容，供 reviewer 执行
+M2 @coder（R1 仍在执行）
+  → P3：run=R1，message=M2，复制 M2 内容，作为 R1 的补充输入
+```
+
+一条消息 @ 两个 agent，写两条 run_prompt。一个 run 可有多条 run_prompt。副本包含内容和格式，执行时以副本为准，不每次回查原始 messages 重建输入；运行时上下文仍可读取同 session 的共享历史。
+
+run.message_id 仅标识主任务。run_prompt.run_id 创建后不改变：未消费的输入需要后续 run 时，复制到新 run 的新 run_prompt，旧行保留并标记 deferred，用 superseded_by 连接后续副本。这样旧 run 当时收到的输入仍可追溯。
 
 ## 生命周期
 
 | 操作 | 规则 |
 |---|---|
-| 建立分配 | 同 session + agent 最多一个 pending/running/waiting run；无活跃任务则建新 run，否则追加 steer delivery |
+| 建立分配 | 同 session + agent 最多一个 pending/running/waiting run；无活跃任务则建新 run，否则追加 supplement run_prompt |
 | 领取 | 按 device 找 pending run；校验能力，生成 attempt，设租约，准备任务消息和共享上下文 |
 | 插话 | 仅对当前执行推送可接受的输入；执行端确认后记 delivered，不因 HTTP 保存成功就确认消费 |
 | 提问/回答 | 问题绑定 run/attempt；答案先保存，执行端确认消费后再推进问题与 run 状态 |
-| 结束 | 写终态及持久化结果事件；更新 delivery、撤销执行凭据，通知 sessionService 保存回复 |
+| 结束 | 写终态及持久化结果事件；更新 run_prompt、撤销执行凭据，通知 sessionService 保存回复 |
 | 超时重试 | 同 run 重排 pending，重新领取时换 attempt；拒绝旧执行的新事件 |
 | 未消费输入 | 正常结束时可转入后续新 run；取消则终止分配，不自动继续 |
 
-Run 状态是 pending/running/waiting/succeeded/failed/cancelled；delivery 是 pending/delivered/succeeded/failed/cancelled。等待某条消息全部处理完，需等其 delivery 全部终结，不能只等最初返回的某个 run。
+Run 状态是 pending/running/waiting/succeeded/failed/cancelled；run_prompt 是 pending/delivered/succeeded/failed/cancelled/deferred。等待某条消息全部处理完，需跟踪该 message 的全部 run_prompt：沿 superseded_by 找到各目标最新副本，等待它们全部成功、失败或取消；deferred 仅表示移交，不代表任务已完成，不能只等最初返回的某个 run。
 
 所有终态来源（包括取消、运行时不可用、设备删除）都必须写可恢复的终态事件。run_events 同时保存执行端事件和 server 生成的生命周期事件；server 合成事件在事务内分配不冲突的 event_seq。处理终态与后续输入在统一事务内完成，网络通知在提交后进行。
 
 ## v3 执行配置快照
 
-session_runs 增加 harness_revision、harness_config_yaml。建立 run 时复制 harnessService 返回的定义，client 按快照执行。更新同名配置不会改变排队/重试任务；创建后续新 run 时重新选择配置。
+runs 增加 harness_revision、harness_config_yaml。建立 run 时复制 harnessService 返回的定义，client 按快照执行。更新同名配置不会改变排队/重试任务；创建后续新 run 时重新选择配置。
 
 ## 表结构
 
-### session_runs
+### runs
 
 一次执行任务。`message_id` 是主任务，`result_message_id` 是结果回复；`agent_key/name/user_id` 是历史身份；device_id 可因设备删除置空。attempt_id/lease_until 表示当前执行租约，context_seq 表示上下文读取边界。配置快照是 v3 新增字段。
 
 ```sql
-CREATE TABLE session_runs (
+CREATE TABLE runs (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -68,33 +78,39 @@ CREATE TABLE session_runs (
     updated_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX runs_active_agent
-    ON session_runs(session_id,agent_id)
+    ON runs(session_id,agent_id)
     WHERE agent_id IS NOT NULL AND status IN ('pending','running','waiting');
 CREATE INDEX runs_status
-    ON session_runs(status,created_at);
+    ON runs(status,created_at);
 CREATE INDEX runs_dispatch
-    ON session_runs(device_id,status,created_at);
+    ON runs(device_id,status,created_at);
 ```
 
-### message_deliveries
+### run_prompt
 
-一条 user 消息给一个目标 agent 的分配，唯一键为 message_id + agent_key。kind 为 new_run/steer；prepared_attempt 表示哪个执行尝试已准备该输入。run_id/kind 可以随未消费任务回退改变。
+每行属于一个确定的 run，并引用原始 message；content/format 是冗余快照。kind 为 initial/supplement，表示首次任务或补充输入；prepared_attempt 标识准备该输入的执行尝试。相同 run/message 只能插一行，但同一 message 可以在多个 run 各有副本。
 
 ```sql
-CREATE TABLE message_deliveries (
+CREATE TABLE run_prompt (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
-    agent_key TEXT NOT NULL,
-    run_id TEXT REFERENCES session_runs(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL,
-    status TEXT NOT NULL,
-    error TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    format TEXT NOT NULL CHECK(format IN ('prompt','json')),
+    kind TEXT NOT NULL CHECK(kind IN ('initial','supplement')),
+    status TEXT NOT NULL DEFAULT 'pending',
     prepared_attempt TEXT NOT NULL DEFAULT '',
-    UNIQUE(message_id,agent_key)
+    superseded_by INTEGER REFERENCES run_prompt(id) ON DELETE SET NULL,
+    error TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE(run_id,message_id)
 );
+CREATE INDEX run_prompt_message ON run_prompt(message_id,run_id);
+CREATE INDEX run_prompt_pending ON run_prompt(run_id,status,id);
 ```
+
+副本内容在创建后固定；从同 run 的旧 attempt 重试时复用这些输入行，更新准备/消费状态。转入新 run 时在同一事务创建新行并设置旧行的 superseded_by，不移动旧行，不重复创建原消息。通过 run 和 message 的归属检查，保证关联属于同一个 session。
 
 ### run_events
 
@@ -104,7 +120,7 @@ CREATE TABLE message_deliveries (
 CREATE TABLE run_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    run_id TEXT NOT NULL REFERENCES session_runs(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     attempt_id TEXT NOT NULL,
     message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     device_id TEXT NOT NULL,
@@ -124,7 +140,7 @@ CREATE TABLE run_events (
 CREATE TABLE run_questions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    run_id TEXT NOT NULL REFERENCES session_runs(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     attempt_id TEXT NOT NULL,
     message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     tool_use_id TEXT NOT NULL,

@@ -4,29 +4,29 @@
 
 ## 职责
 
-sessionService 管理 session、message 和共享历史，并编排消息分配。一个 session 包含若干 message 和若干 run；message 与 run 的任务输入关系是 **N:M**，由 runService 的 message_deliveries 连接。
+sessionService 管理 session、message 和共享历史，并编排消息分配。一个 session 包含若干 message 和若干 run；message 与 run 的任务输入关系是 **N:M**，由 runService 的 run_prompt 连接。
 
 - 创建/读取/删除会话，维护标题、归属和共享历史。
-- 接收消息，调用 runService 为目标 agent 分配任务；内容只保存一次。
+- 接收消息，调用 runService 为目标 agent 分配任务；对话原文只保存一次，每个目标 run 另存一份 run_prompt。
 - 消费执行结果事件，把最终回复写为 assistant message，并记录 run/agent 来源。
-- 读取会话时组合对话、run、delivery、事件和问题的统一快照。
+- 读取会话时组合对话、run、run_prompt、事件和问题的统一快照。
 
 ![Session、消息、投递与执行的关系](../../images/session-run.svg)
 
 ## 发送和回复
 
-发送链路是 `controller → sessionService → runService`：先检查权限与请求幂等，在一个事务中写 message、格式和全部目标的任务分配，最后提交并通知设备。任一目标失败则整体回滚。空目标允许只保存一条备注。
+发送链路是 `controller → sessionService → runService`：先检查权限与请求幂等，在一个事务中写一条 message 和全部目标 run 的 run_prompt，最后提交并通知设备。任一目标失败则整体回滚。空目标允许只保存一条备注。
 
 ```text
-M1 @coder @reviewer → D1 / R1，D2 / R2
-M2 @coder          → D3 / R1（R1 仍活跃，补充输入）
+M1 @coder @reviewer → P1 / R1，P2 / R2
+M2 @coder          → P3 / R1（R1 仍活跃，补充输入）
 ```
 
 M1 对应两个 run，R1 处理两条消息；session 不绑定 agent，没有 session_participant 或每个 agent 独立的上下文。
 
-runService 先持久化终态与结果事件；sessionService 消费后，在同一事务写 assistant message、message_authors、result_message_id 关联和会话状态投影。消息按 run 去重。设备进度不直接变成普通聊天消息；取消可以只更新状态，不生成回复。
+runService 先持久化终态与结果事件；sessionService 消费后，在同一事务写带作者和来源的 assistant message、result_message_id 关联和会话状态投影。消息按 run 去重。设备进度不直接变成普通聊天消息；取消可以只更新状态，不生成回复。
 
-结果关联由 runService 提供事务内绑定操作完成，不要求 sessionService 直接改 session_runs。结果事件未消费时，run 可以已经结束、最终回复尚未写入；快照必须明确保留这个区别。恢复时可扫描终态 run 的持久化终态事件，结合 message_authors.run_id 判断是否需要补写，不依赖一次性的内存通知。
+结果关联由 runService 提供事务内绑定操作完成，不要求 sessionService 直接改 runs。结果事件未消费时，run 可以已经结束、最终回复尚未写入；快照必须明确保留这个区别。恢复时可扫描终态 run 的持久化终态事件，结合 messages.run_id 判断是否需要补写，不依赖一次性的内存通知。
 
 ## 状态和删除
 
@@ -36,7 +36,9 @@ Session 状态是 run 的聚合投影，优先 waiting、running、pending，再
 
 ## 幂等
 
-`session_requests` 按 session、用户和请求 key 去重。相同 key、相同内容及目标返回原消息；摘要不一致则冲突。它解决重复提交，不保证执行工具的外部副作用只发生一次。
+发送用户和 request_key/request_digest 直接保存在原始用户消息上；service 保证带 key 时用户与摘要非空。
+
+messages 中的唯一索引按 session、用户和非空 request_key 去重。相同 key、相同内容及目标返回原消息；摘要不一致则冲突。它解决重复提交，不保证执行工具的外部副作用只发生一次。
 
 ## 表结构
 
@@ -67,61 +69,42 @@ CREATE INDEX sessions_created_by
 
 ### messages
 
-对话内容。`role` 为 user/assistant，`content` 保存 JSON 内容；整型 id 同时作为消息顺序。这里不放 run_id，因为任务消息与 run 是 N:M。
+共享对话的原始消息。`format` 直接区分 prompt/json；`user_id` 记录发送用户，`agent_key/name` 记录回复作者快照。`target_agent_ids` 保存原始 @ 目标数组，即使执行分配变化，对话仍能显示当时 @ 了谁。
+
+`run_id` 只表示 assistant 回复来自哪个 run，不表达用户输入的 N:M；输入关系由 run_prompt.message_id 建立。用户消息的 run_id 为空。
 
 ```sql
 CREATE TABLE messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    role TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('user','assistant')),
     content TEXT NOT NULL,
+    format TEXT NOT NULL DEFAULT 'prompt' CHECK(format IN ('prompt','json')),
+    user_id TEXT REFERENCES users(id),
+    target_agent_ids TEXT NOT NULL DEFAULT '[]',
+    agent_key TEXT,
+    agent_name TEXT,
+    run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+    request_key TEXT,
+    request_digest TEXT,
     created_at INTEGER NOT NULL
 );
-CREATE INDEX messages_session
-    ON messages(session_id, id);
+CREATE INDEX messages_session ON messages(session_id,id);
+CREATE UNIQUE INDEX messages_result_run ON messages(run_id)
+    WHERE role='assistant' AND run_id IS NOT NULL;
+CREATE UNIQUE INDEX messages_request ON messages(session_id,user_id,request_key)
+    WHERE role='user' AND request_key IS NOT NULL;
 ```
 
-### message_formats
+### 合并掉的辅助表
 
-消息格式。is_prompt=1 表示文本 prompt，0 表示结构化 input，决定执行输入能否合并/插话。
+| 原表 | v3 处理 |
+|---|---|
+| message_formats | 不再建表，格式直接保存在 messages.format；执行副本复制到 run_prompt.format |
+| message_authors | 不再建表，回复作者和来源直接保存在 messages 的 agent_key/name、run_id |
+| session_requests | 不再建表；保留发送幂等需求，用 messages 的 user_id、request_key、request_digest 和唯一索引实现 |
 
-```sql
-CREATE TABLE message_formats (
-    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
-    is_prompt INTEGER NOT NULL
-);
-```
-
-### message_authors
-
-最终回复来源。agent_key/name 是历史快照，run_id 指向产生回复的 run。v3 增加 run_id 的部分唯一索引，确保同一 run 的结果重放不会重复写回复。取消可以没有对应行。
-
-```sql
-CREATE TABLE message_authors (
-    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
-    run_id TEXT REFERENCES session_runs(id) ON DELETE SET NULL,
-    agent_key TEXT NOT NULL,
-    agent_name TEXT NOT NULL
-);
-CREATE UNIQUE INDEX message_authors_run
-    ON message_authors(run_id)
-    WHERE run_id IS NOT NULL;
-```
-
-### session_requests
-
-发送请求幂等记录。digest 对规范化内容、目标和输入格式计算；message_id 指向原始提交，不能只因 run 结束就删除请求记录。
-
-```sql
-CREATE TABLE session_requests (
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    user_id TEXT NOT NULL REFERENCES users(id),
-    request_key TEXT NOT NULL,
-    digest TEXT NOT NULL,
-    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-    PRIMARY KEY(session_id,user_id,request_key)
-);
-```
+这些信息仍有作用，但都是一条消息自身的属性，不需要再各拆一张 1:1 的表。
 
 ## 相关设计
 

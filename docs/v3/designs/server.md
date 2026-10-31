@@ -24,14 +24,14 @@ Server 分为三层：
 | [deviceService](device.md) | 执行设备的登记、凭据、在线状态、可用 harness 和执行能力 | `devices`、`device_harnesses`、`device_capabilities` |
 | [agentService](agent.md) | Agent 的名称、说明、归属，以及选择哪台 device、哪种 harness 执行 | `agents` |
 | [harnessService](harness.md) | 用统一 YAML config 描述不同 harness，使 client 能把任务转为认识的执行方式 | `harnesses` 和 harness YAML 配置 |
-| [sessionService](session.md) | 清晰、持续的对话：创建会话、保存消息、读取共享历史；调用 runService 分配任务，接收结果事件并保存回复 | `sessions`、`messages`、`message_formats`、`message_authors`、`session_requests` |
-| [runService](run.md) | 建立任务、关联任务消息、派发与领取、跟踪执行、插话、提问、取消和执行恢复 | `session_runs`、`message_deliveries`、`run_events`、`run_questions` |
+| [sessionService](session.md) | 清晰、持续的对话：创建会话、保存消息、读取共享历史；调用 runService 分配任务，接收结果事件并保存回复 | `sessions`、`messages` |
+| [runService](run.md) | 建立任务、关联任务消息、派发与领取、跟踪执行、插话、提问、取消和执行恢复 | `runs`、`run_prompt`、`run_events`、`run_questions` |
 | [attachmentService](attachment.md) | 会话附件的上传、下载、访问权限、配额、元数据和文件生命周期 | `attachments` 与附件正文 |
 | [workService](work.md) | 把多个 session 组织成一项工作，管理协调 agent、线程关系和结果汇总 | `works`、`work_run_tokens`、`run_notifications` |
 
 这里的“拥有”指主要维护职责，不表示其他 service 不能读取。跨业务修改通过所属 service 完成；由编排操作统一事务，不能把各次调用做成互不相关的独立提交。
 
-各 service 的详细职责、操作和完整目标 SQL 见上表链接；19 张业务表各有一篇负责维护。表结构中的 device 命名，以及 harness 配置快照、回复去重约束都是目标设计，尚未应用到运行中的数据库。
+各 service 的详细职责、操作和完整目标 SQL 见上表链接；16 张业务表各有一篇负责维护。表结构中的 device 命名，以及 harness 配置快照、回复去重约束都是目标设计，尚未应用到运行中的数据库。
 
 sessionService 负责发送消息的业务编排，调用 runService 建立任务分配。runService 完成任务后发出结果事件，由 sessionService 接收并保存回复；runService 不反向调用 sessionService。
 
@@ -86,7 +86,7 @@ Work 是多个 session 的组织方式。workService 维护协调 session、工�
 | session → messages：1:N | 一段会话保存多条共享消息 |
 | session → runs：1:N | 一段会话可以先后或同时存在多个执行任务 |
 | message ↔ run：N:M | 一条消息可以交给多个 agent 的 run；一个 run 也可以处理多条任务消息 |
-| message → delivery → run | `message_deliveries` 记录每个目标 agent 的任务分配，连接消息和执行 |
+| message → run_prompt → run | `run_prompt` 为每个目标 run 保存一份消息副本，连接消息和执行 |
 
 这个 N:M 指的是**任务输入关系**。Run 的最终结果可以成为一条 assistant message，再通过作者/来源信息关联回 run。
 
@@ -95,16 +95,16 @@ Work 是多个 session 的组织方式。workService 维护协调 session、工�
 ```text
 Session S
   M1：@coder @reviewer 修复并评审登录问题
-    → D1 → R1（coder）
-    → D2 → R2（reviewer）
+    → P1（M1 副本）→ R1（coder）
+    → P2（M1 副本）→ R2（reviewer）
 
   M2：@coder 注意移动端兼容
-    → D3 → R1（coder 仍在执行，作为补充消息）
+    → P3（M2 副本）→ R1（coder 仍在执行，作为补充消息）
 ```
 
 这里 M1 对应 R1、R2；R1 同时处理 M1、M2。Session 不绑定某个 agent，每条消息的目标决定任务分配。
 
-`session_runs.message_id` 即使保留，也只表示主任务，不能拿它表达完整 N:M；完整输入关系由 message_deliveries 承载。没有目标的消息可以只进入对话，不创建 run。
+`runs.message_id` 即使保留，也只表示主任务，不能拿它表达完整 N:M；完整输入关系由 run_prompt 承载。没有目标的消息可以只进入对话，不创建 run。
 
 Run 是一次业务执行任务。设备故障导致重试时，用 attempt 区分同一个 run 的不同执行尝试；尚未消费的补充任务转入后续执行时，可以建立新的 run。具体恢复规则不在本篇展开。
 
@@ -127,8 +127,8 @@ Run 是一次业务执行任务。设备故障导致重试时，用 attempt 区�
 ## 五、用户消息进来以后
 
 1. **controller 接收。** 校验身份，解析消息、session 和目标 agent，交给 sessionService。
-2. **sessionService 保存对话。** 检查会话权限，保存一条 user message；多目标不复制消息内容。
-3. **runService 建立分配。** 对每个目标 agent，创建 run 或把消息加入已有活跃 run，写入 delivery；读取 agent/device/harness 的执行配置。
+2. **sessionService 保存对话。** 检查会话权限，保存一条 user message；共享 messages 只保存一条，各目标 run 分别写 run_prompt 副本。
+3. **runService 建立分配。** 对每个目标 agent，创建 run 或把消息加入已有活跃 run，写入当前 run 的消息副本 run_prompt；读取 agent/device/harness 的执行配置。
 4. **统一提交。** 消息和任务分配一并成功或失败。提交后通知在线 device 有任务或插话，HTTP 返回保存结果。
 5. **client 领取并执行。** runService 确定当前执行身份；client 读取共享消息、附件和 YAML 配置，转换为本机命令或协议调用。
 6. **上报与呈现。** client 上报进度、问题和结果；runService 更新执行记录并发出结果事件，sessionService 消费后追加最终回复；workService 按需汇总线程结果。

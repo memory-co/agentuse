@@ -13,10 +13,10 @@ workService 将多个 session 组织成一项工作。一个 work 有一个协�
 | 创建 work | 通过 agentService 校验协调 agent，通过 sessionService 创建协调 session；在同一事务建立关联 |
 | 创建线程 | 以工作范围权限调用 sessionService 创建关联 work_id 的 session |
 | 修改配置 | 维护名称、说明和协调 agent；忙碌时拒绝不安全的执行选择变更 |
-| 汇总结果 | 在最终回复已由 sessionService 保存后，检查原消息的所有 delivery 是否终结；将汇总作为消息发到协调 session |
+| 汇总结果 | 在最终回复已由 sessionService 保存后，检查原消息给所有目标的 run_prompt 是否完成（沿 superseded_by 跟踪后续副本）；将汇总作为消息发到协调 session |
 | 删除 work | 检查相关任务空闲，再经 sessionService 删除所属会话及 work 数据 |
 
-汇总使用 run_notifications 去重：记录“该线程消息已汇报”与向协调 session 发汇总消息，必须在同一事务完成。不能只收到 run 结束事件就汇总，因为最终回复可能还没消费入库；需要等回复落库通知，并能通过持久化消息/分配扫描补偿。
+汇总使用 run_notifications 去重：记录“该线程消息已汇报”与向协调 session 发汇总消息，必须在同一事务完成。不能只收到 run 结束事件就汇总，因为最终回复可能还没消费入库；需要等回复落库通知，并能通过持久化消息/run_prompt 扫描补偿。
 
 ## 工作令牌
 
@@ -53,7 +53,7 @@ CREATE INDEX works_user
 CREATE TABLE work_run_tokens (
     token_hash TEXT PRIMARY KEY,
     work_id TEXT NOT NULL REFERENCES works(id) ON DELETE CASCADE,
-    run_id TEXT NOT NULL REFERENCES session_runs(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     attempt_id TEXT NOT NULL
 );
 ```
