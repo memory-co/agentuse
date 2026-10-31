@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowUp, AtSign, X } from 'lucide-react';
+import { ArrowUp, AtSign, ChevronDown, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Input } from '@/components/ui/input';
 import { useT } from '@/lib/i18n';
 import type { Agent } from '@/lib/types';
@@ -15,6 +16,7 @@ export function MentionComposer({ agents, busy, onSend, defaultAgent, placeholde
   const [targets, setTargets] = useState<string[]>([]);
   const [query, setQuery] = useState<string | null>(null);
   const [cursor, setCursor] = useState(0);
+  const [pickerQuery, setPickerQuery] = useState('');
   const textarea = useRef<HTMLTextAreaElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const mention = useRef<{ start: number; end: number } | null>(null);
@@ -40,21 +42,31 @@ export function MentionComposer({ agents, busy, onSend, defaultAgent, placeholde
     void onSend(text, targets).then(() => setText(''), () => undefined);
   };
   return <form className="relative min-w-0 rounded-xl border bg-background p-2 shadow-sm" onSubmit={e => { e.preventDefault(); submit(); }}>
-    {showAgentPicker && <fieldset className="mb-2 grid gap-2 border-b px-2 pb-3" aria-label={t('mention.multi')}>
-      <legend className="mb-2 text-sm font-medium">{t('mention.multi')}</legend>
-      <p className="text-xs text-muted-foreground">{t('mention.multiHint')}</p>
-      <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto">
-        {agents.map(agent => {
-          const selected = targets.includes(agent.id);
-          return <label key={agent.id} className={`inline-flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${selected ? 'border-primary bg-primary/5' : 'hover:bg-muted'}`}>
-            <input type="checkbox" checked={selected} disabled={busy || (!selected && targets.length >= 8)}
-              onChange={() => setTargets(current => selected ? current.filter(id => id !== agent.id) : current.length < 8 ? [...current, agent.id] : current)} />
-            <span className="min-w-0 break-words">{agent.name}<span className="ml-1 text-xs text-muted-foreground">@{agent.id}</span></span>
-          </label>;
-        })}
-      </div>
-      {!agents.length && <p className="text-xs text-muted-foreground">{t('session.noAgents')}</p>}
-    </fieldset>}
+    {showAgentPicker && <div className="mb-2 border-b px-2 pb-3">
+      <Popover onOpenChange={() => setPickerQuery('')}>
+        <PopoverTrigger asChild>
+          <Button type="button" variant="outline" disabled={busy} className="w-full justify-between gap-2" aria-label={t('mention.multi')}>
+            <span className="min-w-0 truncate">{targets.length ? t('mention.targets', { n: targets.length }) : t('mention.multi')}</span>
+            <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] p-2" onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }}>
+          <Input aria-label={t('mention.search')} placeholder={t('mention.search')} value={pickerQuery} onChange={e => setPickerQuery(e.target.value)} />
+          <div className="mt-2 max-h-60 overflow-y-auto" role="group" aria-label={t('mention.multi')}>
+            {agents.filter(agent => `${agent.id} ${agent.name}`.toLowerCase().includes(pickerQuery.toLowerCase())).map(agent => {
+              const selected = targets.includes(agent.id);
+              return <label key={agent.id} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted">
+                <input type="checkbox" checked={selected} disabled={busy || (!selected && targets.length >= 8)}
+                  onChange={() => setTargets(current => current.includes(agent.id) ? current.filter(id => id !== agent.id) : current.length < 8 ? [...current, agent.id] : current)} />
+                <span className="min-w-0 break-words">{agent.name}<span className="ml-1 text-xs text-muted-foreground">@{agent.id}</span></span>
+              </label>;
+            })}
+            {!agents.some(agent => `${agent.id} ${agent.name}`.toLowerCase().includes(pickerQuery.toLowerCase())) && <p className="p-2 text-xs text-muted-foreground">{t(agents.length ? 'mention.noMatch' : 'session.noAgents')}</p>}
+          </div>
+          <p className="mt-2 border-t px-2 pt-2 text-xs text-muted-foreground">{t('mention.multiHint')}</p>
+        </PopoverContent>
+      </Popover>
+    </div>}
     <div className="flex flex-wrap gap-1 px-2">
       {targets.map(id => <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs">
         <span className="truncate">@{id}</span>
@@ -101,11 +113,11 @@ export function MentionComposer({ agents, busy, onSend, defaultAgent, placeholde
       {!ids.length && <p className="p-2 text-xs text-muted-foreground">{t('mention.noMatch')}</p>}
     </div>}
     <div className="flex flex-wrap items-center gap-2">
-      <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5" disabled={busy || targets.length >= 8} aria-label={t('mention.choose')}
+      {!showAgentPicker && <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5" disabled={busy || targets.length >= 8} aria-label={t('mention.choose')}
         onClick={() => {
           if (query !== null) { setQuery(null); return; }
           mention.current = null; setQuery(''); setCursor(0); requestAnimationFrame(() => search.current?.focus());
-        }}><AtSign className="size-4" />{t('mention.choose')}</Button>
+        }}><AtSign className="size-4" />{t('mention.choose')}</Button>}
       <span className="text-xs text-muted-foreground">{targets.length ? t('mention.targets', { n: targets.length }) : t('mention.note')}</span>
       {children}
       <Button type="submit" size="icon" className="ml-auto size-8 rounded-full" disabled={busy || !text.trim()} aria-label={t('session.send')}><ArrowUp /></Button>
