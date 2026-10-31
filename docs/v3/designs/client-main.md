@@ -189,20 +189,23 @@ CLI 负责配置管理和提供页面链接。页面展示执行、所属 sessio
 | GET /api/status | 无 | client 版本、启动时间、运行中/等待回答的数量、各 endpoint 连接状态、当前资源不足原因 |
 | GET /api/settings | 无 | 当前生效的 local_http、session.work_root、quota，以及配置是否需要重启才能生效；不暴露 ui.token |
 | GET /api/harnesses | harness（可选） | 已安装 harness/revision、最近探测的程序版本、可用性和能力；无探测结果时为 unknown，不因查询启动程序 |
-| GET /api/conversations | endpoint_id、limit、cursor | 本机仍有目录的 conversation：标识、session 数、活跃 run 数、最近使用时间 |
+| GET /api/conversations | endpoint_id（必填）、limit、cursor | 仅列出指定 endpoint 下的 conversation 目录标识，不读取下属 session/run 文件 |
 | GET /api/conversations/{endpoint_id}/{conversation_id} | 无 | conversation 标识、workspace 相对位置、session 数、最近一次容量扫描的字节数及扫描时间 |
 | GET /api/conversations/{endpoint_id}/{conversation_id}/sessions | harness、status、limit、cursor | 该 conversation 的 session 摘要 |
 | GET /api/conversations/{endpoint_id}/{conversation_id}/sessions/{session_id} | 无 | session.yaml 的会话标识、agent、harness/revision、原生 ID、状态、上下文位置和时间 |
-| GET /api/runs | endpoint_id、conversation_id、session_id、harness、status、since、until、limit、cursor | 跨 conversation 的执行摘要，每项包含完整 RunRef |
-| GET /api/conversations/{endpoint_id}/{conversation_id}/sessions/{session_id}/runs | status、limit、cursor | 指定 session 内的执行摘要 |
+| GET /api/conversations/{endpoint_id}/{conversation_id}/sessions/{session_id}/runs | status、limit、cursor | 指定 session 内的执行摘要，只读取该 session 的 runs/ 子树 |
 | GET /api/conversations/{endpoint_id}/{conversation_id}/sessions/{session_id}/runs/{run_id}/attempts/{attempt_id} | 无 | 单次执行的状态、摘要、时间、错误、用量、费用及插话/文件计数 |
-| GET /api/usage | endpoint_id、conversation_id、harness、since、until | 已保留 run 文件的用量/费用汇总、未知值条数和统计范围 |
+| GET /api/conversations/{endpoint_id}/{conversation_id}/sessions/{session_id}/usage | since、until | 只汇总指定 session 的已保留 run 文件，返回用量/费用、未知值条数和统计范围 |
 
-`/api/runs` 支持 session_id 单独筛选；conversation_id 必须与 endpoint_id 一起使用。时间范围按 received_at 筛选，since 包含、until 不包含。列表按最近时间倒序，再按完整标识排序；cursor 携带筛选条件，不能挪作另一组筛选。
+查询按 endpoint → conversation → session → run 逐级限定目录，不提供跨 conversation 的 run 列表或全局 usage 汇总。缺少必填 endpoint_id 返回 400。conversation 列表仅枚举指定 endpoint 的直接子目录；session 列表只读指定 conversation 的 sessions/；run 列表和用量只读指定 session 的 runs/。详情直接定位文件，不递归搜索。
+
+run 列表筛选及用量汇总可能读取该 session 内的多个 run.json；分页不是磁盘扫描量的保证，不把 limit 描述为扫描上限。用量时间范围按 received_at 筛选，since 包含、until 不包含。列表以标识字典序稳定排序，cursor 携带父级路径及筛选条件，不能挪作另一查询。
 
 HTTP 路径中的 endpoint_id 是逻辑 ID，按标准 URL 路径段编码一次；例如逻辑 ID `http---localhost%3A8090` 在请求路径中表示为 `http---localhost%253A8090`，服务端解码一次后作为 ID 校验，不能再次 URL 解码成路径。查询参数同样只解码一次。
 
-列表摘要不返回任务全文、原始原生协议帧或完整日志。usage 只汇总已保留的本机记录，不代表平台完整历史，不能把未知费用或 token 当作 0。容量扫描由后台执行，页面请求只读最近结果，未扫描时字节数为 null。页面需要更新时轮询 GET，不新增本机 WebSocket/SSE 协议。
+/api/status 只读当前进程的运行时快照，不为统计活跃任务扫描历史文件。conversation 详情的 session 数只枚举该目录下的 sessions/，不遍历 run 历史。
+
+列表摘要不返回任务全文、原始原生协议帧或完整日志。usage 只汇总指定 session 已保留的本机记录，不代表平台完整历史，不能把未知费用或 token 当作 0。容量扫描由后台执行，页面请求只读最近结果，未扫描时字节数为 null。页面需要更新时轮询 GET，不新增本机 WebSocket/SSE 协议。
 
 成功响应直接返回对象或列表对象。错误统一为 `{"error":{"code":"not_found","message":"记录不存在"}}`；400 表示参数无效，401 表示缺少/错误令牌，403 表示 Host 不允许，404 表示对象不存在或已回收，405 表示方法不允许，500 表示文件损坏或读取失败。损坏文件不静默当作不存在，列表可返回不含正文/凭据的 warnings。
 
