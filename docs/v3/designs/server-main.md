@@ -2,7 +2,7 @@
 
 > 本文定义 v3 的目标业务划分。service 名称和 device 命名是设计约定，现有源码、表和接口尚未全部按此调整。本稿先说明业务关系，不逐文件展开实现。Client 整体职责见 [client-main.md](client-main.md)。
 
-Conversation 表示共享对话，由 conversationService 管理；原 session 业务整体改用此名称，session 留作后续独立概念，不在本稿定义。
+Conversation 表示共享对话，由 conversationService 管理；原 session 业务整体改用此名称，session 专指 client 对应 Codex/Claude Code 的原生执行会话，见 [client-session.md](client-session.md)；server 不增加 sessionService 或 sessions 表。
 
 Server 保存对话、组织任务并跟踪执行。用户的一台执行设备称为 **device**，设备上运行的程序称为 **client**。Client 从 server 领取 run，由本地 harnessService 解析 YAML、准备资源、执行 harness 并处理交互。Server 的职责到 run 调度和业务状态为止，不理解原生 harness 协议。
 

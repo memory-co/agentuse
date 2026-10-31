@@ -1,133 +1,124 @@
 # Client 设计
 
-> 本文定义 v3 client 的整体职责和协作关系，尚未据此完整重构代码。Device 表示执行设备，client 表示设备上运行的程序；服务端设计见 [server-main.md](server-main.md)，中心管理见 [client-manage.md](client-manage.md)，本地 harness 接入细节见 [client-harness.md](client-harness.md)。
+> 本文定义 v3 client 的目标业务划分，尚未据此完整重构代码。Client 通过多个中心领取 run，并在设备本地 session 中执行。服务端总览见 [server-main.md](server-main.md)。
 
-Client 是设备上的常驻执行程序：通过 manageService 管理一个或多个中心，分别登记设备、连接 server、共享本机容量领取 run，调用本地 harnessService 执行，把进度、问题、用量和结果转换为标准事件上报。同时提供本机执行账本和只读页面。
+## 一、整体关系
 
-## 一、整体结构
+Client 负责本地连接、领取、原生 session 和执行；server 负责 conversation、任务分配及业务状态。两端都按 controller / service / store 组织，但本机 controller 仅提供只读页面，执行服务由 CLI 启动。
 
-![Client 整体结构](../../images/client-main.svg)
+![Client Service 关系](../../images/client-main.svg)
 
-| 组件 | 职责 |
-|---|---|
-| CLI | 注册设备、管理本地配置、启动主循环、查看状态和本机页面；对话/工作等远端操作通过业务 API 完成 |
-| [manageService](client-manage.md) | 管理多个中心的配置/身份、连接实例和本机共享容量，轮询安排领取机会 |
-| 每中心主循环 | 为所属中心维护连接、上线登记、能力上报、一次领取、心跳、重连与执行对账 |
-| Run 管理 | 按 center/run/attempt 跟踪本机执行，准备共享上下文和文件，路由插话/答案/取消，记录执行状态并上报事件 |
-| harnessService | 管理本地接入包，探测程序，准备资源，执行原生 harness，处理 RPC/hook/skill 和输出解释 |
-| 本机 store | SQLite 保存 centers、manage_settings 及执行账本；配置接口归 manageService，账本分 Writer/Reader |
-| 本机 controller | 只使用 store.Reader，提供 GET 查询和嵌入网页，不调用执行服务 |
-| 本机 frontend | 执行清单、详情和用量统计，不提供启动/取消任务或执行命令入口 |
+- **CLI**：整体装配、注册中心、配置管理、启动常驻程序、查看状态与本机页面。
+- **service**：manageService、sessionService、runService、harnessService，各自管理清楚的业务对象。
+- **store**：本机 SQLite，保存中心配置、原生 session 记录和执行账本。
+- **controller / frontend**：只读查询本机记录，不通过网页启动、取消任务或修改配置。
 
-manageService、Run 管理与 harnessService 都属于 client 的 service 层。manageService 管中心与本机领取容量，Run 管理管执行，harnessService 管原生协议；每个中心有独立主循环。CLI 负责整体装配。
+每中心连接循环属于 manageService 的内部连接机制；进程、流、RPC、hook 等原语属于 harnessService 的本地执行机制，不再和业务 service 平铺为另一组顶层服务。
 
-## 二、与 Server 的边界
+## 二、有哪些 Service
 
-| Server 负责 | Client 负责 |
-|---|---|
-| 用户、device、agent、conversation、message 和 work | 本机配置、连接、进程、接入包和执行资源 |
-| 建立 runs/run_prompts，分配目标设备 | 领取任务并按本地可用版本执行 |
-| 保存共享历史和 conversation 文件空间 | 获取执行所需历史及文件，准备原生输入 |
-| 租约、业务状态、结果入对话、工作汇总 | 原生交互、输出解释、结果与用量上报 |
-| fileService 本地/S3 的上传下载 | 通过统一文件 API 获取输入和上传产物 |
-
-Client 不直接访问 server 数据库，也不把本机账本当成服务端任务队列。Server 不管理本地 shell 命令、原生 RPC、hook 回调或 harness YAML。
-
-### 网络上传什么
-
-WebSocket 只承载 run 业务协议：
-
-- 上线：device 身份、协议版本、本地探测后的 harness 标识/版本及业务能力。
-- 下行：run/attempt、目标 harness 标识/版本、任务输入，以及补充消息、答案、取消。
-- 上行：领取请求、心跳、started/progress/plan、消费确认、question/answered、usage、result/error/cancelled。
-
-所有连接和执行都绑定本地 center_id，事件、答案、文件和工作请求只回到原中心。
-
-共享历史、run_prompts 和文件按业务 API 通过 HTTP 获取；文件产物经 fileService 上传。原生命令、参数、环境、脚本、YAML、RPC 帧和 hook 控制回包在设备内处理，不通过 WebSocket 远程驱动。
-
-## 三、本地配置与数据
-
-| 数据 | 放在哪里 / 谁管理 |
-|---|---|
-| 中心列表、各自地址/device_id/凭据、本机容量 | manageService 存入本机 SQLite 的 centers / manage_settings，按中心启动主循环，凭据不跨中心共享 |
-| Harness 接入包 | 本机安装目录，按名称和 revision 管理；harnessService 读取 |
-| 本机可执行程序路径覆盖 | 本地配置，不上传原始启动命令 |
-| Conversation 工作目录 | 按 center_id + conversation UUID 隔离；同 conversation 的执行共享业务文件和历史来源 |
-| 每次执行的 hook/配置/临时资源 | 按 center_id + run/attempt 隔离，避免并行执行覆盖彼此控制文件 |
-| 执行账本 | 本机 SQLite，保存实际接收和执行信息，默认保留 90 天 |
-| 本机页面令牌和监听地址 | 本地文件，供 CLI 打开只读页面 |
-
-每个中心配置中的 device_id 只对应该 server 的设备资源，conversation UUID 对应共享对话，run/attempt 对应具体任务及当前执行身份。它们不与原生 Codex thread/turn 或 Claude 原生会话 混为同一个 ID。
-
-接入包升级先在本地安装、探测，再上报新版本。正在执行或已经排队指定旧版本的任务继续使用本地保留版本；缺少对应版本明确失败，不从 server 请求 YAML，也不擅自改用新版本。
-
-## 四、启动到执行的主流程
-
-### 4.1 启动与上线
-
-1. 打开 client 本机 SQLite；CLI 启动 manageService 从 centers / manage_settings 读取中心列表和本机容量；对新增中心分别用安装令牌交换 device 身份和凭据。
-2. 打开本机账本，启动可选的只读 HTTP 页面，准备工作目录和本地接入包。
-3. harnessService 在本机探测程序、版本与真实功能；各中心主循环按自身权限把探测结论分别上报，不回传探测命令或原始协议细节。
-4. 为每个启用中心独立建立 WebSocket 并握手；重连只提交该中心的活跃执行，由对应 server 确认。
-5. manageService 预留本机空闲槽位，按中心轮询进行一次有界领取；无任务立即尝试下一中心，不同时广播长期 ready。
-
-### 4.2 收到一个 Run
-
-1. Run 管理检查中心、执行身份、领取授权、目标包版本和本机容量，登记当前执行并写入账本。
-2. 获取 run_prompts、共享 conversation 历史和 messages.attachments 对应文件。run_prompts 是当前 run 的输入副本，历史按 messages.seq 组织。
-3. 准备 conversation 工作目录与本次 run/attempt 的独立控制资源，将任务输入、共享历史和文件路径交给 harnessService。
-4. harnessService 解析本地 YAML、安装本次资源、启动原生进程并管理交互。Codex 和 Claude Code 的具体接法只在本地发生。
-5. 原生输出被转换为标准进度、计划、问题、用量和终态；Run 管理校验本地执行身份，更新账本并通过执行所属中心的主循环上报。
-6. 收尾进程、回调及临时控制资源，向 manageService 释放执行槽位，由它安排下一中心的领取。Conversation 业务文件保留。
-
-第一版各中心共享本机执行容量，默认 1，等待用户回答也占槽位。领取需明确返回 run/no_task，不能向多个中心同时授予长期 ready；完整规则见 [manageService](client-manage.md)。
-
-## 五、执行中的交互
-
-| 输入/事件 | Run 管理 | harnessService |
+| Service | 负责什么 | 主要拥有的数据 |
 |---|---|---|
-| 补充输入 | 确认所属 run/attempt，关联 run_prompts | 转换为本地原生插话，按真实接入依据确认或拒绝 |
-| 原生提问 | 接收标准问题并上报 server，保持当前执行关联 | 保存原生请求关联，等待答案，恢复原生调用 |
-| 用户答案 | 只路由到仍有效的执行与问题 | 转换成本地工具/RPC 的回答格式 |
-| 取消 | 标记取消并终止对应执行流程 | 原生取消或结束进程树，释放 callback 和等待者 |
-| 进度/结果 | 保存本机记录并上报标准事件 | 解释原生输出与终态，生成统一业务结果 |
+| [manageService](client-manage.md) | 管理连接哪些中心、各自凭据与连接实例、共享领取容量与轮询调度 | `centers`、`manage_settings` |
+| [sessionService](client-session.md) | 管理原生会话创建/恢复/复用、执行锁与历史同步位置 | 本机 `sessions` |
+| [runService](client-run.md) | 接收从中心领来的 run，绑定本地 session，组织输入、路由交互、上报事件与记录执行 | 本机 `runs` 账本 |
+| [harnessService](client-harness.md) | 本地接入包探测、原生 session 操作、启动执行、RPC/hook/skill、输出解释 | 本地 YAML、接入包和原生资源，不新增业务表 |
 
-输入已到 client、已写入原生通道、被原生接入点接受是不同状态。Client 不凭网络回执就报告插话成功；不支持、拒绝或未确认的输入仍由 server runService 处理后续分配。
+四个 service 共用本机 SQLite 的存储层；本机共四张业务表，和 server 的表不是同一份数据库。关联字段不声明外键，跨服务修改通过业务操作及本机事务完成。
 
-Agent 上传产物后，以 conversation 文件空间相对路径填入回复的 attachments。Skill 可以指导文件/工作操作，但不代替运行控制、消费确认和结果上报。
+### 2.1 manageService：从哪些中心领任务
 
-## 六、断线、重启与退出
+manageService 为每个中心保存独立地址、device 身份和凭据，创建各自的连接循环，处理上线、心跳、重连和对账。所有中心共用本机执行容量，默认总并发 1。
 
-- **仅连接断开**：当前原生进程仍在本机受 Run 管理控制；该中心主循环重连并对账，不能认为断线等于执行成功。
-- **失去有效租约或执行被撤销**：结束对应本地执行；不继续用旧 attempt 上传结果或回答问题。
-- **进程重启**：本机账本中未完成记录标记为中断，不据此擅自重新执行；server 根据租约和任务状态决定重排。
-- **原生程序异常退出**：生成标准失败结果，清理本地桥接资源，再恢复领取能力。
-- **client 正常退出**：停止领活，取消本机受管进程与回调，收尾账本和本机 HTTP；server 的最终状态仍由业务事件及租约机制维护。
+领取前预留槽位，轮询某中心一次有界领取，明确返回 run 或 no_task；无任务尝试下一中心。不能向多个中心同时广播长期 ready。任务一旦领到，就绑定 center_id，后续交互、文件和结果只回原中心。
 
-任务状态以 server 为业务权威，本地账本说明这台设备实际发生过什么。无法送达或被 server 拒绝的结果不能被本机状态伪装成服务端已提交。
+### 2.2 sessionService：原生执行上下文
 
-## 七、本机账本和只读页面
+Client session 直接对应原生 harness 的会话：Codex 的 thread、Claude Code 的 session。**一个 session 包含若干个从 server 领取的 run。** 首次创建原生会话，后续任务可以继续使用；run 完成不删除 session。
 
-账本按 center_id、run_id、attempt_id 区分执行，同时保存服务地址，记录收到/结束时间、状态、错误、设备/agent/conversation、harness、工作目录、插话与文件数量、用量和耗时。默认只保存正文前 200 字摘要，不复制完整服务端对话。
+默认按 center、conversation、agent、harness 找当前可用会话，并检查包版本及恢复条件。同 session 同时只执行一个 run，多个中心或不同 agent 不共用原生上下文。
 
-Run 管理使用账本 store.Writer，manageService 使用配置存储接口；本机 controller 只拿账本 store.Reader，使用独立只读数据库连接。Controller 与执行 service 不互相调用，不通过页面启动任务或修改执行状态。
+### 2.3 runService：一次领来的任务
 
-本机页面默认监听 `127.0.0.1:7801`，可以关闭；校验 Host、使用本机访问令牌，仅允许 GET，不开放 CORS。两页是执行清单与用量统计。CLI 负责给出访问链接，本机网页是账本的视图。
+runService 不在本机另造业务任务。run_id/attempt_id 来自 server，本地用 `(center_id, run_id, attempt_id)` 区分执行，将它绑定到本机 sessions.id 后执行。
 
-本机 SQLite 包含 manageService 的 centers、manage_settings，以及本机执行账本。账本即便使用 runs 这个表名，也与 server 的 runs 不是同一份数据，不能替代 server 的任务分配。配置表结构见 [manageService](client-manage.md)。
+runService 取得 run_prompts、共享历史和文件，调用 sessionService 与 harnessService 完成执行，记录进度、问题、插话确认、用量和终态。结果返回原中心，本机状态不代替 server 提交成功。
 
-## 八、依赖方向
+### 2.4 harnessService：本地原生接入
+
+harnessService 解析本地接入包，执行 create/resume/run/steer/answer/cancel 等原生操作，并将输出解释为标准业务事件。Codex RPC 和 Claude hook 的差异全部留在设备上。
+
+YAML、hook、桥接程序、skill 与指令资源本地管理；server 不下发执行命令、脚本、执行描述或原生协议帧。接入包升级先探测再上报，旧任务不静默换用新版本。
+
+## 三、Conversation、Session 和 Run
+
+| 对象 | 归属 | 关系 |
+|---|---|---|
+| conversation | server | 共享消息和文件，含多个 agent 的任务 |
+| session | client / 原生 harness | 一个持久原生执行上下文，可以先后执行多个 run |
+| run | server 分配，client 执行 | 从指定中心领取，在一个本地 session 中完成本次尝试 |
 
 ```text
-CLI → manageService → 各中心主循环 → Run 管理 → harnessService
-manageService → 配置存储接口 → 本机 SQLite（centers / manage_settings）
-Run 管理 → store.Writer → 本机账本
-CLI → controller → store.Reader → 本机账本
-controller → 本机 frontend
+Server Conversation C
+  ├─ Agent coder    → R1、R2 → Client Session S1 → Codex Thread T1
+  └─ Agent reviewer → R3、R4 → Client Session S2 → Claude Session H1
 ```
 
-本地进程、协议适配、hook 和 skill 属于 client 内部；共享部分只放 run 业务协议、标准事件和必要 DTO。Server 与 client 互不引用对方内部实现。
+一个 conversation 的多个 agent 共享 server 历史，但在 client 各自有原生 session。一个 server run 的不同 attempt 可以有多条本地执行记录，每条绑定实际使用过的 session。
+
+首次执行准备共享历史；恢复 session 时以历史增量和当前 run_prompts 组织输入，不重复把完整 conversation 灌进已有原生上下文。细节见 sessionService 设计。
+
+## 四、Service 之间怎样协作
+
+| 业务 | 主要调用关系 |
+|---|---|
+| 注册、启停和连接中心 | CLI → manageService → 本机配置存储 / 中心连接循环 |
+| 本地探测与能力上报 | manageService → harnessService；探测结果由各中心连接上报 |
+| 领取并执行任务 | manageService → runService → sessionService / harnessService |
+| 创建/恢复原生会话 | sessionService → harnessService；保存原生会话 ID 和当前选择 |
+| 任务进度/结果 | harnessService → 标准事件回调 → runService → 所属中心连接 |
+| 用户答案/补充输入/取消 | 所属中心连接 → runService → 当前 session 内的原生执行 |
+| 执行收尾 | runService 结束本次占用，sessionService 保留原生历史，manageService 释放槽位 |
+| 本机只读查询 | controller → store.Reader；不调用执行 service |
+
+回调传递标准业务事件，不要求 harnessService 反向管理中心配置或直接访问 server 数据库。Session 的跨 run 生命周期与当前 run 的进程/回调清理分开管理。
+
+## 五、从启动到一个 Run 结束
+
+1. CLI 打开本机 SQLite，装配四个 service 及可选的只读 HTTP 页面。
+2. manageService 读取中心配置；新增中心分别注册，已登记中心独立握手和对账。
+3. harnessService 本地探测程序与包版本；manageService 向各中心上报可用性和能力。
+4. manageService 预留槽位并领取任务，交 runService 校验中心、attempt、版本和本机容量。
+5. runService 取得输入与文件，sessionService 选择或创建原生 session，并建立本地运行关联。
+6. harnessService 在该 session 中执行；后续 run 恢复同一会话或在既有会话继续，不默认新建。
+7. 标准事件更新本机 runs，再回报原中心。文件产物经 fileService 上传，相对路径进入消息 attachments。
+8. run 完成后清理本次资源、释放会话锁和全局槽位；session 保留，供后续领来的 run 使用。
+
+## 六、本地数据与中心隔离
+
+| 数据 | 保存方式 |
+|---|---|
+| 中心配置/凭据、本机容量 | SQLite centers / manage_settings，manageService 管理 |
+| 原生 session | SQLite sessions，sessionService 管理本机 UUID 与原生 ID 的映射 |
+| 执行记录 | SQLite runs，runService 按 center/run/attempt 记录，并关联本地 session_id |
+| Harness 接入包和原生历史 | 本地文件及原生程序自己的持久化，harnessService 管理接入 |
+| 业务工作目录 | 按 center_id + conversation_id 隔离，同对话共享业务文件 |
+| Hook/配置/临时控制资源 | 按 center_id + run/attempt 隔离，不覆盖其他执行 |
+
+本地 session UUID、原生 session ID、server conversation UUID、server run/attempt 是不同标识。两个中心返回相同 ID 也不能串目录、凭据或执行状态。
+
+默认 90 天保留期只清理过期执行账本，不自动删除当前 session 或原生历史。账本默认仅保存正文前 200 字摘要，用量/费用缺失留空；复用 session 后按本次执行增量计量，不重复累计历史。
+
+## 七、断线、重启和只读页面
+
+网络断开时，manageService 只重连对应中心；sessionService/runService 保持仍受控的本地状态。失去有效租约则结束旧执行；client 重启先对账，不因数据库中有旧 session 或 run 就自行继续工作。
+
+run 取消或进程退出不必删除 session；由本地适配确认是否可恢复。原生历史丢失则标记旧 session 不可用，后续有效任务可建立新会话，旧记录保留。
+
+本机 controller 只使用账本/session 的只读 Reader，不访问中心凭据，不调用四个执行 service。页面默认监听 `127.0.0.1:7801`，仅允许 GET，使用本机令牌与 Host 校验，不开放 CORS。
+
+CLI 负责配置管理和提供页面链接。页面展示执行、所属 session 和用量统计，不提供中心写入或执行控制。
 
 ## 相关设计
 
-[manageService](client-manage.md) · [Client harnessService](client-harness.md) · [Server 总览](server-main.md) · [deviceService](server-device.md) · [runService](server-run.md) · [conversationService](server-conversation.md) · [fileService](server-file.md)
+[manageService](client-manage.md) · [sessionService](client-session.md) · [runService](client-run.md) · [harnessService](client-harness.md) · [Server 总览](server-main.md)

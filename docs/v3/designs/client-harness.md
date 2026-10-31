@@ -58,6 +58,8 @@ Client 维护本地接入包及其内容摘要 harness_revision，摘要包括 Y
 
 每次执行把需准备的资源放到当前 run/attempt 的独立目录，通过本次启动参数加载；同 conversation 的并行 agent 不互相覆盖 hook 配置、AGENTS.md 或 CLAUDE.md。小型协议关联信息与原生连接对象只保存在本地执行期间，进程结束后清理，conversation 文件空间保留。
 
+session 的创建/恢复选择由 [client sessionService](client-session.md) 负责；harnessService 实现原生 create/resume/run 操作，不自行按每个 run 新建上下文。
+
 ## 四、统一业务动作
 
 对 runService 暴露统一语义，内部接入方式可以不同：
@@ -81,7 +83,7 @@ Server 只使用这些业务事件。它不需要知道接受输入用了哪个 
 | 功能 | Codex 本地接入 | Claude Code 本地接入 | 所需资源 |
 |---|---|---|---|
 | 探测 | 版本命令及 app-server 功能探测 | 版本命令及 stream-json、hook、提问功能探测 | 本地 YAML |
-| 启动 | app-server 持久双向 RPC，初始化、建 thread、开 turn | print 模式流式输入/输出，启动前准备 hook/配置 | YAML、按需 hook 配置 |
+| 启动 | 首次建 thread，后续 run 在原 thread 开 turn | 首次创建 session，后续 run 恢复原 session，准备本次 hook/配置 | YAML、按需 hook 配置 |
 | 输入/上下文 | 将 run_prompts、共享消息和文件引用组织为 turn 输入/指令 | 将相同材料组织为 user 输入和工作说明 | 输入模板、指令文件 |
 | 进度 | 解析 item、文本和工具通知 | 解析 assistant 文本与 tool_use | 本地输出映射 |
 | 计划 | 原生计划通知 | 任务工具调用 | 输出映射；skill 可提示使用工具，不能制造事件 |
@@ -96,9 +98,9 @@ Server 只使用这些业务事件。它不需要知道接受输入用了哪个 
 
 ### 5.1 Codex：本地持续 RPC
 
-Client 本地启动 `codex app-server`，管理初始化、thread/turn 和事件状态，原始 RPC 不上传 server。新 run 创建新的原生上下文，历史来自共享 conversation；原生 thread 不等同于 agentuse conversation。
+Client 本地启动 `codex app-server`，管理初始化、thread/turn 和事件状态，原始 RPC 不上传 server。client sessionService 维护原生上下文：首次建立 thread，后续 run 在同一 thread 开新 turn；连接重建时恢复指定 thread。原生 thread 对应本地 session，不等同于 server conversation。
 
-- 启动链：`initialize → initialized → thread/start → turn/start`。
+- 首次启动链：`initialize → initialized → thread/start → turn/start`；后续 run 在已有 thread 上 turn/start，需恢复时用 thread/resume。
 - 插话：本地发 `turn/steer`，携带 thread 和 expectedTurnId。只有匹配请求且返回目标 turnId 的成功响应才能确认接收，再向 server 上报该 run_prompt 的标准确认。
 - 提问：本地接住用户输入请求，保留原请求 ID，把问题归一化上报 server；收到业务答案后在本地回复原 RPC。本机 codex-cli 0.165.0 的 schema 使用 `item/tool/requestUserInput`，返回格式为 `answers[questionId].answers` 字符串数组；实验能力必须显式开启且探测通过。
 - 取消：本地发 `turn/interrupt`；响应只说明请求被接受，等待 `turn/completed` 的 interrupted 状态才确认结束。
@@ -109,7 +111,7 @@ Client 本地启动 `codex app-server`，管理初始化、thread/turn 和事件
 
 ### 5.2 Claude Code：本地流与 Hook
 
-Client 本地以 `claude -p` 和 stream-json 接入，启动前准备 hook、skill 和指令。不使用跳过这些资源发现的裸配置后又假设 hook 已加载。[Claude Code 程序化运行说明](https://code.claude.com/docs/en/headless)
+Client 本地以 `claude -p` 和 stream-json 接入。首次记录原生 session ID，后续领来的 run 用指定 ID 恢复同一 session，而非每次新建。启动前准备 hook、skill 和指令。不使用跳过这些资源发现的裸配置后又假设 hook 已加载。[Claude Code 程序化运行说明](https://code.claude.com/docs/en/headless)
 
 本地 harnessService 映射 user 输入、assistant 文本/工具块、TaskCreate/TaskUpdate 等计划信息和 result/usage；不让 skill 自报结果替代协议终态。
 
@@ -134,7 +136,7 @@ accepted 不等于模型已经理解或完成输入；client 必须报告确认�
 - Codex 使用匹配当前 turn 的原生 RPC 成功响应作为接收依据。
 - Claude 在 hook 边界交付，必须验证该版本的交付/继续执行证据，记录 hook-delivery 范围，不能伪造 Codex 式 ACK。
 - 只有网络消息或通道写入回执时，输入仍 pending；run 已结束、不支持或不能确认交付时，由 server runService 将未消费输入安排到后续 run。
-- run/attempt 变更后，旧原生请求、旧 hook、旧答案不能影响新执行；client 清理本地连接、桥接脚本和子进程。
+- run/attempt 变更后，旧原生请求、旧 hook、旧答案不能影响新执行；client 清理本次连接、桥接脚本和子进程；原生 session 历史是否继续保留由 sessionService 管理。
 
 本机 harnessService 记录本次包版本和本地运行信息；server 只保存 run 业务状态、上报的包版本和标准事件，不保存执行配置。
 
@@ -154,4 +156,4 @@ accepted 不等于模型已经理解或完成输入；client 必须报告确认�
 
 ## 相关设计
 
-[manageService](client-manage.md) · [Server 总览](server-main.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [runService](server-run.md) · [fileService](server-file.md)
+[client sessionService](client-session.md) · [client runService](client-run.md) · [manageService](client-manage.md) · [Server 总览](server-main.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [runService](server-run.md) · [fileService](server-file.md)

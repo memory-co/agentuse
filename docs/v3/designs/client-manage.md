@@ -11,7 +11,7 @@ manageService 管理“这台 client 从哪些中心领任务，以及这些中�
 - 按本机统一容量安排各中心的领取机会，避免同时超量领活。
 - 给每次执行绑定所属中心，保证后续交互、文件和结果不串中心。
 
-manageService 不执行 harness，不决定 server 内的任务顺序，也不在中心之间转移任务。主循环维护连接，Run 管理控制执行，harnessService 负责本地原生协议。
+manageService 不执行 harness，不决定 server 内的任务顺序，也不在中心之间转移任务。主循环维护连接，client runService控制执行，harnessService 负责本地原生协议。
 
 ## 二、中心配置
 
@@ -73,7 +73,9 @@ CREATE TABLE manage_settings (
 
 本机账本保留 center_id，按 `(center_id, run_id, attempt_id)` 唯一区分执行，并保留任务接收时的服务地址。它与 centers 不声明外键，移除中心记录不删除历史账本；重新添加中心生成新的 UUID，不接管旧记录。
 
-这两张配置表与执行账本共用 client 本机 SQLite。manageService 使用专用的配置存储接口，负责读取设备凭据和修改配置；本机页面的 Reader 只暴露执行记录/统计，不提供 centers.device_key 或原始配置查询。
+这两张配置表与 sessions、执行账本共用 client 本机 SQLite。manageService 使用专用的配置存储接口，负责读取设备凭据和修改配置；本机页面的 Reader 只暴露 session、执行记录/统计，不提供 centers.device_key 或原始配置查询。
+
+centers 和 manage_settings 的时间字段使用 Unix 毫秒。
 
 本机数据库及其备份按设备凭据文件管理，限制为当前系统用户访问。CLI 状态输出不打印 device_key；本机只读页面也不增加中心写入接口。
 
@@ -85,7 +87,7 @@ CLI → manageService
           ├─ 中心 B → 主循环 B → 注册/握手/心跳/对账
           └─ 本机共享容量与领取调度
                          ↓
-              Run 管理 → harnessService
+              client runService → harnessService
                          ↓
                 事件返回执行所属中心
 ```
@@ -94,7 +96,7 @@ CLI → manageService
 |---|---|
 | CLI | 新增/修改/启停中心配置，查询各中心状态 |
 | 每中心主循环 | 汇报连接状态；按调度授权发起一次领取，维护独立心跳与对账 |
-| Run 管理 | 接收带中心上下文的任务；汇报执行开始/结束、释放本机槽位 |
+| client runService | 接收带中心上下文的任务；汇报执行开始/结束、释放本机槽位 |
 | harnessService | 共用本地接入包，不管理中心密钥；使用本次执行明确传入的业务上下文 |
 | 本机账本 | 保存 center_id、服务地址和执行身份，支持按中心查询 |
 
@@ -107,7 +109,7 @@ CLI → manageService
 1. 有空闲容量时，manageService 先在本机预留一个领取槽位。
 2. 对已连接、允许领取的中心轮询，授权某一个主循环发起**一次有界领取**。
 3. 中心明确返回 run 或 no_task；没有任务立即释放预留并尝试下一个中心。超时/断线进入该中心退避，不让其他中心无限等待。
-4. 收到 run 后，将预留转为执行槽位，交 Run 管理处理；实际运行总数不得超过本机容量。
+4. 收到 run 后，将预留转为执行槽位，交 client runService处理；实际运行总数不得超过本机容量。
 5. 执行结束释放槽位，从下一个可用中心继续轮询。多个空闲槽位也必须逐个原子预留。
 
 **不能向所有中心同时广播一个长期有效的 ready。** 否则每个 server 都认为设备空闲，可能同时派来多个 run。多中心模式要求领取协议明确返回任务或无任务，不采用没有结束条件的 ready 授权。
@@ -144,4 +146,4 @@ CLI → manageService
 
 ## 相关设计
 
-[Client 总览](client-main.md) · [本地 harnessService](client-harness.md) · [Server 总览](server-main.md) · [deviceService](server-device.md) · [runService](server-run.md)
+[client sessionService](client-session.md) · [client runService](client-run.md) · [Client 总览](client-main.md) · [本地 harnessService](client-harness.md) · [Server 总览](server-main.md) · [deviceService](server-device.md) · [runService](server-run.md)

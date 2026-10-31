@@ -1,70 +1,68 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1480" height="1000" viewBox="0 0 1480 1000" font-family="-apple-system, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" role="img" aria-labelledby="title desc">
-<title id="title">多中心 Client 与 manageService</title><desc id="desc">manageService 管理多个中心的配置、独立连接和共享执行容量。各中心主循环领取任务，执行绑定中心身份，原生交互在本地完成，只读页面读取本机账本。</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1560" height="1040" viewBox="0 0 1560 1040" font-family="-apple-system, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" role="img" aria-labelledby="title desc">
+<title id="title">Client 的四个业务 Service</title><desc id="desc">manageService 管多中心领取，runService 管领来的任务，sessionService 管原生会话复用，harnessService 管本地执行。四张本机表与只读页面分离。</desc>
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker></defs>
-<rect width="1480" height="1000" rx="16" fill="white"/>
-<text x="30" y="40" font-size="25" fill="#0f172a" font-weight="600">一个 Client，连接多个中心，共用本机执行容量</text>
-<text x="30" y="80" font-size="17" fill="#475569">连接、凭据、任务、文件和结果按 center_id 隔离；harness 本地执行。</text>
-<rect x="410" y="115" width="1040" height="755" rx="14" fill="#f5fff9" stroke="#cbd5e1"/>
-<text x="430" y="146" font-size="18" fill="#065f46" font-weight="600">Device · Client（本地 CLI 装配）</text>
-<rect x="30" y="185" width="250" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
-<text x="48" y="215" font-size="19" fill="#0f172a" font-weight="600">中心 A</text>
-<text x="48" y="246" font-size="15" fill="#475569">独立注册身份 / 凭据</text>
-<text x="48" y="271" font-size="15" fill="#475569">只管理自己的任务与数据</text>
-<rect x="30" y="400" width="250" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
-<text x="48" y="430" font-size="19" fill="#0f172a" font-weight="600">中心 B</text>
-<text x="48" y="461" font-size="15" fill="#475569">独立注册身份 / 凭据</text>
-<text x="48" y="486" font-size="15" fill="#475569">不知道其他中心的任务</text>
-<rect x="450" y="175" width="280" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
-<text x="468" y="205" font-size="19" fill="#0f172a" font-weight="600">manageService</text>
-<text x="468" y="236" font-size="15" fill="#475569">中心配置、启停与连接实例</text>
-<text x="468" y="261" font-size="15" fill="#475569">共享槽位、预留和轮询领取</text>
-<text x="468" y="286" font-size="15" fill="#475569">任务始终绑定原中心</text>
-<rect x="805" y="175" width="280" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
-<text x="823" y="205" font-size="19" fill="#0f172a" font-weight="600">Run 管理</text>
-<text x="823" y="236" font-size="15" fill="#475569">center / run / attempt</text>
-<text x="823" y="261" font-size="15" fill="#475569">输入、交互与生命周期</text>
-<rect x="1150" y="175" width="280" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
-<text x="1168" y="205" font-size="19" fill="#0f172a" font-weight="600">harnessService</text>
-<text x="1168" y="236" font-size="15" fill="#475569">本地包探测、执行与解释</text>
-<text x="1168" y="261" font-size="15" fill="#475569">标准事件返回所属中心</text>
-<path d="M730 245 H805" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<path d="M1085 245 H1150" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<rect x="450" y="395" width="280" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
-<text x="468" y="425" font-size="19" fill="#0f172a" font-weight="600">各中心主循环</text>
-<text x="468" y="456" font-size="15" fill="#475569">A / B 各自握手与心跳</text>
-<text x="468" y="481" font-size="15" fill="#475569">分别重连、对账、业务收发</text>
-<text x="468" y="506" font-size="15" fill="#475569">领取明确返回 run / no_task</text>
-<path d="M590 320 V395" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<path d="M280 250 H340 V425 H450" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="304" y="225" font-size="13" fill="#475569">业务连接 A</text>
-<path d="M280 485 H450" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="305" y="470" font-size="13" fill="#475569">业务连接 B</text>
-<path d="M730 475 H770 V290 H805" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<rect x="1150" y="395" width="280" height="120" rx="10" fill="#fffbeb" stroke="#cbd5e1"/>
-<text x="1168" y="425" font-size="19" fill="#0f172a" font-weight="600">原生程序 / 本地桥接</text>
-<text x="1168" y="456" font-size="15" fill="#475569">进程、RPC、hook、skill</text>
-<text x="1168" y="481" font-size="15" fill="#475569">不传原生执行指令到中心</text>
-<path d="M1290 320 V395" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<rect x="450" y="655" width="280" height="145" rx="10" fill="#fffbeb" stroke="#cbd5e1"/>
-<text x="468" y="685" font-size="19" fill="#0f172a" font-weight="600">SQLite 配置 / 本地包</text>
-<text x="468" y="716" font-size="15" fill="#475569">centers / manage_settings</text>
-<text x="468" y="741" font-size="15" fill="#475569">共用本地 harness 包版本</text>
-<text x="468" y="766" font-size="15" fill="#475569">配置经 CLI 修改</text>
-<path d="M450 725 H430 V285 H450" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<rect x="805" y="655" width="280" height="145" rx="10" fill="#ecfdf5" stroke="#cbd5e1"/>
-<text x="823" y="685" font-size="19" fill="#0f172a" font-weight="600">本机 SQLite · 账本</text>
-<text x="823" y="716" font-size="15" fill="#475569">center_id + run + attempt</text>
-<text x="823" y="741" font-size="15" fill="#475569">记录接收、状态、用量</text>
-<text x="823" y="766" font-size="15" fill="#475569">Writer / Reader 分离</text>
-<path d="M945 320 V655" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="960" y="560" font-size="14" fill="#475569">store.Writer</text>
-<rect x="1150" y="655" width="280" height="145" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
-<text x="1168" y="685" font-size="19" fill="#0f172a" font-weight="600">只读 controller + 网页</text>
-<text x="1168" y="716" font-size="15" fill="#475569">执行清单与用量统计</text>
-<text x="1168" y="741" font-size="15" fill="#475569">只拿 store.Reader</text>
-<text x="1168" y="766" font-size="15" fill="#475569">不修改中心或执行状态</text>
-<path d="M1150 725 H1085" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="1098" y="705" font-size="13" fill="#475569">只读</text>
-<text x="30" y="915" font-size="17" fill="#475569">隔离：工作目录包含 center_id / conversation_id，结果不随当前选中的中心切换。</text>
-<text x="30" y="956" font-size="17" fill="#92400e">容量：默认总并发 1；不能向所有中心同时广播长期 ready。</text>
+<rect width="1560" height="1040" rx="16" fill="white"/>
+<text x="30" y="40" font-size="25" fill="#0f172a" font-weight="600">Client：管理中心、原生会话、任务执行和 Harness 接入</text>
+<text x="30" y="80" font-size="17" fill="#475569">Conversation 在 server；Session 是本地原生上下文，一个 Session 可以执行多个领来的 Run。</text>
+<rect x="410" y="115" width="1120" height="875" rx="14" fill="#f5fff9" stroke="#cbd5e1"/>
+<text x="430" y="147" font-size="18" fill="#065f46" font-weight="600">Device · Client（CLI 装配）</text>
+<rect x="30" y="200" width="270" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
+<text x="48" y="230" font-size="19" fill="#0f172a" font-weight="600">中心 A / Server</text>
+<text x="48" y="262" font-size="15" fill="#475569">自己的 conversation / run</text>
+<text x="48" y="288" font-size="15" fill="#475569">独立身份、凭据和连接</text>
+<rect x="30" y="430" width="270" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
+<text x="48" y="460" font-size="19" fill="#0f172a" font-weight="600">中心 B / Server</text>
+<text x="48" y="492" font-size="15" fill="#475569">自己的 conversation / run</text>
+<text x="48" y="518" font-size="15" fill="#475569">不共享其他中心的执行状态</text>
+<rect x="450" y="180" width="300" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
+<text x="468" y="210" font-size="19" fill="#0f172a" font-weight="600">manageService</text>
+<text x="468" y="242" font-size="15" fill="#475569">多个中心配置与连接循环</text>
+<text x="468" y="268" font-size="15" fill="#475569">共享容量、轮询、有界领取</text>
+<text x="468" y="294" font-size="15" fill="#475569">centers / manage_settings</text>
+<rect x="830" y="180" width="300" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
+<text x="848" y="210" font-size="19" fill="#0f172a" font-weight="600">runService</text>
+<text x="848" y="242" font-size="15" fill="#475569">执行 server 分配的 run/attempt</text>
+<text x="848" y="268" font-size="15" fill="#475569">输入、交互、事件与账本</text>
+<text x="848" y="294" font-size="15" fill="#475569">本机 runs</text>
+<rect x="830" y="420" width="300" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
+<text x="848" y="450" font-size="19" fill="#0f172a" font-weight="600">sessionService</text>
+<text x="848" y="482" font-size="15" fill="#475569">原生会话创建 / 恢复 / 复用</text>
+<text x="848" y="508" font-size="15" fill="#475569">同 session 串行执行多个 run</text>
+<text x="848" y="534" font-size="15" fill="#475569">本机 sessions</text>
+<rect x="1210" y="420" width="300" height="145" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
+<text x="1228" y="450" font-size="19" fill="#0f172a" font-weight="600">harnessService</text>
+<text x="1228" y="482" font-size="15" fill="#475569">本地 YAML / hook / skill</text>
+<text x="1228" y="508" font-size="15" fill="#475569">原生协议与输出解释</text>
+<text x="1228" y="534" font-size="15" fill="#475569">不通过 server 驱动原生命令</text>
+<path d="M300 260 H450" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="325" y="240" font-size="13" fill="#475569">业务连接</text>
+<path d="M300 500 H380 V290 H450" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<path d="M750 250 H830" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<path d="M980 325 V420" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<path d="M1130 490 H1210" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<path d="M1130 250 H1360 V420" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="1215" y="235" font-size="14" fill="#475569">本次执行</text>
+<rect x="1210" y="625" width="300" height="120" rx="10" fill="#fffbeb" stroke="#cbd5e1"/>
+<text x="1228" y="655" font-size="19" fill="#0f172a" font-weight="600">原生程序 / 会话历史</text>
+<text x="1228" y="687" font-size="15" fill="#475569">Codex thread / Claude session</text>
+<text x="1228" y="713" font-size="15" fill="#475569">run 完成后历史仍可保留</text>
+<path d="M1360 565 V625" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<rect x="450" y="790" width="680" height="150" rx="10" fill="#ecfdf5" stroke="#cbd5e1"/>
+<text x="468" y="820" font-size="19" fill="#0f172a" font-weight="600">本机 store · SQLite</text>
+<text x="468" y="852" font-size="15" fill="#475569">centers / manage_settings：中心配置与容量</text>
+<text x="468" y="878" font-size="15" fill="#475569">sessions：原生会话映射；runs：每次任务执行记录</text>
+<text x="468" y="904" font-size="15" fill="#475569">不使用 server 数据库；Reader 不暴露设备密钥</text>
+<path d="M600 325 V790" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="615" y="680" font-size="14" fill="#475569">配置接口</text>
+<path d="M900 325 V380 H790 V790" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="800" y="720" font-size="14" fill="#475569">执行账本</text>
+<path d="M980 565 V790" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="995" y="680" font-size="14" fill="#475569">会话存储</text>
+<rect x="1210" y="815" width="300" height="125" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
+<text x="1228" y="845" font-size="19" fill="#0f172a" font-weight="600">只读 controller + 网页</text>
+<text x="1228" y="877" font-size="15" fill="#475569">session / 执行清单 / 用量</text>
+<text x="1228" y="903" font-size="15" fill="#475569">只拿只读 Reader，不控制执行</text>
+<path d="M1210 880 H1130" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
+<text x="1142" y="862" font-size="13" fill="#475569">Reader</text>
+<text x="450" y="970" font-size="16" fill="#475569">四个 Service 管业务；连接循环、原生协议原语都是内部机制，不是并列顶层服务。</text>
 </svg>

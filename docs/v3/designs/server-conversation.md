@@ -4,7 +4,7 @@
 
 ## 职责
 
-Conversation 是原共享对话概念的新名称，不新增另一层 conversationService；原有消息、任务和文件归属随之统一改名。session 的新用途另行设计。
+Conversation 是原共享对话概念的新名称，不新增另一层 conversationService；原有消息、任务和文件归属随之统一改名。session 是 client 本地的原生执行会话，见 [client-session.md](client-session.md)。
 
 conversationService 管理 conversation、message 和共享历史，并编排消息分配。一个 conversation 包含若干 message 和若干 run；message 与 run 的任务输入关系是 **N:M**，由 runService 的 run_prompts 连接。
 

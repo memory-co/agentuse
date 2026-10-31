@@ -45,6 +45,8 @@ Run 状态是 pending/running/waiting/succeeded/failed/cancelled；run_prompts �
 
 所有终态来源（包括取消、运行时不可用、设备删除）都必须写可恢复的终态事件。run_events 同时保存执行端事件和 server 生成的生命周期事件；server 合成事件在事务内分配不冲突的 event_seq。处理终态与后续输入在统一事务内完成，网络通知在提交后进行。
 
+一个 server run 被 client 领到后，绑定 client 本地 session 执行；多个 run 可以先后复用同一原生上下文。本地 session 不进入 server 表结构，server 不用它替代 conversation。
+
 ## Server 与本地执行的边界
 
 runService 固定 agent、device、设备上报的 harness 标识和 harness_revision。Client 按本地接入包执行，不从 server 接收 YAML、shell 命令或执行描述；已建立的 run 不因配置更新自动换版本。本地缺少对应版本时明确报错，不静默改用新版本，包安装/升级属于设备本地管理。
