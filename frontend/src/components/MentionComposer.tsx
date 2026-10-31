@@ -6,9 +6,9 @@ import { Input } from '@/components/ui/input';
 import { useT } from '@/lib/i18n';
 import type { Agent } from '@/lib/types';
 
-export function MentionComposer({ agents, busy, onSend, defaultAgent, placeholder, children }: {
+export function MentionComposer({ agents, busy, onSend, defaultAgent, placeholder, children, showAgentPicker = false }: {
   agents: Agent[]; busy?: boolean; onSend: (text: string, targets: string[]) => Promise<unknown>;
-  defaultAgent?: string; placeholder: string; children?: ReactNode;
+  defaultAgent?: string; placeholder: string; children?: ReactNode; showAgentPicker?: boolean;
 }) {
   const t = useT();
   const [text, setText] = useState('');
@@ -40,6 +40,21 @@ export function MentionComposer({ agents, busy, onSend, defaultAgent, placeholde
     void onSend(text, targets).then(() => setText(''), () => undefined);
   };
   return <form className="relative min-w-0 rounded-xl border bg-background p-2 shadow-sm" onSubmit={e => { e.preventDefault(); submit(); }}>
+    {showAgentPicker && <fieldset className="mb-2 grid gap-2 border-b px-2 pb-3" aria-label={t('mention.multi')}>
+      <legend className="mb-2 text-sm font-medium">{t('mention.multi')}</legend>
+      <p className="text-xs text-muted-foreground">{t('mention.multiHint')}</p>
+      <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto">
+        {agents.map(agent => {
+          const selected = targets.includes(agent.id);
+          return <label key={agent.id} className={`inline-flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${selected ? 'border-primary bg-primary/5' : 'hover:bg-muted'}`}>
+            <input type="checkbox" checked={selected} disabled={busy || (!selected && targets.length >= 8)}
+              onChange={() => setTargets(current => selected ? current.filter(id => id !== agent.id) : current.length < 8 ? [...current, agent.id] : current)} />
+            <span className="min-w-0 break-words">{agent.name}<span className="ml-1 text-xs text-muted-foreground">@{agent.id}</span></span>
+          </label>;
+        })}
+      </div>
+      {!agents.length && <p className="text-xs text-muted-foreground">{t('session.noAgents')}</p>}
+    </fieldset>}
     <div className="flex flex-wrap gap-1 px-2">
       {targets.map(id => <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs">
         <span className="truncate">@{id}</span>
@@ -86,11 +101,11 @@ export function MentionComposer({ agents, busy, onSend, defaultAgent, placeholde
       {!ids.length && <p className="p-2 text-xs text-muted-foreground">{t('mention.noMatch')}</p>}
     </div>}
     <div className="flex flex-wrap items-center gap-2">
-      <Button type="button" variant="ghost" size="icon" className="size-8" disabled={busy || targets.length >= 8} aria-label={t('mention.choose')}
+      <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5" disabled={busy || targets.length >= 8} aria-label={t('mention.choose')}
         onClick={() => {
           if (query !== null) { setQuery(null); return; }
           mention.current = null; setQuery(''); setCursor(0); requestAnimationFrame(() => search.current?.focus());
-        }}><AtSign /></Button>
+        }}><AtSign className="size-4" />{t('mention.choose')}</Button>
       <span className="text-xs text-muted-foreground">{targets.length ? t('mention.targets', { n: targets.length }) : t('mention.note')}</span>
       {children}
       <Button type="submit" size="icon" className="ml-auto size-8 rounded-full" disabled={busy || !text.trim()} aria-label={t('session.send')}><ArrowUp /></Button>

@@ -16,5 +16,8 @@ func (s *Server) handleWeb(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("网页还没构建:cd frontend && npm ci && npm run build,然后重新编译 agentuse-server(或直接 make build)。\n"))
 		return
 	}
+	if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
 	static.ServeHTTP(w, r)
 }

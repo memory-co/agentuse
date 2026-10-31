@@ -64,7 +64,7 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
       <h1 className="text-2xl font-semibold">{t('session.ask')}</h1>
       <p className="text-sm text-muted-foreground">{t('mention.shared')}</p>
     </div>
-    <MentionComposer agents={agents.data??[]} placeholder={t('session.taskPlaceholder')} busy={add.isPending} onSend={(prompt,targets)=>add.mutateAsync({prompt,targets})}>
+    <MentionComposer showAgentPicker agents={agents.data??[]} placeholder={t('session.taskPlaceholder')} busy={add.isPending} onSend={(prompt,targets)=>add.mutateAsync({prompt,targets})}>
       <label className="cursor-pointer text-xs text-muted-foreground">{t('attachment.upload')}
         <input type="file" multiple disabled={add.isPending} className="sr-only" onChange={e => setFiles(Array.from(e.target.files ?? []))} />
       </label>
@@ -73,7 +73,7 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
     {progress && <p role="status" className="text-center text-xs">{progress}</p>}
     {draftId && <div className="grid gap-1 text-center text-xs"><p>{t('attachment.created')}</p><a className="underline" href={`#/s/${draftId}`}>{t('attachment.open')}</a></div>}
     {add.isError && <div className="text-center"><ErrorState error={add.error} /></div>}
-    {agents.isSuccess && !agents.data.length && <p className="text-center text-sm text-muted-foreground">{t('session.noAgents')}</p>}
+    {agents.isError && <ErrorState error={agents.error} />}
   </div>;
 }
 
