@@ -132,7 +132,16 @@ function MessageView({ m }: { m: Message }) {
  const t=useT();const c=m.content||{};
  if(m.role==='user') {
   const text=typeof c.prompt==='string'?c.prompt:JSON.stringify(c,null,2);
-  return typeof c.from_session==='string'?<ThreadNote m={m}/>:<div className="ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-2.5 text-sm" title={fmtTime(m.created_at)}>{text}</div>;
+  const targets = m.target_agent_ids ?? [];
+  const targetLabel = <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" data-message-targets={m.id}>
+    {targets.length ? <><span>{t('mention.sentTo')}</span>{targets.map(agent => <span key={agent} className="break-all font-medium">@{agent}</span>)}</> : <span>{t('mention.noteOnly')}</span>}
+  </div>;
+  return typeof c.from_session === 'string'
+    ? <div className="grid min-w-0 gap-1.5" data-message-id={m.id}><ThreadNote m={m}/>{targetLabel}</div>
+    : <div className="ml-auto grid min-w-0 max-w-[85%] gap-1.5 rounded-2xl bg-muted px-4 py-2.5 text-sm" title={fmtTime(m.created_at)} data-message-id={m.id}>
+        {targetLabel}
+        <div className="whitespace-pre-wrap break-words">{text}</div>
+      </div>;
  }
   const out = c.ok ? (typeof c.output === 'string' ? c.output : JSON.stringify(c, null, 2)) : (c.error || t('session.failed')) + (c.output ? '\n' + c.output : '');
   return <div className="grid min-w-0 grid-cols-1 gap-1.5" title={fmtTime(m.created_at)}>
