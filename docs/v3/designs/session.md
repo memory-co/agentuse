@@ -69,7 +69,7 @@ CREATE INDEX sessions_created_by
 
 ### messages
 
-共享对话的原始消息。`content` 统一保存对话正文；`author_role` 为 user/agent；`author_user_id`、`author_agent_id` 按作者类型二选一。作者名称分别实时关联 users/agents 读取，不保存 agent_key、agent_name 快照。`target_agent_ids` 保存原始 @ 目标数组，即使执行分配变化，对话仍能显示当时 @ 了谁。
+共享对话的原始消息。`content` 统一保存对话正文；`author_role` 为 user/agent；`author_user_id`、`author_agent_id` 按作者类型二选一。作者名称分别实时关联 users/agents 读取，不保存 agent_key、agent_name 快照。`run_agent_ids` 保存原始 @ 目标数组，即使执行分配变化，对话仍能显示当时 @ 了谁。
 
 service 写入时保证 user 消息只填 author_user_id，agent 消息只填 author_agent_id。读取作者用 LEFT JOIN；agent 改名后历史消息展示当前名称，已删除的作者保留原 ID 并显示已删除状态，不清空消息中的作者 ID。
 
@@ -94,7 +94,7 @@ CREATE TABLE messages (
     content TEXT NOT NULL,
     author_user_id TEXT,
     author_agent_id TEXT,
-    target_agent_ids TEXT NOT NULL DEFAULT '[]',
+    run_agent_ids TEXT NOT NULL DEFAULT '[]',
 
     reply_to_message_id INTEGER,
     request_key TEXT,
