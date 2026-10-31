@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, ChevronRight, Circle, CircleCheck, LoaderCircle, RotateCcw, Trash2 } from 'lucide-react';
+import { Check, ChevronRight, Circle, CircleCheck, LoaderCircle, RotateCcw, Trash2, X } from 'lucide-react';
 import { MentionComposer } from '@/components/MentionComposer';
 import { Attachments } from '@/components/Attachments';
 import { uploadAttachment } from '@/lib/attachments';
@@ -97,7 +98,6 @@ export function Conversation({ id, onDeleted, placeholder,defaultAgent }: { id: 
   const { session: x, messages, events } = q.data;
   const questions = q.data.questions ?? [];
   const meta = t("mention.shared");
-  const last = events.filter(e => e.kind === 'progress').pop();
   const coordinator = x.work_role === 'coordinator';
   const settled = x.status === 'idle' || x.status === 'resolved';
   return <div className="flex min-h-0 flex-1 flex-col">
@@ -114,13 +114,9 @@ export function Conversation({ id, onDeleted, placeholder,defaultAgent }: { id: 
         </div>
         <Attachments key={id} session={id} running={!settled} />
         {messages.map(m=><div key={m.id} className="grid min-w-0 grid-cols-1 gap-2"><MessageView m={m}/>
-        {m.role==='user'&&<div className="flex flex-wrap gap-2">{(q.data.deliveries??[]).filter(d=>d.message_id===m.id).map(d=><span key={d.id} className="rounded-md border px-2 py-1 text-xs" title={d.error}>@{d.agent_key} · {d.kind==='steer'?t('mention.steer')+' · ':''}{t(`mention.${d.status}`)}</span>)}</div>}
+        {m.role==='user'&&<div className="flex flex-wrap gap-2">{(q.data.deliveries??[]).filter(d=>d.message_id===m.id && !(q.data.runs??[]).some(run=>run.id===d.run_id && run.message_id===m.id)).map(d=><span key={d.id} className="rounded-md border px-2 py-1 text-xs" title={d.error}>@{d.agent_key} · {d.kind==='steer'?t('mention.steer')+' · ':''}{t(`mention.${d.status}`)}</span>)}</div>}
         {(q.data.runs??[]).filter(r=>r.message_id===m.id).map(run=><RunView key={run.id} run={run} events={events} questions={questions} sessionId={id}/>)}
         </div>)}
-        {!settled && <div className="flex items-start gap-2 text-sm">
-          <StatusBadge tone={STATUS_TONE[x.status]}>{statusLabel(x.status)}</StatusBadge>
-          <span className="min-w-0 break-words text-muted-foreground">{q.data.daemon_offline ? t('session.daemonOffline') : last ? evText(last.payload).slice(0, 300) : ''}</span>
-        </div>}
         <div ref={bottom} />
       </div>
     </div>
@@ -217,13 +213,50 @@ function QuestionView({ q, sessionId }: { q: Question; sessionId: string }) {
   </form>;
 }
 
-function RunView({run,events,questions,sessionId}:{run:Run;events:SessionEvent[];questions:Question[];sessionId:string}){
- const t=useT();const cancel=useMutation({mutationFn:()=>api(`/api/sessions/${sessionId}/runs/${run.id}/cancel`,{method:'POST'}),onSuccess:()=>{void refresh();}});
- const mine=events.filter(e=>e.run_id===run.id);const plan=mine.filter(e=>e.kind==='plan').pop();const active=['pending','running','waiting'].includes(run.status);
- return <section className="grid min-w-0 grid-cols-1 gap-2 rounded-lg border p-3 text-xs" data-run-id={run.id} aria-label={`run @${run.agent_key}`}>
- <div className="flex flex-wrap items-center gap-2"><span className="font-medium">@{run.agent_key}</span><span>{t(`mention.${run.status}`)}</span><span className="min-w-0 break-all text-muted-foreground">{run.harness} · {run.daemon_id??'—'}</span>{active&&<Button variant="ghost" size="sm" className="ml-auto h-7 text-xs" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>{t('mention.cancel')}</Button>}</div>
- {run.error&&run.status!=='cancelled'&&<p className="break-words text-destructive">{run.error}</p>}{plan&&<PlanView steps={plan.payload?.steps}/>}
- {questions.filter(q=>q.run_id===run.id).map(q=><QuestionView key={q.id} q={q} sessionId={sessionId}/>)}
- {mine.some(e=>e.kind==='progress')&&<details><summary className="cursor-pointer text-muted-foreground">{t('session.progress',{n:mine.filter(e=>e.kind==='progress').length})}</summary><div className="grid max-h-48 gap-1 overflow-auto py-2 font-mono">{mine.filter(e=>e.kind==='progress').map(e=><p className="[overflow-wrap:anywhere]" key={e.id}>{evText(e.payload)}</p>)}</div></details>}
- </section>;
+function RunView({ run, events, questions, sessionId }: { run: Run; events: SessionEvent[]; questions: Question[]; sessionId: string }) {
+  const t = useT();
+  const cancel = useMutation({
+    mutationFn: () => api(`/api/sessions/${sessionId}/runs/${run.id}/cancel`, { method: 'POST' }),
+    onSuccess: () => { void refresh(); },
+  });
+  const mine = events.filter(event => event.run_id === run.id);
+  const progress = mine.filter(event => event.kind === 'progress');
+  const plan = mine.filter(event => event.kind === 'plan').pop();
+  const active = ['pending', 'running', 'waiting'].includes(run.status);
+  return <section data-run-id={run.id} aria-label={`run @${run.agent_key}`}>
+    <Dialog.Root>
+      <Dialog.Trigger asChild>
+        <button type="button" className="inline-flex max-w-full items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={t('mention.detailsFor', { agent: run.agent_key })}>
+          {active && <LoaderCircle className={cn('size-3.5 shrink-0', run.status === 'running' && 'animate-spin')} />}
+          <span className="truncate font-medium">@{run.agent_key}</span>
+          <span className="shrink-0">{t(`mention.${run.status}`)}</span>
+          <ChevronRight className="size-3.5 shrink-0" />
+        </button>
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 grid max-h-[85dvh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 grid-rows-[auto_minmax(0,1fr)] rounded-xl border bg-background shadow-lg" data-run-detail={run.id}>
+          <div className="flex items-start gap-3 border-b p-4">
+            <div className="min-w-0 flex-1">
+              <Dialog.Title className="break-words font-semibold">@{run.agent_key} · {t('mention.details')}</Dialog.Title>
+              <Dialog.Description className="mt-1 text-sm text-muted-foreground">{t(`mention.${run.status}`)}</Dialog.Description>
+            </div>
+            <Dialog.Close asChild><Button variant="ghost" size="icon" className="size-7 shrink-0" aria-label={t('common.close')}><X className="size-4" /></Button></Dialog.Close>
+          </div>
+          <div className="grid min-h-0 gap-4 overflow-y-auto p-4 text-xs">
+            <p className="break-all text-muted-foreground">{run.harness} · {run.daemon_id ?? '—'}</p>
+            {run.error && run.status !== 'cancelled' && <p className="break-words text-destructive">{run.error}</p>}
+            {plan && <PlanView steps={plan.payload?.steps} />}
+            {questions.filter(question => question.run_id === run.id).map(question => <QuestionView key={question.id} q={question} sessionId={sessionId} />)}
+            {progress.length > 0 && <div className="grid min-w-0 gap-2">
+              <p className="font-medium">{t('session.progress', { n: progress.length })}</p>
+              <div className="grid gap-1 font-mono">{progress.map(event => <p className="[overflow-wrap:anywhere]" key={event.id}>{evText(event.payload)}</p>)}</div>
+            </div>}
+            {cancel.isError && <ErrorState error={cancel.error} />}
+            {active && <div><Button variant="outline" size="sm" disabled={cancel.isPending} onClick={() => cancel.mutate()}>{t('mention.cancel')}</Button></div>}
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  </section>;
 }
