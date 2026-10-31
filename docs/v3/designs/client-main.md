@@ -159,6 +159,144 @@ run 取消或进程退出不必删除 session；由本地适配确认是否可�
 
 CLI 负责配置管理和提供页面链接。页面展示执行、所属 session 和用量统计，不提供中心写入或执行控制。
 
+## 九、API 设计
+
+以下是 v3 目标接口，不代表当前代码已实现。Client API 分三层：本机 HTTP 供页面只读查询；进程内 service 接口供 CLI 和执行流程调用；中心通信接口供 runService 领取和回报。配置修改不通过本机 HTTP，原生 hook/RPC 不进入中心业务协议。
+
+### 9.1 公共对象与约定
+
+| 对象 | 字段 / 含义 |
+|---|---|
+| EndpointRef | endpoint_id，由规范化 server_url 推导；不作为 endpoints.yaml 的输入字段 |
+| ConversationRef | endpoint_id、conversation_id；确定 conversation 目录及 workspace/ |
+| SessionRef | ConversationRef、session_id；确定 session.yaml |
+| RunRef | SessionRef、run_id、attempt_id；确定 run.json；中心执行身份仍是 endpoint/run/attempt |
+| HarnessRef | harness、harness_revision；确定本地适配器版本 |
+| ExecutionHandle | 当前原生执行的内存句柄，用于插话、回答、取消；不持久化、不跨重启复用 |
+
+所有接口使用结构化对象传递这些标识，不接受任意文件系统路径。实际路径由文件层推导；各路径段校验后使用，拒绝目录穿越及越出受管根目录的符号链接。时间使用 Unix 毫秒，未知用量/费用为 null。
+
+进程内方法均返回结果或结构化错误，并接受可取消的调用上下文。列表使用 `limit`（默认 50，上限 200）和不透明 `cursor`，返回 `items`、`next_cursor`；不承诺跨文件扫描的事务快照。并发更新或容量回收导致记录消失时，详情返回 not_found，列表跳过已消失记录。
+
+### 9.2 本机 HTTP API
+
+默认监听 `127.0.0.1:7801`，API 前缀 `/api`，仅支持 GET。请求使用 `Authorization: Bearer <ui.token>`；CLI 打开页面时使用一次性 URL fragment 引导，页面在内存中读取令牌并移除 fragment，再通过请求头访问 API，不把令牌放入 query、日志或持久化浏览器存储。静态页面可直接打开，读取任何本机数据都必须通过鉴权。维持 Host 校验、无 CORS；其他 HTTP 方法返回 405。
+
+本机 controller 依赖专用只读 Reader，不调用执行 service。Reader 可读取 setting.yaml 的公开配置、适配器清单和 session/run 文件，以及执行进程发布的只读内存快照；不读取 device_key 或提供任意文件下载。配置页面若将来需要写操作，需另行设计，不在本版范围内。
+
+| 方法与路径 | 查询参数 | 返回内容 |
+|---|---|---|
+| GET /api/status | 无 | client 版本、启动时间、运行中/等待回答的数量、各 endpoint 连接状态、当前资源不足原因 |
+| GET /api/settings | 无 | 当前生效的 local_http、session.work_root、quota，以及配置是否需要重启才能生效；不暴露 ui.token |
+| GET /api/harnesses | harness（可选） | 已安装 harness/revision、最近探测的程序版本、可用性和能力；无探测结果时为 unknown，不因查询启动程序 |
+| GET /api/conversations | endpoint_id、limit、cursor | 本机仍有目录的 conversation：标识、session 数、活跃 run 数、最近使用时间 |
+| GET /api/conversations/{endpoint_id}/{conversation_id} | 无 | conversation 标识、workspace 相对位置、session 数、最近一次容量扫描的字节数及扫描时间 |
+| GET /api/conversations/{endpoint_id}/{conversation_id}/sessions | harness、status、limit、cursor | 该 conversation 的 session 摘要 |
+| GET /api/conversations/{endpoint_id}/{conversation_id}/sessions/{session_id} | 无 | session.yaml 的会话标识、agent、harness/revision、原生 ID、状态、上下文位置和时间 |
+| GET /api/runs | endpoint_id、conversation_id、session_id、harness、status、since、until、limit、cursor | 跨 conversation 的执行摘要，每项包含完整 RunRef |
+| GET /api/conversations/{endpoint_id}/{conversation_id}/sessions/{session_id}/runs | status、limit、cursor | 指定 session 内的执行摘要 |
+| GET /api/conversations/{endpoint_id}/{conversation_id}/sessions/{session_id}/runs/{run_id}/attempts/{attempt_id} | 无 | 单次执行的状态、摘要、时间、错误、用量、费用及插话/文件计数 |
+| GET /api/usage | endpoint_id、conversation_id、harness、since、until | 已保留 run 文件的用量/费用汇总、未知值条数和统计范围 |
+
+`/api/runs` 支持 session_id 单独筛选；conversation_id 必须与 endpoint_id 一起使用。时间范围按 received_at 筛选，since 包含、until 不包含。列表按最近时间倒序，再按完整标识排序；cursor 携带筛选条件，不能挪作另一组筛选。
+
+HTTP 路径中的 endpoint_id 是逻辑 ID，按标准 URL 路径段编码一次；例如逻辑 ID `http---localhost%3A8090` 在请求路径中表示为 `http---localhost%253A8090`，服务端解码一次后作为 ID 校验，不能再次 URL 解码成路径。查询参数同样只解码一次。
+
+列表摘要不返回任务全文、原始原生协议帧或完整日志。usage 只汇总已保留的本机记录，不代表平台完整历史，不能把未知费用或 token 当作 0。容量扫描由后台执行，页面请求只读最近结果，未扫描时字节数为 null。页面需要更新时轮询 GET，不新增本机 WebSocket/SSE 协议。
+
+成功响应直接返回对象或列表对象。错误统一为 `{"error":{"code":"not_found","message":"记录不存在"}}`；400 表示参数无效，401 表示缺少/错误令牌，403 表示 Host 不允许，404 表示对象不存在或已回收，405 表示方法不允许，500 表示文件损坏或读取失败。损坏文件不静默当作不存在，列表可返回不含正文/凭据的 warnings。
+
+### 9.3 endpointService：注册文件接口
+
+这些是 CLI/运行进程调用的内部方法，不是 HTTP 路径。
+
+| 方法 | 输入 → 输出 | 行为 |
+|---|---|---|
+| List | 无 → Endpoint[] | 读取 YAML；CLI 展示时移除 device_key |
+| Get | server_url → Endpoint | 规范化地址后查询，返回对应注册 |
+| SaveRegistration | name、server_url、enabled、device_id、device_key → EndpointRef | 保存成功注册身份；不接受 id，不发起注册网络请求 |
+| Update | server_url、name/ enabled → EndpointRef | 仅更新名称、启停；更换地址需新增注册 |
+| Remove | server_url → 空 | 删除 YAML 项；CLI 先等待 runService 停领和收尾 |
+| Reload | 无 → Endpoint[] | 校验文件并刷新快照，不创建连接 |
+
+注册网络请求属于 CLI 注册流程，通过 server device API 取得凭据后调用 SaveRegistration。凭据只能交给该 endpoint 的连接使用，不出现在 HTTP DTO、日志和配置变更通知中。
+
+### 9.4 settingService：设置接口
+
+| 方法 | 输入 → 输出 | 行为 |
+|---|---|---|
+| Get | 无 → 生效配置 | 从已校验的快照读取端口、目录、quota |
+| Validate | 完整配置 → 校验结果 | 校验地址、端口、路径及 quota，不修改文件 |
+| Save | 完整配置 → 应用结果 | CLI 调用，校验后原子替换 setting.yaml，返回已应用/需重启的字段 |
+| Reload | 无 → 应用结果 | 用户直接编辑 YAML 后重读；非法内容返回错误，保留当前有效内存配置 |
+
+省略 quota 表示不限容量；声明 quota 即自动清理。没有 cleanup、quota.enabled 或执行并发配置。端口改变只重启本机 HTTP，根目录改变按 settingService 的配置变更规则停任务并重启 client；根目录切换期间不允许把新旧路径混用于执行。
+
+### 9.5 sessionService：会话与工作目录接口
+
+| 方法 | 输入 → 输出 | 行为 |
+|---|---|---|
+| Acquire | ConversationRef、agent_id、HarnessRef → SessionRef、session 执行锁、workspace 路径 | 选择可恢复的空闲 session，或调用 harnessService 建立原生会话；登记共享目录占用 |
+| Get | SessionRef → Session | 读取 session.yaml；缺失不自动创建 |
+| List | ConversationRef、筛选/分页 → Session[] | 读取该 conversation 的会话 |
+| CommitContext | SessionRef、已确认交付的 context_seq → Session | 在会话锁内更新历史位置，不允许回退或排队时提前推进 |
+| Release | SessionRef、可恢复结论 → 空 | 保存 idle/unavailable 等状态，释放单 session 执行锁；仅在 runService 确认可回收后释放目录占用 |
+| Close | SessionRef、原因 → 空 | 标记关闭，不删除原生历史；在用 session 不允许直接关闭 |
+| ScanUsage | 无 → 受管目录用量与扫描时间 | 扫描配置根目录；同一 conversation 只计量一次 |
+| Reclaim | 无 → 已清理目录、释放字节、剩余用量/阻塞原因 | 读取当前 quota 自动回收空闲目录；无 quota 时不删除 |
+
+Acquire 不领取 server 任务、不生成 run_id，且只允许对有效的已领取执行调用。共享目录允许多个不同 session 同时占用；同一原生 session 串行。Reclaim 取得 conversation 目录独占权限后才可删除 workspace/ 和 sessions/；等待答案、待 server 确认及即将启动的执行仍占用该目录。目录路径由服务内部返回给 harnessService，不由 HTTP 用户传入。
+
+### 9.6 runService：任务生命周期接口
+
+| 方法 | 输入 → 输出 | 行为 |
+|---|---|---|
+| Start / Stop | 调用上下文 / 停止原因 → 空 | 启停中心连接与领取循环；Stop 停领、结束或交还执行，释放占用 |
+| ApplyEndpoints | 已校验 Endpoint[] → 空 | 更新内部连接集合，停用项停止新领取，已有执行继续按原身份收尾 |
+| DrainEndpoint | EndpointRef → 收尾结果 | 停领并等已有执行完成；未完成时不允许 CLI 删除其凭据 |
+| Accept | EndpointRef、server RunAssignment → 执行接收结果 | 校验授权与版本，检查容量，Acquire session 后写 run.json 并启动 |
+| Steer | endpoint/run/attempt、run_prompts → 交付结果 | 仅路由到匹配的活跃执行；不能从本机创建新业务消息 |
+| Answer | endpoint/run/attempt、question_id、答案 → 处理结果 | 路由到对应原生提问，不以 session 最近问题猜测 |
+| Cancel | endpoint/run/attempt、原因 → 处理结果 | 调用 harnessService 取消，等待终态后回报 |
+| Reconcile | EndpointRef、server 有效租约 → 对账结果 | 启动/重连核对；无效旧执行结束，不盲目重放 |
+| HandleEvent | ExecutionHandle、标准事件 → 空 | 串行更新 run.json、回报原中心；终态确认后释放占用 |
+
+这些执行方法由所属中心连接及本地回调调用，不暴露为本机 HTTP 控制入口。Accept 前的拒绝直接回 server，不创建无归属 run 文件。文件持久化成功不等于 server 接受成功；终态尚未确认时保留目录占用，断线后先对账。
+
+### 9.7 harnessService：本地适配接口
+
+| 方法 | 输入 → 输出 | 行为 |
+|---|---|---|
+| List | 无 → 本地 HarnessRef[] | 扫描 ~/.agentuse/harness/，不执行程序 |
+| Probe | HarnessRef → 程序版本、可用性、能力 | 本地探测，不向 server 传命令或 YAML |
+| CreateSession | HarnessRef、workspace 路径 → 原生 session ID | 创建 Codex thread / Claude session；结果交 sessionService 保存 |
+| ResumeSession | HarnessRef、原生 session ID、workspace 路径 → 原生会话句柄 | 恢复指定会话，不猜测当前目录最近会话 |
+| Run | 原生会话句柄、RunRef、输入、独立资源目录、事件回调 → ExecutionHandle | 从共享 workspace/ 执行，hook/配置在 session/run/attempt 目录内 |
+| Steer | ExecutionHandle、run_prompts → 接收确认 | 按探测能力使用 RPC/hook；不支持时明确返回 |
+| Answer | ExecutionHandle、原生问题关联、答案 → 处理结果 | 回答原请求，过期或关联不匹配拒绝 |
+| Cancel | ExecutionHandle、原因 → 空 | 原生取消，超时终止进程树，终态通过回调确认 |
+| Release | 原生句柄 → 空 | 释放进程、连接和回调，不删除全局原生历史 |
+
+标准事件包含 started、progress、plan、prompt_delivery、question、usage、result、error、cancelled。每条带当前执行关联和本机时间；回调按执行串行处理。Create/Resume 失败须释放 Acquire 已登记的目录占用。适配器包安装/升级由本地安装流程完成，不提供从 server 或页面任意下载执行资源的 API。
+
+### 9.8 中心通信与原生回调
+
+以下是 client 端连接接口的业务语义；server HTTP 路径和 wire 消息类型由 server-device/server-run 设计确定，不在 client 文档另造一套同义路由。所有网络交互绑定原 endpoint 的 server_url、device 身份和有效 attempt。
+
+| 方向 | 接口语义 | 主要输入 / 输出 |
+|---|---|---|
+| client → server | Connect / RegisterCapabilities | device 身份、本地 harness/revision、程序版本和能力 → 连接与授权结果 |
+| client → server | Claim | 单次有效领取意愿、可执行能力 → RunAssignment 或 no_task；请求有界，晚到结果重新校验 |
+| 双向 | Heartbeat / Reconcile | 活跃 run/attempt、租约 → 续租及有效/失效执行集合 |
+| client → server | ReadInputs | run_prompts、conversation 历史位置和文件引用 → 执行输入及历史增量 |
+| server → client | DeliverPrompts / Answer / Cancel | 指定 run/attempt 的补充输入、指定 question 的答案或取消 |
+| client → server | ReportEvent / Complete | 标准事件、交付确认、结果、用量 → server 接受结果或失效结论 |
+| client ↔ server | DownloadFile / UploadFile | conversation 下相对路径和文件内容；结果路径用于 messages.attachments |
+
+runService 负责中心传输与租约，harnessService 不自行连接中心。既有 conversation/work 业务工具仍调用所属 server 的业务 API，不绕过身份和文件相对路径规则。
+
+Codex 原生 RPC 使用本机子进程管道；Claude hook 优先使用本地桥接程序。需要 HTTP 回调的适配器由 harnessService 为当前执行建立独立回调端点和临时能力令牌，不复用只读页面端口；具体原生请求体与应答由适配器包定义，不能变成通用执行命令 API。回调必须关联 ExecutionHandle 及有效原生请求，执行结束立即失效；回调只转成上述标准事件，不把原生协议帧传给中心。
+
 ## 相关设计
 
 [settingService](client-setting.md) · [endpointService](client-endpoint.md) · [sessionService](client-session.md) · [runService](client-run.md) · [harnessService](client-harness.md) · [Server 总览](server-main.md)
