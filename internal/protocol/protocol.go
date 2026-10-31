@@ -50,9 +50,8 @@ const (
 	TypeWelcome = "welcome" // 回应 hello
 	TypeRun     = "run"
 	TypeCancel  = "cancel"
-	TypeMessage = "message" // 派一条用户消息
-	TypeSteer   = "steer"   // 推一条插话
-	TypeAnswer  = "answer"  // 推一个提问的答案
+	TypeSteer   = "steer"  // 推一条插话
+	TypeAnswer  = "answer" // 推一个提问的答案
 	TypeError   = "error"
 )
 
@@ -74,7 +73,6 @@ type Message struct {
 	// hello
 	Capabilities []string  `json:"capabilities,omitempty"`
 	Harnesses    []Harness `json:"harnesses,omitempty"`
-	Running      []int64   `json:"running,omitempty"` // 正在回的消息 id
 	Version      string    `json:"version,omitempty"`
 
 	// welcome
@@ -83,7 +81,6 @@ type Message struct {
 	Ignored  []string `json:"ignored,omitempty"` // 服务上没登记、被忽略的 harness
 
 	// message
-	Message *Dispatch `json:"message,omitempty"`
 
 	// steer
 	Steer *Steer `json:"steer,omitempty"`
@@ -118,8 +115,7 @@ type Dispatch struct {
 	ID                int64             `json:"id"` // 消息 id
 	SessionID         string            `json:"session_id"`
 	Harness           string            `json:"harness"`
-	Resume            string            `json:"resume,omitempty"` // harness 自己的会话 id,第一条消息时为空
-	Input             json.RawMessage   `json:"input"`            // 消息内容
+	Input             json.RawMessage   `json:"input"` // 消息内容
 	// Instructions 是会话所在工作的说明，写进会话目录的 CLAUDE.md / AGENTS.md(docs/v2/designs/work.md)。
 	Instructions string `json:"instructions,omitempty"`
 	// WorkToken 只在会话是工作的协调者时有，作为 AGENTUSE_WORK 给 harness 进程，让它用 agentuse work 开线程。
@@ -186,7 +182,6 @@ type HarnessInput struct {
 	SessionMessages json.RawMessage   `json:"session_messages,omitempty"`
 	Attachments     []LocalAttachment `json:"attachments,omitempty"`
 	SessionID       string            `json:"session_id"`
-	Resume          string            `json:"resume,omitempty"`
 	Instructions    string            `json:"instructions,omitempty"`
 	Input           json.RawMessage   `json:"input"`
 }

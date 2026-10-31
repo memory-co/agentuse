@@ -211,8 +211,7 @@ func (c *Client) CreateSession(ctx context.Context, user string, req CreateSessi
 	return &r, c.do(ctx, user, "POST", "/api/sessions", req, &r)
 }
 
-// SendMessage 回复。会话 idle 时是下一条消息(Reply.Message);pending / running 时是插话(Reply.Steer),
-// 插话只收 Prompt,带 Input 返回 409(用 IsStatus(err, 409) 判断)。
+// SendMessage atomically saves a message and routes its target deliveries.
 func (c *Client) SendMessage(ctx context.Context, user, sessionID string, req MessageRequest) (*Reply, error) {
 	var raw map[string]json.RawMessage
 	if err := c.do(ctx, user, "POST", "/api/sessions/"+esc(sessionID)+"/messages", req, &raw, func() http.Header {
@@ -225,16 +224,9 @@ func (c *Client) SendMessage(ctx context.Context, user, sessionID string, req Me
 		return nil, err
 	}
 	b, _ := json.Marshal(raw)
-	var r Reply
-	if _, ok := raw["message"]; ok {
-		return &r, json.Unmarshal(b, &r)
-	}
-	if _, ok := raw["role"]; ok {
-		r.Message = &Message{}
-		return &r, json.Unmarshal(b, r.Message)
-	}
-	r.Steer = &Steer{}
-	return &r, json.Unmarshal(b, r.Steer)
+	var reply Reply
+	return &reply, json.Unmarshal(b, &reply)
+
 }
 
 func (c *Client) GetSession(ctx context.Context, user, sessionID string) (*SessionDetail, error) {
@@ -292,20 +284,6 @@ func (c *Client) ListWorkSessions(ctx context.Context, user, workID string) ([]S
 	return ss, c.do(ctx, user, "GET", "/api/sessions?work_id="+url.QueryEscape(workID), nil, &ss)
 }
 
-// AnswerQuestion 回答 harness 的提问(会话 waiting 时，见 SessionDetail.Questions)。
-// answers 是问题 → 答案，答案可以是选项的 label,也可以是自己写的话;多选用 ", " 拼起来。
-// 问题已经答过或过期返回 409。
-func (c *Client) AnswerQuestion(ctx context.Context, user, sessionID string, questionID int64, answers map[string]string) (*Question, error) {
-	var q Question
-	path := fmt.Sprintf("/api/sessions/%s/questions/%d/answer", esc(sessionID), questionID)
-	if err := c.do(ctx, user, "POST", path, map[string]any{"answers": answers}, &q); err != nil {
-		return nil, err
-	}
-	return &q, nil
-}
-
-// WaitSession 每隔 interval 轮询一次，直到会话回到 idle(或已完成),或者在等用户回答提问(waiting),
-// 返回最后一次 GetSession 的结果。用 ctx 控制超时。
 func (c *Client) WaitSession(ctx context.Context, user, sessionID string, interval time.Duration, opts ...WaitOptions) (*SessionDetail, error) {
 	if interval <= 0 {
 		interval = 2 * time.Second
@@ -317,7 +295,7 @@ func (c *Client) WaitSession(ctx context.Context, user, sessionID string, interv
 		if err != nil {
 			return nil, err
 		}
-		if d.Session.Status == "idle" || d.Session.Status == "resolved" || (d.Session.Status == "waiting" && (d.Session.Mode != "multi_agent" || (len(opts) > 0 && opts[0].ReturnOnWaiting))) {
+		if d.Session.Status == "idle" || d.Session.Status == "resolved" || (d.Session.Status == "waiting" && (len(opts) > 0 && opts[0].ReturnOnWaiting)) {
 			return d, nil
 		}
 		select {

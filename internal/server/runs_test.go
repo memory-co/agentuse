@@ -25,7 +25,7 @@ func multiSession(t *testing.T, f *attachmentFixture) store.Session {
 	t.Helper()
 	var res struct{ Session store.Session }
 	r := f.e.req(f.token, "POST", "/api/sessions", map[string]any{"mode": store.MultiAgent}, &res)
-	if r.StatusCode != 201 || res.Session.Mode != store.MultiAgent || res.Session.AgentID != "" || res.Session.Harness != "" {
+	if r.StatusCode != 201 || res.Session.Mode != store.MultiAgent {
 		t.Fatalf("multi session %d %+v", r.StatusCode, res)
 	}
 	return res.Session
@@ -200,12 +200,12 @@ func TestMultiInputQueueAndFencing(t *testing.T) {
 		t.Fatal("old attempt accepted", err)
 	}
 	c := attachment.Client{Server: e.ts.URL, Token: f.key, RunID: cl3.Run.ID, AttemptID: cl3.Run.AttemptID}
-	if _, err = c.Upload(ctx, ss.ID, "late.txt", strings.NewReader("x"), 0); err == nil {
+	if _, err = c.Upload(ctx, ss.ID, "late.txt", strings.NewReader("x")); err == nil {
 		t.Fatal("stale upload")
 	}
 	c.RunID = cl4.Run.ID
 	c.AttemptID = cl4.Run.AttemptID
-	a, err := c.Upload(ctx, ss.ID, "result.txt", strings.NewReader("data"), 0)
+	a, err := c.Upload(ctx, ss.ID, "result.txt", strings.NewReader("data"))
 	if err != nil || a.CreatedByRunID != cl4.Run.ID {
 		t.Fatal("run upload", a, err)
 	}
@@ -221,7 +221,7 @@ func TestMultiInputQueueAndFencing(t *testing.T) {
 		t.Fatal("unexpected runs", runs)
 	}
 }
-func TestMultiAtomicIdempotencyAndUpgrade(t *testing.T) {
+func TestMultiAtomicIdempotency(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
 	ctx := context.Background()
 	e := f.e
@@ -247,108 +247,6 @@ func TestMultiAtomicIdempotencyAndUpgrade(t *testing.T) {
 	f.session = ss
 	if code, _ := rawUpload(t, f, f.token, "input.txt", "input", nil); code != 201 {
 		t.Fatal("unbound upload", code)
-	}
-	old, _, err := e.st.CreateSession(ctx, f.u, f.agent, "legacy", json.RawMessage(`{"prompt":"old"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cl, err := e.st.ClaimSession(ctx, f.d, 60)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = e.st.AddEvent(ctx, f.d.ID, cl.Message.ID, "done", json.RawMessage(`{"ok":true,"output":"legacy result","session_id":"native"}`), 60); err != nil {
-		t.Fatal(err)
-	}
-	upgraded, err := e.st.UpgradeSession(ctx, f.u, old.ID)
-	if err != nil || upgraded.Mode != store.MultiAgent || upgraded.HarnessSessionID != "" {
-		t.Fatal("upgrade", upgraded, err)
-	}
-	history, _ := e.st.Messages(ctx, old.ID)
-	if len(history) != 2 || history[1].AgentKey != f.agent {
-		t.Fatal("history", history)
-	}
-}
-
-func TestMultiUpgradePreservesSteersAnswersAndAccess(t *testing.T) {
-	f := attachmentEnv(t, 1024, 4096)
-	e := f.e
-	ctx := context.Background()
-	enableRuns(t, e, f.u, f.d)
-	ss, _, err := e.st.CreateSession(ctx, f.u, f.agent, "history", json.RawMessage(`{"prompt":"ask"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cl, err := e.st.ClaimSession(ctx, f.d, 60)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = e.st.AddEvent(ctx, f.d.ID, cl.Message.ID, "question", json.RawMessage(`{"tool_use_id":"q","questions":[{"question":"language?"}]}`), 60); err != nil {
-		t.Fatal(err)
-	}
-	qs, err := e.st.Questions(ctx, ss.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err = e.st.AnswerQuestion(ctx, f.u, ss.ID, qs[0].ID, map[string]string{"language?": "Go"}); err != nil {
-		t.Fatal(err)
-	}
-	if err = e.st.AddEvent(ctx, f.d.ID, cl.Message.ID, "answered", json.RawMessage(`{"tool_use_id":"q"}`), 60); err != nil {
-		t.Fatal(err)
-	}
-	_, steer, err := e.st.AddSteer(ctx, f.u, ss.ID, "also test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ack, _ := json.Marshal(map[string]int64{"steer_id": steer.ID})
-	if err = e.st.AddEvent(ctx, f.d.ID, cl.Message.ID, "steered", ack, 60); err != nil {
-		t.Fatal(err)
-	}
-	if err = e.st.AddEvent(ctx, f.d.ID, cl.Message.ID, "done", json.RawMessage(`{"ok":true,"output":"done","session_id":"private"}`), 60); err != nil {
-		t.Fatal(err)
-	}
-	upgraded, err := e.st.UpgradeSession(ctx, f.u, ss.ID)
-	if err != nil || upgraded.Mode != store.MultiAgent || upgraded.HarnessSessionID != "" {
-		t.Fatal("upgrade", upgraded, err)
-	}
-	msgs, err := e.st.Messages(ctx, ss.ID)
-	if err != nil || len(msgs) != 4 {
-		t.Fatal("missing historical inputs", msgs, err)
-	}
-	events, err := e.st.RunEvents(ctx, ss.ID)
-	if err != nil || len(events) != 4 {
-		t.Fatal("missing events", events, err)
-	}
-	questions, err := e.st.RunQuestions(ctx, ss.ID)
-	if err != nil || len(questions) != 1 || questions[0].Status != "answered" || questions[0].Answers["language?"] != "Go" {
-		t.Fatal("missing answers", questions, err)
-	}
-	bob, bobTok := e.user("bob", store.RoleUser)
-	d := e.daemonWith(bob, "claude")
-	enableRuns(t, e, bob, d)
-	a, err := e.st.CreateAgent(ctx, bob.ID, "borrowed", "Borrowed", d.ID, "claude", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	borrowed, _, err := e.st.CreateSession(ctx, f.u, a.ID, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = e.st.UpgradeSession(ctx, f.u, borrowed.ID); err != nil {
-		t.Fatal(err)
-	}
-	if e.code(bobTok, "GET", "/api/sessions/"+borrowed.ID, nil) != 200 {
-		t.Fatal("original owner lost access")
-	}
-	var list []store.Session
-	e.req(bobTok, "GET", "/api/sessions", nil, &list)
-	found := false
-	for _, x := range list {
-		if x.ID == borrowed.ID {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("original owner lost listing")
 	}
 }
 
@@ -439,5 +337,34 @@ func TestMultiDaemonResetRevokesWorkExecution(t *testing.T) {
 				t.Fatal("revoked result accepted")
 			}
 		})
+	}
+}
+
+func TestSharedSessionIsOnlyModel(t *testing.T) {
+	e := newEnv(t, Config{})
+	_, token := e.user("alice", store.RoleUser)
+	var out struct{ Session store.Session }
+	if code := e.req(token, "POST", "/api/sessions", map[string]any{}, &out).StatusCode; code != 201 || out.Session.Mode != store.MultiAgent || out.Session.Status != "idle" {
+		t.Fatalf("default %d %+v", code, out)
+	}
+	for _, body := range []map[string]any{{"mode": "legacy"}, {"agent_id": "coder"}, {"mode": "unknown"}} {
+		if code := e.code(token, "POST", "/api/sessions", body); code != 400 {
+			t.Fatalf("obsolete request accepted: %d", code)
+		}
+	}
+	if code := e.code(token, "POST", "/api/sessions/"+out.Session.ID+"/upgrade", map[string]any{}); code != 404 && code != 405 {
+		t.Fatalf("upgrade route remains: %d", code)
+	}
+	if code := e.code(token, "POST", "/api/sessions/"+out.Session.ID+"/messages", map[string]any{"prompt": "note"}); code != 201 {
+		t.Fatalf("note %d", code)
+	}
+	var detail map[string]json.RawMessage
+	e.req(token, "GET", "/api/sessions/"+out.Session.ID, nil, &detail)
+	var session map[string]any
+	json.Unmarshal(detail["session"], &session)
+	for _, field := range []string{"agent_id", "daemon_id", "harness", "harness_session_id", "lease_until"} {
+		if _, ok := session[field]; ok {
+			t.Fatalf("bound runtime field %s", field)
+		}
 	}
 }

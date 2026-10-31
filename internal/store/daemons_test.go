@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -117,34 +116,5 @@ func TestDaemonStatus(t *testing.T) {
 		if d.Status == DaemonOnline {
 			t.Fatalf("still online after MarkAllDaemonsOffline: %+v", d)
 		}
-	}
-}
-
-func TestDeleteDaemon(t *testing.T) {
-	s := newStore(t)
-	ctx := context.Background()
-	alice, _, _ := s.CreateUser(ctx, "", "alice", RoleUser)
-	bob, _, _ := s.CreateUser(ctx, "", "bob", RoleUser)
-	d := registered(t, s, alice, "laptop", "claude")
-	ag, _ := s.CreateAgent(ctx, alice.ID, "", "a", d.ID, "claude", "")
-	ss, _, _ := s.CreateSession(ctx, alice, ag.ID, "", json.RawMessage(`{}`))
-
-	if err := s.DeleteDaemon(ctx, bob, d.ID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("bob deletes: %v", err)
-	}
-	if err := s.DeleteDaemon(ctx, alice, "dm_nope"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("unknown: %v", err)
-	}
-	if err := s.DeleteDaemon(ctx, alice, d.ID); err != nil {
-		t.Fatal(err)
-	}
-	// 排队中的会话记一条失败回复、回到 idle;daemon_harnesses 跟着删
-	got, _ := s.GetSession(ctx, alice, ss.ID)
-	msgs, _ := s.Messages(ctx, ss.ID)
-	if got.Status != SessionIdle || len(msgs) != 2 || string(msgs[1].Content) != `{"ok":false,"error":"daemon 已删除"}` {
-		t.Fatalf("pending session after delete: %+v %+v", got, msgs)
-	}
-	if l, _ := s.ListDaemons(ctx, alice); len(l) != 0 {
-		t.Fatalf("list after delete: %+v", l)
 	}
 }

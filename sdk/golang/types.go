@@ -89,21 +89,16 @@ type DaemonHarness struct {
 }
 
 type Session struct {
-	Mode             string `json:"mode"`
-	ID               string `json:"id"`
-	UserID           string `json:"user_id"`             // agent 的主人，会话跑在他的 daemon 上
-	CreatedBy        string `json:"created_by"`          // 发起人
-	AgentID          string `json:"agent_id,omitempty"`  // agent 删除后为空
-	WorkID           string `json:"work_id,omitempty"`   // 所属工作，建的时候定，之后不变
-	WorkRole         string `json:"work_role,omitempty"` // coordinator / thread,不在工作里时为空
-	Harness          string `json:"harness"`             // 建会话时 agent 运行时的 harness,之后不变
-	DaemonID         string `json:"daemon_id,omitempty"`
-	HarnessSessionID string `json:"harness_session_id,omitempty"`
-	Title            string `json:"title"`
-	Status           string `json:"status"` // idle / pending / running / waiting(在等用户回答提问) / resolved(已完成)
-	LeaseUntil       *int64 `json:"lease_until,omitempty"`
-	CreatedAt        int64  `json:"created_at"`
-	UpdatedAt        int64  `json:"updated_at"`
+	Mode      string `json:"mode"`
+	ID        string `json:"id"`
+	UserID    string `json:"user_id"`             // 会话创建者
+	CreatedBy string `json:"created_by"`          // 发起人
+	WorkID    string `json:"work_id,omitempty"`   // 所属工作，建的时候定，之后不变
+	WorkRole  string `json:"work_role,omitempty"` // coordinator / thread,不在工作里时为空
+	Title     string `json:"title"`
+	Status    string `json:"status"` // idle / pending / running / waiting(在等用户回答提问) / resolved(已完成)
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
 type Message struct {
@@ -144,7 +139,6 @@ type CreateSessionRequest struct {
 	Title          string   `json:"title,omitempty"`
 	TargetAgentIDs []string `json:"target_agent_ids,omitempty"`
 	DeferStart     bool     `json:"defer_start,omitempty"`
-	AgentID        string   `json:"agent_id,omitempty"`
 	Prompt         string   `json:"prompt,omitempty"`
 	Input          any      `json:"input,omitempty"`
 }
@@ -162,23 +156,11 @@ type SessionDetail struct {
 	RunCounts  map[string]int `json:"run_counts,omitempty"`
 	Session    Session        `json:"session"`
 	Messages   []Message      `json:"messages"`
-	Steers     []Steer        `json:"steers"`
 	Questions  []Question     `json:"questions"`
 	Events     []SessionEvent `json:"events"`
 }
 
-// Steer 是一条插话：会话忙时发的消息。见 docs/v2/designs/steer.md。
-type Steer struct {
-	ID        int64  `json:"id"`
-	SessionID string `json:"session_id"`
-	MessageID int64  `json:"message_id"` // 挂在哪条用户消息上
-	CreatedBy string `json:"created_by"`
-	Prompt    string `json:"prompt"`
-	Status    string `json:"status"` // pending / delivered / queued
-	CreatedAt int64  `json:"created_at"`
-}
-
-// Question 是 harness 向用户的一次提问，见 docs/v2/designs/question.md。用 AnswerQuestion 回答。
+// Question 是 harness 向用户的一次提问，见 docs/v2/designs/question.md。用 AnswerRunQuestion 回答。
 type Question struct {
 	RunID      string            `json:"run_id,omitempty"`
 	AttemptID  string            `json:"attempt_id,omitempty"`
@@ -205,12 +187,11 @@ type QuestionOption struct {
 	Description string `json:"description,omitempty"`
 }
 
-// Reply 是 SendMessage 的结果：会话 idle 时是 Message,忙时是 Steer。
+// Reply 包含共享消息和各目标的执行/投递。
 type Reply struct {
 	Runs       []Run      `json:"runs,omitempty"`
 	Deliveries []Delivery `json:"deliveries,omitempty"`
 	Message    *Message   `json:"message,omitempty"`
-	Steer      *Steer
 }
 
 // Work 是工作：协调者会话 + 若干线程会话 + 一份共用说明，见 docs/v2/apis/works.md。

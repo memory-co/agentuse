@@ -108,30 +108,53 @@ func TestRunLeaseRecoversQuestionAnswer(t *testing.T) {
 		t.Fatal("stale event replay accepted", err)
 	}
 }
-func TestMigratePreRunDatabase(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "legacy.db")
+
+func TestRejectOldDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(schema + attachmentSchema); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.Exec(`INSERT INTO users VALUES('u1','legacy','user','hash',1); INSERT INTO sessions(id,user_id,created_by,harness,title,status,created_at,updated_at) VALUES('ss_old','u1','u1','claude','old','idle',1,1); INSERT INTO messages(session_id,role,content,created_at) VALUES('ss_old','user','{"prompt":"old"}',1)`); err != nil {
+	if _, err = db.Exec("CREATE TABLE sessions(id TEXT PRIMARY KEY)"); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
-	s, err := Open(path)
+	if st, err := Open(path); err == nil {
+		st.Close()
+		t.Fatal("old schema must be explicitly reset")
+	}
+}
+
+func TestSharedSchemaAndSessionLifecycle(t *testing.T) {
+	s, u, _, _ := runStore(t)
+	ctx := context.Background()
+	for _, table := range []string{"steers", "questions", "session_events", "work_tokens", "session_access"} {
+		var n int
+		if err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&n); err != nil || n != 0 {
+			t.Fatalf("obsolete table %s: %d %v", table, n, err)
+		}
+	}
+	for _, col := range []string{"agent_id", "daemon_id", "harness", "harness_session_id", "lease_until"} {
+		var n int
+		s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name=?", col).Scan(&n)
+		if n != 0 {
+			t.Fatalf("session runtime column %s", col)
+		}
+	}
+	ss, _, err := s.CreateMultiSession(ctx, u, "", "notes", nil, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
-	ss, err := s.GetSession(context.Background(), User{Role: RoleAdmin}, "ss_old")
-	if err != nil || ss.Mode != "legacy" || ss.Title != "old" {
-		t.Fatal("legacy changed", ss, err)
+	if _, err = s.ResolveSession(ctx, u, ss.ID); err != nil {
+		t.Fatal(err)
 	}
-	msgs, err := s.Messages(context.Background(), ss.ID)
-	if err != nil || len(msgs) != 1 || msgs[0].Seq != msgs[0].ID {
-		t.Fatal("legacy messages", msgs, err)
+	if _, err = s.ReopenSession(ctx, u, ss.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DeleteSession(ctx, u, ss.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.GetSession(ctx, u, ss.ID); err != ErrNotFound {
+		t.Fatal("deleted session", err)
 	}
 }

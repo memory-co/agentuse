@@ -91,7 +91,7 @@ type Result struct {
 	OK     bool   `json:"ok"`
 	Output string `json:"output,omitempty"`
 	Error  string `json:"error,omitempty"`
-	// SessionID 是 harness 自己的会话 id,服务存下来，下次通过 Dispatch.Resume 带回来续接。
+	// SessionID 仅作为本次 harness 运行的诊断信息。
 	SessionID string  `json:"session_id,omitempty"`
 	CostUSD   float64 `json:"cost_usd,omitempty"`
 }
@@ -99,20 +99,20 @@ type Result struct {
 // reportFn 回报一条进度(kind 是 progress、plan 或 steered),payload 是 JSON 对象。
 type reportFn func(kind string, payload any)
 
-// runHarness 在 dir 里跑 harness 回一条消息，过程中调用 report 回报进度。m.Resume 不为空时续接 harness 的会话。
+// runHarness 每次启动新的原生会话，并通过 report 汇报进度。
 // in 是这条消息收到的插话和提问答案，harness 能插话、能提问时从里面取。
 func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir string, in *inbox, report reportFn) Result {
 	if la.Spec == nil {
-		in, _ := json.Marshal(protocol.HarnessInput{SessionID: m.SessionID, Resume: m.Resume, Instructions: instructionsFor(m), Input: m.Input, Attachments: m.Attachments, RunID: m.RunID, AgentID: m.AgentID, TaskMessageIDs: m.TaskMessageIDs, SessionMessages: m.SessionMessages})
+		in, _ := json.Marshal(protocol.HarnessInput{SessionID: m.SessionID, Instructions: instructionsFor(m), Input: m.Input, Attachments: m.Attachments, RunID: m.RunID, AgentID: m.AgentID, TaskMessageIDs: m.TaskMessageIDs, SessionMessages: m.SessionMessages})
 		cmd := exec.CommandContext(ctx, la.Path, la.Args...)
 		if len(la.Env) > 0 {
 			cmd.Env = append(os.Environ(), la.Env...)
 		}
-		return withSession(runCustomHarness(ctx, cmd, in, dir, report), m.Resume)
+		return runCustomHarness(ctx, cmd, in, dir, report)
 	}
 	var pi protocol.PromptInput
 	_ = json.Unmarshal(m.Input, &pi)
-	args, err := la.Spec.Args(pi.Prompt, m.Resume, la.Args)
+	args, err := la.Spec.Args(pi.Prompt, "", la.Args)
 	if err != nil {
 		return Result{Error: err.Error()}
 	}
@@ -126,15 +126,7 @@ func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir s
 	if env := append(la.Spec.Environ(m.ID, m.SessionID), la.Env...); len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
-	return withSession(runSpec(ctx, *la.Spec, cmd, la.Spec.Stdin(pi.Prompt), dir, in, report), m.Resume)
-}
-
-// withSession:harness 没报会话 id 时沿用续接的那个，免得服务那边丢掉。
-func withSession(r Result, resume string) Result {
-	if r.SessionID == "" {
-		r.SessionID = resume
-	}
-	return r
+	return runSpec(ctx, *la.Spec, cmd, la.Spec.Stdin(pi.Prompt), dir, in, report)
 }
 
 const maxOutput = 64 << 10

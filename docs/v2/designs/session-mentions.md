@@ -1,6 +1,6 @@
 # Session 中 @ 多个 agent
 
-> 已实现兼容阶段：网页新建会话使用 `multi_agent`，已有会话和未传 mode 的旧 API 请求保持 `legacy`。所有 agent 共用 session 消息和附件，messages 根据 @ 目标自动新建 run 或插话。
+> Session 统一使用多 agent 共享模型。所有 agent 共用消息和附件，messages 根据 @ 目标自动新建 run 或插话。旧数据库须清空重建，不提供旧协议兼容或历史会话升级。
 
 ## 交互
 
@@ -50,7 +50,7 @@ HTTP 请求使用 `target_agent_ids`，服务端不从 prompt 字符串猜目标
 
 ## HTTP 接口
 
-兼容阶段用 `mode: "multi_agent"` 创建新模型会话：
+用 `mode: "multi_agent"` 创建新模型会话：
 
 ```http
 POST /api/sessions
@@ -169,11 +169,11 @@ session 的 status 为派生值：任一 run waiting 时为 waiting；否则依�
 
 产物用 `agentuse attachment upload` 上传，附件增加可空的 `created_by_run_id`，agent 身份从 run 的快照取得。原 source/created_by/daemon_id 保留。daemon 上传在新协议下必须带 run_id、attempt_id，提交文件前再次验证执行权；不能只凭 message_id，因为同一消息可有多个执行。
 
-multi_agent 会话在尚未 @ 任何 agent 时也允许用户上传附件。上传不检查“session 绑定的 daemon 是否支持附件”；选择执行目标时才校验该 run 的 daemon 能力。legacy 模式保留当前附件行为。
+multi_agent 会话在尚未 @ 任何 agent 时也允许用户上传附件。上传不检查“session 绑定的 daemon 是否支持附件”；选择执行目标时才校验该 run 的 daemon 能力。
 
 ## daemon 协议和执行权限
 
-hello 增加 `session-runs-v1` 能力；有附件的执行另要求 `attachments-v1`。只把新模型 run 派给支持新协议的 daemon，旧 `message` 协议继续服务 legacy 会话。
+hello 增加 `session-runs-v1` 能力；有附件的执行另要求 `attachments-v1`。只把新模型 run 派给支持新协议的 daemon。
 
 ```json
 {
@@ -196,7 +196,7 @@ hello 增加 `session-runs-v1` 能力；有附件的执行另要求 `attachments
 
 给 harness 设置 `AGENTUSE_AGENT`、`AGENTUSE_SESSION`、`AGENTUSE_MESSAGE_ID`、`AGENTUSE_RUN`、`AGENTUSE_ATTEMPT`，CLI 自动带执行身份调用 HTTP。读取 session 当前消息、附件列表和内容时，dk_ 还须带 run/attempt（请求头 `X-Agentuse-Run`、`X-Agentuse-Attempt`），服务验证该执行确实分配给这台 daemon 且未结束、租约有效。
 
-同一份 session 对所有获授权的执行可读；执行结束或取消后，不再允许用该 run 读取。产物上传也检查同一执行权。不能仅凭曾经在这个 session 干过活就永久获得读取权，不能借执行身份调用 session 管理接口。旧 message_id 鉴权格式只用于 legacy 执行。
+同一份 session 对所有获授权的执行可读；执行结束或取消后，不再允许用该 run 读取。产物上传也检查同一执行权。不能仅凭曾经在这个 session 干过活就永久获得读取权，不能借执行身份调用 session 管理接口。daemon 的读取与上传必须带当前 run/attempt。
 
 ## 归属与权限
 
@@ -214,15 +214,9 @@ hello 增加 `session-runs-v1` 能力；有附件的执行另要求 `attachments
 - 线程的一条消息有多个目标时，等它各目标的投递得到最终结果后向协调者发一次汇总，逐个署名列结果、失败或取消原因。插话复用已有 run 的结果；没送达而改挂后续 run 的目标，等后续执行结束。结束事务先处理未送达消息的改挂，再判断是否汇总，不能把旧 run 的结束误当成补充消息已完成。按 `(thread_session_id, message_id)` 去重；仍有离线 pending run 时继续显示等待，可以单独取消。
 - steer/question 通过 run_id/attempt_id 归属到具体执行，提问、回答和超时处理不影响其他 run。用户统一用 messages 接口发消息并 @ agent，服务为忙碌目标生成内部 steer，提问回答仍使用对应 run/question 的接口。
 
-## 兼容迁移
+## 数据库初始化
 
-1. sessions 增加 mode（legacy / multi_agent）。已有会话及未传 mode 的旧创建请求保持 legacy；新网页和新版 SDK 显式创建 multi_agent。旧接口、原生续接、附件权限和 daemon 协议暂时保留，不能静默改变旧客户端行为。
-2. 增加 `POST /api/sessions/{id}/upgrade`，只允许空闲且没有未处理 steer/question 的会话升级。回填共享消息的 seq、作者和目标，把已有最终结果导入为终态 run，不重跑历史任务；原 agent/runtime 仅用来补历史 run 的快照。
-3. 升级后不再使用旧 harness_session_id，不把它迁移为按 agent 的续接状态。后续每次执行从共享 session 历史启动新原生会话；原消息、附件和各机器上已有的 session 工作目录保留。旧消息 id 不变；原来单独保存的已送达插话、问答答案补入共享消息并标出来源，历史提问和事件同时导入 run 明细。已经删除的 agent 只保留历史身份，下次需要选择当前存在的 agent。
-4. 旧 user_id、created_by 的 read/write/delete 权限写入 session_access，主归属改为原发起人，避免升级时丢失既有访问权。新建会话没有这种自动授权。
-5. work 必须整体空闲后一次性升级。原协调 agent 填入 coordinator_agent_id；若该 agent 已删除，先由主人通过工作设置或 PATCH works 的 coordinator_agent_id 选择有效 agent 再升级，不能凭空恢复。事务失败不得留下部分升级。
-
-切换 API 默认创建模式和移除旧 runtime 字段另行安排版本；本阶段只定义并存及显式升级。
+只支持当前 schema，`PRAGMA user_version=1`。旧数据库拒绝启动，部署时显式清空数据库及附件；不进行数据迁移，不保留升级接口。sessions 没有 agent/runtime/resume/lease 字段，执行状态全部记录在 session_runs。
 
 ## 页面、CLI 和 SDK
 
@@ -230,13 +224,13 @@ hello 增加 `session-runs-v1` 能力；有附件的执行另要求 `attachments
 
 各 agent 的回复、计划、进度、提问和附件都有署名；同一消息下分别显示“排队”“作为插话等待送达”“已送达”等目标状态。使用同一个输入框，不增加独立的插话发送入口。用户可以下一条只 @ 失败的 agent，不必重新跑全部。取消执行不隐藏历史。
 
-SDK 增加 Run、目标数组和 `{message, runs, deliveries}` 响应，以及 WaitRun、WaitMessageRuns。WaitMessageRuns 按消息目标的当前投递关系等待，跟踪插话改挂后的 run，不能只等待初次响应里的 runs。WaitSession 在新模式下等待全部 run 终态；如配置遇提问即返回，同时给出所有 waiting run。旧模式的接口和响应保留。
+SDK 增加 Run、目标数组和 `{message, runs, deliveries}` 响应，以及 WaitRun、WaitMessageRuns。WaitMessageRuns 按消息目标的当前投递关系等待，跟踪插话改挂后的 run，不能只等待初次响应里的 runs。WaitSession 在新模式下等待全部 run 终态；如配置遇提问即返回，同时给出所有 waiting run。所有会话使用相同接口和响应。
 
 CLI 增加 `agentuse session send <id> --agents coder,reviewer "…"`、`agentuse session read <id>`、`agentuse session runs <id>` 和指定 run 的等待/取消。read 返回这个 session 的统一消息，执行身份只决定是否有权读取，不改变内容视图。attachment 命令自动带 run/attempt。work new/send 可传多个目标，原 --agent 对应单元素目标。
 
 ## 实现和验收
 
-mode、run、共享消息、目标投递、运行协议、附件/工作权限、网页、CLI、三个 SDK 及升级流程已落地，与 legacy 并存。服务端和 daemon 需一起升级，新 daemon 通过 `session-runs-v1` 声明支持。
+run、共享消息、目标投递、运行协议、附件/工作权限、网页、CLI 和三个 SDK 已落地。服务端和 daemon 需一起升级，新 daemon 通过 `session-runs-v1` 声明支持。
 
 验收覆盖：
 
@@ -248,4 +242,3 @@ mode、run、共享消息、目标投递、运行协议、附件/工作权限、
 - 只记录消息时不隐式调用上一个 agent；删除 agent、切换运行时只按 run 快照规则影响后续任务和相关排队任务。
 - 发送重试、结果重发不重复创建 run/消息；过期 attempt 的心跳、结果、附件和读取请求被拒绝，取消后能完成或删除 session。
 - 跨用户/工作/run/question 的越权被拒绝；选择外部 agent 不扩大人类 API 权限。
-- legacy 回归及显式升级通过，历史消息、文件和旧访问权限保留，升级后使用共享历史重新开始原生执行。

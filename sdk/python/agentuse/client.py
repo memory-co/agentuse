@@ -236,14 +236,14 @@ class Client:
     def list_sessions(self, user):
         return self._request("GET", "/api/sessions", user)
 
-    def create_session(self, user, agent_id=None, prompt=None, input=None, defer_start=None, mode=None, title=None, target_agent_ids=None):
-        """用一个 agent 新建会话并发出第一条消息，返回 {"session": …, "message": …}。"""
+    def create_session(self, user, prompt=None, input=None, defer_start=None, mode=None, title=None, target_agent_ids=None):
+        """创建共享会话，可用 target_agent_ids 指定首条消息的执行者。"""
         return self._request(
-            "POST", "/api/sessions", user, _drop_none(agent_id=agent_id, prompt=prompt, input=input, defer_start=defer_start, mode=mode, title=title, target_agent_ids=target_agent_ids)
+            "POST", "/api/sessions", user, _drop_none(prompt=prompt, input=input, defer_start=defer_start, mode=mode, title=title, target_agent_ids=target_agent_ids)
         )
 
     def send_message(self, user, session_id, prompt=None, input=None, target_agent_ids=None, idempotency_key=None):
-        """回复。会话 idle 时返回 message;忙时是插话，返回 steer(带 status)。插话只收 prompt,带 input 抛 AgentuseError(409)。"""
+        """发送共享消息；返回 message、runs 和 deliveries。"""
         return self._request(
             "POST", f"/api/sessions/{_q(session_id)}/messages", user, _drop_none(prompt=prompt, input=input, target_agent_ids=target_agent_ids), extra_headers={"Idempotency-Key": idempotency_key} if idempotency_key else None
         )
@@ -251,12 +251,6 @@ class Client:
     def get_session(self, user, session_id):
         """返回 {"session": …, "messages": […], "steers": […], "questions": […], "events": […]}。"""
         return self._request("GET", f"/api/sessions/{_q(session_id)}", user)
-
-    def answer_question(self, user, session_id, question_id, answers):
-        """回答 harness 的提问(会话 waiting 时)。answers 是 {问题: 答案},多选用 ", " 拼起来。已答过或过期抛 AgentuseError(409)。"""
-        return self._request(
-            "POST", f"/api/sessions/{_q(session_id)}/questions/{_q(question_id)}/answer", user, {"answers": answers}
-        )
 
     def delete_session(self, user, session_id):
         self._request("DELETE", f"/api/sessions/{_q(session_id)}", user)
@@ -274,8 +268,6 @@ class Client:
     def cancel_run(self, user, session_id, run_id) -> Run:
         return self._request("POST", f"/api/sessions/{_q(session_id)}/runs/{_q(run_id)}/cancel", user)
 
-    def upgrade_session(self, user, session_id):
-        return self._request("POST", f"/api/sessions/{_q(session_id)}/upgrade", user)
 
     def answer_run_question(self, user, session_id, run_id, question_id, answers):
         return self._request("POST", f"/api/sessions/{_q(session_id)}/runs/{_q(run_id)}/questions/{_q(question_id)}/answer", user, {"answers": answers})
@@ -328,7 +320,7 @@ class Client:
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             detail = self.get_session(user, session_id)
-            if detail["session"]["status"] in ("idle", "resolved") or (detail["session"]["status"] == "waiting" and (detail["session"].get("mode") != "multi_agent" or return_on_waiting)):
+            if detail["session"]["status"] in ("idle", "resolved") or (detail["session"]["status"] == "waiting" and (return_on_waiting)):
                 return detail
             if deadline is not None and time.monotonic() >= deadline:
                 raise TimeoutError(f"agentuse: session {session_id} still {detail['session']['status']}")

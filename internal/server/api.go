@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/memory-co/agentuse/internal/protocol"
@@ -453,77 +452,17 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Mode == store.MultiAgent {
-		if req.DeferStart && (req.Prompt != nil || len(req.Input) > 0 || len(req.TargetAgentIDs) > 0) {
-			writeErr(w, 400, "defer_start 不能同时发送任务")
-			return
-		}
-		s.createMultiSession(w, r, req.WorkID, req.Title, req.AgentID, req.Input, req.Prompt, req.TargetAgentIDs)
+	if req.Mode != "" && req.Mode != store.MultiAgent {
+		writeErr(w, 400, "只支持 multi_agent session")
 		return
 	}
-	if req.Mode != "" && req.Mode != "legacy" {
-		writeErr(w, 400, "未知 session mode")
+	if req.DeferStart && (req.Prompt != nil || len(req.Input) > 0 || len(req.TargetAgentIDs) > 0) {
+		writeErr(w, 400, "defer_start 不能同时发送任务")
 		return
 	}
-	if req.AgentID == "" {
-		writeErr(w, http.StatusBadRequest, "agent_id 必填")
-		return
-	}
-	if sc := workScope(r); sc == nil {
-		if req.WorkID != "" {
-			writeErr(w, http.StatusForbidden, "线程只能由工作的协调者开(agentuse work new)")
-			return
-		}
-	} else {
-		if req.WorkID == "" {
-			req.WorkID = sc.ID
-		}
-		if req.WorkID != sc.ID {
-			writeErr(w, http.StatusForbidden, "工作令牌只能在自己的工作里开线程")
-			return
-		}
-		// 线程可以用工作主人名下的任何 agent(跑在哪台 daemon 上都行),别人的 agent 不行
-		if a, err := s.store.GetAgent(r.Context(), currentUser(r), req.AgentID); err != nil || a.UserID != currentUser(r).ID {
-			writeErr(w, http.StatusForbidden, "线程只能用工作主人自己的 agent: "+req.AgentID)
-			return
-		}
-	}
-	if req.DeferStart {
-		if len(req.Input) > 0 || req.Prompt != nil {
-			writeErr(w, 400, "defer_start 不能同时传 prompt/input")
-			return
-		}
-		ss, _, err := s.store.CreateSessionIn(r.Context(), currentUser(r), req.WorkID, req.AgentID, "", nil)
-		if err != nil {
-			s.storeErr(w, err)
-			return
-		}
-		writeJSON(w, 201, map[string]any{"session": ss})
-		return
-	}
-	prompt := ""
-	if req.Prompt != nil {
-		prompt = *req.Prompt
-	}
-	content, err := messageContent(req.Input, prompt)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	title := ""
-	if len(req.Input) == 0 {
-		title = firstRunes(strings.TrimSpace(prompt), 50)
-	}
-	ss, m, err := s.store.CreateSessionIn(r.Context(), currentUser(r), req.WorkID, req.AgentID, title, content)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	s.hub.kickUser(ss.UserID)
-	writeJSON(w, http.StatusCreated, map[string]any{"session": ss, "message": m})
+	s.createMultiSession(w, r, req.WorkID, req.Title, req.AgentID, req.Input, req.Prompt, req.TargetAgentIDs)
 }
 
-// handleAddMessage 在会话里回复下一条消息。
 func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TargetAgentIDs []string        `json:"target_agent_ids"`
@@ -543,53 +482,14 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, id) {
 		return
 	}
-	ss, err := s.store.GetSession(r.Context(), u, id)
+	reply, err := s.store.SendMultiMessage(r.Context(), u, id, content, req.TargetAgentIDs, r.Header.Get("Idempotency-Key"), len(req.Input) == 0)
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	if ss.Mode == store.MultiAgent {
-		reply, err := s.store.SendMultiMessage(r.Context(), u, id, content, req.TargetAgentIDs, r.Header.Get("Idempotency-Key"), len(req.Input) == 0)
-		if err != nil {
-			s.storeErr(w, err)
-			return
-		}
-		s.hub.kickAll()
-		s.hub.pushRunSteers(reply.Deliveries)
-		writeJSON(w, 201, reply)
-		return
-	}
-	// 空闲时发下一条消息;忙时插话(docs/v2/designs/steer.md)。两次之间状态可能刚好变了，所以最多试两轮。
-	for range 2 {
-		ss, m, err := s.store.AddMessage(r.Context(), u, id, content)
-		if err == nil {
-			s.hub.kickUser(ss.UserID)
-			writeJSON(w, http.StatusCreated, m)
-			return
-		}
-		if !errors.Is(err, store.ErrSessionBusy) {
-			s.storeErr(w, err)
-			return
-		}
-		if len(req.Input) > 0 {
-			writeErr(w, http.StatusConflict, "会话还在跑，插话只能用 prompt")
-			return
-		}
-		ss, st, err := s.store.AddSteer(r.Context(), u, id, req.Prompt)
-		if errors.Is(err, store.ErrSessionIdle) {
-			continue
-		}
-		if err != nil {
-			s.storeErr(w, err)
-			return
-		}
-		if ss.Status != store.SessionPending {
-			s.hub.pushSteer(ss.DaemonID, st)
-		}
-		writeJSON(w, http.StatusAccepted, st)
-		return
-	}
-	writeErr(w, http.StatusConflict, "会话状态在变，请重试")
+	s.hub.kickAll()
+	s.hub.pushRunSteers(reply.Deliveries)
+	writeJSON(w, 201, reply)
 }
 
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
@@ -601,66 +501,9 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	if ss.Mode == store.MultiAgent {
-		s.getMultiSession(w, r, ss)
-		return
-	}
-	msgs, err := s.store.Messages(r.Context(), ss.ID)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	events, err := s.store.SessionEvents(r.Context(), ss.ID)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	steers, err := s.store.Steers(r.Context(), ss.ID)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	questions, err := s.store.Questions(r.Context(), ss.ID)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	offline, err := s.store.DaemonOfflineFor(r.Context(), ss)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	out := map[string]any{"session": ss, "messages": msgs, "steers": steers, "questions": questions, "events": events}
-	if offline {
-		out["daemon_offline"] = true
-	}
-	writeJSON(w, http.StatusOK, out)
+	s.getMultiSession(w, r, ss)
 }
 
-// handleAnswerQuestion 回答 harness 的提问，答案推给正在等的 daemon(docs/v2/designs/question.md)。
-func (s *Server) handleAnswerQuestion(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Answers map[string]string `json:"answers"`
-	}
-	if err := readJSON(r, &req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	qid, err := strconv.ParseInt(r.PathValue("qid"), 10, 64)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "不存在")
-		return
-	}
-	ss, q, err := s.store.AnswerQuestion(r.Context(), currentUser(r), r.PathValue("id"), qid, req.Answers)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	s.hub.pushAnswer(ss.DaemonID, q)
-	writeJSON(w, http.StatusAccepted, q)
-}
-
-// threadInScope:用工作令牌时，只能动它那个工作的线程;不在范围里写 403 并返回 false。用户令牌一律放行。
 func (s *Server) threadInScope(w http.ResponseWriter, r *http.Request, id string) bool {
 	sc := workScope(r)
 	if sc == nil {
@@ -721,13 +564,11 @@ func (s *Server) handleCreateWork(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	create := s.store.CreateWork
-	if req.Mode == store.MultiAgent {
-		create = s.store.CreateMultiWork
-	} else if req.Mode != "" && req.Mode != "legacy" {
-		writeErr(w, 400, "未知 mode")
+	if req.Mode != "" && req.Mode != store.MultiAgent {
+		writeErr(w, 400, "只支持 multi_agent session")
 		return
 	}
+	create := s.store.CreateMultiWork
 	wk, coord, err := create(r.Context(), currentUser(r), req.Name, req.AgentID, req.Instructions)
 	if err != nil {
 		s.storeErr(w, err)

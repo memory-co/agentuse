@@ -90,6 +90,10 @@ type fakeServer struct {
 func newFakeServer(t *testing.T) *fakeServer {
 	f := &fakeServer{recv: make(chan protocol.Message, 100), send: make(chan protocol.Message, 100)}
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/sessions/ss_1" && r.Method == "GET" {
+			io.WriteString(w, `{"messages":[]}`)
+			return
+		}
 		if r.URL.Path == "/api/sessions/ss_1/attachments" && r.Method == "GET" && r.Header.Get("Authorization") == "Bearer dk_ok" {
 			w.Header().Set("Content-Type", "application/json")
 			io.WriteString(w, `{"attachments":[],"next_cursor":null}`)
@@ -163,7 +167,8 @@ func TestRun(t *testing.T) {
 	f.send <- protocol.Message{Type: protocol.TypeWelcome, DaemonID: "dm_1", Ignored: []string{"x"}}
 	f.next(t, protocol.TypeReady)
 
-	f.send <- protocol.Message{Type: protocol.TypeMessage, Message: &protocol.Dispatch{ID: 5, SessionID: "ss_1", Harness: "mine", Input: json.RawMessage(`{"prompt":"hi"}`)}}
+	f.send <- protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{RunID: "sr_test", AttemptID: "attempt_test", ID: 5, SessionID: "ss_1", Harness: "mine", Input: json.RawMessage(`{"prompt":"hi"}`)}}
+	f.next(t, protocol.TypeEvent) // started
 	if ev := f.next(t, protocol.TypeEvent); ev.Kind != "progress" || ev.MessageID != 5 || string(ev.Payload) != `{"type":"progress","text":"p"}` {
 		t.Fatalf("progress: %+v", ev)
 	}
@@ -174,7 +179,7 @@ func TestRun(t *testing.T) {
 	f.next(t, protocol.TypeReady)
 
 	// 本机没有的 harness:回报失败
-	f.send <- protocol.Message{Type: protocol.TypeMessage, Message: &protocol.Dispatch{ID: 6, SessionID: "ss_2", Harness: "ghost", Input: json.RawMessage(`{}`)}}
+	f.send <- protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{RunID: "sr_test", AttemptID: "attempt_test", ID: 6, SessionID: "ss_2", Harness: "ghost", Input: json.RawMessage(`{}`)}}
 	if ev := f.next(t, protocol.TypeEvent); ev.Kind != "failed" || json.Unmarshal(ev.Payload, &res) != nil || res.Error != "本机没有 harness ghost" {
 		t.Fatalf("unknown harness: %+v %+v", ev, res)
 	}
@@ -201,10 +206,10 @@ func TestRunStaleMessage(t *testing.T) {
 	f.next(t, protocol.TypeHello)
 	f.send <- protocol.Message{Type: protocol.TypeWelcome}
 	f.next(t, protocol.TypeReady)
-	f.send <- protocol.Message{Type: protocol.TypeMessage, Message: &protocol.Dispatch{ID: 9, SessionID: "ss_1", Harness: "slow", Input: json.RawMessage(`{}`)}}
+	f.send <- protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{RunID: "sr_test", AttemptID: "attempt_test", ID: 9, SessionID: "ss_1", Harness: "slow", Input: json.RawMessage(`{}`)}}
 	f.next(t, protocol.TypeEvent)
 	start := time.Now()
-	f.send <- protocol.Message{Type: protocol.TypeError, MessageID: 9, Error: "stale"}
+	f.send <- protocol.Message{Type: protocol.TypeError, RunID: "sr_test", AttemptID: "attempt_test", MessageID: 9, Error: "stale"}
 	f.next(t, protocol.TypeReady) // 没有 done / failed,直接 ready
 	if time.Since(start) > 5*time.Second {
 		t.Fatal("harness should be killed")
@@ -232,7 +237,7 @@ func TestRunShutdownStopsHarness(t *testing.T) {
 	f.next(t, protocol.TypeHello)
 	f.send <- protocol.Message{Type: protocol.TypeWelcome}
 	f.next(t, protocol.TypeReady)
-	f.send <- protocol.Message{Type: protocol.TypeMessage, Message: &protocol.Dispatch{ID: 30, SessionID: "ss_1", Harness: "slow", Input: json.RawMessage(`{}`)}}
+	f.send <- protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{RunID: "sr_test", AttemptID: "attempt_test", ID: 30, SessionID: "ss_1", Harness: "slow", Input: json.RawMessage(`{}`)}}
 	f.next(t, protocol.TypeEvent)
 	cancel()
 	select {

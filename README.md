@@ -93,7 +93,7 @@ agentuse harnesses                                      # 本机检测到的 har
 | DELETE | `/api/daemons/{id}` | 删除 |
 | GET / POST | `/api/agents` | 列 agent / 建 agent `{"id":"code-helper","name":"写代码助手","daemon_id":"dm_…","harness":"claude"}`(id 全局唯一) |
 | PATCH / DELETE | `/api/agents/{id}` | 改名字、切换运行时 `{"daemon_id":"dm_…","harness":"codex"}` / 删除 |
-| GET / POST | `/api/sessions` | 列会话 / 开会话 `{"agent_id":"code-helper","prompt":"…"}` |
+| GET / POST | `/api/sessions` | 列会话 / 开会话 `{"target_agent_ids":["code-helper"],"prompt":"…"}` |
 | POST | `/api/sessions/{id}/messages` | 回复 `{"prompt":"…"}`,harness 还没回时 409 |
 | GET / DELETE | `/api/sessions/{id}` | 会话详情(消息和回报) / 删除 |
 | GET / POST | `/api/harnesses` | 列 harness / 注册自定义 harness |
@@ -177,4 +177,4 @@ agentuse attachment download at_xxx --output ./report.pdf
 {"prompt":"分别看看实现和风险","target_agent_ids":["coder","reviewer"]}
 ```
 
-返回 `{message, runs, deliveries}`。也支持 `agentuse session send ss_xxx --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。旧 API 未传 mode 时和已有会话仍为 legacy；页面可显式升级。需要服务端和 daemon 一起升级（`session-runs-v1`）。[设计](docs/v2/designs/session-mentions.md) · [API](docs/v2/apis/sessions.md#multi_agent-请求与响应)。
+返回 `{message, runs, deliveries}`。也支持 `agentuse session send ss_xxx --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有会话统一使用共享模型，未传 mode 也创建 multi_agent。需要服务端和 daemon 一起升级（`session-runs-v1`）。[设计](docs/v2/designs/session-mentions.md) · [API](docs/v2/apis/sessions.md)。

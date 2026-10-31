@@ -109,7 +109,7 @@ export class Client {
 
   // sessions
   listSessions(user) { return this._request("GET", "/api/sessions", user); }
-  // 新建会话并发出第一条消息:{ agent_id, prompt?, input? } → { session, message }。
+  // 创建共享会话，可带首条消息与 target_agent_ids。
   createSession(user, req) { return this._request("POST", "/api/sessions", user, req); }
   // 回复:{ prompt? , input? }。会话不是 idle 时抛 AgentuseError(409)。
   // 会话 idle 时返回 message;忙时是插话，返回 steer。
@@ -117,9 +117,6 @@ export class Client {
   // → { session, messages, steers, questions, events }
   getSession(user, sessionId) { return this._request("GET", `/api/sessions/${q(sessionId)}`, user); }
   // 回答 harness 的提问(会话 waiting 时):answers 是 { 问题: 答案 },多选用 ", " 拼起来。已答过或过期抛 409。
-  answerQuestion(user, sessionId, questionId, answers) {
-    return this._request("POST", `/api/sessions/${q(sessionId)}/questions/${q(questionId)}/answer`, user, { answers });
-  }
   async deleteSession(user, sessionId) { await this._request("DELETE", `/api/sessions/${q(sessionId)}`, user); }
   // 把 idle 的会话标记为已完成;再发消息就重新打开。
   resolveSession(user, sessionId) { return this._request("POST", `/api/sessions/${q(sessionId)}/resolve`, user); }
@@ -127,7 +124,6 @@ export class Client {
 
   getRun(user, session, run) { return this._request("GET", `/api/sessions/${q(session)}/runs/${q(run)}`, user); }
   cancelRun(user, session, run) { return this._request("POST", `/api/sessions/${q(session)}/runs/${q(run)}/cancel`, user); }
-  upgradeSession(user, session) { return this._request("POST", `/api/sessions/${q(session)}/upgrade`, user); }
   answerRunQuestion(user, session, run, question, answers) { return this._request("POST", `/api/sessions/${q(session)}/runs/${q(run)}/questions/${q(question)}/answer`, user, {answers}); }
   async waitRun(user, session, run, {interval=2000, timeout, returnOnWaiting=false}={}) {
     const start=Date.now();
@@ -156,7 +152,7 @@ export class Client {
     const deadline = timeout === undefined ? Infinity : Date.now() + timeout;
     for (;;) {
       const detail = await this.getSession(user, sessionId);
-      if (["idle", "resolved"].includes(detail.session.status) || (detail.session.status === "waiting" && (detail.session.mode !== "multi_agent" || returnOnWaiting))) return detail;
+      if (["idle", "resolved"].includes(detail.session.status) || (detail.session.status === "waiting" && (returnOnWaiting))) return detail;
       if (Date.now() >= deadline) {
         throw new Error(`agentuse: session ${sessionId} still ${detail.session.status}`);
       }

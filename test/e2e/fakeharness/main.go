@@ -112,7 +112,7 @@ func claude(args []string) int {
 		}
 	}
 	if f := strings.SplitN(prompt, " ", 3); len(f) == 3 && f[0] == "spawn" {
-		b, err := exec.Command("agentuse", "work", "new", "--agent", f[1], f[2]).CombinedOutput()
+		b, err := exec.Command("agentuse", "work", "new", "--agents", f[1], f[2]).CombinedOutput()
 		out += " spawned=" + strings.TrimSpace(string(b))
 		if err != nil {
 			out += " err=" + err.Error()

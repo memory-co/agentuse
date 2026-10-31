@@ -37,41 +37,10 @@ daemon 连上 WebSocket,上报本机 harness ──▶ 页面上出现这台电�
 
 注册接口和 WebSocket 消息的完整格式见 [apis/daemon](../apis/daemon.md)。
 
-## 派活
+## 派活与本机执行
 
-派给 daemon 的是 `pending` 的[会话](../tables/sessions.md),带上它最后一条 `user` 消息。
+服务领取 pending run，按本次执行的 daemon/harness 快照派发。一台 daemon 发 ready 后才接下一次执行。租约过期或重连时没有对应执行，服务重新排队并产生新的 attempt；旧 attempt 的事件和文件操作失效。
 
-- 一台 daemon 一次只跑一个会话：说了 `ready` 才派，派出后等它再说 `ready`。
-- 有新消息、用户打开了某个 harness、有会话被收回时，服务叫醒相关的空闲 daemon 去领。
-- 领活在一个事务里挑最早的 `pending` 会话，条件是会话的 `daemon_id` 就是这台、会话的 harness 在这台 daemon 上 `available = 1 AND enabled = 1`。
-- 会话建的时候就定了 daemon(取 [agent](../tables/agents.md) 的运行时),只给它(harness 的会话存在那台电脑上)。它离线就等它上线，不换机器。
-- 租约 60 秒，心跳和每条回报都续租。daemon 掉线后租约过期，会话回到 `pending`。断线期间跑完的结果,daemon 重连后补发。
+每次执行读取同一个 session 的共享消息和附件，在 `~/.agentuse/work/<session_id>/` 启动新的原生会话。agent、harness、机器可以在后续 run 中更换，没有原生续接状态。
 
-## 本机怎么跑 harness
-
-每条消息起一次 CLI,第一条新建 harness 会话，之后用上次回报的 harness 会话 id(派活消息里的 `resume`)续接。
-
-内置 harness 怎么起、怎么续接、怎么从输出里读出进度 / 结果 / 会话 id,都写在仓库顶层 [`harness/<name>/harness.yaml`](../../../harness/)([设计](harness.md)):
-
-| harness | 第一条 | 之后 |
-|---|---|---|
-| `claude` | `claude -p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions --permission-prompt-tool stdio [args…]`,prompt 作为一行 `{"type":"user",…}` 写进 stdin | 加 `--resume <id>` |
-| `codex` | `codex exec --json --skip-git-repo-check -c sandbox_mode=workspace-write -c sandbox_workspace_write.network_access=true [args…] <prompt>`(沙箱可写、能联网;args 里给 `-s` 时以它为准) | 同上，`[args…]` 后面加 `resume <id> <prompt>` |
-| 自定义 | `<command> [args…]`,stdin 写入 `{"session_id":"ss_…","resume":"…","instructions":"…","input":…}`(`instructions` 是[工作](work.md)的说明，没有就不带);stdout 的 `{"type":"progress",…}` 行是进度,`{"type":"result","ok":…,"output":…,"session_id":…}` 行是结果，没有就按退出码 | 同左,`resume` 有值 |
-
-会话固定在 `~/.agentuse/work/<session_id>/` 里跑，用户不能指定，每次都是同一个目录(Claude Code 按目录找会话)。起进程前 daemon 把 harness 自带的 skills 拷进去([设计](harness.md#工作目录))。本机的启动命令和追加参数在 `~/.agentuse/daemon.json` 里配:
-
-```json
-{
-  "server": "https://agentuse.example.com",
-  "daemon_id": "dm_xxx",
-  "key": "dk_xxx",
-  "harnesses": {
-    "claude": { "args": ["--model", "opus"] },
-    "codex": { "disabled": true },
-    "my-harness": { "command": "/usr/local/bin/my-harness" }
-  }
-}
-```
-
-改完重启 daemon 生效。
+本机 CLI 路径与参数由 `~/.agentuse/daemon.json` 的 harnesses 配置决定，内置命令定义见 [harness](harness.md)。协议见 [daemon API](../apis/daemon.md)，执行语义见 [共享 session](session-mentions.md)。

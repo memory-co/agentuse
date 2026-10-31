@@ -24,7 +24,7 @@ agentuse.set_daemon_harness(uid, d["id"], "claude", True)
 a = agentuse.create_agent(uid, "写代码", d["id"], "claude", id="code-helper")
 
 # 用这个 agent 发起任务，等它回完
-s = agentuse.create_session(uid, a["id"], prompt="修一下 README 的错别字")["session"]
+s = agentuse.create_session(uid, target_agent_ids=[a["id"]], prompt="修一下 README 的错别字")["session"]
 detail = agentuse.wait_session(uid, s["id"], interval=2, timeout=600)
 print(detail["messages"][-1]["content"])
 
@@ -44,7 +44,7 @@ if "status" in r:
 ## 附件
 
 ```python
-created = c.create_session(user, agent_id='coder', defer_start=True)
+created = c.create_session(user, defer_start=True)
 session_id = created['session']['id']
 with open('input.csv', 'rb') as stream:
     file = c.upload_attachment(user, session_id, 'input.csv', stream)
@@ -66,4 +66,4 @@ r = c.send_message(user, s['id'], prompt='分别看看实现与风险',
 d = c.wait_message_runs(user, s['id'], r['message']['id'], interval=.5, timeout=600)
 ```
 
-支持 get_run、wait_run、cancel_run、answer_run_question、upgrade_session。响应 deliveries 包含各目标的新执行或插话状态；新模式 wait_session 默认等全部终态，return_on_waiting=True 可在提问时返回。
+支持 get_run、wait_run、cancel_run、answer_run_question。响应 deliveries 包含各目标的新执行或插话状态；新模式 wait_session 默认等全部终态，return_on_waiting=True 可在提问时返回。

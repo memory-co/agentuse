@@ -13,12 +13,12 @@ func TestMessageJSON(t *testing.T) {
 	}{
 		{Message{Type: TypeReady}, `{"type":"ready"}`},
 		{Message{Type: TypeHeartbeat, MessageID: 7}, `{"type":"heartbeat","message_id":7}`},
-		{Message{Type: TypeHello, Version: "v1", Harnesses: []Harness{{Name: "claude", Version: "2"}, {Name: "x"}}, Running: []int64{3}},
-			`{"type":"hello","harnesses":[{"name":"claude","version":"2"},{"name":"x"}],"running":[3],"version":"v1"}`},
+		{Message{Type: TypeHello, Version: "v1", Harnesses: []Harness{{Name: "claude", Version: "2"}, {Name: "x"}}},
+			`{"type":"hello","harnesses":[{"name":"claude","version":"2"},{"name":"x"}],"version":"v1"}`},
 		{Message{Type: TypeEvent, MessageID: 1, Kind: "done", Payload: json.RawMessage(`{"ok":true}`)},
 			`{"type":"event","message_id":1,"kind":"done","payload":{"ok":true}}`},
-		{Message{Type: TypeMessage, Message: &Dispatch{ID: 1, SessionID: "ss_1", Harness: "claude", Input: json.RawMessage(`{"prompt":"hi"}`)}},
-			`{"type":"message","message":{"id":1,"session_id":"ss_1","harness":"claude","input":{"prompt":"hi"}}}`},
+		{Message{Type: TypeRun, Run: &Dispatch{ID: 1, SessionID: "ss_1", Harness: "claude", Input: json.RawMessage(`{"prompt":"hi"}`)}},
+			`{"run":{"id":1,"session_id":"ss_1","harness":"claude","input":{"prompt":"hi"}},"type":"run"}`},
 	} {
 		b, err := json.Marshal(c.msg)
 		if err != nil || string(b) != c.want {

@@ -58,7 +58,7 @@ func runAttachment(args []string) error {
 		return errors.New("需要 --session 或 AGENTUSE_SESSION")
 	}
 	if *token == "" {
-		*token = envOr("AGENTUSE_WORK", os.Getenv("AGENTUSE_WORK_TOKEN"))
+		*token = os.Getenv("AGENTUSE_WORK")
 	}
 	if *server == "" || *token == "" {
 		cfg, err := daemon.LoadConfig(*cfgPath)
@@ -107,14 +107,7 @@ func runAttachment(args []string) error {
 		if filename == "" {
 			filename = filepath.Base(positionals[0])
 		}
-		var messageID int64
-		if strings.HasPrefix(*token, "dk_") && c.RunID == "" {
-			messageID, err = strconv.ParseInt(os.Getenv("AGENTUSE_MESSAGE_ID"), 10, 64)
-			if err != nil || messageID <= 0 {
-				return errors.New("daemon 上传需要 AGENTUSE_MESSAGE_ID")
-			}
-		}
-		a, err := c.Upload(ctx, *session, filename, f, messageID)
+		a, err := c.Upload(ctx, *session, filename, f)
 		if err != nil {
 			return fmt.Errorf("上传失败（连接中断时可能已经成功，请先 list 检查）: %w", err)
 		}

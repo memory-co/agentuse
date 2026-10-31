@@ -39,15 +39,15 @@
 ```
 agentuse work agents                         # 能用哪些 agent
 agentuse work threads                        # 线程列表和状态
-agentuse work new --agent code-helper "改 daemon 的重连逻辑"   # 开线程，打印线程 id
-agentuse work send ss_xxx "再补个测试"        # 给线程发消息(在跑就是插话)
+agentuse work new --agents code-helper "改 daemon 的重连逻辑"   # 开线程，打印线程 id
+agentuse work send --agents code-helper ss_xxx "再补个测试"        # 给线程发消息(在跑就是插话)
 agentuse work read ss_xxx                    # 看线程的消息
 agentuse work resolve ss_xxx                 # 线程的活做完了，标记已完成
 ```
 
 daemon 还把自己所在的目录放到 PATH 最前面，保证找得到 `agentuse`;协调者的说明文件(见下)**最前面**放一段固定的规矩：只派活不干活(哪怕活很小也开线程，不用 harness 自带的子 agent)、这些命令怎么用、开完线程就结束这一轮等结果回来、`agentuse work` 报错就原样告诉用户而不是绕过去自己干。工作的说明接在后面，标题「工作说明」。codex、自定义 harness 也一样适用，所以不做成 claude 专用的 skill。
 
-工作令牌存在 [work_tokens](../tables/work_tokens.md) 里，派活给协调者时生成，这一轮结束时删掉。
+工作令牌存在 [work_run_tokens](../tables/session_runs.md) 里，派活给协调者时生成，这一轮结束时删掉。
 
 **结果回到协调者**:线程每回完一条(`done` / `failed`),服务给协调者追加一条消息，内容是:
 

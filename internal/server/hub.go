@@ -100,10 +100,6 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 			for _, run := range valid {
 				refs = append(refs, protocol.RunRef{RunID: run.ID, AttemptID: run.AttemptID})
 			}
-			users, err := st.RequeueDaemonSessions(ctx, c.d.ID, m.Running)
-			if err != nil {
-				return err
-			}
 			if err := c.send(ctx, protocol.Message{Type: protocol.TypeWelcome, DaemonID: c.d.ID, Name: c.d.Name, Ignored: ignored, ValidRuns: refs}); err != nil {
 				return err
 			}
@@ -121,17 +117,6 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 			for _, q := range qs {
 				_ = c.send(ctx, protocol.Message{Type: protocol.TypeAnswer, Answer: &protocol.Answer{RunID: q.RunID, AttemptID: q.AttemptID, MessageID: q.MessageID, ToolUseID: q.ToolUseID, Answers: q.Answers}})
 			}
-			// 断线期间答了的提问，再推一遍
-			answers, err := st.PendingAnswers(ctx, c.d.ID)
-			if err != nil {
-				return err
-			}
-			for _, q := range answers {
-				_ = c.send(ctx, answerMessage(q))
-			}
-			for _, u := range users {
-				h.kickUser(u)
-			}
 		case protocol.TypeReady:
 			c.mu.Lock()
 			c.idle = true
@@ -143,11 +128,8 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 				if err := st.RenewRun(ctx, c.d.ID, m.RunID, m.AttemptID, protocol.LeaseSeconds); err != nil {
 					_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, RunID: m.RunID, AttemptID: m.AttemptID, MessageID: m.MessageID, Error: err.Error()})
 				}
-			} else if m.MessageID != 0 {
-				if err := st.RenewLease(ctx, c.d.ID, m.MessageID, protocol.LeaseSeconds); err != nil {
-					h.reportStale(ctx, c, m.MessageID, err)
-				}
 			}
+
 		case protocol.TypeEvent:
 			if m.RunID != "" {
 				if err := st.ReportRunEvent(ctx, c.d.ID, m.RunID, m.AttemptID, m.EventSeq, m.Kind, m.Payload, protocol.LeaseSeconds); err != nil {
@@ -159,39 +141,13 @@ func (h *hub) serve(ctx context.Context, c *daemonConn) error {
 				h.kickAll()
 				continue
 			}
-			rep, err := st.ReportEvent(ctx, c.d.ID, m.MessageID, m.Kind, m.Payload, protocol.LeaseSeconds)
-			if ds, e := st.PendingRunSteers(ctx); e == nil {
-				h.pushRunSteers(ds)
-			}
-			if err != nil {
-				h.reportStale(ctx, c, m.MessageID, err)
-			}
-			for _, s := range rep.Steers {
-				_ = c.send(ctx, steerMessage(s))
-			}
-			// 线程回完了，结果发给了协调者(docs/v2/designs/work.md)
-			if n := rep.Coordinator; n != nil {
-				if n.Steer != nil && n.Session.Status != store.SessionPending {
-					h.pushSteer(n.Session.DaemonID, *n.Steer)
-				} else if n.Steer == nil {
-					h.kickUser(n.Session.UserID)
-				}
-			}
+			_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, Error: "run_id and attempt_id are required"})
 		default:
 			_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, Error: "unknown message type " + m.Type})
 		}
 	}
 }
 
-// reportStale 告诉 daemon 这条消息已经不归它了，它应该停掉。
-func (h *hub) reportStale(ctx context.Context, c *daemonConn, messageID int64, err error) {
-	if !errors.Is(err, store.ErrStaleMessage) {
-		h.s.log.Printf("daemon %s message %d: %v", c.d.ID, messageID, err)
-	}
-	_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, MessageID: messageID, Error: err.Error()})
-}
-
-// dispatch 给空闲的 daemon 领一个会话，把最后一条用户消息推过去。
 func (h *hub) dispatch(ctx context.Context, c *daemonConn) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -211,61 +167,6 @@ func (h *hub) dispatch(ctx context.Context, c *daemonConn) {
 	if !errors.Is(runErr, store.ErrNotFound) {
 		h.s.log.Printf("claim run: %v", runErr)
 		return
-	}
-	cl, err := h.s.store.ClaimSession(ctx, c.d, protocol.LeaseSeconds)
-	if err != nil {
-		if !errors.Is(err, store.ErrNotFound) {
-			h.s.log.Printf("claim for %s: %v", c.d.ID, err)
-		}
-		return
-	}
-	c.idle = false
-	ss := cl.Session
-	msg := protocol.Message{Type: protocol.TypeMessage, Message: &protocol.Dispatch{
-		ID: cl.Message.ID, SessionID: ss.ID, Harness: ss.Harness, Resume: ss.HarnessSessionID, Input: cl.Message.Content,
-		Instructions: cl.Instructions, WorkToken: cl.WorkToken,
-	}}
-	if err := c.send(ctx, msg); err != nil {
-		// 没送到:等租约过期自动收回。
-		h.s.log.Printf("send session %s to %s: %v", ss.ID, c.d.ID, err)
-		return
-	}
-	h.s.log.Printf("会话 %s(%s)的消息 %d 派给 daemon %s", ss.ID, ss.Harness, cl.Message.ID, c.d.ID)
-	// 派出前就有的插话，跟着推过去
-	steers, err := h.s.store.PendingSteers(ctx, cl.Message.ID)
-	if err != nil {
-		h.s.log.Printf("steers of message %d: %v", cl.Message.ID, err)
-	}
-	for _, st := range steers {
-		_ = c.send(ctx, steerMessage(st))
-	}
-}
-
-func steerMessage(st store.Steer) protocol.Message {
-	return protocol.Message{Type: protocol.TypeSteer, Steer: &protocol.Steer{ID: st.ID, MessageID: st.MessageID, Prompt: st.Prompt}}
-}
-
-// pushSteer 把插话推给正在跑这个会话的 daemon;它不在线就算了，这一轮结束时插话会转成下一条消息。
-func (h *hub) pushSteer(daemonID string, st store.Steer) {
-	h.mu.Lock()
-	c := h.conns[daemonID]
-	h.mu.Unlock()
-	if c != nil {
-		_ = c.send(context.Background(), steerMessage(st))
-	}
-}
-
-func answerMessage(q store.Question) protocol.Message {
-	return protocol.Message{Type: protocol.TypeAnswer, Answer: &protocol.Answer{MessageID: q.MessageID, ToolUseID: q.ToolUseID, Answers: q.Answers}}
-}
-
-// pushAnswer 把答案推给正在等的 daemon;它不在线就等它重连时再推。
-func (h *hub) pushAnswer(daemonID string, q store.Question) {
-	h.mu.Lock()
-	c := h.conns[daemonID]
-	h.mu.Unlock()
-	if c != nil {
-		_ = c.send(context.Background(), answerMessage(q))
 	}
 }
 

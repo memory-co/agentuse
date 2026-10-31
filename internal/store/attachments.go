@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS attachments (
  filename TEXT NOT NULL, content_type TEXT NOT NULL, size_bytes INTEGER NOT NULL CHECK(size_bytes>=0),
  sha256 TEXT NOT NULL CHECK(length(sha256)=64), created_by TEXT NOT NULL REFERENCES users(id),
  source TEXT NOT NULL CHECK(source IN ('user','daemon','work')),
- daemon_id TEXT REFERENCES daemons(id) ON DELETE SET NULL, created_at INTEGER NOT NULL
+ daemon_id TEXT REFERENCES daemons(id) ON DELETE SET NULL, created_by_run_id TEXT, created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS attachments_session ON attachments(session_id,created_at,id);
 CREATE TABLE IF NOT EXISTS daemon_capabilities (
@@ -35,7 +35,6 @@ var ErrAttachmentCapability = errors.New("daemon 尚不支持附件，请先升�
 type AttachmentAccess struct {
 	User                    User
 	DaemonID, WorkID, Token string
-	MessageID               int64
 	RunID, AttemptID        string
 }
 
@@ -53,19 +52,14 @@ func (s *Store) attachmentSession(ctx context.Context, q querier, a AttachmentAc
 	}
 	if a.WorkID != "" {
 		var n int
-		err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM work_tokens t JOIN works w ON w.id=t.work_id JOIN sessions s ON s.id=w.coordinator_id WHERE t.work_id=? AND t.token_hash=? AND s.status IN ('running','waiting') AND s.lease_until>? AND t.message_id=(SELECT MAX(id) FROM messages WHERE session_id=s.id AND role='user')`, a.WorkID, HashSecret(a.Token), s.unix()).Scan(&n)
+		err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM work_run_tokens t JOIN session_runs r ON r.id=t.run_id WHERE t.work_id=? AND t.token_hash=? AND t.attempt_id=r.attempt_id AND r.status IN ('running','waiting') AND r.lease_until>?`, a.WorkID, HashSecret(a.Token), s.unix()).Scan(&n)
 		if err != nil {
 			return Session{}, err
 		}
 		if n == 0 {
-			err = q.QueryRowContext(ctx, `SELECT COUNT(*) FROM work_run_tokens t JOIN session_runs r ON r.id=t.run_id WHERE t.work_id=? AND t.token_hash=? AND t.attempt_id=r.attempt_id AND r.status IN ('running','waiting') AND r.lease_until>?`, a.WorkID, HashSecret(a.Token), s.unix()).Scan(&n)
-			if err != nil {
-				return Session{}, err
-			}
-			if n == 0 {
-				return Session{}, ErrAttachmentUnauthorized
-			}
+			return Session{}, ErrAttachmentUnauthorized
 		}
+
 	}
 	if a.DaemonID == "" && a.WorkID == "" {
 		var authID, role string
@@ -86,50 +80,21 @@ func (s *Store) attachmentSession(ctx context.Context, q querier, a AttachmentAc
 	if err != nil {
 		return ss, err
 	}
-	if ss.Mode == MultiAgent {
-		if a.WorkID != "" && ss.WorkID != a.WorkID {
-			return ss, ErrNotFound
-		}
-		if a.DaemonID != "" {
-			r, e := s.CheckRun(ctx, q, a.DaemonID, a.RunID, a.AttemptID)
-			if e != nil {
-				return ss, e
-			}
-			if r.SessionID != ss.ID {
-				return ss, ErrNotFound
-			}
-		}
-		return ss, nil
-	}
-	if a.DaemonID != "" && (a.RunID != "" || a.AttemptID != "") {
-		return ss, ErrAttachmentUnauthorized
-	}
-	if a.DaemonID != "" && ss.DaemonID != a.DaemonID {
-		return Session{}, ErrNotFound
-	}
 	if a.WorkID != "" && ss.WorkID != a.WorkID {
-		return Session{}, ErrNotFound
+		return ss, ErrNotFound
 	}
-	if upload {
-		var n int
-		if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM daemon_capabilities WHERE daemon_id=? AND capability=?`, ss.DaemonID, attachment.Capability).Scan(&n); err != nil {
-			return ss, err
+	if a.DaemonID != "" {
+		run, e := s.CheckRun(ctx, q, a.DaemonID, a.RunID, a.AttemptID)
+		if e != nil {
+			return ss, e
 		}
-		if n == 0 {
-			return ss, ErrAttachmentCapability
-		}
-		if a.DaemonID != "" {
-			err = q.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions WHERE id=? AND lease_until>? AND `+runningWhere, ss.ID, s.unix(), a.DaemonID, a.MessageID, a.MessageID).Scan(&n)
-			if err != nil {
-				return ss, err
-			}
-			if n == 0 {
-				return ss, ErrStaleMessage
-			}
+		if run.SessionID != ss.ID {
+			return ss, ErrNotFound
 		}
 	}
 	return ss, nil
 }
+
 func (s *Store) AttachmentSession(ctx context.Context, a AttachmentAccess, id string, upload bool) (Session, error) {
 	return s.attachmentSession(ctx, s.db, a, id, upload)
 }

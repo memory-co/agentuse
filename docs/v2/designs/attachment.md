@@ -20,13 +20,7 @@
 
 ## 先建空会话
 
-现有 `POST /api/sessions` 建会话时会立即派出第一条消息，没有先上传文件的机会。增加可选 `defer_start: true`：
-
-```json
-{ "agent_id": "code-helper", "defer_start": true }
-```
-
-返回 201 和 `{"session": {"status": "idle", "…": "…"}}`，不建 message、不派活。此时不能同时传 `prompt` 或 `input`，否则 400；agent 和运行时的校验保持不变。工作令牌用它建线程时也遵守相同规则；CLI 用 `agentuse work new --agent <id> --defer-start`，上传后 `agentuse work send` 开始。随后上传文件，再用现有 messages 接口发第一条消息；第一条有 prompt 的消息补上空标题。未传 `defer_start` 的行为保持不变。工作协调者原本就从 `idle` 开始，可以直接上传。
+`POST /api/sessions` 发送 `{}` 即可创建 idle 空会话，上传文件后，再用 messages 携带 target_agent_ids 开始执行。工作协调者也从空会话开始；线程使用 `agentuse work new --defer-start`，上传后 `agentuse work send --agents <目标> <session> "任务"`。
 
 ## HTTP 和权限
 
@@ -42,7 +36,7 @@
 
 会话主人、发起人和 admin 可以读、上传、删除。支持网页登录 cookie、`ut_` 和 admin 的 `X-Agentuse-User`，与 session 一致；代为用户时按该用户权限检查。附件 id 必须属于 URL 中的 session，看不到会话或附件一律 404。
 
-客户端上传产物使用 daemon 已有的 `dk_`，无需把用户登录令牌传给 harness。允许读取分配给该 daemon 的会话附件；上传必须额外带 multipart 字段 `message_id`，且该消息正在这台 daemon 上执行、租约有效、会话为 `running` / `waiting`。会话属于别的 daemon 返回 404；本 daemon 的消息已结束或失去租约返回 409。提交元数据前再次检查租约，上传过程中失去租约不提交文件。daemon 身份不能删除附件，不能访问会话其他管理接口。删除 daemon 后其密钥立即失效。
+客户端上传产物使用 daemon 已有的 `dk_`，无需把用户登录令牌传给 harness。读取和上传都必须携带 X-Agentuse-Run、X-Agentuse-Attempt，请求对应正在本 daemon 执行且租约有效的 run。会话属于别的 daemon 返回 404；本 daemon 的消息已结束或失去租约返回 409。提交元数据前再次检查租约，上传过程中失去租约不提交文件。daemon 身份不能删除附件，不能访问会话其他管理接口。删除 daemon 后其密钥立即失效。
 
 `wt_` 增加附件读、上传、删除权限，范围仅限本工作的协调者和线程；超出范围返回 403，过期返回 401。工作令牌不能扩大到 agent 主人的其他会话。工作删除时所有会话附件一起删除。
 
@@ -89,22 +83,20 @@ agentuse attachment upload ./requirements.pdf --session ss_xxx --server https://
 
 ## 页面与 SDK
 
-页面在 session 详情提供附件列表、上传、下载、删除，上传过程显示进度，失败显示服务端错误。新会话选择文件时先 `defer_start` 建空会话，全部上传成功才发送第一条消息；失败保留空会话和已经上传的附件供重试，不偷偷派活。已有会话上传不自动发送消息；运行中上传提示“下一轮可用”。第一版不要求在消息 Markdown 中解析特殊附件语法。
+页面在 session 详情提供附件列表、上传、下载、删除，上传过程显示进度，失败显示服务端错误。新会话选择文件时先建空会话，全部上传成功才发送第一条消息；失败保留空会话和已经上传的附件供重试，不偷偷派活。已有会话上传不自动发送消息；运行中上传提示“下一轮可用”。第一版不要求在消息 Markdown 中解析特殊附件语法。
 
 Python、Node、Go SDK 都增加 `Attachment` 类型和 list/upload/get/download/delete 方法，仍支持按网站用户身份调用。upload 接受文件流、文件名，生成 multipart，不走只支持 JSON 的现有 helper；download 返回可关闭的响应流，调用方决定存到哪里。保留现有错误结构，新增 413 / 415 / 409 等状态的透传。CreateSession 的可选参数增加 `defer_start`，对应返回的 `message` 可缺省。
 
-## 升级兼容
+## 执行能力
 
-新 daemon 的 WebSocket `hello` 增加可选 `capabilities: ["attachments-v1"]`，服务记录最近一次上报的能力并在 daemon 对象中返回 `capabilities`。旧 daemon 缺省为空数组，不根据版本字符串猜能力。
-
-用户或工作令牌向尚未声明附件能力的 daemon 所属会话上传时返回 409，提示先升级并至少连接一次。daemon 离线但已声明支持时可以上传，排队等上线；重连不带该能力时清空记录。含附件的会话不得派给不支持附件的 daemon：沿用现有 harness 不可用的失败路径，回到 idle，追加明确的 assistant 错误；daemon 升级后用户可以重新发消息。没有附件的旧会话照常执行。
+用户可直接向空 session 上传，不要求绑定机器。创建 run 时验证目标 daemon 的 session-runs-v1 能力；含附件时另外要求 attachments-v1。所有 daemon 文件操作都校验当前 run/attempt 及租约。
 
 ## 实现与验收
 
-1. 表和文件存储层：目录配置、流式写入、限额、摘要、删除补偿，旧数据库新增表即可，不改现有 session 数据。
+1. 表和文件存储层：目录配置、流式写入、限额、摘要、删除补偿，使用当前全新 schema 初始化。
 2. HTTP：上传、列表、元数据、下载、删除；扩展用户、daemon、工作令牌的权限；增加空会话创建。
 3. CLI 与 daemon：multipart 上传、下载、执行前同步、上下文和环境变量；CLI 能使用现有自定义配置路径。
 4. 前端和三个 SDK；更新内置 harness 的交付说明，要求文件产物上传后再在最终回复引用下载路径。
 5. 用 fakeharness 做端到端验证：空会话 → 用户上传 → daemon 校验并读取 → harness 调 CLI 上传产物 → 用户下载，逐字节验证内容。
 
-测试覆盖跨用户、跨会话和跨 daemon 越权，工作令牌范围与过期，上传期间租约失效或会话被删除，同名文件、空文件、恶意文件名、符号链接、超限和并发配额，磁盘写入/提交失败、崩溃残留清理、删除补偿，以及下载中断后的 CLI 错误。升级兼容测试覆盖旧 hello 缺少能力、支持附件的 daemon 离线以及重连后能力变化。
+测试覆盖跨用户、跨会话和跨 daemon 越权，工作令牌范围与过期，上传期间租约失效或会话被删除，同名文件、空文件、恶意文件名、符号链接、超限和并发配额，磁盘写入/提交失败、崩溃残留清理、删除补偿，以及下载中断后的 CLI 错误。执行测试覆盖 capability、租约和 attempt 变化。

@@ -49,7 +49,7 @@ func TestRequests(t *testing.T) {
 	name := "新名字"
 	c.Me(ctx, "")
 	c.Me(ctx, "u 1")
-	c.CreateSession(ctx, "u1", agentuse.CreateSessionRequest{AgentID: "coder", Prompt: "hi"})
+	c.CreateSession(ctx, "u1", agentuse.CreateSessionRequest{TargetAgentIDs: []string{"coder"}, Prompt: "hi"})
 	c.UpdateAgent(ctx, "u1", "a/b", agentuse.UpdateAgentRequest{Name: &name})
 	c.SetDaemonHarness(ctx, "u1", "dm_1", "claude", true)
 	if err := c.DeleteSession(ctx, "u1", "ss_1"); err != nil {
@@ -62,7 +62,7 @@ func TestRequests(t *testing.T) {
 	want := []recorded{
 		{"GET", "/api/me", "Bearer ut_admin", "", "", ""},
 		{"GET", "/api/me", "Bearer ut_admin", "u 1", "", ""},
-		{"POST", "/api/sessions", "Bearer ut_admin", "u1", "application/json", `{"agent_id":"coder","prompt":"hi"}`},
+		{"POST", "/api/sessions", "Bearer ut_admin", "u1", "application/json", `{"target_agent_ids":["coder"],"prompt":"hi"}`},
 		{"PATCH", "/api/agents/a%2Fb", "Bearer ut_admin", "u1", "application/json", `{"name":"新名字"}`},
 		{"PUT", "/api/daemons/dm_1/harnesses/claude", "Bearer ut_admin", "u1", "application/json", `{"enabled":true}`},
 		{"DELETE", "/api/sessions/ss_1", "Bearer ut_admin", "u1", "", ""},

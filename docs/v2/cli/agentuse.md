@@ -71,9 +71,9 @@ my-harness  /usr/local/bin/my-harness
 ```
 agentuse work agents                                       # 能用哪些 agent
 agentuse work threads                                      # 这个工作的线程和状态
-agentuse work new --agent code-helper "改 daemon 的重连逻辑"  # 开线程，打印线程 id
-agentuse work new --agent code-helper --defer-start         # 先建空线程，上传附件后再 send
-agentuse work send ss_xxx "再补个测试"                       # 给线程发消息(在跑就是插话)
+agentuse work new --agents code-helper "改 daemon 的重连逻辑"  # 开线程，打印线程 id
+agentuse work new --agents code-helper --defer-start         # 先建空线程，上传附件后再 send
+agentuse work send --agents code-helper ss_xxx "再补个测试"                       # 给线程发消息(在跑就是插话)
 agentuse work read ss_xxx                                  # 看线程的消息
 agentuse work resolve ss_xxx                               # 标记线程已完成
 ```
@@ -92,7 +92,7 @@ agentuse attachment download at_xxx --output ./report.pdf
 ```
 
 - 所有子命令支持 `--session`、`--server`、`--token`、`--config`、`--json`。参数可以放在位置参数之前或之后。session 默认读 `AGENTUSE_SESSION`；server 按显式参数 → `AGENTUSE_SERVER` → daemon 配置选取；config 按显式参数 → `AGENTUSE_CONFIG` → `~/.agentuse/daemon.json` 选取。
-- 认证按显式 `--token` → `AGENTUSE_TOKEN` → `AGENTUSE_WORK`（兼容 `AGENTUSE_WORK_TOKEN`）→ daemon 配置中的 `key` 选取。前面提供了但无效就报错，不降级换身份。显式用户/工作令牌和 server 已足够时，不要求本机注册。
+- 认证按显式 `--token` → `AGENTUSE_TOKEN` → `AGENTUSE_WORK`→ daemon 配置中的 `key` 选取。前面提供了但无效就报错，不降级换身份。显式用户/工作令牌和 server 已足够时，不要求本机注册。
 - harness 默认用当前 session。使用 daemon 密钥上传时，从 `AGENTUSE_MESSAGE_ID` 取活动消息 id，缺少时直接报错；仅对 dk_ 请求发送这个字段。用用户令牌可以显式指定有权访问的其他 session；工作令牌只能指定本工作会话。不会从当前目录名称猜 session。
 - `upload` 接受一个普通文件路径，`--name` 可覆盖文件名；拒绝目录，流式上传，成功打印 id、文件名、大小、download_path；`--json` 输出 attachment 对象。不自动重试 POST，超时提示先检查 list，避免重复附件。
 - `list` 自动取完分页，普通模式打印表格，`--json` 输出完整 attachment 数组。
@@ -119,4 +119,4 @@ agentuse session cancel ss_xxx sr_xxx
 
 harness 内部的 read/attachment 请求自动带 AGENTUSE_RUN、AGENTUSE_ATTEMPT，读配置里的 dk_，只在当前执行有效时可用；协调者优先用工作令牌。所有新执行都给出 AGENTUSE_AGENT、AGENTUSE_SESSION、AGENTUSE_MESSAGE_ID、AGENTUSE_RUN、AGENTUSE_ATTEMPT。session 管理和 send 仍需要用户或工作令牌。
 
-work new/send 支持 --agents coder,reviewer（放在位置参数前）。新模式协调者开的线程为 multi_agent；--agent 兼容单目标。空线程上传文件后，用 work send --agents 指明第一轮目标。
+work new/send 支持 --agents coder,reviewer（放在位置参数前）。协调者开的线程为 multi_agent。空线程上传文件后，用 work send --agents 指明第一轮目标。

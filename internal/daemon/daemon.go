@@ -158,19 +158,11 @@ func (d *Daemon) session(ctx context.Context) error {
 		hello.Harnesses = append(hello.Harnesses, protocol.Harness{Name: a.Name, Version: a.Version})
 	}
 	sort.Slice(hello.Harnesses, func(i, j int) bool { return hello.Harnesses[i].Name < hello.Harnesses[j].Name })
-	for id, r := range d.running {
-		if r.dispatch.RunID != "" {
-			hello.ActiveRuns = append(hello.ActiveRuns, protocol.RunRef{RunID: r.dispatch.RunID, AttemptID: r.dispatch.AttemptID})
-		} else {
-			hello.Running = append(hello.Running, id)
-		}
+	for _, r := range d.running {
+		hello.ActiveRuns = append(hello.ActiveRuns, protocol.RunRef{RunID: r.dispatch.RunID, AttemptID: r.dispatch.AttemptID})
 	}
 	for _, m := range d.outbox {
-		if m.RunID != "" {
-			hello.ActiveRuns = append(hello.ActiveRuns, protocol.RunRef{RunID: m.RunID, AttemptID: m.AttemptID})
-		} else {
-			hello.Running = append(hello.Running, m.MessageID)
-		}
+		hello.ActiveRuns = append(hello.ActiveRuns, protocol.RunRef{RunID: m.RunID, AttemptID: m.AttemptID})
 	}
 	d.mu.Unlock()
 	if err := send(hello); err != nil {
@@ -252,7 +244,6 @@ func (d *Daemon) session(ctx context.Context) error {
 			}
 		case protocol.TypeRun:
 			if m.Run != nil {
-				m.Run.Resume = ""
 				d.startMessage(*m.Run)
 			}
 		case protocol.TypeCancel:
@@ -263,10 +254,6 @@ func (d *Daemon) session(ctx context.Context) error {
 				}
 			}
 			d.mu.Unlock()
-		case protocol.TypeMessage:
-			if m.Message != nil {
-				d.startMessage(*m.Message)
-			}
 		case protocol.TypeSteer:
 			// 插话：交给正在跑这条消息的 harness;不在跑就忽略，服务会把它转成下一条消息
 			if m.Steer != nil {

@@ -253,9 +253,7 @@ func (s *Store) DeleteDaemon(ctx context.Context, u User, id string) error {
 	if err := s.terminateDaemonRuns(ctx, tx, id, "daemon 已删除"); err != nil {
 		return err
 	}
-	if err := s.failDaemonSessions(ctx, tx, id); err != nil {
-		return err
-	}
+
 	if _, err := tx.ExecContext(ctx, q, args...); err != nil {
 		return err
 	}
@@ -304,10 +302,7 @@ func (s *Store) DaemonConnected(ctx context.Context, d Daemon, reported []Report
 			return nil, err
 		}
 	}
-	// 这次没上报的 harness 上排着的会话派不出去了，直接判失败
-	if err := s.failUnrunnable(ctx, tx, d.ID); err != nil {
-		return nil, err
-	}
+
 	return ignored, tx.Commit()
 }
 
@@ -349,8 +344,6 @@ func (s *Store) SetDaemonHarnessEnabled(ctx context.Context, u User, daemonID, h
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
-	if err := s.failUnrunnable(ctx, tx, daemonID); err != nil {
-		return err
-	}
+
 	return tx.Commit()
 }

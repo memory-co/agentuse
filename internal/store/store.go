@@ -77,17 +77,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   id                 TEXT PRIMARY KEY,
   user_id            TEXT NOT NULL REFERENCES users(id),
   created_by         TEXT NOT NULL REFERENCES users(id),
-  agent_id           TEXT REFERENCES agents(id) ON DELETE SET NULL,
   work_id            TEXT REFERENCES works(id),
-  harness            TEXT NOT NULL REFERENCES harnesses(name),
-  daemon_id          TEXT REFERENCES daemons(id) ON DELETE SET NULL,
-  harness_session_id TEXT,
   title              TEXT NOT NULL DEFAULT '',
-  status             TEXT NOT NULL DEFAULT 'pending',
-  lease_until        INTEGER,
+  status             TEXT NOT NULL DEFAULT 'idle',
+  mode TEXT NOT NULL DEFAULT 'multi_agent' CHECK(mode='multi_agent'),
   created_at         INTEGER NOT NULL,
   updated_at         INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS sessions_work ON sessions(work_id,updated_at);
 CREATE INDEX IF NOT EXISTS sessions_status ON sessions(status, updated_at);
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS sessions_created_by ON sessions(created_by, updated_at);
@@ -98,18 +95,11 @@ CREATE TABLE IF NOT EXISTS works (
   name           TEXT NOT NULL,
   instructions   TEXT NOT NULL DEFAULT '',
   coordinator_id TEXT NOT NULL UNIQUE,
+  coordinator_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS works_user ON works(user_id, updated_at);
-
-CREATE TABLE IF NOT EXISTS work_tokens (
-  token_hash TEXT PRIMARY KEY,
-  work_id    TEXT NOT NULL REFERENCES works(id) ON DELETE CASCADE,
-  message_id INTEGER NOT NULL,
-  created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS work_tokens_message ON work_tokens(message_id);
 
 CREATE TABLE IF NOT EXISTS messages (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,44 +110,6 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS messages_session ON messages(session_id, id);
 
-CREATE TABLE IF NOT EXISTS session_events (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-  message_id INTEGER NOT NULL,
-  daemon_id  TEXT NOT NULL,
-  kind       TEXT NOT NULL,
-  payload    TEXT,
-  created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS session_events_session ON session_events(session_id, id);
-
-CREATE TABLE IF NOT EXISTS steers (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-  message_id INTEGER NOT NULL,
-  created_by TEXT NOT NULL REFERENCES users(id),
-  prompt     TEXT NOT NULL,
-  status     TEXT NOT NULL DEFAULT 'pending',
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS steers_message ON steers(message_id, id);
-CREATE INDEX IF NOT EXISTS steers_session ON steers(session_id, id);
-
-CREATE TABLE IF NOT EXISTS questions (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-  message_id  INTEGER NOT NULL,
-  tool_use_id TEXT NOT NULL,
-  questions   TEXT NOT NULL,
-  answers     TEXT,
-  answered_by TEXT REFERENCES users(id),
-  status      TEXT NOT NULL DEFAULT 'pending',
-  created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS questions_session ON questions(session_id, id);
-CREATE UNIQUE INDEX IF NOT EXISTS questions_tool_use ON questions(message_id, tool_use_id);
 `
 
 // Store 包一个 SQLite 连接。单连接 + BEGIN IMMEDIATE,所有写串行，领活的「挑一条再改」是原子的。
@@ -177,17 +129,23 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema + attachmentSchema); err != nil {
+	var revision int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&revision); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("store: migrate: %w", err)
+		return nil, err
 	}
-	if err := addWorkColumn(db); err != nil {
+	var existing int
+	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sessions'").Scan(&existing); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("store: migrate: %w", err)
+		return nil, err
 	}
-	if err := migrateRuns(db); err != nil {
+	if existing > 0 && revision != 1 {
 		db.Close()
-		return nil, fmt.Errorf("store: migrate runs: %w", err)
+		return nil, errors.New("unsupported database schema: reset the database before starting this version")
+	}
+	if _, err := db.Exec(schema + attachmentSchema + runSchema + "PRAGMA user_version=1;"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("store: initialize: %w", err)
 	}
 	s := &Store{db: db, now: time.Now}
 	if err := s.seedBuiltinHarnesses(context.Background()); err != nil {
@@ -243,18 +201,3 @@ func nullInt(v sql.NullInt64) *int64 {
 }
 
 func nullStr(v sql.NullString) string { return v.String }
-
-// addWorkColumn 给老库的 sessions 补上 work_id(建表语句里已有，新库什么都不做),再建它的索引。
-func addWorkColumn(db *sql.DB) error {
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = 'work_id'`).Scan(&n); err != nil {
-		return err
-	}
-	if n == 0 {
-		if _, err := db.Exec(`ALTER TABLE sessions ADD COLUMN work_id TEXT REFERENCES works(id)`); err != nil {
-			return err
-		}
-	}
-	_, err := db.Exec(`CREATE INDEX IF NOT EXISTS sessions_work ON sessions(work_id, updated_at)`)
-	return err
-}

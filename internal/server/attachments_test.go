@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -42,7 +41,7 @@ func attachmentEnv(t *testing.T, max, total int64) *attachmentFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = e.st.DaemonConnected(ctx, d, []store.ReportedHarness{{Name: "claude"}}, []string{attachment.Capability}); err != nil {
+	if _, err = e.st.DaemonConnected(ctx, d, []store.ReportedHarness{{Name: "claude"}}, []string{attachment.Capability, store.RunCapability}); err != nil {
 		t.Fatal(err)
 	}
 	if err = e.st.SetDaemonHarnessEnabled(ctx, u, d.ID, "claude", true); err != nil {
@@ -54,7 +53,7 @@ func attachmentEnv(t *testing.T, max, total int64) *attachmentFixture {
 		Session store.Session
 		Message *store.Message
 	}
-	r := e.req(tok, "POST", "/api/sessions", map[string]any{"agent_id": agent.ID, "defer_start": true}, &res)
+	r := e.req(tok, "POST", "/api/sessions", map[string]any{}, &res)
 	if r.StatusCode != 201 || res.Session.Status != "idle" || res.Message != nil {
 		t.Fatalf("deferred: %d %+v", r.StatusCode, res)
 	}
@@ -154,7 +153,7 @@ func TestAttachmentsLifecycle(t *testing.T) {
 	if e.req(admin, "GET", first.DownloadPath, nil, nil, actAsHeader, bobUser.ID).StatusCode != 404 {
 		t.Fatal("act as scope")
 	}
-	ss, _, _ := e.st.CreateSession(context.Background(), f.u, f.agent, "other", nil)
+	ss, _, _ := e.st.CreateMultiSession(context.Background(), f.u, "", "other", nil, nil, "")
 	if e.code(f.token, "GET", attachment.Path(ss.ID)+"/"+first.ID+"/content", nil) != 404 {
 		t.Fatal("cross-session")
 	}
@@ -174,43 +173,6 @@ func TestAttachmentsLifecycle(t *testing.T) {
 		t.Fatal("cascade")
 	}
 }
-func TestAttachmentLimitsAndCompatibility(t *testing.T) {
-	f := attachmentEnv(t, 5, 7)
-	for _, tc := range []struct {
-		filename, data string
-		fields         map[string]string
-		want           int
-	}{
-		{"x", "123456", nil, 413}, {"x", "123", map[string]string{"filename": "../.."}, 400}, {"x", "1", map[string]string{"filename": "bad\nname"}, 400}, {"x", "1", map[string]string{"message_id": "1"}, 400}, {"x", "1", map[string]string{"unknown": "1"}, 400},
-	} {
-		if code, _ := rawUpload(t, f, f.token, tc.filename, tc.data, tc.fields); code != tc.want {
-			t.Fatalf("%+v: %d", tc, code)
-		}
-	}
-	if c, _ := rawUpload(t, f, f.token, "same", "12345", nil); c != 201 {
-		t.Fatal(c)
-	}
-	if c, _ := rawUpload(t, f, f.token, "same", "123", nil); c != 413 {
-		t.Fatal("quota", c)
-	}
-	if c, _ := rawUpload(t, f, f.token, "same", "12", nil); c != 201 {
-		t.Fatal("exact quota", c)
-	}
-	if _, err := f.e.st.DaemonConnected(context.Background(), f.d, []store.ReportedHarness{{Name: "claude"}}); err != nil {
-		t.Fatal(err)
-	}
-	if c, _ := rawUpload(t, f, f.token, "empty", "", nil); c != 409 {
-		t.Fatal("old daemon", c)
-	}
-	f.e.req(f.token, "POST", "/api/sessions/"+f.session.ID+"/messages", map[string]string{"prompt": "run"}, nil)
-	if _, err := f.e.st.ClaimSession(context.Background(), f.d, 60); err != store.ErrNotFound {
-		t.Fatal("must not dispatch", err)
-	}
-	ss, _ := f.e.st.GetSession(context.Background(), f.u, f.session.ID)
-	if ss.Status != "idle" || ss.Title != "run" {
-		t.Fatalf("failed dispatch %+v", ss)
-	}
-}
 func TestAttachmentConcurrentQuota(t *testing.T) {
 	f := attachmentEnv(t, 10, 10)
 	var wg sync.WaitGroup
@@ -227,64 +189,6 @@ func TestAttachmentConcurrentQuota(t *testing.T) {
 	}
 	if counts[201] != 1 || counts[413] != 1 {
 		t.Fatalf("concurrent quota %v", counts)
-	}
-}
-func TestDaemonAttachmentLease(t *testing.T) {
-	f := attachmentEnv(t, 1024, 4096)
-	ctx := context.Background()
-	if code, _ := rawUpload(t, f, f.key, "x", "a", nil); code != 400 {
-		t.Fatal("missing message", code)
-	}
-	f.e.req(f.token, "POST", "/api/sessions/"+f.session.ID+"/messages", map[string]string{"prompt": "go"}, nil)
-	cl, err := f.e.st.ClaimSession(ctx, f.d, 60)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if code, a := rawUpload(t, f, f.key, "x", "data", map[string]string{"message_id": strconv.FormatInt(cl.Message.ID, 10)}); code != 201 || a.Source != "daemon" || a.DaemonID != f.d.ID {
-		t.Fatalf("daemon upload %d %+v", code, a)
-	}
-	// Hold the final multipart boundary until the active message has finished.
-	pr, pw := io.Pipe()
-	mw := multipart.NewWriter(pw)
-	req, _ := http.NewRequest("POST", f.e.ts.URL+f.path(), pr)
-	req.Header.Set("Authorization", "Bearer "+f.key)
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	done := make(chan int, 1)
-	go func() {
-		r, err := http.DefaultClient.Do(req)
-		if err != nil {
-			done <- 0
-			return
-		}
-		r.Body.Close()
-		done <- r.StatusCode
-	}()
-	mw.WriteField("message_id", strconv.FormatInt(cl.Message.ID, 10))
-	part, _ := mw.CreateFormFile("file", "late")
-	part.Write([]byte("late"))
-	if err = f.e.st.AddEvent(ctx, f.d.ID, cl.Message.ID, store.EventDone, json.RawMessage(`{"ok":true}`), 60); err != nil {
-		t.Fatal(err)
-	}
-	mw.Close()
-	pw.Close()
-	if code := <-done; code != 409 {
-		t.Fatal("finished during upload", code)
-	}
-	list, _ := f.e.st.ListAttachments(ctx, f.session.ID, "", 100)
-	if len(list.Attachments) != 1 {
-		t.Fatal("stale upload committed")
-	}
-	// Another daemon must not read this session.
-	other, err := f.e.st.CreateDaemon(ctx, f.u.ID, "other")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, key, err := f.e.st.RegisterDaemon(ctx, other.SetupToken, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if f.e.code(key, "GET", f.path(), nil) != 404 {
-		t.Fatal("cross daemon read")
 	}
 }
 func TestAttachmentOrphanCleanup(t *testing.T) {
@@ -309,53 +213,6 @@ func TestAttachmentOrphanCleanup(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(live, "content")); err != nil {
 		t.Fatal("live removed", err)
 	}
-}
-
-func TestWorkAttachmentScope(t *testing.T) {
-	f := attachmentEnv(t, 1024, 4096)
-	ctx := context.Background()
-	e := f.e
-	work, coord, err := e.st.CreateWork(ctx, f.u, "project", f.agent, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err = e.st.AddMessage(ctx, f.u, coord.ID, json.RawMessage(`{"prompt":"coordinate"}`)); err != nil {
-		t.Fatal(err)
-	}
-	claimed, err := e.st.ClaimSession(ctx, f.d, 60)
-	if err != nil || claimed.WorkToken == "" {
-		t.Fatalf("claim %v %+v", err, claimed)
-	}
-	if e.code(claimed.WorkToken, "GET", f.path(), nil) != 403 {
-		t.Fatal("work outside scope")
-	}
-	old := f.session
-	f.session = coord
-	code, a := rawUpload(t, f, claimed.WorkToken, "coordinator.txt", "in", nil)
-	if code != 201 || a.Source != "work" {
-		t.Fatalf("coordinator %d %+v", code, a)
-	}
-	thread, _, err := e.st.CreateSessionIn(ctx, f.u, work.ID, f.agent, "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.session = thread
-	if code, _ := rawUpload(t, f, claimed.WorkToken, "thread.txt", "data", nil); code != 201 {
-		t.Fatal("thread", code)
-	}
-	if e.code(claimed.WorkToken, "GET", a.DownloadPath, nil) != 200 {
-		t.Fatal("read coordinator")
-	}
-	if e.code(claimed.WorkToken, "DELETE", attachment.Path(coord.ID)+"/"+a.ID, nil) != 204 {
-		t.Fatal("delete coordinator")
-	}
-	if err = e.st.AddEvent(ctx, f.d.ID, claimed.Message.ID, store.EventDone, json.RawMessage(`{"ok":true}`), 60); err != nil {
-		t.Fatal(err)
-	}
-	if e.code(claimed.WorkToken, "GET", f.path(), nil) != 401 {
-		t.Fatal("expired work token")
-	}
-	f.session = old
 }
 
 func TestAttachmentUploadRechecksIdentityAndSession(t *testing.T) {
@@ -403,5 +260,21 @@ func TestAttachmentUploadRechecksIdentityAndSession(t *testing.T) {
 				t.Fatal("failed upload persisted")
 			}
 		})
+	}
+}
+
+func TestSharedAttachmentLimits(t *testing.T) {
+	f := attachmentEnv(t, 4, 6)
+	if code, _ := rawUpload(t, f, f.token, "big.txt", "12345", nil); code != 413 {
+		t.Fatalf("file limit %d", code)
+	}
+	if code, _ := rawUpload(t, f, f.token, "one.txt", "1234", nil); code != 201 {
+		t.Fatalf("upload %d", code)
+	}
+	if code, _ := rawUpload(t, f, f.token, "two.txt", "123", nil); code != 413 {
+		t.Fatalf("session quota %d", code)
+	}
+	if code, _ := rawUpload(t, f, f.token, "obsolete.txt", "x", map[string]string{"message_id": "1"}); code != 400 {
+		t.Fatalf("obsolete field %d", code)
 	}
 }

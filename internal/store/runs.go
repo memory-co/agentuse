@@ -123,10 +123,10 @@ func (s *Store) insertMulti(ctx context.Context, tx *sql.Tx, u User, workID, tit
 			return Session{}, err
 		}
 	}
-	// harness is a legacy NOT NULL FK. This placeholder is never an execution binding.
+	// Sessions own shared history; runtime selection belongs to each run.
 	now := s.unix()
 	id := randomID("ss_")
-	_, err := tx.ExecContext(ctx, `INSERT INTO sessions(id,user_id,created_by,work_id,harness,title,status,created_at,updated_at,mode) VALUES(?,?,?,?,'claude',?,'idle',?,?,'multi_agent')`, id, u.ID, u.ID, nullIfEmpty(workID), title, now, now)
+	_, err := tx.ExecContext(ctx, `INSERT INTO sessions(id,user_id,created_by,work_id,title,status,created_at,updated_at,mode) VALUES(?,?,?,?,?,'idle',?,?,'multi_agent')`, id, u.ID, u.ID, nullIfEmpty(workID), title, now, now)
 	if err != nil {
 		return Session{}, err
 	}

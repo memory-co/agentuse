@@ -1,10 +1,5 @@
 package store
 
-import (
-	"database/sql"
-	"fmt"
-)
-
 const MultiAgent = "multi_agent"
 const RunCapability = "session-runs-v1"
 const runSchema = `
@@ -46,10 +41,6 @@ CREATE TABLE IF NOT EXISTS message_authors (
  message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
  run_id TEXT REFERENCES session_runs(id) ON DELETE SET NULL, agent_key TEXT NOT NULL, agent_name TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS session_access (
- session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id),
- PRIMARY KEY(session_id,user_id)
-);
 CREATE TABLE IF NOT EXISTS session_requests (
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id),
  request_key TEXT NOT NULL, digest TEXT NOT NULL, message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -62,46 +53,3 @@ CREATE TABLE IF NOT EXISTS work_run_tokens (
 CREATE TABLE IF NOT EXISTS run_notifications (
  message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE
 );`
-
-func addColumn(db *sql.DB, table, name, definition string) error {
-	rows, err := db.Query("PRAGMA table_info(" + table + ")")
-	if err != nil {
-		return err
-	}
-	found := false
-	for rows.Next() {
-		var cid, notnull, pk int
-		var n, typ string
-		var def any
-		if err = rows.Scan(&cid, &n, &typ, &notnull, &def, &pk); err != nil {
-			rows.Close()
-			return err
-		}
-		if n == name {
-			found = true
-		}
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	if found {
-		return nil
-	}
-	_, err = db.Exec("ALTER TABLE " + table + " ADD COLUMN " + name + " " + definition)
-	return err
-}
-func migrateRuns(db *sql.DB) error {
-	for _, c := range []struct{ table, name, def string }{
-		{"sessions", "mode", "TEXT NOT NULL DEFAULT 'legacy'"},
-		{"works", "coordinator_agent_id", "TEXT REFERENCES agents(id) ON DELETE SET NULL"},
-		{"attachments", "created_by_run_id", "TEXT"},
-	} {
-		if err := addColumn(db, c.table, c.name, c.def); err != nil {
-			return fmt.Errorf("%s: %w", c.name, err)
-		}
-	}
-	_, err := db.Exec(runSchema)
-	return err
-}

@@ -78,7 +78,7 @@ daemon 每次清单变了就发一条 `plan` 回报，带**整份**清单(服务
 ] } }
 ```
 
-- 服务当普通回报处理：写进 [session_events](../tables/session_events.md)(`kind = plan`)、续租。不加表、不加字段：一条消息的最新计划就是它最后一条 `plan` 回报。
+- 服务当普通回报处理：写进 [run_events](../tables/session_runs.md)(`kind = plan`)、续租。不加表、不加字段：一条消息的最新计划就是它最后一条 `plan` 回报。
 - `GET /api/sessions/{id}` 的 `events` 里照常返回。
 
 ## 前端

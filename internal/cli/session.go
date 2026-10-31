@@ -61,7 +61,7 @@ func runSession(args []string) error {
 		return err
 	}
 	if *token == "" {
-		*token = envOr("AGENTUSE_WORK", os.Getenv("AGENTUSE_WORK_TOKEN"))
+		*token = os.Getenv("AGENTUSE_WORK")
 	}
 	if *server == "" || *token == "" {
 		cfg, e := daemon.LoadConfig(*config)

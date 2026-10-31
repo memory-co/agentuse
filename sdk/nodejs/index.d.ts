@@ -52,19 +52,15 @@ export interface Daemon {
 }
 
 export interface Session {
- mode?: "legacy" | "multi_agent";
+ mode?: "multi_agent";
   id: string;
   user_id: string;
   created_by: string;
-  agent_id?: string;
   work_id?: string;
   work_role?: "coordinator" | "thread";
   harness?: string;
-  daemon_id?: string;
-  harness_session_id?: string;
   title: string;
   status: "idle" | "pending" | "running" | "waiting" | "resolved";
-  lease_until?: number;
   created_at: number;
   updated_at: number;
 }
@@ -101,16 +97,6 @@ export interface SessionEvent {
   created_at: number;
 }
 
-export interface Steer {
-  id: number;
-  session_id: string;
-  message_id: number;
-  created_by: string;
-  prompt: string;
-  status: "pending" | "delivered" | "queued";
-  created_at: number;
-}
-
 export interface Question {
  run_id?:string;attempt_id?:string;
   id: number;
@@ -129,7 +115,7 @@ export interface Delivery { id:number;message_id:number;agent_key:string;run_id:
 export interface RunDetail { run:Run;events:SessionEvent[] }
 export interface MultiReply { message:Message;runs:Run[];deliveries:Delivery[] }
 export interface WaitOptions { interval?:number;timeout?:number;returnOnWaiting?:boolean }
-export interface SessionDetail { runs?:Run[];deliveries?:Delivery[];run_counts?:Record<string,number>; session: Session; messages: Message[]; steers: Steer[]; questions: Question[]; events: SessionEvent[]; }
+export interface SessionDetail { runs?:Run[];deliveries?:Delivery[];run_counts?:Record<string,number>; session: Session; messages: Message[]; questions: Question[]; events: SessionEvent[]; }
 
 // 网站的 user id;null 表示 admin 本身。
 export type UserId = string | null;
@@ -151,7 +137,6 @@ export interface AttachmentPage { attachments: Attachment[]; next_cursor: string
 export declare class Client {
  getRun(user:UserId,session:string,run:string):Promise<RunDetail>;
  cancelRun(user:UserId,session:string,run:string):Promise<Run>;
- upgradeSession(user:UserId,session:string):Promise<Session>;
  answerRunQuestion(user:UserId,session:string,run:string,question:number,answers:Record<string,string>):Promise<Question>;
  waitRun(user:UserId,session:string,run:string,opts?:WaitOptions):Promise<RunDetail>;
  waitMessageRuns(user:UserId,session:string,message:number,opts?:WaitOptions):Promise<SessionDetail>;
@@ -189,17 +174,16 @@ export declare class Client {
   deleteDaemon(user: UserId, daemonId: string): Promise<void>;
 
   listSessions(user: UserId): Promise<Session[]>;
-  createSession(user: UserId, req: MessageInput & { agent_id?: string; mode?:"legacy"|"multi_agent"; title?:string; defer_start?: boolean }): Promise<{ session: Session; message?: Message; runs?:Run[];deliveries?:Delivery[] }>;
-  /** 会话 idle 时返回 Message;忙时是插话，返回 Steer。 */
-  sendMessage(user: UserId, sessionId: string, req: MessageInput, opts?:{idempotencyKey?:string}): Promise<Message | Steer | MultiReply>;
+  createSession(user: UserId, req: MessageInput & { mode?:"multi_agent"; title?:string; defer_start?: boolean }): Promise<{ session: Session; message?: Message; runs?:Run[];deliveries?:Delivery[] }>;
+  /** 返回共享消息和各目标的 runs/deliveries。 */
+  sendMessage(user: UserId, sessionId: string, req: MessageInput, opts?:{idempotencyKey?:string}): Promise<MultiReply>;
   getSession(user: UserId, sessionId: string): Promise<SessionDetail>;
   /** 回答 harness 的提问(会话 waiting 时)。answers 是 { 问题: 答案 }。 */
-  answerQuestion(user: UserId, sessionId: string, questionId: number, answers: Record<string, string>): Promise<Question>;
   deleteSession(user: UserId, sessionId: string): Promise<void>;
   resolveSession(user: UserId, sessionId: string): Promise<Session>;
   reopenSession(user: UserId, sessionId: string): Promise<Session>;
   listWorks(user: UserId): Promise<Work[]>;
-  createWork(user: UserId, req: { name: string; agent_id: string; instructions?: string; mode?:"legacy"|"multi_agent" }): Promise<{ work: Work; coordinator: Session }>;
+  createWork(user: UserId, req: { name: string; agent_id: string; instructions?: string; mode?:"multi_agent" }): Promise<{ work: Work; coordinator: Session }>;
   getWork(user: UserId, workId: string): Promise<Work>;
   updateWork(user: UserId, workId: string, patch: { name?: string; instructions?: string;coordinator_agent_id?:string }): Promise<Work>;
   deleteWork(user: UserId, workId: string): Promise<void>;

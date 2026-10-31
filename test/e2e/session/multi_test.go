@@ -88,7 +88,7 @@ func TestMultiAgentSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := created.Session.ID
-	if created.Session.AgentID != "" || created.Message != nil {
+	if created.Message != nil {
 		t.Fatal("session binding", created)
 	}
 	if _, err = c.UploadAttachment(ctx, user, id, "input.txt", strings.NewReader("shared input")); err != nil {
@@ -324,7 +324,7 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 		t.Fatal("coordinator runs", coor.Runs)
 	}
 	threads, err := c.ListWorkSessions(ctx, user, work.Work.ID)
-	if err != nil || len(threads) != 1 || threads[0].Mode != "multi_agent" || threads[0].AgentID != "" {
+	if err != nil || len(threads) != 1 || threads[0].Mode != "multi_agent" {
 		t.Fatal("work thread", threads, err)
 	}
 	child, err := c.GetSession(ctx, user, threads[0].ID)

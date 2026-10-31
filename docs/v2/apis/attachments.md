@@ -26,7 +26,7 @@
 
 ## POST /api/sessions/{id}/attachments
 
-`Content-Type: multipart/form-data; boundary=…`，恰好一个 `file` 字段，文件名取该 part 的 filename。可选文本字段 `filename` 覆盖展示文件名。用 `dk_` 时必须再带 `message_id`，其他身份不允许传这个字段（400）。重复字段、多个文件、未知字段、缺文件返回 400；空文件允许。
+`Content-Type: multipart/form-data; boundary=…`，恰好一个 `file` 字段，文件名取该 part 的 filename。可选文本字段 `filename` 覆盖展示文件名。用 `dk_` 时必须带当前执行的 `X-Agentuse-Run` 与 `X-Agentuse-Attempt` 请求头。重复字段、多个文件、未知字段、缺文件返回 400；空文件允许。
 
 ```bash
 curl -H 'Authorization: Bearer ut_…' \
@@ -34,7 +34,7 @@ curl -H 'Authorization: Bearer ut_…' \
   https://agentuse.example.com/api/sessions/ss_xxx/attachments
 ```
 
-成功返回 201 和 attachment 对象，`Location` 指向元数据接口。上传不创建消息、不触发派活，session 的任何状态都允许用户或工作令牌上传；daemon 上传受活动消息和租约约束。大小和会话配额见设计，失败不产生可见附件。同一文件重传会创建新 id。
+成功返回 201 和 attachment 对象，`Location` 指向元数据接口。上传不创建消息、不触发派活，session 的任何状态都允许用户或工作令牌上传；daemon 读取与上传受当前 run/attempt 和租约约束。大小和会话配额见设计，失败不产生可见附件。同一文件重传会创建新 id。
 
 ## GET /api/sessions/{id}/attachments
 
@@ -79,4 +79,4 @@ multi_agent 空会话可以先上传文件，不要求先绑定 daemon。选执�
 
 元数据增加可选 created_by_run_id、created_by_agent_key，用于标识产物来自哪个执行和 agent。普通用户上传不填它们；daemon 和新工作令牌的作者由服务推导。
 
-daemon 请求带 Bearer dk_ 及 X-Agentuse-Run、X-Agentuse-Attempt；新模式不再仅凭 message_id 授权。执行结束、取消或租约失效后，读取和上传都拒绝；其他会话/其他 daemon 的执行返回 404。legacy 继续用现有 message_id 规则。
+daemon 请求带 Bearer dk_ 及 X-Agentuse-Run、X-Agentuse-Attempt；新模式不再仅凭 message_id 授权。执行结束、取消或租约失效后，读取和上传都拒绝；其他会话/其他 daemon 的执行返回 404。

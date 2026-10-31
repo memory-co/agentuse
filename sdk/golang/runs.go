@@ -50,11 +50,7 @@ func (c *Client) CancelRun(ctx context.Context, user, session, run string) (*Run
 	err := c.do(ctx, user, "POST", "/api/sessions/"+esc(session)+"/runs/"+esc(run)+"/cancel", nil, &r)
 	return &r, err
 }
-func (c *Client) UpgradeSession(ctx context.Context, user, session string) (*Session, error) {
-	var s Session
-	err := c.do(ctx, user, "POST", "/api/sessions/"+esc(session)+"/upgrade", nil, &s)
-	return &s, err
-}
+
 func (c *Client) AnswerRunQuestion(ctx context.Context, user, session, run string, qid int64, answers map[string]string) (*Question, error) {
 	var q Question
 	err := c.do(ctx, user, "POST", "/api/sessions/"+esc(session)+"/runs/"+esc(run)+"/questions/"+strconv.FormatInt(qid, 10)+"/answer", map[string]any{"answers": answers}, &q)

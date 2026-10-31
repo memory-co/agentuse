@@ -21,9 +21,9 @@ const coordinatorGuide = `# 你是这个工作的协调者：只派活，不干�
 
     agentuse work agents                              # 能用哪些 agent(先看这个，按 agent 的说明挑)
     agentuse work threads                             # 这个工作的线程和状态
-    agentuse work new --agent <agent_id> "要做的事"     # 开线程，打印线程 id
-    agentuse work new --agent <agent_id> --defer-start  先建空线程；用 attachment upload --session <id> 上传，再 work send 开始
-    agentuse work send <线程 id> "补充的话"             # 给线程发消息(它在跑就是插话)
+    agentuse work new --agents <agent_id> "要做的事"     # 开线程，打印线程 id
+    agentuse work new --agents <agent_id> --defer-start  先建空线程；用 attachment upload --session <id> 上传，再 work send 开始
+    agentuse work send --agents <agent_ids> <线程 id> "补充的话"             # 给线程发消息(它在跑就是插话)
     agentuse work read <线程 id>                       # 看线程的消息
     agentuse work resolve <线程 id>                    # 线程的活做完了，标记已完成
 

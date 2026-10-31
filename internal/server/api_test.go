@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/memory-co/agentuse/internal/protocol"
@@ -312,107 +311,6 @@ func TestDaemonsAPI(t *testing.T) {
 	}
 	if c := e.code(aliceTok, "DELETE", "/api/daemons/"+v.ID, nil); c != http.StatusNoContent {
 		t.Fatalf("delete: %d", c)
-	}
-}
-
-func TestSessionsAPI(t *testing.T) {
-	e := newEnv(t, Config{})
-	alice, aliceTok := e.user("alice", store.RoleUser)
-	_, bobTok := e.user("bob", store.RoleUser)
-	d := e.daemonWith(alice, "claude")
-	e.st.CreateAgent(context.Background(), alice.ID, "coder", "写代码", d.ID, "claude", "")
-
-	for _, body := range []any{"{", map[string]string{"prompt": "x"}, map[string]string{"agent_id": "coder"}, map[string]string{"agent_id": "coder", "prompt": "  "}} {
-		if c := e.code(aliceTok, "POST", "/api/sessions", body); c != http.StatusBadRequest {
-			t.Fatalf("create %v: %d", body, c)
-		}
-	}
-	if c := e.code(aliceTok, "POST", "/api/sessions", map[string]string{"agent_id": "nope", "prompt": "x"}); c != http.StatusBadRequest {
-		t.Fatalf("unknown agent: %d", c)
-	}
-
-	// prompt 原样存;去掉首尾空白后当标题，最多 50 个字
-	var created struct {
-		Session store.Session `json:"session"`
-		Message store.Message `json:"message"`
-	}
-	long := strings.Repeat("长", 60)
-	if r := e.req(aliceTok, "POST", "/api/sessions", map[string]string{"agent_id": "coder", "prompt": "  " + long}, &created); r.StatusCode != http.StatusCreated ||
-		created.Session.Title != strings.Repeat("长", 50) || string(created.Message.Content) != `{"prompt":"  `+long+`"}` {
-		t.Fatalf("create: %d %+v", r.StatusCode, created)
-	}
-	id := created.Session.ID
-	// 给 input 时原样存，不起标题
-	if r := e.req(bobTok, "POST", "/api/sessions", map[string]any{"agent_id": "coder", "input": map[string]int{"n": 1}}, &created); r.StatusCode != http.StatusCreated ||
-		created.Session.Title != "" || string(created.Message.Content) != `{"n":1}` || created.Session.UserID != alice.ID {
-		t.Fatalf("create with input: %d %+v", r.StatusCode, created)
-	}
-
-	// pending 时回复是插话;插话只收 prompt
-	var steer store.Steer
-	if r := e.req(aliceTok, "POST", "/api/sessions/"+id+"/messages", map[string]string{"prompt": "y"}, &steer); r.StatusCode != http.StatusAccepted ||
-		steer.Status != store.SteerPending || steer.Prompt != "y" || steer.MessageID != created.Message.ID-1 {
-		t.Fatalf("reply while pending: %d %+v", r.StatusCode, steer)
-	}
-	if c := e.code(aliceTok, "POST", "/api/sessions/"+id+"/messages", map[string]any{"input": map[string]int{"n": 1}}); c != http.StatusConflict {
-		t.Fatalf("input while pending: %d", c)
-	}
-	if c := e.code(aliceTok, "POST", "/api/sessions/"+id+"/messages", map[string]string{}); c != http.StatusBadRequest {
-		t.Fatalf("empty reply: %d", c)
-	}
-	if c := e.code(aliceTok, "POST", "/api/sessions/"+id+"/messages", "{"); c != http.StatusBadRequest {
-		t.Fatalf("bad json reply: %d", c)
-	}
-	if c := e.code(bobTok, "POST", "/api/sessions/"+id+"/messages", map[string]string{"prompt": "y"}); c != http.StatusNotFound {
-		t.Fatalf("bob replies to alice's: %d", c)
-	}
-
-	var detail struct {
-		Session  store.Session        `json:"session"`
-		Messages []store.Message      `json:"messages"`
-		Steers   []store.Steer        `json:"steers"`
-		Events   []store.SessionEvent `json:"events"`
-	}
-	if r := e.req(aliceTok, "GET", "/api/sessions/"+id, nil, &detail); r.StatusCode != 200 || len(detail.Messages) != 1 || detail.Events == nil || len(detail.Steers) != 1 {
-		t.Fatalf("get: %d %+v", r.StatusCode, detail)
-	}
-	if c := e.code(bobTok, "GET", "/api/sessions/"+id, nil); c != http.StatusNotFound {
-		t.Fatalf("bob get: %d", c)
-	}
-	// daemon 离线时排队中的会话带 daemon_offline
-	var off struct {
-		DaemonOffline bool `json:"daemon_offline"`
-	}
-	if e.req(aliceTok, "GET", "/api/sessions/"+id, nil, &off); off.DaemonOffline {
-		t.Fatal("daemon_offline while online")
-	}
-	e.st.DaemonDisconnected(context.Background(), d.ID)
-	if e.req(aliceTok, "GET", "/api/sessions/"+id, nil, &off); !off.DaemonOffline {
-		t.Fatal("daemon_offline missing")
-	}
-	// harness 关掉后：排队中的会话失败，再建会话 400 并说明原因
-	e.st.SetDaemonHarnessEnabled(context.Background(), alice, d.ID, "claude", false)
-	if e.req(aliceTok, "GET", "/api/sessions/"+id, nil, &detail); detail.Session.Status != store.SessionIdle || len(detail.Messages) != 2 {
-		t.Fatalf("after disable: %+v", detail)
-	}
-	var fail struct {
-		Error string `json:"error"`
-	}
-	if r := e.req(aliceTok, "POST", "/api/sessions", map[string]string{"agent_id": "coder", "prompt": "x"}, &fail); r.StatusCode != http.StatusBadRequest || !strings.Contains(fail.Error, "没有开启") {
-		t.Fatalf("create on disabled harness: %d %+v", r.StatusCode, fail)
-	}
-	var list []store.Session
-	if e.req(aliceTok, "GET", "/api/sessions", nil, &list); len(list) != 2 {
-		t.Fatalf("alice list: %+v", list)
-	}
-	if e.req(bobTok, "GET", "/api/sessions", nil, &list); len(list) != 1 {
-		t.Fatalf("bob list: %+v", list)
-	}
-	if c := e.code(aliceTok, "DELETE", "/api/sessions/"+id, nil); c != http.StatusNoContent {
-		t.Fatalf("delete: %d", c)
-	}
-	if c := e.code(aliceTok, "DELETE", "/api/sessions/"+id, nil); c != http.StatusNotFound {
-		t.Fatalf("delete twice: %d", c)
 	}
 }
 

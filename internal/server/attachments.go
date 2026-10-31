@@ -160,7 +160,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		name := part.FormName()
-		if seen[name] || (name != "file" && name != "filename" && name != "message_id") {
+		if seen[name] || (name != "file" && name != "filename") {
 			writeErr(w, 400, "未知或重复的 multipart 字段")
 			return
 		}
@@ -221,28 +221,12 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 				writeErr(w, 400, "字段过长")
 				return
 			}
-			if name == "filename" {
-				override = string(b)
-			} else {
-				if a.DaemonID == "" {
-					writeErr(w, 400, "此身份不能传 message_id")
-					return
-				}
-				a.MessageID, e = strconv.ParseInt(string(b), 10, 64)
-				if e != nil || a.MessageID <= 0 {
-					writeErr(w, 400, "message_id 不合法")
-					return
-				}
-			}
+			override = string(b)
 		}
 		part.Close()
 	}
 	if !seen["file"] {
 		writeErr(w, 400, "缺少 file")
-		return
-	}
-	if a.DaemonID != "" && a.RunID == "" && !seen["message_id"] {
-		writeErr(w, 400, "daemon 上传需要 message_id")
 		return
 	}
 	if seen["filename"] {

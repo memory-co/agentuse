@@ -25,7 +25,7 @@ await agentuse.setDaemonHarness(uid, d.id, "claude", true);
 const agent = await agentuse.createAgent(uid, { id: "code-helper", name: "写代码", daemon_id: d.id, harness: "claude" });
 
 // 用这个 agent 发起任务，等它回完
-const { session } = await agentuse.createSession(uid, { agent_id: agent.id, prompt: "修一下 README 的错别字" });
+const { session } = await agentuse.createSession(uid, { target_agent_ids: [agent.id], prompt: "修一下 README 的错别字" });
 const detail = await agentuse.waitSession(uid, session.id, { interval: 2000, timeout: 600_000 });
 console.log(detail.messages.at(-1).content);
 
@@ -46,7 +46,7 @@ if ("status" in r) console.log("插话:", r.status);
 
 ```js
 import { createReadStream } from 'node:fs';
-const { session } = await c.createSession(user, { agent_id: 'coder', defer_start: true });
+const { session } = await c.createSession(user, { defer_start: true });
 const file = await c.uploadAttachment(user, session.id, 'input.csv', createReadStream('./input.csv'));
 await c.sendMessage(user, session.id, { prompt: '分析附件' });
 const response = await c.downloadAttachment(user, session.id, file.id);
@@ -65,4 +65,4 @@ const reply = await c.sendMessage(user, session.id, {
 const detail = await c.waitMessageRuns(user, session.id, reply.message.id, {interval: 500, timeout: 600000});
 ```
 
-支持 getRun、waitRun、cancelRun、answerRunQuestion、upgradeSession。reply.deliveries 表示自动路由到新执行或插话的状态；新模式 waitSession 默认等待全部终态，可设置 returnOnWaiting。
+支持 getRun、waitRun、cancelRun、answerRunQuestion。reply.deliveries 表示自动路由到新执行或插话的状态；新模式 waitSession 默认等待全部终态，可设置 returnOnWaiting。

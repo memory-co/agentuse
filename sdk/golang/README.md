@@ -23,7 +23,7 @@ _, err = c.SetDaemonHarness(ctx, uid, d.ID, "claude", true)
 a, err := c.CreateAgent(ctx, uid, agentuse.CreateAgentRequest{ID: "code-helper", Name: "写代码", DaemonID: d.ID, Harness: "claude"})
 
 // 用这个 agent 发起任务，等它回完(用 ctx 控制超时)
-r, err := c.CreateSession(ctx, uid, agentuse.CreateSessionRequest{AgentID: a.ID, Prompt: "修一下 README 的错别字"})
+r, err := c.CreateSession(ctx, uid, agentuse.CreateSessionRequest{TargetAgentIDs: []string{a.ID}, Prompt: "修一下 README 的错别字"})
 wctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 defer cancel()
 detail, err := c.WaitSession(wctx, uid, r.Session.ID, 2*time.Second)
@@ -46,7 +46,7 @@ if err == nil && reply.Steer != nil {
 
 ## 附件
 
-先用 `CreateSessionRequest{AgentID: "coder", DeferStart: true}` 建空会话，上传文件后 `SendMessage` 开始。附件是 session 的独立资源，大小限制和权限见 [attachments API](../../docs/v2/apis/attachments.md)。
+先用 `CreateSessionRequest{DeferStart: true}` 建空会话，上传文件后 `SendMessage` 开始。附件是 session 的独立资源，大小限制和权限见 [attachments API](../../docs/v2/apis/attachments.md)。
 
 ```go
 f, err := os.Open("input.csv")
@@ -74,4 +74,4 @@ if err != nil { return err }
 detail, err := c.WaitMessageRuns(ctx, user, ss.Session.ID, reply.Message.ID, time.Second)
 ```
 
-Reply.Runs 与 Reply.Deliveries 对应各目标的新执行/插话。另有 GetRun、WaitRun、CancelRun、AnswerRunQuestion、UpgradeSession。新模式 WaitSession 默认等全部执行终态，可传 WaitOptions{ReturnOnWaiting:true}；旧模式仍在提问时返回。
+Reply.Runs 与 Reply.Deliveries 对应各目标的新执行/插话。另有 GetRun、WaitRun、CancelRun、AnswerRunQuestion。新模式 WaitSession 默认等全部执行终态，可传 WaitOptions{ReturnOnWaiting:true}。

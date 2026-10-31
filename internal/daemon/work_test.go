@@ -47,7 +47,7 @@ func TestWorkInstructions(t *testing.T) {
 }
 
 func TestWorkCustomHarness(t *testing.T) {
-	m := dispatch("hi", "")
+	m := dispatch("hi")
 	m.Instructions, m.WorkToken = "说明", "wt_y"
 	la := custom(t, `sed 's/^/in /'; echo "$AGENTUSE_SERVER $AGENTUSE_WORK"`)
 	la.Env = workEnv("http://srv", m)

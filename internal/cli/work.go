@@ -19,9 +19,9 @@ const workUsage = `agentuse work —— 工作的协调者用来管理线程(doc
 用法:
   agentuse work agents                            能用哪些 agent
   agentuse work threads                           这个工作的线程和状态
-  agentuse work new --agent <agent_id> "要做的事"   开线程，打印线程 id
-  agentuse work new --agent <agent_id> --defer-start  先建空线程，上传附件后再 send
-  agentuse work send <线程 id> "补充的话"           给线程发消息(它在跑就是插话)
+  agentuse work new --agents <agent_ids> "要做的事"   开线程，打印线程 id
+  agentuse work new --agents <agent_ids> --defer-start  先建空线程，上传附件后再 send
+  agentuse work send --agents <agent_ids> <线程 id> "补充的话"           给线程发消息(它在跑就是插话)
   agentuse work read <线程 id>                     看线程的消息
   agentuse work resolve <线程 id>                  标记线程已完成
 
@@ -52,13 +52,7 @@ func runWork(args []string) error {
 	case "new":
 		return workNew(ctx, c, rest)
 	case "send":
-		if len(rest) > 2 {
-			return workSendTargets(ctx, c, rest)
-		}
-		if len(rest) != 2 {
-			return usageErr("用法: agentuse work send <线程 id> \"消息\"")
-		}
-		return workSend(ctx, c, rest[0], rest[1])
+		return workSendTargets(ctx, c, rest)
 	case "read":
 		if len(rest) != 1 {
 			return usageErr("用法: agentuse work read <线程 id>")
@@ -80,9 +74,6 @@ func runWork(args []string) error {
 
 func workClient() (*apiClient, error) {
 	server, token := os.Getenv("AGENTUSE_SERVER"), os.Getenv("AGENTUSE_WORK")
-	if token == "" {
-		token = os.Getenv("AGENTUSE_WORK_TOKEN") // v0.0.8 的 daemon 用的旧名字
-	}
 	if server == "" || token == "" {
 		return nil, errors.New("没有 AGENTUSE_SERVER / AGENTUSE_WORK:这个命令只给工作的协调者在跑的时候用")
 	}
@@ -112,9 +103,9 @@ func workThreads(ctx context.Context, c *apiClient) error {
 		fmt.Println("还没有线程")
 		return nil
 	}
-	rows := [][]string{{"线程 id", "状态", "agent", "标题"}}
+	rows := [][]string{{"线程 id", "状态", "标题"}}
 	for _, s := range list {
-		rows = append(rows, []string{s.ID, s.Status, s.AgentID, s.Title})
+		rows = append(rows, []string{s.ID, s.Status, s.Title})
 	}
 	printTable(os.Stdout, rows)
 	return nil
@@ -123,36 +114,21 @@ func workThreads(ctx context.Context, c *apiClient) error {
 func workNew(ctx context.Context, c *apiClient, args []string) error {
 	fs := flag.NewFlagSet("agentuse work new", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	agent := fs.String("agent", "", "用哪个 agent(agentuse work agents 里的 agent_id)")
-	agents := fs.String("agents", "", "多个 agent，逗号分隔")
-	multi := os.Getenv("AGENTUSE_RUN") != ""
+	agents := fs.String("agents", "", "目标 agent，逗号分隔")
 	deferStart := fs.Bool("defer-start", false, "先建空线程，上传附件后再发消息")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	if (*agent == "" && *agents == "") || (!*deferStart && fs.NArg() != 1) || (*deferStart && fs.NArg() != 0) {
-		return usageErr("用法: agentuse work new --agent <agent_id> \"要做的事\" | --defer-start")
+	if (*agents == "" && !*deferStart) || (!*deferStart && fs.NArg() != 1) || (*deferStart && fs.NArg() != 0) {
+		return usageErr("用法: agentuse work new --agents <agent_ids> \"要做的事\" | --defer-start")
 	}
 	var res struct {
 		Session store.Session `json:"session"`
 	}
-	request := map[string]any{"agent_id": *agent}
-	if multi || *agents != "" {
-		request = map[string]any{"mode": store.MultiAgent}
-		ids := splitAgents(*agents)
-		if len(ids) == 0 {
-			ids = splitAgents(*agent)
-		}
-		if !*deferStart {
-			request["target_agent_ids"] = ids
-		}
-	}
-	if *deferStart {
-		if !multi && *agents == "" {
-			request["defer_start"] = true
-		}
-	} else {
+	request := map[string]any{}
+	if !*deferStart {
 		request["prompt"] = fs.Arg(0)
+		request["target_agent_ids"] = splitAgents(*agents)
 	}
 	if err := c.do(ctx, http.MethodPost, "/api/sessions", request, &res); err != nil {
 		return err
@@ -162,45 +138,6 @@ func workNew(ctx context.Context, c *apiClient, args []string) error {
 		return nil
 	}
 	fmt.Printf("已开线程 %s。它回完会把结果发给你，不用等。\n", res.Session.ID)
-	return nil
-}
-
-func workSend(ctx context.Context, c *apiClient, id, prompt string) error {
-	var res struct {
-		Status string `json:"status"` // 插话才有
-	}
-	body := map[string]any{"prompt": prompt}
-	if os.Getenv("AGENTUSE_RUN") != "" {
-		var detail struct {
-			Session store.Session `json:"session"`
-			Runs    []store.Run   `json:"runs"`
-		}
-		if err := c.do(ctx, "GET", "/api/sessions/"+url.PathEscape(id), nil, &detail); err != nil {
-			return err
-		}
-		if detail.Session.Mode == store.MultiAgent {
-			seen := map[string]bool{}
-			var targets []string
-			for _, r := range detail.Runs {
-				if r.AgentID != "" && !seen[r.AgentID] {
-					seen[r.AgentID] = true
-					targets = append(targets, r.AgentID)
-				}
-			}
-			if len(targets) != 1 {
-				return errors.New("多 agent 线程请用 work send --agents 指定目标")
-			}
-			body["target_agent_ids"] = targets
-		}
-	}
-	if err := c.do(ctx, http.MethodPost, "/api/sessions/"+url.PathEscape(id)+"/messages", body, &res); err != nil {
-		return err
-	}
-	if res.Status != "" {
-		fmt.Printf("线程 %s 还在跑，已作为插话送过去\n", id)
-	} else {
-		fmt.Printf("已发给线程 %s\n", id)
-	}
 	return nil
 }
 

@@ -27,6 +27,5 @@
 - session_requests：按 session/user/Idempotency-Key 保存规范化请求摘要和 message id，保证重试不重复派活。
 - work_run_tokens：工作协调 run/attempt 的短期权限；终态删除，过期代次失效。
 - run_notifications：按线程消息去重的工作汇总通知。
-- session_access：升级 legacy 会话时保留原主人和发起人的既有访问权。
 
-seq 当前复用 messages.id，严格递增但不保证连续。不新增 agent 参与关系或私有上下文表。现有 sessions 的运行时字段只服务 legacy；multi_agent API 隐去这些字段，物理 harness 非空外键暂存兼容占位值，不参与调度。
+seq 当前复用 messages.id，严格递增但不保证连续。不新增 agent 参与关系或私有上下文表。sessions 没有运行时或续接字段。

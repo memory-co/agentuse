@@ -82,14 +82,7 @@ func (s *Server) Run(ctx context.Context) {
 				s.log.Printf("runs: %v", err)
 			}
 			s.hub.kickAll()
-			users, err := s.store.RequeueExpired(ctx)
-			if err != nil {
-				s.log.Printf("requeue expired: %v", err)
-				continue
-			}
-			for _, u := range users {
-				s.hub.kickUser(u)
-			}
+
 		}
 	}
 }
@@ -131,12 +124,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/sessions/{id}/runs/{run_id}", s.workAuth(s.handleGetRun))
 	s.mux.HandleFunc("POST /api/sessions/{id}/runs/{run_id}/cancel", s.workAuth(s.handleCancelRun))
 	s.mux.HandleFunc("POST /api/sessions/{id}/runs/{run_id}/questions/{qid}/answer", s.workAuth(s.handleAnswerRun))
-	s.mux.HandleFunc("POST /api/sessions/{id}/upgrade", s.auth(s.handleUpgradeSession))
 	s.mux.HandleFunc("DELETE /api/sessions/{id}", s.auth(s.handleDeleteSession))
 	s.mux.HandleFunc("POST /api/sessions/{id}/messages", s.workAuth(s.handleAddMessage))
 	s.mux.HandleFunc("POST /api/sessions/{id}/resolve", s.workAuth(s.handleResolveSession))
 	s.mux.HandleFunc("POST /api/sessions/{id}/reopen", s.auth(s.handleReopenSession))
-	s.mux.HandleFunc("POST /api/sessions/{id}/questions/{qid}/answer", s.auth(s.handleAnswerQuestion))
 
 	for _, route := range []struct {
 		pattern string

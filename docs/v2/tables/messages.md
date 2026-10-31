@@ -24,8 +24,8 @@ CREATE TABLE messages (
 CREATE INDEX messages_session ON messages(session_id, id);
 ```
 
-daemon 每次领到的是会话里最后一条 `user` 消息;回报 `done` / `failed` 时追加一条 `assistant` 消息。
+daemon 领取 run，其主任务和补充消息由 task_message_ids 指定；每次执行读取整个 session 的共享历史。最终结果写入一条署名 assistant 消息。
 
 ## 多 agent 会话方案
 
-[session-mentions](../designs/session-mentions.md) 中，一条 user 消息可对应多个目标 run；assistant 消息记录 agent 身份快照、run_id 和触发消息，消息按 session 内 seq 排序。当前表和“最后一条 user 消息”派活规则只用于 legacy 模式。
+[session-mentions](../designs/session-mentions.md) 中，一条 user 消息可对应多个目标 run；assistant 消息记录 agent 身份快照、run_id 和触发消息，消息按 session 内 seq 排序。每条消息的目标投递记录在 message_deliveries。

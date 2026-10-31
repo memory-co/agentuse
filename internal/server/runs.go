@@ -89,7 +89,7 @@ func (s *Server) getMultiSession(w http.ResponseWriter, r *http.Request, ss stor
 	for _, run := range runs {
 		counts[run.Status]++
 	}
-	writeJSON(w, 200, map[string]any{"session": ss, "messages": messages, "runs": runs, "deliveries": ds, "events": events, "steers": []any{}, "questions": questions, "run_counts": counts})
+	writeJSON(w, 200, map[string]any{"session": ss, "messages": messages, "runs": runs, "deliveries": ds, "events": events, "questions": questions, "run_counts": counts})
 }
 func (s *Server) sessionReadAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -181,12 +181,4 @@ func (s *Server) handleAnswerRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.pushRun(run.DaemonID, protocol.Message{Type: protocol.TypeAnswer, Answer: &protocol.Answer{RunID: run.ID, AttemptID: run.AttemptID, MessageID: run.MessageID, ToolUseID: q.ToolUseID, Answers: q.Answers}})
 	writeJSON(w, 202, q)
-}
-func (s *Server) handleUpgradeSession(w http.ResponseWriter, r *http.Request) {
-	ss, err := s.store.UpgradeSession(r.Context(), currentUser(r), r.PathValue("id"))
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	writeJSON(w, 200, ss)
 }

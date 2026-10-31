@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
@@ -96,7 +95,7 @@ func (c Client) Get(ctx context.Context, session, id string) (Attachment, error)
 	err := c.json(ctx, Path(session)+"/"+url.PathEscape(id), &a)
 	return a, err
 }
-func (c Client) Upload(ctx context.Context, session, filename string, src io.Reader, messageID int64) (Attachment, error) {
+func (c Client) Upload(ctx context.Context, session, filename string, src io.Reader) (Attachment, error) {
 	var a Attachment
 	filename, err := Filename(filename)
 	if err != nil {
@@ -107,9 +106,6 @@ func (c Client) Upload(ctx context.Context, session, filename string, src io.Rea
 	defer pr.Close()
 	go func() {
 		var err error
-		if messageID > 0 {
-			err = mw.WriteField("message_id", strconv.FormatInt(messageID, 10))
-		}
 		if err == nil {
 			var part io.Writer
 			part, err = mw.CreateFormFile("file", filename)
