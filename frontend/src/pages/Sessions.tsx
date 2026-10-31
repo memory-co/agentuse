@@ -11,7 +11,7 @@ import { Confirm, ErrorState, Loading, StatusBadge } from '@/components/Shared';
 import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query';
 import { useAgents } from '@/pages/Agents';
-import type { Message, Question, Session, SessionDetail as Detail, SessionEvent, SessionStatus, Run } from '@/lib/types';
+import type { Message, Question, Session, SessionDetail as Detail, SessionEvent, SessionStatus, Run, Delivery } from '@/lib/types';
 import { cn, fmtTime } from '@/lib/utils';
 import { t, useT } from '@/lib/i18n';
 
@@ -117,7 +117,7 @@ export function Conversation({ id, onDeleted, placeholder,defaultAgent }: { id: 
         <Attachments key={id} session={id} running={!settled} />
         {messages.map(m=><div key={m.id} className="grid min-w-0 grid-cols-1 gap-2"><MessageView m={m}/>
         {m.role==='user'&&<div className="flex flex-wrap gap-2">{(q.data.deliveries??[]).filter(d=>d.message_id===m.id && !(q.data.runs??[]).some(run=>run.id===d.run_id && run.message_id===m.id)).map(d=><span key={d.id} className="rounded-md border px-2 py-1 text-xs" title={d.error}>@{d.agent_key} · {d.kind==='steer'?t('mention.steer')+' · ':''}{t(`mention.${d.status}`)}</span>)}</div>}
-        {(q.data.runs??[]).filter(r=>r.message_id===m.id).map(run=><RunView key={run.id} run={run} events={events} questions={questions} sessionId={id}/>)}
+        {(q.data.runs??[]).filter(r=>r.message_id===m.id).map(run=><RunView key={run.id} run={run} events={events} questions={questions} messages={messages} deliveries={q.data.deliveries ?? []} sessionId={id}/>)}
         </div>)}
         <div ref={bottom} />
       </div>
@@ -224,7 +224,7 @@ function QuestionView({ q, sessionId }: { q: Question; sessionId: string }) {
   </form>;
 }
 
-function RunView({ run, events, questions, sessionId }: { run: Run; events: SessionEvent[]; questions: Question[]; sessionId: string }) {
+function RunView({ run, events, questions, messages, deliveries, sessionId }: { run: Run; events: SessionEvent[]; questions: Question[]; messages: Message[]; deliveries: Delivery[]; sessionId: string }) {
   const t = useT();
   const cancel = useMutation({
     mutationFn: () => api(`/api/sessions/${sessionId}/runs/${run.id}/cancel`, { method: 'POST' }),
@@ -232,6 +232,9 @@ function RunView({ run, events, questions, sessionId }: { run: Run; events: Sess
   });
   const mine = events.filter(event => event.run_id === run.id);
   const progress = mine.filter(event => event.kind === 'progress');
+  const steers = deliveries.filter(delivery => delivery.run_id === run.id && delivery.kind === 'steer')
+    .map(delivery => ({ delivery, message: messages.find(message => message.id === delivery.message_id) }))
+    .sort((a, b) => a.delivery.message_id - b.delivery.message_id);
   const plan = mine.filter(event => event.kind === 'plan').pop();
   const active = ['pending', 'running', 'waiting'].includes(run.status);
   return <section data-run-id={run.id} aria-label={`run @${run.agent_key}`}>
@@ -257,6 +260,18 @@ function RunView({ run, events, questions, sessionId }: { run: Run; events: Sess
           <div className="grid min-h-0 gap-4 overflow-y-auto p-4 text-xs">
             <p className="break-all text-muted-foreground">{run.harness} · {run.daemon_id ?? '—'}</p>
             {run.error && run.status !== 'cancelled' && <p className="break-words text-destructive">{run.error}</p>}
+            {steers.length > 0 && <section className="grid min-w-0 gap-2" aria-label={t('mention.steerMessages')}>
+              <h3 className="font-medium">{t('mention.steerMessages')}</h3>
+              {steers.map(({ delivery, message }) => <div key={delivery.id} className="grid min-w-0 gap-2 rounded-lg border p-3" data-steer-message={delivery.message_id}>
+                <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
+                  <span>@{delivery.agent_key}</span>
+                  <span>{t(`mention.${delivery.status}`)}</span>
+                  {message && <time className="ml-auto" dateTime={new Date(message.created_at * 1000).toISOString()}>{fmtTime(message.created_at)}</time>}
+                </div>
+                {message && <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{typeof message.content?.prompt === 'string' ? message.content.prompt : JSON.stringify(message.content, null, 2)}</p>}
+                {delivery.error && <p className="break-words text-destructive">{delivery.error}</p>}
+              </div>)}
+            </section>}
             {plan && <PlanView steps={plan.payload?.steps} />}
             {questions.filter(question => question.run_id === run.id).map(question => <QuestionView key={question.id} q={question} sessionId={sessionId} />)}
             {progress.length > 0 && <div className="grid min-w-0 gap-2">
