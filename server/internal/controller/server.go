@@ -1,10 +1,11 @@
 // Package server 是 agentuse 服务：网页、HTTP API、setup.sh 和 daemon 的 WebSocket。
-package server
+package controller
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/memory-co/agentuse/server/internal/service"
 	"log"
 	"net/http"
 	"os"
@@ -18,6 +19,8 @@ import (
 )
 
 type Config struct {
+	Service                   *service.Service
+	DaemonHandler             http.Handler
 	AttachmentsDir            string
 	AttachmentMaxBytes        int64
 	AttachmentSessionMaxBytes int64
@@ -32,7 +35,7 @@ type Server struct {
 	attachmentMu sync.RWMutex
 	cfg          Config
 	store        *store.Store
-	hub          *hub
+	service      *service.Service
 	log          *log.Logger
 	mux          *http.ServeMux
 }
@@ -53,7 +56,13 @@ func New(st *store.Store, cfg Config) *Server {
 	}
 	cfg.PublicURL = strings.TrimRight(cfg.PublicURL, "/")
 	s := &Server{cfg: cfg, store: st, log: cfg.Logger, mux: http.NewServeMux()}
-	s.hub = newHub(s)
+	s.service = cfg.Service
+	if s.service == nil {
+		s.service = service.New(st)
+	}
+	if s.cfg.DaemonHandler == nil {
+		s.cfg.DaemonHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeErr(w, 503, "daemon transport not configured") })
+	}
 	s.routes()
 	return s
 }
@@ -81,7 +90,7 @@ func (s *Server) Run(ctx context.Context) {
 			if err := s.store.RequeueRuns(ctx); err != nil {
 				s.log.Printf("runs: %v", err)
 			}
-			s.hub.kickAll()
+			s.service.Notifier.KickAll()
 
 		}
 	}
@@ -142,7 +151,7 @@ func (s *Server) routes() {
 		s.mux.HandleFunc(route.pattern, s.attachmentAuth(route.handler))
 	}
 	s.mux.HandleFunc("POST "+protocol.RegisterPath, s.handleRegister)
-	s.mux.HandleFunc("GET "+protocol.WSPath, s.hub.handleWS)
+	s.mux.HandleFunc("GET "+protocol.WSPath, s.cfg.DaemonHandler.ServeHTTP)
 	s.mux.HandleFunc("GET "+protocol.MePath, s.handleDaemonMe)
 }
 

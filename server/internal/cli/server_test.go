@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/memory-co/agentuse/server/internal/controller"
+	server "github.com/memory-co/agentuse/server/internal/controller"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 

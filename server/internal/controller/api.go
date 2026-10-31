@@ -1,4 +1,4 @@
-package server
+package controller
 
 import (
 	"context"
@@ -359,8 +359,8 @@ func (s *Server) handleDeleteDaemon(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	s.hub.disconnect(id)
-	s.hub.kickUser(d.UserID)
+	s.service.Notifier.Disconnect(id)
+	s.service.Notifier.KickUser(d.UserID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -370,7 +370,7 @@ func (s *Server) handleResetDaemon(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	s.hub.disconnect(d.ID)
+	s.service.Notifier.Disconnect(d.ID)
 	writeJSON(w, http.StatusOK, s.view(r, d))
 }
 
@@ -394,7 +394,7 @@ func (s *Server) handleToggleHarness(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Enabled {
-		s.hub.kickUser(d.UserID)
+		s.service.Notifier.KickUser(d.UserID)
 	}
 	writeJSON(w, http.StatusOK, s.view(r, d))
 }
@@ -487,8 +487,8 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	s.hub.kickAll()
-	s.hub.pushRunSteers(reply.Deliveries)
+	s.service.Notifier.KickAll()
+	s.service.Notifier.PushRunSteers(reply.Deliveries)
 	writeJSON(w, 201, reply)
 }
 

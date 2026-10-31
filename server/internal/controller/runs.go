@@ -1,4 +1,4 @@
-package server
+package controller
 
 import (
 	"context"
@@ -55,7 +55,7 @@ func (s *Server) createMultiSession(w http.ResponseWriter, r *http.Request, work
 		out["runs"] = reply.Runs
 		out["deliveries"] = reply.Deliveries
 	}
-	s.hub.kickAll()
+	s.service.Notifier.KickAll()
 	writeJSON(w, 201, out)
 }
 func (s *Server) getMultiSession(w http.ResponseWriter, r *http.Request, ss store.Session) {
@@ -129,8 +129,8 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	s.hub.pushRun(run.DaemonID, protocol.Message{Type: protocol.TypeCancel, RunID: run.ID, AttemptID: run.AttemptID})
-	s.hub.kickAll()
+	s.service.Notifier.PushRun(run.DaemonID, protocol.Message{Type: protocol.TypeCancel, RunID: run.ID, AttemptID: run.AttemptID})
+	s.service.Notifier.KickAll()
 	writeJSON(w, 200, run)
 }
 func (s *Server) handleAnswerRun(w http.ResponseWriter, r *http.Request) {
@@ -154,6 +154,6 @@ func (s *Server) handleAnswerRun(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	s.hub.pushRun(run.DaemonID, protocol.Message{Type: protocol.TypeAnswer, Answer: &protocol.Answer{RunID: run.ID, AttemptID: run.AttemptID, MessageID: run.MessageID, ToolUseID: q.ToolUseID, Answers: q.Answers}})
+	s.service.Notifier.PushRun(run.DaemonID, protocol.Message{Type: protocol.TypeAnswer, Answer: &protocol.Answer{RunID: run.ID, AttemptID: run.AttemptID, MessageID: run.MessageID, ToolUseID: q.ToolUseID, Answers: q.Answers}})
 	writeJSON(w, 202, q)
 }

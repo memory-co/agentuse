@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/memory-co/agentuse/internal/command"
+	"github.com/memory-co/agentuse/server/internal/hub"
+	"github.com/memory-co/agentuse/server/internal/service"
 	"log"
 	"net"
 	"net/http"
@@ -15,7 +17,7 @@ import (
 	"time"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/controller"
+	server "github.com/memory-co/agentuse/server/internal/controller"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
@@ -116,7 +118,10 @@ func runStart(args []string) error {
 			*dist, strings.Join(missing, ", "))
 	}
 
-	srv := server.New(st, server.Config{PublicURL: *publicURL, DistDir: *dist, AttachmentsDir: *attachmentsDir, AttachmentMaxBytes: *maxBytes, AttachmentSessionMaxBytes: *sessionMax})
+	svc := service.New(st)
+	transport := hub.New(svc, log.Default())
+	svc.SetNotifier(transport)
+	srv := server.New(st, server.Config{Service: svc, DaemonHandler: transport, PublicURL: *publicURL, DistDir: *dist, AttachmentsDir: *attachmentsDir, AttachmentMaxBytes: *maxBytes, AttachmentSessionMaxBytes: *sessionMax})
 	go srv.Run(ctx)
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
