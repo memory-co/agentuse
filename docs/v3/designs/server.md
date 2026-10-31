@@ -20,16 +20,18 @@ Server 分为三层：
 
 | Service | 负责什么 | 主要拥有的表或数据 |
 |---|---|---|
-| **userService** | 用户、角色、访问令牌和身份校验 | `users` |
-| **deviceService** | 执行设备的登记、凭据、在线状态、可用 harness 和执行能力 | `devices`、`device_harnesses`、`device_capabilities` |
-| **agentService** | Agent 的名称、说明、归属，以及选择哪台 device、哪种 harness 执行 | `agents` |
-| **harnessService** | 用统一 YAML config 描述不同 harness，使 client 能把任务转为认识的执行方式 | `harnesses` 和 harness YAML 配置 |
-| **sessionService** | 清晰、持续的对话：创建会话、保存消息、读取共享历史；调用 runService 分配任务，接收结果事件并保存回复 | `sessions`、`messages`、`message_formats`、`message_authors` |
-| **runService** | 建立任务、关联任务消息、派发与领取、跟踪执行、插话、提问、取消和执行恢复 | `session_runs`、`message_deliveries`、`run_events`、`run_questions` |
-| **attachmentService** | 会话附件的上传、下载、访问权限、配额、元数据和文件生命周期 | `attachments` 与附件正文 |
-| **workService** | 把多个 session 组织成一项工作，管理协调 agent、线程关系和结果汇总 | `works`、`work_run_tokens`、`run_notifications` |
+| [userService](user.md) | 用户、角色、访问令牌和身份校验 | `users` |
+| [deviceService](device.md) | 执行设备的登记、凭据、在线状态、可用 harness 和执行能力 | `devices`、`device_harnesses`、`device_capabilities` |
+| [agentService](agent.md) | Agent 的名称、说明、归属，以及选择哪台 device、哪种 harness 执行 | `agents` |
+| [harnessService](harness.md) | 用统一 YAML config 描述不同 harness，使 client 能把任务转为认识的执行方式 | `harnesses` 和 harness YAML 配置 |
+| [sessionService](session.md) | 清晰、持续的对话：创建会话、保存消息、读取共享历史；调用 runService 分配任务，接收结果事件并保存回复 | `sessions`、`messages`、`message_formats`、`message_authors`、`session_requests` |
+| [runService](run.md) | 建立任务、关联任务消息、派发与领取、跟踪执行、插话、提问、取消和执行恢复 | `session_runs`、`message_deliveries`、`run_events`、`run_questions` |
+| [attachmentService](attachment.md) | 会话附件的上传、下载、访问权限、配额、元数据和文件生命周期 | `attachments` 与附件正文 |
+| [workService](work.md) | 把多个 session 组织成一项工作，管理协调 agent、线程关系和结果汇总 | `works`、`work_run_tokens`、`run_notifications` |
 
 这里的“拥有”指主要维护职责，不表示其他 service 不能读取。跨业务修改通过所属 service 完成；由编排操作统一事务，不能把各次调用做成互不相关的独立提交。
+
+各 service 的详细职责、操作和完整目标 SQL 见上表链接；19 张业务表各有一篇负责维护。表结构中的 device 命名，以及 harness 配置快照、回复去重约束都是目标设计，尚未应用到运行中的数据库。
 
 sessionService 负责发送消息的业务编排，调用 runService 建立任务分配。runService 完成任务后发出结果事件，由 sessionService 接收并保存回复；runService 不反向调用 sessionService。
 
@@ -56,7 +58,7 @@ sessionService 负责发送消息的业务编排，调用 runService 建立任�
 | 输出规则 | 把原始输出转换为进度、结果、错误和用量 |
 | transport、插话和提问能力 | 选择对应适配器，处理执行中的交互 |
 
-runService 交给 client 的是统一任务：run 身份、agent、harness 配置标识、任务消息和上下文信息。Client 取得对应 YAML 后，由本机适配器把任务转换成可执行命令或协议调用，再把结果转换为统一事件上报。
+runService 交给 client 的是统一任务：run 身份、agent、固定版本的 harness YAML 快照、任务消息和上下文信息。Client 取得对应 YAML 后，由本机适配器把任务转换成可执行命令或协议调用，再把结果转换为统一事件上报。
 
 YAML 收敛配置差异；复杂协议仍由适配器实现。Server 不直接启动用户设备上的命令，runService 也不为每一种 harness 复制一套任务生命周期。
 
