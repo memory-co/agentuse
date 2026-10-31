@@ -22,7 +22,7 @@ workService 将多个 session 组织成一项工作。一个 work 有一个协�
 
 协调 agent 的 run 领取时，工作授权参与领取事务，由 workService 签发限定 work/run/attempt 的令牌；明文只交给对应 client。每次使用时同时检查 run 当前状态、attempt 和租约。run 结束、重排或设备凭据撤销时协调撤销，不把令牌当作长期用户身份。
 
-`coordinator_id` 是协调 session；`sessions.work_id` 是会话归属。两者仅以标识关联，由 workService 在创建/删除事务里保证一致，不声明外键。
+`coordinator_id` 是协调 session 的 UUID；`sessions.work_id` 是会话归属。两者仅以标识关联，由 workService 在创建/删除事务里保证一致，不声明外键。
 
 ## 表结构
 
@@ -64,7 +64,7 @@ CREATE TABLE work_run_tokens (
 
 ```sql
 CREATE TABLE run_notifications (
-    message_id INTEGER PRIMARY KEY
+    message_id TEXT NOT NULL PRIMARY KEY
 );
 ```
 

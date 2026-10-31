@@ -53,13 +53,13 @@ runs 增加 harness_revision、harness_config_yaml。建立 run 时复制 harnes
 
 ### runs
 
-一次执行任务。`message_id` 是主任务，`result_message_id` 是执行结果的内部关联；最终回复通过 messages.reply_to_message_id 指向主任务消息，而不是回复这个 run。`agent_key/name/user_id` 是历史身份；设备删除时由 service 清空当前 device_id 引用，历史身份快照仍保留。attempt_id/lease_until 表示当前执行租约，context_seq 表示上下文读取边界。配置快照是 v3 新增字段。
+一次执行任务。`message_id` 是主任务，`result_message_id` 是执行结果的内部关联；最终回复通过 messages.reply_to_message_id 指向主任务消息，而不是回复这个 run。`agent_key/name/user_id` 是历史身份；设备删除时由 service 清空当前 device_id 引用，历史身份快照仍保留。attempt_id/lease_until 表示当前执行租约，context_seq 对应 messages.seq，表示上下文读取边界；message_id 和 result_message_id 保存消息 UUID，不用 UUID 比较先后。配置快照是 v3 新增字段。
 
 ```sql
 CREATE TABLE runs (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
-    message_id INTEGER NOT NULL,
+    message_id TEXT NOT NULL,
     agent_id TEXT,
     agent_key TEXT NOT NULL,
     agent_name TEXT NOT NULL,
@@ -72,7 +72,7 @@ CREATE TABLE runs (
     attempt_id TEXT NOT NULL DEFAULT '',
     lease_until INTEGER,
     context_seq INTEGER NOT NULL DEFAULT 0,
-    result_message_id INTEGER,
+    result_message_id TEXT,
     error TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
@@ -94,7 +94,7 @@ CREATE INDEX runs_dispatch
 CREATE TABLE run_prompts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL,
-    message_id INTEGER NOT NULL,
+    message_id TEXT NOT NULL,
     content TEXT NOT NULL,
     attachments TEXT NOT NULL DEFAULT '[]',
     kind TEXT NOT NULL CHECK(kind IN ('initial','supplement')),
@@ -124,7 +124,7 @@ CREATE TABLE run_events (
     session_id TEXT NOT NULL,
     run_id TEXT NOT NULL,
     attempt_id TEXT NOT NULL,
-    message_id INTEGER NOT NULL,
+    message_id TEXT NOT NULL,
     device_id TEXT NOT NULL,
     event_seq INTEGER NOT NULL,
     kind TEXT NOT NULL,
@@ -144,7 +144,7 @@ CREATE TABLE run_questions (
     session_id TEXT NOT NULL,
     run_id TEXT NOT NULL,
     attempt_id TEXT NOT NULL,
-    message_id INTEGER NOT NULL,
+    message_id TEXT NOT NULL,
     tool_use_id TEXT NOT NULL,
     questions TEXT NOT NULL,
     answers TEXT,

@@ -15,7 +15,7 @@ sessionService 管理 session、message 和共享历史，并编排消息分配�
 
 ## 发送和回复
 
-发送链路是 `controller → sessionService → runService`：先检查权限与请求幂等，在一个事务中写一条 message 和全部目标 run 的 run_prompts，最后提交并通知设备。任一目标失败则整体回滚。空目标允许只保存一条备注。
+发送链路是 `controller → sessionService → runService`：先检查权限，在一个事务中写一条 message 和全部目标 run 的 run_prompts，最后提交并通知设备。任一目标失败则整体回滚。空目标允许只保存一条备注。
 
 ```text
 M1 @coder @reviewer → P1 / R1，P2 / R2
@@ -34,11 +34,13 @@ Session 状态是 run 的聚合投影，优先 waiting、running、pending，再
 
 有活跃 run 时拒绝删除，检查与删除共用事务；回复消费前也要重新检查会话是否存在，已删除的会话不恢复创建。删除会话由 sessionService 协调相关 service，在同一事务内清理消息、run、run_prompts、事件、问题及辅助记录；本地目录或 S3 对象前缀由 fileService 清理。Work 的协调会话和线程归属由 workService 决定。
 
-## 幂等
+## 标识和消息顺序
 
-发送用户 author_user_id 和 request_key/request_digest 直接保存在原始用户消息上；service 保证带 key 时作者为 user，用户与摘要非空。
+sessions.id 和 messages.id 均为 server 生成的 UUID，SQLite 中使用 TEXT 保存。所有 session_id、message_id、reply_to_message_id 等关联字段使用相同的 UUID 字符串。
 
-messages 中的唯一索引按 session、用户和非空 request_key 去重。请求摘要包含正文、run_agent_ids、attachments 和 reply_to_message_id；相同 key、相同请求返回原消息；摘要不一致则冲突。它解决重复提交，不保证执行工具的外部副作用只发生一次。
+UUID 只用于标识，不承担消息排序。messages.seq 是 session 内的递增顺序号，由 sessionService 在写消息的同一事务中分配；历史按 seq 读取，run.context_seq 表示已经读取到的消息顺序上界。
+
+发送请求不做去重：每次成功发送创建新的 message UUID，不需要请求 key 或内容摘要字段。
 
 ## 表结构
 
@@ -48,7 +50,7 @@ messages 中的唯一索引按 session、用户和非空 request_key 去重。�
 
 ```sql
 CREATE TABLE sessions (
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL PRIMARY KEY,
     user_id TEXT NOT NULL,
     created_by TEXT NOT NULL,
     work_id TEXT,
@@ -81,7 +83,7 @@ CREATE INDEX sessions_created_by
 
 service 写入时保证 user 消息只填 author_user_id，agent 消息只填 author_agent_id。读取作者用 LEFT JOIN；agent 改名后历史消息展示当前名称，已删除的作者保留原 ID 并显示已删除状态，不清空消息中的作者 ID。
 
-message 永远回复另一条 message，不回复 run。`reply_to_message_id` 表示被回复的消息，开头的根消息为空；后续用户消息、agent 回复都可以引用同 session 中已有的消息。messages 不保存 run_id，也不以 run 为对话层级。
+message 永远回复另一条 message，不回复 run。`reply_to_message_id` 表示被回复的消息，字段保存被回复消息的 UUID，开头的根消息为空；后续用户消息、agent 回复都可以引用同 session 中已有的消息。messages 不保存 run_id，也不以 run 为对话层级。
 
 ```text
 M1：@coder @reviewer 修复并评审
@@ -96,23 +98,20 @@ M1：@coder @reviewer 修复并评审
 
 ```sql
 CREATE TABLE messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL PRIMARY KEY,
     session_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
     author_role TEXT NOT NULL CHECK(author_role IN ('user','agent')),
     content TEXT NOT NULL,
     attachments TEXT NOT NULL DEFAULT '[]',
     author_user_id TEXT,
     author_agent_id TEXT,
     run_agent_ids TEXT NOT NULL DEFAULT '[]',
-    reply_to_message_id INTEGER,
-    request_key TEXT,
-    request_digest TEXT,
+    reply_to_message_id TEXT,
     created_at INTEGER NOT NULL
 );
-CREATE INDEX messages_session ON messages(session_id,id);
-CREATE INDEX messages_replies ON messages(session_id,reply_to_message_id,id);
-CREATE UNIQUE INDEX messages_request ON messages(session_id,author_user_id,request_key)
-    WHERE author_role='user' AND request_key IS NOT NULL;
+CREATE UNIQUE INDEX messages_session_seq ON messages(session_id,seq);
+CREATE INDEX messages_replies ON messages(session_id,reply_to_message_id,seq);
 ```
 
 ### 合并掉的辅助表
@@ -121,7 +120,6 @@ CREATE UNIQUE INDEX messages_request ON messages(session_id,author_user_id,reque
 |---|---|
 | message_formats | 不再建表，也不保留 format 字段；消息与执行副本均保存正文 |
 | message_authors | 不再建表，作者只保存在 messages.author_role、author_user_id、author_agent_id；名称实时关联读取；回复关系使用 reply_to_message_id，执行关联留在 runs |
-| session_requests | 不再建表；保留发送幂等需求，用 messages 的 author_user_id、request_key、request_digest 和唯一索引实现 |
 
 这些信息仍有作用，但都是一条消息自身的属性，不需要再各拆一张 1:1 的表。
 

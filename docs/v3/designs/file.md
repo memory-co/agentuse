@@ -14,8 +14,8 @@ fileService 为每个 session 提供一个独立的文件空间，支持上传�
 
 | 后端 | Session 文件空间 | 文件位置示例 |
 |---|---|---|
-| 本地文件系统 | `<root>/<session_id>/` | `/data/files/ss_123/report.pdf` |
-| S3 协议的对象存储 | 指定 bucket 下的 `<prefix>/<session_id>/` | `sessions/ss_123/report.pdf` |
+| 本地文件系统 | `<root>/<session_id>/` | `/data/files/550e8400-e29b-41d4-a716-446655440000/report.pdf` |
+| S3 协议的对象存储 | 指定 bucket 下的 `<prefix>/<session_id>/` | `sessions/550e8400-e29b-41d4-a716-446655440000/report.pdf` |
 
 本地创建实际目录；S3 使用对象 key 的前缀表示目录，不需要专门创建目录对象。S3 配置包含 endpoint、bucket、凭据和可选 prefix；本地配置只需 root。凭据由 server 持有，client 不需要区分后端。
 
@@ -33,7 +33,7 @@ PUT /api/sessions/{session_id}/files/{path...}
 GET /api/sessions/{session_id}/files/{path...}
 ```
 
-例如，向 `ss_123` 上传 `report.pdf` 后，用同一路径下载。重复上传相同路径覆盖原文件；本地通过临时文件写完后替换，S3 完成对象上传后生效，失败不把半个文件当作成功结果。
+例如，向 `550e8400-e29b-41d4-a716-446655440000` 上传 `report.pdf` 后，用同一路径下载。重复上传相同路径覆盖原文件；本地通过临时文件写完后替换，S3 完成对象上传后生效，失败不把半个文件当作成功结果。
 
 允许 session 目录中的相对子路径，例如 `inputs/data.csv`。路径必须限制在当前 session 文件空间内，不接受绝对路径、`..` 或通过符号链接越出目录。
 
