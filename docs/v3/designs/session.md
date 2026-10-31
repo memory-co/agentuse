@@ -38,7 +38,7 @@ Session 状态是 run 的聚合投影，优先 waiting、running、pending，再
 
 发送用户 author_user_id 和 request_key/request_digest 直接保存在原始用户消息上；service 保证带 key 时作者为 user，用户与摘要非空。
 
-messages 中的唯一索引按 session、用户和非空 request_key 去重。相同 key、相同内容及目标返回原消息；摘要不一致则冲突。它解决重复提交，不保证执行工具的外部副作用只发生一次。
+messages 中的唯一索引按 session、用户和非空 request_key 去重。请求摘要包含正文、run_agent_ids、attachments 和 reply_to_message_id；相同 key、相同请求返回原消息；摘要不一致则冲突。它解决重复提交，不保证执行工具的外部副作用只发生一次。
 
 ## 表结构
 
@@ -71,6 +71,14 @@ CREATE INDEX sessions_created_by
 
 共享对话的原始消息。`content` 统一保存对话正文；`author_role` 为 user/agent；`author_user_id`、`author_agent_id` 按作者类型二选一。作者名称分别实时关联 users/agents 读取，不保存 agent_key、agent_name 快照。`run_agent_ids` 保存原始 @ 目标数组，即使执行分配变化，对话仍能显示当时 @ 了谁。
 
+`attachments` 是 JSON 字符串数组，保存相对于当前 session 文件空间的路径，用户消息和 agent 回复都可以携带。例如：
+
+```json
+{"content":"请查看这两个文件","attachments":["inputs/data.csv","reports/result.pdf"]}
+```
+
+文件先通过 fileService 上传，再在消息中引用；没有附件时为 `[]`。不保存绝对路径、URL、bucket 或本地根目录。service 校验数组元素为合法相对路径，读取时由 fileService 按 session 和路径定位文件。这只是消息上的文件引用，不新增文件元数据表。
+
 service 写入时保证 user 消息只填 author_user_id，agent 消息只填 author_agent_id。读取作者用 LEFT JOIN；agent 改名后历史消息展示当前名称，已删除的作者保留原 ID 并显示已删除状态，不清空消息中的作者 ID。
 
 message 永远回复另一条 message，不回复 run。`reply_to_message_id` 表示被回复的消息，开头的根消息为空；后续用户消息、agent 回复都可以引用同 session 中已有的消息。messages 不保存 run_id，也不以 run 为对话层级。
@@ -92,10 +100,10 @@ CREATE TABLE messages (
     session_id TEXT NOT NULL,
     author_role TEXT NOT NULL CHECK(author_role IN ('user','agent')),
     content TEXT NOT NULL,
+    attachments TEXT NOT NULL DEFAULT '[]',
     author_user_id TEXT,
     author_agent_id TEXT,
     run_agent_ids TEXT NOT NULL DEFAULT '[]',
-
     reply_to_message_id INTEGER,
     request_key TEXT,
     request_digest TEXT,

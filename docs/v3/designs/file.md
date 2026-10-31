@@ -6,7 +6,7 @@
 
 fileService 为每个 session 提供一个独立的文件空间，支持上传和下载。同一 session 下的用户与 agent 共享这些文件，不为不同 run 再复制一套。
 
-文件的内容和存在性以存储后端为准，不建立 attachments 或 files 表，不记录上传人、来源 run、摘要、配额等数据库元数据。文件以 session_id 和相对路径定位，不另生成附件 ID。
+文件的内容和存在性以存储后端为准，不建立 attachments 或 files 表，不记录上传人、来源 run、摘要、配额等数据库元数据。文件以 session_id 和相对路径定位，不另生成附件 ID。messages.attachments 保存这些相对路径的 JSON 数组，例如 `["inputs/data.csv","report.pdf"]`；run_prompts 可复制这份路径列表作为执行输入，fileService 本身仍不记录数据库。
 
 ## 两种存储形态
 
