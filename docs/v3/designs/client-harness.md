@@ -56,7 +56,7 @@ YAML 优先表达声明式规则；复杂协议需要适配代码时，也放在
 
 Client 维护本地接入包及其内容摘要 harness_revision，摘要包括 YAML、hook、skill 和指令资源。探测结论携带该版本上报；run 固定 server 选定的本地版本，缺少版本时回报错误，不静默替换。
 
-每次执行把需准备的资源放到当前 run/attempt 的独立目录，通过本次启动参数加载；同 session 的并行 agent 不互相覆盖 hook 配置、AGENTS.md 或 CLAUDE.md。小型协议关联信息与原生连接对象只保存在本地执行期间，进程结束后清理，session 文件空间保留。
+每次执行把需准备的资源放到当前 run/attempt 的独立目录，通过本次启动参数加载；同 conversation 的并行 agent 不互相覆盖 hook 配置、AGENTS.md 或 CLAUDE.md。小型协议关联信息与原生连接对象只保存在本地执行期间，进程结束后清理，conversation 文件空间保留。
 
 ## 四、统一业务动作
 
@@ -92,11 +92,11 @@ Server 只使用这些业务事件。它不需要知道接受输入用了哪个 
 | 工具审批 | 原生 approval 请求由本地明确策略或已声明的业务审批流程处理 | 权限宿主或 hook 处理 | 与业务提问分开；未知请求不能一律 allow |
 | 取消 | 原生 interrupt，等待终态，超时再终止进程树 | 选定协议可用时原生 interrupt，否则通用终止进程树 | 本地适配与进程控制 |
 | 文件交付 | 标准文件操作调用 server fileService | 同左 | 业务 skill/工具，结果路径进入 messages.attachments |
-| 工作线程 | 标准 session/work 业务 API | 同左 | 业务 skill/工具和 work 授权 |
+| 工作线程 | 标准 conversation/work 业务 API | 同左 | 业务 skill/工具和 work 授权 |
 
 ### 5.1 Codex：本地持续 RPC
 
-Client 本地启动 `codex app-server`，管理初始化、thread/turn 和事件状态，原始 RPC 不上传 server。新 run 创建新的原生上下文，历史来自共享 session；原生 thread 不等同于 agentuse session。
+Client 本地启动 `codex app-server`，管理初始化、thread/turn 和事件状态，原始 RPC 不上传 server。新 run 创建新的原生上下文，历史来自共享 conversation；原生 thread 不等同于 agentuse conversation。
 
 - 启动链：`initialize → initialized → thread/start → turn/start`。
 - 插话：本地发 `turn/steer`，携带 thread 和 expectedTurnId。只有匹配请求且返回目标 turnId 的成功响应才能确认接收，再向 server 上报该 run_prompt 的标准确认。
@@ -154,4 +154,4 @@ accepted 不等于模型已经理解或完成输入；client 必须报告确认�
 
 ## 相关设计
 
-[Server 总览](server-main.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [runService](server-run.md) · [fileService](server-file.md)
+[manageService](client-manage.md) · [Server 总览](server-main.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [runService](server-run.md) · [fileService](server-file.md)

@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1120" height="800" viewBox="0 0 1120 800" font-family="-apple-system, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" role="img" aria-labelledby="title desc">
-<title id="title">Session 与 Run 的关系</title><desc id="desc">Session 包含共享消息和多个 run。用户消息为各目标 run 生成 run_prompts 内容副本，一个 run 可处理多个副本。每次领取 run 生成一个 attempt。</desc>
+<title id="title">Conversation 与 Run 的关系</title><desc id="desc">Conversation 包含共享消息和多个 run。用户消息为各目标 run 生成 run_prompts 内容副本，一个 run 可处理多个副本。每次领取 run 生成一个 attempt。</desc>
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker></defs>
 <rect width="1120" height="800" rx="16" fill="white"/>
 <text x="35" y="36" font-size="23" fill="#334155">共享历史 → 任务分配 → 实际执行</text>
 <rect x="360" y="65" width="400" height="125" rx="10" fill="#eef2ff" stroke="#94a3b8"/>
-<text x="380" y="98" font-size="21" fill="#334155">Session</text>
+<text x="380" y="98" font-size="21" fill="#334155">Conversation</text>
 <text x="380" y="130" font-size="15" fill="#334155">共享消息与附件，不绑定一个 agent</text>
-<text x="380" y="156" font-size="15" fill="#334155">同 session + agent 最多一个活跃 run</text>
+<text x="380" y="156" font-size="15" fill="#334155">同对话 + agent 最多一个活跃 run</text>
 <rect x="40" y="275" width="430" height="145" rx="10" fill="#f1f5f9" stroke="#94a3b8"/>
 <text x="60" y="308" font-size="21" fill="#334155">Message</text>
 <text x="60" y="340" font-size="15" fill="#334155">用户内容或最终 agent 回复</text>
@@ -14,7 +14,7 @@
 <text x="60" y="392" font-size="15" fill="#334155">消息不等于 run，也不保证触发执行</text>
 <rect x="650" y="275" width="430" height="145" rx="10" fill="#eef2ff" stroke="#94a3b8"/>
 <text x="670" y="308" font-size="21" fill="#334155">Run</text>
-<text x="670" y="340" font-size="15" fill="#334155">某 agent 在本 session 承担的一次任务</text>
+<text x="670" y="340" font-size="15" fill="#334155">某 agent 在当前对话承担的一次任务</text>
 <text x="670" y="366" font-size="15" fill="#334155">first_message_id 是首条消息，非全部输入</text>
 <text x="670" y="392" font-size="15" fill="#334155">一个 run 可处理多条 run_prompts</text>
 <rect x="40" y="495" width="430" height="145" rx="10" fill="#ecfdf5" stroke="#94a3b8"/>

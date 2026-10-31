@@ -4,18 +4,18 @@
 
 ## 职责
 
-runService 管一次业务执行任务。一个 run 属于一个 session，确定 agent、device、harness；通过 run_prompts 保存多条任务输入副本。每次重新领取通过 attempt 区分实际执行身份，不另建一条 run 代表网络重试。
+runService 管一次业务执行任务。一个 run 属于一个 conversation，确定 agent、device、harness；通过 run_prompts 保存多条任务输入副本。每次重新领取通过 attempt 区分实际执行身份，不另建一条 run 代表网络重试。
 
 ## 与其他 Service 的关系
 
-- sessionService 在发送事务中调用 runService，为每个目标建立分配；runService 不反向调用 sessionService。
+- conversationService 在发送事务中调用 runService，为每个目标建立分配；runService 不反向调用 conversationService。
 - agentService 提供角色及执行选择，deviceService 提供设备能力，client 的 harnessService 在本地管理配置并归一化交互；server 不调用 harnessService。
 - workService 提供工作说明和执行范围的授权；与 run 同寿命的工作令牌由 workService 管理。
-- runService 持久化结果事件后通知 sessionService 消费；由 sessionService 在事务内检查并绑定 runs.result_message_id，防止重复回复；messages 不需要 run_id。
+- runService 持久化结果事件后通知 conversationService 消费；由 conversationService 在事务内检查并绑定 runs.result_message_id，防止重复回复；messages 不需要 run_id。
 
 ## run_prompts：面向一次 Run 的消息副本
 
-messages 保存用户在 session 中说过什么；run_prompts 保存“这次 run 实际要处理什么”。它既建立 message 与 run 的 N:M 关系，也保存输入内容快照和消费状态，不再另建 message_deliveries。
+messages 保存用户在 conversation 中说过什么；run_prompts 保存“这次 run 实际要处理什么”。它既建立 message 与 run 的 N:M 关系，也保存输入内容快照和消费状态，不再另建 message_deliveries。
 
 ```text
 M1 @coder @reviewer
@@ -25,7 +25,7 @@ M2 @coder（R1 仍在执行）
   → P3：run=R1，message=M2，复制 M2 内容，作为 R1 的补充输入
 ```
 
-一条消息 @ 两个 agent，写两条 run_prompts。一个 run 可有多条 run_prompts。副本保存消息正文和 attachments 路径列表，执行时以副本为准，不每次回查原始 messages 重建输入；运行时上下文仍可读取同 session 的共享历史。
+一条消息 @ 两个 agent，写两条 run_prompts。一个 run 可有多条 run_prompts。副本保存消息正文和 attachments 路径列表，执行时以副本为准，不每次回查原始 messages 重建输入；运行时上下文仍可读取同 conversation 的共享历史。
 
 run.first_message_id 仅标识主任务。run_prompts.run_id 创建后不改变：未消费的输入需要后续 run 时，复制到新 run 的新 run_prompts，旧行保留并标记 deferred，用 superseded_by 连接后续副本。这样旧 run 当时收到的输入仍可追溯。
 
@@ -33,11 +33,11 @@ run.first_message_id 仅标识主任务。run_prompts.run_id 创建后不改变�
 
 | 操作 | 规则 |
 |---|---|
-| 建立分配 | 同 session + agent 最多一个 pending/running/waiting run；无活跃任务则建新 run，否则追加 supplement run_prompts |
-| 领取 | 按 device 找 pending run；校验能力，生成 attempt，设租约，准备任务消息和共享上下文 |
+| 建立分配 | 同 conversation + agent 最多一个 pending/running/waiting run；无活跃任务则建新 run，否则追加 supplement run_prompts |
+| 领取 | 按 device 找 pending run；一次请求明确返回 run 或 no_task；校验能力，生成 attempt，设租约，准备任务消息和共享上下文 |
 | 插话 | 仅对当前执行推送可接受的输入；执行端确认后记 delivered，不因 HTTP 保存成功就确认消费 |
 | 提问/回答 | 问题绑定 run/attempt；答案先保存，执行端确认消费后再推进问题与 run 状态 |
-| 结束 | 写终态及持久化结果事件；更新 run_prompts、撤销执行凭据，通知 sessionService 保存回复 |
+| 结束 | 写终态及持久化结果事件；更新 run_prompts、撤销执行凭据，通知 conversationService 保存回复 |
 | 超时重试 | 同 run 重排 pending，重新领取时换 attempt；拒绝旧执行的新事件 |
 | 未消费输入 | 正常结束时可转入后续新 run；取消则终止分配，不自动继续 |
 
@@ -62,7 +62,7 @@ Server 不解释原始 stdout 或原生工具帧；runService 只校验 attempt/
 ```sql
 CREATE TABLE runs (
     id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
     first_message_id TEXT NOT NULL,
     agent_id TEXT,
     device_id TEXT,
@@ -78,7 +78,7 @@ CREATE TABLE runs (
     updated_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX runs_active_agent
-    ON runs(session_id,agent_id)
+    ON runs(conversation_id,agent_id)
     WHERE agent_id IS NOT NULL AND status IN ('pending','running','waiting');
 CREATE INDEX runs_status
     ON runs(status,created_at);
@@ -110,9 +110,9 @@ CREATE INDEX run_prompts_message ON run_prompts(message_id,run_id);
 CREATE INDEX run_prompts_pending ON run_prompts(run_id,status,id);
 ```
 
-attachments 同样是当前 session 下的相对路径 JSON 数组，复制列表不复制文件；文件仍通过 fileService 读取，同一路径覆盖上传后读到更新内容，不承诺文件版本快照。
+attachments 同样是当前 conversation 下的相对路径 JSON 数组，复制列表不复制文件；文件仍通过 fileService 读取，同一路径覆盖上传后读到更新内容，不承诺文件版本快照。
 
-副本内容在创建后固定；从同 run 的旧 attempt 重试时复用这些输入行，更新准备/消费状态。转入新 run 时在同一事务创建新行并设置旧行的 superseded_by，不移动旧行，不重复创建原消息。通过 run 和 message 的归属检查，保证关联属于同一个 session。
+副本内容在创建后固定；从同 run 的旧 attempt 重试时复用这些输入行，更新准备/消费状态。转入新 run 时在同一事务创建新行并设置旧行的 superseded_by，不移动旧行，不重复创建原消息。通过 run 和 message 的归属检查，保证关联属于同一个 conversation。
 
 ### run_events
 
@@ -121,7 +121,7 @@ attachments 同样是当前 session 下的相对路径 JSON 数组，复制列�
 ```sql
 CREATE TABLE run_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
     run_id TEXT NOT NULL,
     attempt_id TEXT NOT NULL,
     message_id TEXT NOT NULL,
@@ -141,7 +141,7 @@ CREATE TABLE run_events (
 ```sql
 CREATE TABLE run_questions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
     run_id TEXT NOT NULL,
     attempt_id TEXT NOT NULL,
     message_id TEXT NOT NULL,
@@ -158,4 +158,4 @@ CREATE TABLE run_questions (
 
 ## 相关设计
 
-[Server 总览](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [Client harnessService](client-harness.md) · [sessionService](server-session.md) · [fileService](server-file.md) · [workService](server-work.md)
+[Server 总览](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [Client harnessService](client-harness.md) · [conversationService](server-conversation.md) · [fileService](server-file.md) · [workService](server-work.md)

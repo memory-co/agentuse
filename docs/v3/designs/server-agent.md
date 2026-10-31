@@ -4,7 +4,7 @@
 
 ## 职责
 
-agent 是用户在会话中选择的任务角色。agentService 管名称、说明、归属和执行选择：哪个 device、哪个 harness。Agent 不拥有独立会话历史。
+agent 是用户在对话中选择的任务角色。agentService 管名称、说明、归属和执行选择：哪个 device、哪个 harness。Agent 不拥有独立对话历史。
 
 ## 操作与协作
 
@@ -22,7 +22,7 @@ run 创建后保存本次 agent、device、harness 的选择。修改 agent 不�
 
 ### agents
 
-`id` 是全局稳定标识，`name` 在同一用户下唯一。`device_id` 指定执行位置，`harness` 指定执行方式，`description` 描述角色。这里没有 session_id 或单独上下文。
+`id` 是全局稳定标识，`name` 在同一用户下唯一。`device_id` 指定执行位置，`harness` 指定执行方式，`description` 描述角色。这里没有 conversation_id 或单独上下文。
 
 ```sql
 CREATE TABLE agents (
@@ -41,4 +41,4 @@ CREATE UNIQUE INDEX agents_user_name
 
 ## 相关设计
 
-[Server 总览](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [Client harnessService](client-harness.md) · [sessionService](server-session.md) · [runService](server-run.md) · [fileService](server-file.md) · [workService](server-work.md)
+[Server 总览](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [Client harnessService](client-harness.md) · [conversationService](server-conversation.md) · [runService](server-run.md) · [fileService](server-file.md) · [workService](server-work.md)

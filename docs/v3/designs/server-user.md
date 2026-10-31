@@ -19,7 +19,7 @@ userService 管理用户身份、角色和访问令牌。它回答“当前请�
 | 重置令牌 | 替换 token_hash，旧令牌立即失效 |
 | 管理员代办 | 验证 admin 权限后解析目标用户；后续操作以该身份进行 |
 
-一个用户拥有多个 device、agent、session 和 work。userService 不直接清理这些关联业务；v3 第一版不提供删除用户操作，以免把资源删除策略混入身份管理。
+一个用户拥有多个 device、agent、conversation 和 work。userService 不直接清理这些关联业务；v3 第一版不提供删除用户操作，以免把资源删除策略混入身份管理。
 
 ## 表结构
 
@@ -41,4 +41,4 @@ CREATE UNIQUE INDEX users_token
 
 ## 相关设计
 
-[Server 总览](server-main.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [Client harnessService](client-harness.md) · [sessionService](server-session.md) · [runService](server-run.md) · [fileService](server-file.md) · [workService](server-work.md)
+[Server 总览](server-main.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [Client harnessService](client-harness.md) · [conversationService](server-conversation.md) · [runService](server-run.md) · [fileService](server-file.md) · [workService](server-work.md)

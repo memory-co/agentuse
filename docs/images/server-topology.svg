@@ -15,8 +15,8 @@
 <text x="63" y="513" font-size="15" fill="#475569">业务任务派发与事件接收</text>
 <text x="63" y="537" font-size="15" fill="#475569">不解释原生 harness 协议</text>
 <rect x="350" y="190" width="305" height="130" rx="12" fill="#eef2ff" stroke="#cbd5e1"/>
-<text x="368" y="219" font-size="19" fill="#0f172a" font-weight="600">sessionService</text>
-<text x="368" y="248" font-size="15" fill="#475569">sessions / messages</text>
+<text x="368" y="219" font-size="19" fill="#0f172a" font-weight="600">conversationService</text>
+<text x="368" y="248" font-size="15" fill="#475569">conversations / messages</text>
 <text x="368" y="272" font-size="15" fill="#475569">保存对话，编排消息发送</text>
 <text x="368" y="296" font-size="15" fill="#475569">接收结果并保存回复</text>
 <rect x="700" y="190" width="305" height="130" rx="12" fill="#eef2ff" stroke="#cbd5e1"/>
@@ -38,10 +38,10 @@
 <text x="368" y="568" font-size="15" fill="#475569">任务角色与 device/harness 选择</text>
 <rect x="700" y="510" width="305" height="80" rx="12" fill="#f1f5f9" stroke="#cbd5e1"/>
 <text x="718" y="539" font-size="19" fill="#0f172a" font-weight="600">fileService</text>
-<text x="718" y="568" font-size="15" fill="#475569">Session 文件：本地 / S3</text>
+<text x="718" y="568" font-size="15" fill="#475569">Conversation 文件：本地 / S3</text>
 <rect x="350" y="615" width="655" height="80" rx="12" fill="#f1f5f9" stroke="#cbd5e1"/>
 <text x="368" y="644" font-size="19" fill="#0f172a" font-weight="600">workService</text>
-<text x="368" y="673" font-size="15" fill="#475569">工作配置、协调 session、线程及结果汇总</text>
+<text x="368" y="673" font-size="15" fill="#475569">工作配置、协调 conversation、线程及结果汇总</text>
 <rect x="350" y="750" width="655" height="95" rx="12" fill="#ecfdf5" stroke="#cbd5e1"/>
 <text x="368" y="779" font-size="19" fill="#0f172a" font-weight="600">store · 14 张业务表</text>
 <text x="368" y="808" font-size="15" fill="#475569">不含 harnesses 或 files 表；不保存 YAML / execution_spec</text>

@@ -4,31 +4,31 @@
 
 ## 职责
 
-workService 将多个 session 组织成一项工作。一个 work 有一个协调 session、一个协调 agent 和若干线程 session。它复用 sessionService/runService 的对话与任务模型，不引入另一种执行实体。
+workService 将多个 conversation 组织成一项工作。一个 work 有一个协调 conversation、一个协调 agent 和若干线程 conversation。它复用 conversationService/runService 的对话与任务模型，不引入另一种执行实体。
 
 ## 操作与协作
 
 | 操作 | 行为 |
 |---|---|
-| 创建 work | 通过 agentService 校验协调 agent，通过 sessionService 创建协调 session；在同一事务建立关联 |
-| 创建线程 | 以工作范围权限调用 sessionService 创建关联 work_id 的 session |
+| 创建 work | 通过 agentService 校验协调 agent，通过 conversationService 创建协调 conversation；在同一事务建立关联 |
+| 创建线程 | 以工作范围权限调用 conversationService 创建关联 work_id 的 conversation |
 | 修改配置 | 维护名称、说明和协调 agent；忙碌时拒绝不安全的执行选择变更 |
-| 汇总结果 | 在最终回复已由 sessionService 保存后，检查原消息给所有目标的 run_prompts 是否完成（沿 superseded_by 跟踪后续副本）；将汇总作为消息发到协调 session |
-| 删除 work | 检查相关任务空闲，再经 sessionService 删除所属会话及 work 数据 |
+| 汇总结果 | 在最终回复已由 conversationService 保存后，检查原消息给所有目标的 run_prompts 是否完成（沿 superseded_by 跟踪后续副本）；将汇总作为消息发到协调 conversation |
+| 删除 work | 检查相关任务空闲，再经 conversationService 删除所属对话及 work 数据 |
 
-汇总使用 run_notifications 去重：记录“该线程消息已汇报”与向协调 session 发汇总消息，必须在同一事务完成。不能只收到 run 结束事件就汇总，因为最终回复可能还没消费入库；需要等回复落库通知，并能通过持久化消息/run_prompts 扫描补偿。
+汇总使用 run_notifications 去重：记录“该线程消息已汇报”与向协调 conversation 发汇总消息，必须在同一事务完成。不能只收到 run 结束事件就汇总，因为最终回复可能还没消费入库；需要等回复落库通知，并能通过持久化消息/run_prompts 扫描补偿。
 
 ## 工作令牌
 
 协调 agent 的 run 领取时，工作授权参与领取事务，由 workService 签发限定 work/run/attempt 的令牌；明文只交给对应 client。每次使用时同时检查 run 当前状态、attempt 和租约。run 结束、重排或设备凭据撤销时协调撤销，不把令牌当作长期用户身份。
 
-`coordinator_id` 是协调 session 的 UUID；`sessions.work_id` 是会话归属。两者仅以标识关联，由 workService 在创建/删除事务里保证一致，不声明外键。
+`coordinator_id` 是协调 conversation 的 UUID；`conversations.work_id` 是对话归属。两者仅以标识关联，由 workService 在创建/删除事务里保证一致，不声明外键。
 
 ## 表结构
 
 ### works
 
-工作名称、说明、所有者、协调 session 和协调 agent。协调 agent 被删除时，由 agentService 协调 workService 清空 coordinator_agent_id；重新配置之前不能继续派协调任务。
+工作名称、说明、所有者、协调 conversation 和协调 agent。协调 agent 被删除时，由 agentService 协调 workService 清空 coordinator_agent_id；重新配置之前不能继续派协调任务。
 
 ```sql
 CREATE TABLE works (
@@ -70,4 +70,4 @@ CREATE TABLE run_notifications (
 
 ## 相关设计
 
-[Server 总览](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [Client harnessService](client-harness.md) · [sessionService](server-session.md) · [runService](server-run.md) · [fileService](server-file.md)
+[Server 总览](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [Client harnessService](client-harness.md) · [conversationService](server-conversation.md) · [runService](server-run.md) · [fileService](server-file.md)
