@@ -51,7 +51,7 @@ runService 启动时读取启用的 endpoints，为每个已注册 server 建立
 ## 文件结构
 
 ```text
-<conversation_work_root>/.agentuse/sessions/<local_session_id>/
+<conversation_work_root>/sessions/<local_session_id>/
   runs/<run_id>/<attempt_id>/run.json
 ```
 

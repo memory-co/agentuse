@@ -116,7 +116,7 @@ Server Conversation C
 ├── state/
 │   └── workspaces/<endpoint_id>/<conversation_id>/workspace.yaml
 ├── tmp/<endpoint_id>/<conversation_id>/
-│   └── .agentuse/sessions/<session_id>/
+│   └── sessions/<session_id>/
 │       ├── session.yaml
 │       └── runs/<run_id>/<attempt_id>/run.json
 └── ui.token

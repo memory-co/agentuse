@@ -84,7 +84,7 @@ sessionService 依据 last_context_seq 读取共享历史增量，结合当前 r
 ### session.yaml
 
 ```text
-<session.work_root>/<endpoint_id>/<conversation_id>/.agentuse/sessions/<local_session_id>/session.yaml
+<session.work_root>/<endpoint_id>/<conversation_id>/sessions/<local_session_id>/session.yaml
 ```
 
 每个 session 必须属于一个 endpoint/conversation，状态文件直接放在该 conversation 的共享工作目录中。这里 session.work_root 指配置的默认父目录，已有 conversation 以 workspace.yaml 绑定的实际目录为准。每个文件对应一个确定的原生会话。id 是本机 UUID，native_session_id 是原生程序返回的 ID，创建成功后固定；首次创建尚未完成时为空。
@@ -140,12 +140,11 @@ session 的执行锁只保证单个原生 session 串行，不独占整个工作
     <conversation_id>/
       .agentuse-workspace.json
       ...同一 conversation 的所有 agent / harness 共享的业务文件...
-      .agentuse/
-        sessions/<local_session_id>/
-          session.yaml
-          runs/<run_id>/<attempt_id>/
-            run.json
-            ...本次执行独立的 hook、临时配置和执行资源...
+      sessions/<local_session_id>/
+        session.yaml
+        runs/<run_id>/<attempt_id>/
+          run.json
+          ...本次执行独立的 hook、临时配置和执行资源...
 ```
 
 sessionService 按 `(endpoint_id, conversation_id)` 分配并持久化唯一工作目录。同一 conversation 的所有原生 session（包括 Codex 和 Claude Code）使用同一个 work_root，可以同时运行；不同 endpoint/conversation 分开。原生上下文仍各自独立，工作文件则直接共享。
