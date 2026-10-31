@@ -2,7 +2,7 @@
 
 > 本文定义 v3 的目标业务划分。service 名称和 device 命名是设计约定，现有源码、表和接口尚未全部按此调整。本稿先说明业务关系，不逐文件展开实现。
 
-Server 保存对话、组织任务并跟踪执行。用户的一台执行设备称为 **device**，设备上运行的程序称为 **client**。Client 从 server 领取 run，再在设备上调用具体 harness 执行。
+Server 保存对话、组织任务并跟踪执行。用户的一台执行设备称为 **device**，设备上运行的程序称为 **client**。Client 从 server 领取 run，按标准执行描述在设备上启动命令并转发交互；具体 harness 的差异由 server 理解。
 
 ## 一、整体关系
 
@@ -23,7 +23,7 @@ Server 分为三层：
 | [userService](user.md) | 用户、角色、访问令牌和身份校验 | `users` |
 | [deviceService](device.md) | 执行设备的登记、凭据、在线状态、可用 harness 和执行能力 | `devices`、`device_harnesses`、`device_capabilities` |
 | [agentService](agent.md) | Agent 的名称、说明、归属，以及选择哪台 device、哪种 harness 执行 | `agents` |
-| [harnessService](harness.md) | 用统一 YAML config 描述不同 harness，使 client 能把任务转为认识的执行方式 | `harnesses` 和 harness YAML 配置 |
+| [harnessService](harness.md) | 在 server 解析 YAML，将探测、执行及各种交互转换为标准协议 | `harnesses` 和 harness YAML 配置 |
 | [sessionService](session.md) | 清晰、持续的对话：创建会话、保存消息、读取共享历史；调用 runService 分配任务，接收结果事件并保存回复 | `sessions`、`messages` |
 | [runService](run.md) | 建立任务、关联任务消息、派发与领取、跟踪执行、插话、提问、取消和执行恢复 | `runs`、`run_prompts`、`run_events`、`run_questions` |
 | [fileService](file.md) | 按 session 隔离文件空间，支持本地和 S3 的上传、下载 | 本地目录或 S3 对象前缀，无数据库表 |
@@ -50,19 +50,18 @@ sessionService 负责发送消息的业务编排，调用 runService 建立任�
 
 ### 2.2 harnessService
 
-不同 harness 的启动命令、参数、输入输出、插话和提问方式各不相同。harnessService 用 YAML config 将这些差异收敛为统一描述。
+harnessService 在 server 管理和解析 YAML，把不同 harness 的探测、启动、输入输出、插话、提问、取消收敛为标准执行协议。Client 不持有 YAML，也不需要知道某个命令属于哪种 harness。
 
-| YAML 描述 | client 用它做什么 |
+| Server 负责 | Client 负责 |
 |---|---|
-| 命令、版本探测 | 找到本机程序，判断是否可用 |
-| 参数、环境变量、工作目录规则 | 准备执行环境，启动命令 |
-| 输入格式 | 把任务及共享上下文交给 harness |
-| 输出规则 | 把原始输出转换为进度、结果、错误和用量 |
-| transport、插话和提问能力 | 选择对应适配器，处理执行中的交互 |
+| 解析 YAML，生成版本化标准执行描述 | 执行命令、准备环境和文件 |
+| 生成探测动作，解释设备返回的结果 | 执行探测并返回原始结果 |
+| 将插话、答案和取消映射成具体动作 | 提供流、JSON-RPC、本地 HTTP/hook 等通用交互原语 |
+| 将原始输出归一化为业务事件 | 回传输出、协议帧和本地回调 |
 
-runService 交给 client 的是统一任务：run 身份、agent、固定版本的 harness YAML 快照、任务消息和上下文信息。Client 取得对应 YAML 后，由本机适配器把任务转换成可执行命令或协议调用，再把结果转换为统一事件上报。
+统一业务语义是 probe、start、progress/result/error、steer accepted/rejected、question/answer、cancel。能力可以缺失；比如不支持可确认插话时，由 runService 回退到后续任务，而不是 client 增加某个 harness 的特殊分支。
 
-YAML 收敛配置差异；复杂协议仍由适配器实现。Server 不直接启动用户设备上的命令，runService 也不为每一种 harness 复制一套任务生命周期。
+runService 下发标准执行描述，不下发 YAML。执行时的规则和配置版本固定；共享代码只保留标准协议数据结构。详情见 [harnessService](harness.md)。
 
 ### 2.3 sessionService 与 runService
 
@@ -121,7 +120,7 @@ Run 是一次业务执行任务。设备故障导致重试时，用 attempt 区�
 | 配置 agent | controller → agentService；agentService 核对用户、device 和 harness |
 | 发送会话消息 | controller → sessionService → runService |
 | 建立 run | runService 读取 agentService 的执行选择，核对 deviceService 的能力和 harnessService 的配置 |
-| client 领取任务 | 连接入口 → runService；返回统一任务与可解析的 harness 配置引用 |
+| client 领取任务 | 连接入口 → runService；返回统一任务与标准执行描述，不下发 YAML |
 | client 上报执行事件 | 连接入口 → runService；结果事件 → sessionService 保存回复 |
 | 上传和读取附件 | controller → fileService；结合 user/session/run 的访问范围检查权限 |
 | 组织工作、汇总线程结果 | controller 或任务完成通知 → workService → sessionService |
@@ -134,7 +133,7 @@ Run 是一次业务执行任务。设备故障导致重试时，用 attempt 区�
 2. **sessionService 保存对话。** 检查会话权限，保存一条 user message；共享 messages 只保存一条，各目标 run 分别写 run_prompts 副本。
 3. **runService 建立分配。** 对每个目标 agent，创建 run 或把消息加入已有活跃 run，写入当前 run 的消息副本 run_prompts；读取 agent/device/harness 的执行配置。
 4. **统一提交。** 消息和任务分配一并成功或失败。提交后通知在线 device 有任务或插话，HTTP 返回保存结果。
-5. **client 领取并执行。** runService 确定当前执行身份；client 读取共享消息、附件和 YAML 配置，转换为本机命令或协议调用。
+5. **client 领取并执行。** runService 确定当前执行身份；client 读取共享消息和文件，按标准执行描述启动命令并转发协议交互。
 6. **上报与呈现。** client 上报进度、问题和结果；runService 更新执行记录并发出结果事件，sessionService 消费后追加最终回复；workService 按需汇总线程结果。
 
 对话是否已保存、任务是否已领取、补充消息是否已接收、执行是否已完成是不同的状态。页面可以把它们放在同一会话里展示，数据模型仍各自清楚。

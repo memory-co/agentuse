@@ -7,7 +7,7 @@
 device 是一台用户的执行设备，client 是设备上运行的程序。deviceService 管登记、凭据、连接状态和执行能力，不管理对话或 run 的业务终态。
 
 - 登记设备、生成一次性 setup token，注册时换取长期 device key。
-- 保存 client 上报的可用 harness、版本和协议能力。
+- 保存 client 的通用执行能力；按 server 下发探测的结果维护 harness 可用性和版本。
 - 维护 online/offline 和最近活动时间，管理某个 harness 是否允许领取任务。
 - 删除/重置设备时协调终止相关 run，再撤销凭据、断开旧连接。
 
@@ -16,12 +16,12 @@ device 是一台用户的执行设备，client 是设备上运行的程序。dev
 | 操作 | 行为 |
 |---|---|
 | 登记/注册 | 在事务内消费 setup_token，生成长期密钥哈希，禁止重复注册 |
-| 上线 | 验证设备密钥；替换 capabilities，更新 harness 可用情况；不把 available 自动等同于 enabled |
+| 上线 | 验证设备密钥，更新通用能力；执行 server 生成的 probe 后登记结果，不把 available 自动等同于 enabled |
 | 心跳/离线 | 更新最近活动时间和连接状态；在线连接对象由连接管理组件维护 |
 | 开关 harness | 修改 enabled；重新开启后通知派活 |
 | 删除/重置 | 调用 runService 终止相关任务并协调撤销 work 凭据，然后提交凭据变更，再关闭连接 |
 
-agentService 读取设备归属和运行能力，runService 根据设备选择可领取任务。harnessService 提供已登记的 harness 定义；未知名字不直接当成可执行配置使用。
+agentService 读取设备归属和运行能力，runService 根据设备选择可领取任务。harnessService 在 server 生成探测描述并解释原始结果，deviceService 按 server 关联的 harness/revision 记录可用性；client 不持有 harness 定义，也不需要解析名称。
 
 状态为 pending（未注册）、offline、online。在线状态表示连接状态，不代表设备当前空闲；是否可以领取由 client 的 ready 和 runService 的领取规则共同决定。
 
@@ -50,15 +50,16 @@ CREATE UNIQUE INDEX devices_setup_token
 
 ### device_harnesses
 
-设备与 harness 的组合。`available` 表示本机报告可用，`enabled` 表示用户允许使用，二者都满足才可派活。`user_id` 是设备所有者的冗余字段，由 service 保证一致。
+设备与 harness 的组合。`available` 表示 server 对当前配置版本的探测判定可用，`enabled` 表示用户允许使用，二者都满足才可派活。`user_id` 是设备所有者的冗余字段，由 service 保证一致。
 
 ```sql
 CREATE TABLE device_harnesses (
     device_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     harness TEXT NOT NULL,
+    harness_revision TEXT NOT NULL,
     version TEXT,
-    available INTEGER NOT NULL DEFAULT 1,
+    available INTEGER NOT NULL DEFAULT 0,
     enabled INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (device_id, harness)
@@ -69,7 +70,7 @@ CREATE INDEX device_harnesses_user_harness
 
 ### device_capabilities
 
-设备支持的协议能力集合，例如多 agent run、附件。每次上线使用本次上报替换旧集合，不把 harness 名称混入 capabilities。
+设备支持的通用执行协议版本与原语，例如进程流、JSONL、JSON-RPC、本地回调和文件准备。每次上线以本次上报替换旧集合，不把 harness 名称混入 capabilities。device_harnesses.harness_revision 记录探测对应的配置版本；配置变化后旧结果失效，重新探测再允许新任务使用。
 
 ```sql
 CREATE TABLE device_capabilities (

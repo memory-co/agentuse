@@ -9,7 +9,7 @@ runService 管一次业务执行任务。一个 run 属于一个 session，确�
 ## 与其他 Service 的关系
 
 - sessionService 在发送事务中调用 runService，为每个目标建立分配；runService 不反向调用 sessionService。
-- agentService 提供角色及执行选择，deviceService 提供设备能力，harnessService 提供固定版本配置。
+- agentService 提供角色及执行选择，deviceService 提供设备能力，harnessService 将固定版本 YAML 转成标准执行描述并归一化交互。
 - workService 提供工作说明和执行范围的授权；与 run 同寿命的工作令牌由 workService 管理。
 - runService 持久化结果事件后通知 sessionService 消费；由 sessionService 在事务内检查并绑定 runs.result_message_id，防止重复回复；messages 不需要 run_id。
 
@@ -47,7 +47,11 @@ Run 状态是 pending/running/waiting/succeeded/failed/cancelled；run_prompts �
 
 ## v3 执行配置快照
 
-runs 增加 harness_revision、harness_config_yaml。建立 run 时复制 harnessService 返回的定义，client 按快照执行。更新同名配置不会改变排队/重试任务；创建后续新 run 时重新选择配置。
+建立 run 时，harnessService 固定 harness_revision，保存仅供 server 使用的 harness_config_yaml，并编译 execution_spec（版本化 JSON 标准执行描述）。Client 只收到 execution_spec 和任务输入，不解析 YAML、不按 harness 名称分支。
+
+原始输出/交互先由 harnessService 解释为标准事件，再由 runService 更新进度、结果、问题和消费状态。runService 的插话、答案、取消也经 harnessService 转换成通用执行动作。Client 仅确认通道读写不等于业务接受，steer accepted 必须有输入被消费的确认。
+
+execution_spec 声明所需协议版本和原语；领取前核对 device 能力。更新同名配置不会改变排队/重试任务及 server 的解释规则；创建后续新 run 时重新选择配置。
 
 ## 表结构
 
@@ -65,6 +69,7 @@ CREATE TABLE runs (
     harness TEXT NOT NULL,
     harness_revision TEXT NOT NULL,
     harness_config_yaml TEXT NOT NULL,
+    execution_spec TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     attempt_id TEXT NOT NULL DEFAULT '',
     lease_until INTEGER,

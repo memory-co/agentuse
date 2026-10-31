@@ -32,7 +32,7 @@
 <text x="418" y="637" font-size="15" fill="#475569">任务角色及 device / harness 选择</text>
 <rect x="775" y="580" width="335" height="85" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
 <text x="793" y="609" font-size="20" fill="#0f172a" font-weight="600">harnessService</text>
-<text x="793" y="637" font-size="15" fill="#475569">YAML config → client 可理解的执行描述</text>
+<text x="793" y="637" font-size="15" fill="#475569">Server 解析 YAML → 标准执行协议</text>
 <rect x="400" y="690" width="335" height="85" rx="10" fill="#f1f5f9" stroke="#cbd5e1"/>
 <text x="418" y="719" font-size="20" fill="#0f172a" font-weight="600">fileService</text>
 <text x="418" y="747" font-size="15" fill="#475569">Session 文件空间：本地 / S3</text>
@@ -66,8 +66,8 @@
 <text x="1218" y="672" font-size="15" fill="#475569">由对应业务 service 管理</text>
 <rect x="30" y="720" width="270" height="110" rx="10" fill="#fffbeb" stroke="#cbd5e1"/>
 <text x="48" y="749" font-size="20" fill="#0f172a" font-weight="600">client @ device</text>
-<text x="48" y="777" font-size="15" fill="#475569">领取统一 run，读取 YAML</text>
-<text x="48" y="802" font-size="15" fill="#475569">调用本机 harness，回报结果</text>
+<text x="48" y="777" font-size="15" fill="#475569">领取 run 与标准执行描述</text>
+<text x="48" y="802" font-size="15" fill="#475569">通用执行器：进程 / RPC / 回调</text>
 <path d="M110 625 V720" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
 <path d="M215 720 V625" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
 <text x="35" y="873" font-size="17" fill="#475569">关系：用户拥有设备和 agent；agent 选择 device + harness；session 包含 message 与 run。</text>
