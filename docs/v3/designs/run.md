@@ -53,7 +53,7 @@ runs 增加 harness_revision、harness_config_yaml。建立 run 时复制 harnes
 
 ### runs
 
-一次执行任务。`first_message_id` 是触发本 run 的第一条消息，`result_message_id` 是执行结果的内部关联；最终回复通过 messages.reply_to_message_id 指向主任务消息，而不是回复这个 run。`agent_key/name` 是历史身份快照；agent 所属用户通过 agent_id 关联 agents.user_id 查询，不在 runs 中冗余保存；设备删除时由 service 清空当前 device_id 引用，历史身份快照仍保留。attempt_id/lease_until 表示当前执行租约，context_seq 对应 messages.seq，表示上下文读取边界；first_message_id 和 result_message_id 保存消息 UUID，不用 UUID 比较先后。配置快照是 v3 新增字段。
+一次执行任务。`first_message_id` 是触发本 run 的第一条消息，`result_message_id` 是执行结果的内部关联；最终回复通过 messages.reply_to_message_id 指向主任务消息，而不是回复这个 run。agent 名称和所属用户通过 agent_id 关联 agents 查询，不在 runs 中冗余保存；agent 删除后保留原 agent_id，读取时用 LEFT JOIN 展示已删除状态。设备删除时由 service 清空当前 device_id 引用。attempt_id/lease_until 表示当前执行租约，context_seq 对应 messages.seq，表示上下文读取边界；first_message_id 和 result_message_id 保存消息 UUID，不用 UUID 比较先后。配置快照是 v3 新增字段。
 
 ```sql
 CREATE TABLE runs (
@@ -61,8 +61,6 @@ CREATE TABLE runs (
     session_id TEXT NOT NULL,
     first_message_id TEXT NOT NULL,
     agent_id TEXT,
-    agent_key TEXT NOT NULL,
-    agent_name TEXT NOT NULL,
     device_id TEXT,
     harness TEXT NOT NULL,
     harness_revision TEXT NOT NULL,

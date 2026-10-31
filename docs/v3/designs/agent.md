@@ -12,7 +12,7 @@ agent 是用户在会话中选择的任务角色。agentService 管名称、说�
 |---|---|
 | 创建/修改 agent | 检查用户权限、名称，以及 device/harness 的登记关系 |
 | 查询执行选择 | 向 runService 提供当前 device、harness 和角色信息 |
-| 删除 agent | 删除未来可选择的角色，保留已有 run 的身份快照 |
+| 删除 agent | 删除未来可选择的角色，已有 run 保留原 agent_id；读取时关联不到则显示已删除状态 |
 
 userService 提供当前身份；deviceService 提供设备归属和能力；harnessService 提供执行配置。创建配置和当前能够执行是两个检查：runService 建立/领取任务时仍需检查运行时是否可用。
 
