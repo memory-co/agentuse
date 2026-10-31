@@ -12,14 +12,12 @@ endpointService 提供新增、查询、修改、启用/停用和移除操作。
 
 ```yaml
 endpoints:
-  - id: https---company.example.com
-    name: 公司平台
+  - name: 公司平台
     server_url: https://company.example.com
     enabled: true
     device_id: device-company
     device_key: <该平台签发的设备密钥>
-  - id: https---personal.example.com
-    name: 个人平台
+  - name: 个人平台
     server_url: https://personal.example.com
     enabled: true
     device_id: device-personal
@@ -28,19 +26,18 @@ endpoints:
 
 | 字段 | 含义 |
 |---|---|
-| id | 由规范化 server_url 确定性生成的目录标识，本地执行与 session 中称为 endpoint_id |
 | name | 展示名称 |
 | server_url | 此注册对应的 server 地址 |
 | enabled | 是否允许 runService 使用这份注册领取新任务 |
 | device_id / device_key | 此 server 签发的设备身份/凭据，不跨 endpoint 共用 |
 
-文件缺失表示尚未注册任何平台，首次写入创建文件。保存前校验 ID 与地址推导结果一致、ID/地址不重复、地址合法、身份与凭据完整；名称修改不改变 ID，换成另一套 server 则新增 endpoint。
+文件缺失表示尚未注册任何平台，首次写入创建文件。保存前校验规范化地址及其推导 ID 不重复、地址合法、身份与凭据完整；名称修改不改变 ID，换成另一套 server 则新增 endpoint。
 
 文件是唯一配置来源，没有 endpoints 表或并存的中心 JSON 配置。CLI 写入使用文件锁和原子替换，文件权限为 0600，父目录仅当前用户可访问；状态输出和本机页面不显示密钥。内存中的查找索引可从文件重建，不是另一份事实来源。
 
 ## endpoint_id 生成规则
 
-endpoint_id 由 server_url 推导，不生成 UUID。例如 `https://company.example.com` 对应 `https---company.example.com`，其中 `://` 替换为 `---`。YAML 是注册信息的唯一持久化来源，地址、ID 和本地目录始终能对应。
+endpoints.yaml 不声明 id 或 endpoint_id，只保存 server_url 等注册信息。endpoint_id 在加载时由 server_url 推导，不生成 UUID，也不写回 YAML。例如 `https://company.example.com` 对应 `https---company.example.com`，其中 `://` 替换为 `---`。YAML 是注册信息的唯一持久化来源，地址、ID 和本地目录始终能对应。
 
 先规范化 URL：只接受 HTTP/HTTPS，scheme 和主机名小写，移除默认端口及末尾 `/`，保留非默认端口与有意义的路径前缀，不接受用户名、密码、query 或 fragment。再将 `://` 替换为 `---`；其余字符中仅保留 ASCII 字母、数字、`.`、`-`、`_`，其他字符按 UTF-8 字节进行大写百分号编码，包括 `%`、`:`、`/`，避免路径分隔符与替换碰撞。例如 `http://localhost:8090` 对应 `http---localhost%3A8090`。不同规范化地址不得映射为同一 ID。
 
