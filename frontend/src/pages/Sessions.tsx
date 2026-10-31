@@ -134,7 +134,7 @@ function MessageView({ m }: { m: Message }) {
   const text=typeof c.prompt==='string'?c.prompt:JSON.stringify(c,null,2);
   const targets = m.target_agent_ids ?? [];
   const targetLabel = <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" data-message-targets={m.id}>
-    {targets.length ? <><span>{t('mention.sentTo')}</span>{targets.map(agent => <span key={agent} className="break-all font-medium">@{agent}</span>)}</> : <span>{t('mention.noteOnly')}</span>}
+    {targets.length ? targets.map(agent => <span key={agent} className="break-all font-medium">@{agent}</span>) : <span>{t('mention.noteOnly')}</span>}
   </div>;
   return typeof c.from_session === 'string'
     ? <div className="grid min-w-0 gap-1.5" data-message-id={m.id}><ThreadNote m={m}/>{targetLabel}</div>
