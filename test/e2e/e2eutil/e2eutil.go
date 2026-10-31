@@ -178,7 +178,7 @@ func Env(home string, kv ...string) []string {
 		}
 		env = append(env, e)
 	}
-	return append(append(env, "HOME="+home), kv...)
+	return append(append(env, "HOME="+home, "AGENTUSE_UI_ADDR="), kv...)
 }
 
 // MustRun 跑一个命令到结束，返回合并的输出;失败就 Fatal。

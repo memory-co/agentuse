@@ -166,7 +166,7 @@ func (h *Hub) dispatch(ctx context.Context, c *daemonConn) {
 	if runErr == nil {
 		c.idle = false
 		run := clRun.Run
-		msg := protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{ID: run.MessageID, RunID: run.ID, AttemptID: run.AttemptID, SessionID: run.SessionID, AgentID: run.AgentKey, Harness: run.Harness, Input: clRun.Input, TaskMessageIDs: clRun.TaskMessageIDs, ContextSeq: run.ContextSeq, Instructions: clRun.Instructions, WorkToken: clRun.WorkToken}}
+		msg := protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{Sender: clRun.Sender, WorkID: clRun.WorkID, ID: run.MessageID, RunID: run.ID, AttemptID: run.AttemptID, SessionID: run.SessionID, AgentID: run.AgentKey, Harness: run.Harness, Input: clRun.Input, TaskMessageIDs: clRun.TaskMessageIDs, ContextSeq: run.ContextSeq, Instructions: clRun.Instructions, WorkToken: clRun.WorkToken}}
 		if err := c.send(ctx, msg); err != nil {
 			h.log.Printf("send run: %v", err)
 		}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"regexp"
 	"sort"
 	"strconv"
@@ -100,6 +101,7 @@ type Step struct {
 }
 
 type ResultRule struct {
+	Usage   string         `yaml:"usage"`
 	OK      map[string]any `yaml:"ok"`
 	Output  string         `yaml:"output"`
 	Error   string         `yaml:"error"`
@@ -185,6 +187,7 @@ func (s Spec) Environ(messageID int64, sessionID string) []string {
 
 // State 是读输出过程中攒下的结果。
 type State struct {
+	Usage     *agentuse.Usage
 	SessionID string
 	Output    string
 	Error     string
@@ -281,6 +284,20 @@ func applyRules(rules []Rule, m map[string]any, st *State, progress func(string)
 			st.ResultOK = matches(rr.OK, m)
 			if rr.Output != "" {
 				st.Output = str(lookup(m, rr.Output))
+			}
+			if rr.Usage != "" {
+				if raw := lookup(m, rr.Usage); raw != nil {
+					b, _ := json.Marshal(raw)
+					var v struct {
+						Input  int64 `json:"input_tokens"`
+						Output int64 `json:"output_tokens"`
+						Read   int64 `json:"cache_read_input_tokens"`
+						Write  int64 `json:"cache_creation_input_tokens"`
+					}
+					if json.Unmarshal(b, &v) == nil {
+						st.Usage = &agentuse.Usage{InputTokens: v.Input + v.Read + v.Write, OutputTokens: v.Output, CacheReadTokens: v.Read, CacheWriteTokens: v.Write}
+					}
+				}
 			}
 			if rr.CostUSD != "" {
 				st.CostUSD, _ = lookup(m, rr.CostUSD).(float64)

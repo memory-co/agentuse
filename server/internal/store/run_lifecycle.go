@@ -138,6 +138,10 @@ func (s *Store) ClaimRun(ctx context.Context, d Daemon, lease int64) (RunClaim, 
 	if err != nil {
 		return cl, err
 	}
+	cl.WorkID = ss.WorkID
+	if err = tx.QueryRowContext(ctx, `SELECT id,name FROM users WHERE id=?`, ss.CreatedBy).Scan(&cl.Sender.ID, &cl.Sender.Name); err != nil {
+		return cl, err
+	}
 	if ss.WorkID != "" {
 		var agent sql.NullString
 		if err = tx.QueryRowContext(ctx, `SELECT instructions,coordinator_agent_id FROM works WHERE id=?`, ss.WorkID).Scan(&cl.Instructions, &agent); err != nil {

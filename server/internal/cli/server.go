@@ -38,9 +38,9 @@ start 是服务进程，只有它读写数据库。其余是管理命令，带�
 // Main 是服务端的 agentuse-server。
 func Main(args []string) int {
 	return command.Dispatch("agentuse-server", serverUsage, args, []command.Command{
-		{"start", runStart},
-		{"login", runLogin},
-		{"user", runUser},
+		{Name: "start", Run: runStart},
+		{Name: "login", Run: runLogin},
+		{Name: "user", Run: runUser},
 	})
 }
 

@@ -5,6 +5,7 @@ package protocol
 import (
 	"encoding/json"
 	"github.com/memory-co/agentuse/internal/attachment"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 const (
@@ -104,6 +105,8 @@ type Harness struct {
 
 // Dispatch 是派给 daemon 的一条用户消息，带上会话的信息。
 type Dispatch struct {
+	Sender            agentuse.Sender   `json:"sender"`
+	WorkID            string            `json:"work_id,omitempty"`
 	RunID             string            `json:"run_id,omitempty"`
 	AttemptID         string            `json:"attempt_id,omitempty"`
 	AgentID           string            `json:"agent_id,omitempty"`

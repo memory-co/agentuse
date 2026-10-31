@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/memory-co/agentuse/internal/version"
 	"io"
 	"log"
 	"net/http"
@@ -161,7 +162,7 @@ func TestRun(t *testing.T) {
 	go func() { done <- d.Run(ctx) }()
 
 	hello := f.next(t, protocol.TypeHello)
-	if len(hello.Harnesses) != 1 || hello.Harnesses[0].Name != "mine" || hello.Version != Version {
+	if len(hello.Harnesses) != 1 || hello.Harnesses[0].Name != "mine" || hello.Version != version.Version {
 		t.Fatalf("hello: %+v", hello)
 	}
 	f.send <- protocol.Message{Type: protocol.TypeWelcome, DaemonID: "dm_1", Ignored: []string{"x"}}

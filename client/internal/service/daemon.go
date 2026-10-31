@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/memory-co/agentuse/client/internal/store"
+	"github.com/memory-co/agentuse/internal/version"
 	"log"
 	"net/http"
 	"os"
@@ -20,10 +22,8 @@ import (
 	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-// Version 由 main 设置，hello 时上报。
-var Version = "dev"
-
 type Daemon struct {
+	ledger  store.Writer
 	cfg     Config
 	log     *log.Logger
 	workdir string // 会话目录的根:~/.agentuse/work
@@ -58,7 +58,7 @@ func (d *Daemon) send(m protocol.Message) error {
 	return err
 }
 
-func New(cfg Config, logger *log.Logger) (*Daemon, error) {
+func New(cfg Config, logger *log.Logger, writers ...store.Writer) (*Daemon, error) {
 	if cfg.Server == "" || cfg.Key == "" {
 		return nil, errors.New("daemon 还没注册：请先运行页面上的安装命令(或 agentuse register)")
 	}
@@ -66,7 +66,11 @@ func New(cfg Config, logger *log.Logger) (*Daemon, error) {
 		logger = log.Default()
 	}
 	home, _ := os.UserHomeDir()
-	return &Daemon{cfg: cfg, log: logger, workdir: filepath.Join(home, ".agentuse", "work"), running: map[int64]*runningMsg{}}, nil
+	var ledger store.Writer
+	if len(writers) > 0 {
+		ledger = writers[0]
+	}
+	return &Daemon{ledger: ledger, cfg: cfg, log: logger, workdir: filepath.Join(home, ".agentuse", "work"), running: map[int64]*runningMsg{}}, nil
 }
 
 // Run 连上服务干活，断线自动退避重连，直到 ctx 结束。
@@ -153,7 +157,7 @@ func (d *Daemon) session(ctx context.Context) error {
 
 	d.mu.Lock()
 	d.harnesses = detectHarnesses(d.cfg)
-	hello := protocol.Message{Type: protocol.TypeHello, Version: Version, Capabilities: []string{attachment.Capability, "session-runs-v1", "codex-steer-v1"}}
+	hello := protocol.Message{Type: protocol.TypeHello, Version: version.Version, Capabilities: []string{attachment.Capability, "session-runs-v1", "codex-steer-v1"}}
 	for _, a := range d.harnesses {
 		hello.Harnesses = append(hello.Harnesses, protocol.Harness{Name: a.Name, Version: a.Version})
 	}
@@ -257,11 +261,16 @@ func (d *Daemon) session(ctx context.Context) error {
 		case protocol.TypeSteer:
 			// 插话：交给正在跑这条消息的 harness;不在跑就忽略，服务会把它转成下一条消息
 			if m.Steer != nil {
+				received := false
 				d.mu.Lock()
 				if r := d.running[m.Steer.MessageID]; r != nil && r.dispatch.RunID == m.Steer.RunID && r.dispatch.AttemptID == m.Steer.AttemptID {
 					r.in.steers.push(*m.Steer)
+					received = true
 				}
 				d.mu.Unlock()
+				if received {
+					d.recordSteer(*m.Steer)
+				}
 			}
 		case protocol.TypeAnswer:
 			// 提问的答案：交给正在等的 harness;已经不在等就忽略
@@ -321,6 +330,7 @@ func (d *Daemon) startMessage(m protocol.Dispatch) {
 		b, _ := json.Marshal(p)
 		_ = d.send(protocol.Message{Type: protocol.TypeEvent, MessageID: m.ID, RunID: m.RunID, AttemptID: m.AttemptID, EventSeq: eventSeq, Kind: kind, Payload: b})
 	}
+	d.recordReceived(m)
 	go func() {
 		defer close(r.done)
 		defer func() {
@@ -332,6 +342,7 @@ func (d *Daemon) startMessage(m protocol.Dispatch) {
 		}()
 		d.log.Printf("会话 %s(%s)开始回消息 %d", m.SessionID, m.Harness, m.ID)
 		var res Result
+		defer func() { d.recordComplete(m, res, ok, tctx.Err()) }()
 		if !ok {
 			res = Result{Error: "本机没有 harness " + m.Harness}
 		} else if dir, err := d.sessionDir(m); err != nil {

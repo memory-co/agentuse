@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/memory-co/agentuse/internal/version"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"os"
 	"os/exec"
 	"strconv"
@@ -162,7 +164,7 @@ func runCodex(ctx context.Context, la localHarness, m protocol.Dispatch, dir str
 		pending[seq] = codexRequest{method: method, at: time.Now(), steers: steers}
 		return writer.writeJSON(map[string]any{"id": seq, "method": method, "params": params})
 	}
-	if err = request("initialize", map[string]any{"clientInfo": map[string]string{"name": "agentuse", "title": "agentuse", "version": Version}}, nil); err != nil {
+	if err = request("initialize", map[string]any{"clientInfo": map[string]string{"name": "agentuse", "title": "agentuse", "version": version.Version}}, nil); err != nil {
 		return Result{Error: err.Error()}
 	}
 	var thread, turn string
@@ -300,6 +302,14 @@ func runCodex(ctx context.Context, la localHarness, m protocol.Dispatch, dir str
 				continue
 			}
 			var v struct {
+				TokenUsage *struct {
+					Total struct {
+						Input  int64 `json:"inputTokens"`
+						Output int64 `json:"outputTokens"`
+						Cached int64 `json:"cachedInputTokens"`
+					} `json:"total"`
+				} `json:"tokenUsage"`
+
 				ThreadID string `json:"threadId"`
 				TurnID   string `json:"turnId"`
 				Turn     struct {
@@ -326,6 +336,11 @@ func runCodex(ctx context.Context, la localHarness, m protocol.Dispatch, dir str
 				continue
 			}
 			switch frame.Method {
+			case "thread/tokenUsage/updated":
+				if v.TokenUsage != nil {
+					usage := v.TokenUsage.Total
+					result.Usage = &agentuse.Usage{InputTokens: usage.Input, OutputTokens: usage.Output, CacheReadTokens: usage.Cached}
+				}
 			case "turn/started":
 				if turn == "" {
 					turn = v.Turn.ID
