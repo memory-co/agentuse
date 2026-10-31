@@ -83,7 +83,7 @@ runService 启动时读取启用的 endpoints，为每个已注册 server 建立
 }
 ```
 
-session_id 关联本机 session.yaml 的 UUID，不是 server conversation ID；尚未选定会话或拒绝执行时为空。native_run_id 可保存 Codex turn ID，没有独立执行 ID 时为空。时间用 Unix 毫秒，用量或费用未知时为空。
+session_id 关联 conversation 工作目录内 session.yaml 的 UUID，不是 server conversation ID；目录回收后该 UUID 保留为历史关联，文件不存在时不再恢复该 session；尚未选定会话或拒绝执行时为空。native_run_id 可保存 Codex turn ID，没有独立执行 ID 时为空。时间用 Unix 毫秒，用量或费用未知时为空。
 
 run.json 是该执行记录的持久化事实。状态、耗时和计量由 runService 通过临时文件写完后原子替换；同一执行串行写入。Reader 读取文件的完整版本，不使用数据库索引，也不把内存缓存当成唯一记录。
 
