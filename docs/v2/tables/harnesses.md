@@ -4,7 +4,7 @@
 
 分两类:
 
-- **内置**(`builtin`):agentuse 自带适配，如 `claude`(Claude Code)、`codex`。每个是仓库顶层 `harness/<name>/harness.yaml`,服务启动时把名字、显示名、说明写入([设计](../designs/harness.md))。
+- **内置**(`builtin`):agentuse 自带适配，如 `claude`(Claude Code)、`codex`。每个是仓库顶层 `internal/harness/<name>/harness.yaml`,服务启动时把名字、显示名、说明写入([设计](../designs/harness.md))。
 - **自定义**(`custom`):用户自己手搓的 harness。用户先在服务上注册一个名字，再在自己的 daemon 上配置这个名字对应的本地启动命令。daemon 按统一约定调用它：每条消息从 stdin 以 JSON 传入，进度和结果从 stdout 按行输出 JSON。只要遵守这个约定，任何程序都能接进来。
 
 | 字段 | 类型 | 说明 |

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/memory-co/agentuse/internal/server"
-	"github.com/memory-co/agentuse/internal/store"
+	"github.com/memory-co/agentuse/server/internal/controller"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // 管理命令只走 HTTP API:用 httptest 起服务，命令行建用户、列用户、重置令牌。

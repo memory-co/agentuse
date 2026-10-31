@@ -64,7 +64,7 @@ claude 的规则变成：
 
 codex 现在没有对应的事件，不写;以后 codex 有了再加规则。自定义 harness 直接输出 `{"type":"plan","steps":[…]}` 行就行，daemon 原样转成 `plan` 回报。
 
-为了让 Claude 更常列计划,[agentuse skill](../../../harness/claude/skills/agentuse/SKILL.md) 里加一句：步骤多于两三步的任务，先用待办工具列出计划，边做边更新。
+为了让 Claude 更常列计划,[agentuse skill](../../../internal/harness/claude/skills/agentuse/SKILL.md) 里加一句：步骤多于两三步的任务，先用待办工具列出计划，边做边更新。
 
 ## 回报
 

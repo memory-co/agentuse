@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/memory-co/agentuse/internal/server"
-	"github.com/memory-co/agentuse/internal/store"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/controller"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 const serverUsage = `agentuse-server —— agentuse 服务端
