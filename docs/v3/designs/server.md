@@ -67,7 +67,7 @@ YAML 收敛配置差异；复杂协议仍由适配器实现。Server 不直接�
 - **sessionService 管对话与消息编排**：保存用户消息，调用 runService 分配任务；接收结果事件，把最终回复追加到同一 session。
 - **runService 管任务执行**：哪些消息交给哪个 agent，在哪个 device 上执行，目前执行到哪一步。
 
-发送消息时，sessionService 统一事务，消息与任务分配一并提交。结束任务时，runService 保存执行终态和待处理的结果事件，由 sessionService 消费；回复按 run 去重，确保重试通知不会重复追加。
+发送消息时，sessionService 统一事务，消息与任务分配一并提交。结束任务时，runService 保存执行终态和待处理的结果事件，由 sessionService 消费；runService 在事务内检查并绑定 runs.result_message_id 来去重，确保重试通知不会重复追加；messages 不保存 run_id。
 
 进度、计划、问题和插话确认属于 run 的执行记录；需要作为最终回复展示的结果进入 messages。读取会话时可以组合这些数据，但不能把执行事件全当作普通聊天消息。
 
@@ -88,7 +88,7 @@ Work 是多个 session 的组织方式。workService 维护协调 session、工�
 | message ↔ run：N:M | 一条消息可以交给多个 agent 的 run；一个 run 也可以处理多条任务消息 |
 | message → run_prompt → run | `run_prompt` 为每个目标 run 保存一份消息副本，连接消息和执行 |
 
-这个 N:M 指的是**任务输入关系**。Run 的最终结果可以成为一条 assistant message，再通过作者/来源信息关联回 run。
+这个 N:M 指的是**任务输入关系**。Run 的最终结果可以成为一条 assistant message，但对话关系始终是 message 回复 message：messages.reply_to_message_id 指向被回复的消息，不保存 run_id。一条用户消息触发多个 run，各个 agent 产生的回复都可以指回同一条原始消息。执行层内部通过 runs.result_message_id 追踪结果。
 
 例子：
 

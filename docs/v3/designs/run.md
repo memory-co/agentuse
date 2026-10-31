@@ -11,7 +11,7 @@ runService 管一次业务执行任务。一个 run 属于一个 session，确�
 - sessionService 在发送事务中调用 runService，为每个目标建立分配；runService 不反向调用 sessionService。
 - agentService 提供角色及执行选择，deviceService 提供设备能力，harnessService 提供固定版本配置。
 - workService 提供工作说明和执行范围的授权；与 run 同寿命的工作令牌由 workService 管理。
-- runService 持久化结果事件后通知 sessionService 消费；回复入库后由 sessionService 调用事务内结果绑定操作。
+- runService 持久化结果事件后通知 sessionService 消费；由 sessionService 在事务内检查并绑定 runs.result_message_id，防止重复回复；messages 不需要 run_id。
 
 ## run_prompt：面向一次 Run 的消息副本
 
@@ -53,7 +53,7 @@ runs 增加 harness_revision、harness_config_yaml。建立 run 时复制 harnes
 
 ### runs
 
-一次执行任务。`message_id` 是主任务，`result_message_id` 是结果回复；`agent_key/name/user_id` 是历史身份；device_id 可因设备删除置空。attempt_id/lease_until 表示当前执行租约，context_seq 表示上下文读取边界。配置快照是 v3 新增字段。
+一次执行任务。`message_id` 是主任务，`result_message_id` 是执行结果的内部关联；最终回复通过 messages.reply_to_message_id 指向主任务消息，而不是回复这个 run。`agent_key/name/user_id` 是历史身份；device_id 可因设备删除置空。attempt_id/lease_until 表示当前执行租约，context_seq 表示上下文读取边界。配置快照是 v3 新增字段。
 
 ```sql
 CREATE TABLE runs (
