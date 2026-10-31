@@ -40,8 +40,8 @@ runService 启动时读取启用的 endpoints，为每个已注册 server 建立
 
 ## 执行流程
 
-1. 校验中心和领取授权，写 received 记录；无效或不支持的任务记拒绝，不擅自生成替代任务。
-2. 按 settingService 的配置触发 sessionService 检查工作目录容量；领取前检查统一工作空间容量，已领取却不能启动时明确回报资源不足，不无限占位或伪报 started；有空间才选择/创建空闲且版本匹配的 session，没有可回收空间则暂不启动新任务。
+1. 校验中心和领取授权；尚未绑定 session 的领取请求只在内存中处理，无效或不支持则直接向原 server 回报拒绝，不创建无归属的 run.json。
+2. 按 settingService 的配置触发 sessionService 检查工作目录容量；领取前检查统一工作空间容量，已领取却不能启动时明确回报资源不足，不无限占位或伪报 started；有空间才选择/创建空闲且版本匹配的 session，绑定后写 received 记录；没有可回收空间则暂不启动新任务。
 3. 准备当前输入与共享历史增量，交 harnessService 执行。配置和 hook 资源按 endpoint/run/attempt 隔离。
 4. 标准进度、问题、消费确认、结果和用量更新本地记录，并经 runService 为该 endpoint 维护的连接回报原 server。
 5. 执行结束后清理本次回调/进程占用，session 回到可复用状态，释放全局槽位。原生历史仍保留。
@@ -51,11 +51,11 @@ runService 启动时读取启用的 endpoints，为每个已注册 server 建立
 ## 文件结构
 
 ```text
-~/.agentuse/state/runs/
-  <endpoint_id>/<run_id>/<attempt_id>/run.json
+<conversation_work_root>/.agentuse/sessions/<local_session_id>/
+  runs/<run_id>/<attempt_id>/run.json
 ```
 
-每个执行尝试一个文件，唯一定位为 endpoint/run/attempt，不再有本机 runs 表或 run_settings 表。磁盘容量策略读取 setting.yaml；领取预留、连接状态和执行槽位由 runService 内部管理，只存在运行时内存中。
+每个已绑定 session 的执行尝试一个文件，conversation_work_root 来自 sessionService 的目录映射。目录层级为 conversation → session → run → attempt，唯一执行身份仍为 endpoint/run/attempt，不再有本机 runs 表或 run_settings 表。磁盘容量策略读取 setting.yaml；领取预留、连接状态和执行槽位由 runService 内部管理，只存在运行时内存中。
 
 ```json
 {
@@ -83,13 +83,13 @@ runService 启动时读取启用的 endpoints，为每个已注册 server 建立
 }
 ```
 
-session_id 关联 conversation 工作目录内 session.yaml 的 UUID，不是 server conversation ID；目录回收后该 UUID 保留为历史关联，文件不存在时不再恢复该 session；尚未选定会话或拒绝执行时为空。native_run_id 可保存 Codex turn ID，没有独立执行 ID 时为空。时间用 Unix 毫秒，用量或费用未知时为空。
+session_id 必须是所在目录的本机 session UUID，不是 server conversation ID，不能留空。每个本机执行尝试只归属一个 session；同一 server run 重试时可能使用另一个 session，通过 attempt_id 区分。尚未绑定 session 的请求不创建该文件；拒绝结果直接回报 server。native_run_id 可保存 Codex turn ID，没有独立执行 ID 时为空。时间用 Unix 毫秒，用量或费用未知时为空。
 
 run.json 是该执行记录的持久化事实。状态、耗时和计量由 runService 通过临时文件写完后原子替换；同一执行串行写入。Reader 读取文件的完整版本，不使用数据库索引，也不把内存缓存当成唯一记录。
 
 状态包括 received/running/waiting/succeeded/failed/cancelled/rejected/interrupted。本机终态不代表 server 已接受结果。日志可以单独保存，但不是另一份决定业务状态的账本。
 
-删除 endpoint 不删除 run 文件。执行记录按保留策略清理，与工作目录的容量回收分开：删除工作目录不伪造 run 失败，也不删除 server 的任务或文件。
+删除 endpoint 不主动删除 run 文件。回收 conversation 工作目录时，其中 session.yaml、run.json 和执行资源一起删除；本机页面不再展示这些已清理记录，历史业务状态由原 server 保存。不另设独立 run 归档目录或固定保留期。尚未结束、等待答案或结果尚未被 server 确认的执行都保护整个工作目录，不能作为清理候选。
 
 ## 目录清理与恢复
 

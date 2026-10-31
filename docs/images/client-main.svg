@@ -47,7 +47,7 @@
     <text x="65" y="724" font-size="23">~/.agentuse/：配置与状态文件</text>
     <text x="65" y="757" font-size="17">endpoints.yaml → endpointService      setting.yaml → settingService</text>
     <text x="65" y="784" font-size="17">workspace.yaml → sessionService；session.yaml 在工作区内</text>
-    <text x="65" y="811" font-size="17">state/runs/&lt;endpoint&gt;/&lt;run&gt;/&lt;attempt&gt;/run.json → runService</text>
+    <text x="65" y="811" font-size="17">工作区内 sessions/&lt;session&gt;/runs/&lt;run&gt;/&lt;attempt&gt;/run.json</text>
     <rect x="1035" y="690" width="420" height="170" rx="14" fill="#ecfdf5" stroke="#94a3b8"/>
     <text x="1055" y="724" font-size="23">Conversation 共享工作目录</text>
     <text x="1055" y="757" font-size="17">Codex、Claude Code 共享并可并发</text>

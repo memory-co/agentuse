@@ -114,14 +114,15 @@ Server Conversation C
 ├── setting.yaml
 ├── harness/<harness>/<revision>/...
 ├── state/
-│   ├── workspaces/<endpoint_id>/<conversation_id>/workspace.yaml
-│   └── runs/<endpoint_id>/<run_id>/<attempt_id>/run.json
+│   └── workspaces/<endpoint_id>/<conversation_id>/workspace.yaml
 ├── tmp/<endpoint_id>/<conversation_id>/
-│   └── .agentuse/sessions/<session_id>/session.yaml
+│   └── .agentuse/sessions/<session_id>/
+│       ├── session.yaml
+│       └── runs/<run_id>/<attempt_id>/run.json
 └── ui.token
 ```
 
-tmp 是默认父目录，可通过 setting.yaml 的 session.work_root 配置。sessionService 按 endpoint/conversation 绑定唯一工作目录，同一 conversation 的 Codex、Claude Code 等原生 session 使用该目录，并允许并行运行。配置、workspace 映射、run.json 和适配器不放入可回收目录；session.yaml 放在 conversation 工作目录内，随目录一起回收；server fileService 负责上传下载和交付。
+tmp 是默认父目录，可通过 setting.yaml 的 session.work_root 配置。sessionService 按 endpoint/conversation 绑定唯一工作目录，同一 conversation 的 Codex、Claude Code 等原生 session 使用该目录，并允许并行运行。配置、workspace 映射和适配器不放入可回收目录；session.yaml、run.json 和执行资源按 conversation/session 层级放入工作目录，随目录一起回收；server fileService 负责上传下载和交付。
 
 | 文件 | 唯一负责写入的 Service |
 |---|---|
@@ -143,9 +144,9 @@ tmp 是默认父目录，可通过 setting.yaml 的 session.work_root 配置。s
 
 settingService 提供 session 的默认父目录及统一容量策略；sessionService 按 conversation 回收带受管标记的空闲共享目录，每个目录只计量一次，按其所有 session 的最近使用时间清理至不超过 quota。任一关联 session 正在运行、等待问题或已被任务锁定时，整个目录不能删。
 
-目录回收会删除其中的 session.yaml，但保留 workspace.yaml、run.json、server 文件和原生工具的全局历史。后续不得直接恢复旧工作区；有任务时从共享历史和文件重建新会话。没有可清理空间时暂停新启动，不强杀在用任务。
+目录回收会删除其中的 session.yaml、run.json 和执行资源，但保留 workspace.yaml、server 文件和原生工具的全局历史。后续不得直接恢复旧工作区；有任务时从共享历史和文件重建新会话。没有可清理空间时暂停新启动，不强杀在用任务。
 
-默认 90 天的执行记录保留期与工作目录容量策略分开，只处理已结束且过期的 run.json，仍在执行、等待答案或待对账的记录不能删除；正文默认保留前 200 字，用量未知留空。两者都通过文件操作完成，不依赖本机数据库。
+本机执行记录随工作目录保留与回收，不另设固定保留期或归档目录。仍在执行、等待答案或结果尚未获 server 确认的记录保护整个目录。正文默认保留前 200 字，用量未知留空。
 
 ## 八、断线、重启和只读页面
 
