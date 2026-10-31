@@ -1,6 +1,6 @@
 # attachmentService：会话附件
 
-> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。
+> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。表之间只保留关联字段，不声明数据库外键；引用校验和关联清理由 service 在事务内完成。
 
 ## 职责
 
@@ -14,7 +14,7 @@ attachmentService 管 session 下的附件元数据和正文，包括上传、�
 | 发布 | 在锁保护下将临时文件发布到最终目录，并提交元数据；失败时清理新文件 |
 | 列表/下载 | 校验访问范围；正文与元数据对应，client 下载后校验大小和摘要 |
 | 删除 | 检查权限，删除元数据并清理文件；失败残留由清理任务恢复 |
-| 会话删除/孤儿清理 | 识别已无元数据的文件，超过保留门槛后清理；不把数据库级联误当成文件删除 |
+| 会话删除/孤儿清理 | 识别已无元数据的文件，超过保留门槛后清理；数据库记录由 service 显式删除，磁盘正文另行清理 |
 
 userService 提供用户身份；sessionService 提供会话权限；runService 校验设备访问对应 run/attempt；workService 限定工作令牌的范围。上传前和提交时必须使用同一套授权规则，不能仅信任接收请求时的旧凭据。
 
@@ -24,19 +24,19 @@ userService 提供用户身份；sessionService 提供会话权限；runService 
 
 ### attachments
 
-文件元数据与来源。source 在 v3 为 user/device/work；created_by 为归属用户，device_id 为设备来源，created_by_run_id 为生成该文件的 run 标识。沿用来源快照字段不设 run 外键，访问授权仍必须用 runService 校验；不能仅凭字段声称归属。正文不存数据库。
+文件元数据与来源。source 在 v3 为 user/device/work；created_by 为归属用户，device_id 为设备来源，created_by_run_id 为生成该文件的 run 标识。来源快照字段仅保存标识，访问授权仍必须用 runService 校验；不能仅凭字段声称归属。正文不存数据库。
 
 ```sql
 CREATE TABLE attachments (
     id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL,
     filename TEXT NOT NULL,
     content_type TEXT NOT NULL,
     size_bytes INTEGER NOT NULL CHECK(size_bytes>=0),
     sha256 TEXT NOT NULL CHECK(length(sha256)=64),
-    created_by TEXT NOT NULL REFERENCES users(id),
+    created_by TEXT NOT NULL,
     source TEXT NOT NULL CHECK(source IN ('user','device','work')),
-    device_id TEXT REFERENCES devices(id) ON DELETE SET NULL,
+    device_id TEXT,
     created_by_run_id TEXT,
     created_at INTEGER NOT NULL
 );

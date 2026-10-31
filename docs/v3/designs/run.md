@@ -1,6 +1,6 @@
 # runService：任务、消息分配与执行生命周期
 
-> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。
+> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。表之间只保留关联字段，不声明数据库外键；引用校验和关联清理由 service 在事务内完成。
 
 ## 职责
 
@@ -53,18 +53,18 @@ runs 增加 harness_revision、harness_config_yaml。建立 run 时复制 harnes
 
 ### runs
 
-一次执行任务。`message_id` 是主任务，`result_message_id` 是执行结果的内部关联；最终回复通过 messages.reply_to_message_id 指向主任务消息，而不是回复这个 run。`agent_key/name/user_id` 是历史身份；device_id 可因设备删除置空。attempt_id/lease_until 表示当前执行租约，context_seq 表示上下文读取边界。配置快照是 v3 新增字段。
+一次执行任务。`message_id` 是主任务，`result_message_id` 是执行结果的内部关联；最终回复通过 messages.reply_to_message_id 指向主任务消息，而不是回复这个 run。`agent_key/name/user_id` 是历史身份；设备删除时由 service 清空当前 device_id 引用，历史身份快照仍保留。attempt_id/lease_until 表示当前执行租约，context_seq 表示上下文读取边界。配置快照是 v3 新增字段。
 
 ```sql
 CREATE TABLE runs (
     id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-    agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+    session_id TEXT NOT NULL,
+    message_id INTEGER NOT NULL,
+    agent_id TEXT,
     agent_key TEXT NOT NULL,
     agent_name TEXT NOT NULL,
-    agent_user_id TEXT NOT NULL REFERENCES users(id),
-    device_id TEXT REFERENCES devices(id) ON DELETE SET NULL,
+    agent_user_id TEXT NOT NULL,
+    device_id TEXT,
     harness TEXT NOT NULL,
     harness_revision TEXT NOT NULL,
     harness_config_yaml TEXT NOT NULL,
@@ -72,7 +72,7 @@ CREATE TABLE runs (
     attempt_id TEXT NOT NULL DEFAULT '',
     lease_until INTEGER,
     context_seq INTEGER NOT NULL DEFAULT 0,
-    result_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+    result_message_id INTEGER,
     error TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
@@ -93,14 +93,14 @@ CREATE INDEX runs_dispatch
 ```sql
 CREATE TABLE run_prompts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL,
+    message_id INTEGER NOT NULL,
     content TEXT NOT NULL,
     format TEXT NOT NULL CHECK(format IN ('prompt','json')),
     kind TEXT NOT NULL CHECK(kind IN ('initial','supplement')),
     status TEXT NOT NULL DEFAULT 'pending',
     prepared_attempt TEXT NOT NULL DEFAULT '',
-    superseded_by INTEGER REFERENCES run_prompts(id) ON DELETE SET NULL,
+    superseded_by INTEGER,
     error TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -114,15 +114,15 @@ CREATE INDEX run_prompts_pending ON run_prompts(run_id,status,id);
 
 ### run_events
 
-进度、计划、交互确认和终态事件。payload 为 JSON，唯一键保证同 run/attempt/序号重复上报不重复生效。终态 payload 保留完整结果，供结果消费恢复。device_id 是事件来源身份快照，不声明设备外键，便于设备删除后保留历史。
+进度、计划、交互确认和终态事件。payload 为 JSON，唯一键保证同 run/attempt/序号重复上报不重复生效。终态 payload 保留完整结果，供结果消费恢复。device_id 是事件来源身份快照，设备删除后仍保留历史标识。
 
 ```sql
 CREATE TABLE run_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
     attempt_id TEXT NOT NULL,
-    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL,
     device_id TEXT NOT NULL,
     event_seq INTEGER NOT NULL,
     kind TEXT NOT NULL,
@@ -139,14 +139,14 @@ CREATE TABLE run_events (
 ```sql
 CREATE TABLE run_questions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
     attempt_id TEXT NOT NULL,
-    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL,
     tool_use_id TEXT NOT NULL,
     questions TEXT NOT NULL,
     answers TEXT,
-    answered_by TEXT REFERENCES users(id),
+    answered_by TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,

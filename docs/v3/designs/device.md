@@ -1,6 +1,6 @@
 # deviceService：执行设备
 
-> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。
+> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。表之间只保留关联字段，不声明数据库外键；引用校验和关联清理由 service 在事务内完成。
 
 ## 职责
 
@@ -34,7 +34,7 @@ agentService 读取设备归属和运行能力，runService 根据设备选择�
 ```sql
 CREATE TABLE devices (
     id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id),
+    user_id TEXT NOT NULL,
     name TEXT NOT NULL,
     key_hash TEXT,
     setup_token TEXT,
@@ -54,9 +54,9 @@ CREATE UNIQUE INDEX devices_setup_token
 
 ```sql
 CREATE TABLE device_harnesses (
-    device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    user_id TEXT NOT NULL REFERENCES users(id),
-    harness TEXT NOT NULL REFERENCES harnesses(name) ON DELETE CASCADE,
+    device_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    harness TEXT NOT NULL,
     version TEXT,
     available INTEGER NOT NULL DEFAULT 1,
     enabled INTEGER NOT NULL DEFAULT 0,
@@ -73,7 +73,7 @@ CREATE INDEX device_harnesses_user_harness
 
 ```sql
 CREATE TABLE device_capabilities (
-    device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    device_id TEXT NOT NULL,
     capability TEXT NOT NULL,
     PRIMARY KEY(device_id,capability)
 );

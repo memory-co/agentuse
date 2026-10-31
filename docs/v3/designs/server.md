@@ -33,6 +33,8 @@ Server 分为三层：
 
 各 service 的详细职责、操作和完整目标 SQL 见上表链接；16 张业务表各有一篇负责维护。表结构中的 device 命名，以及 harness 配置快照、回复去重约束都是目标设计，尚未应用到运行中的数据库。
 
+所有表不声明数据库外键，只保存关联 ID。创建/修改时由 service 检查目标存在、归属和状态；删除时协调相关 service 显式清理或清空关联字段，并在同一事务提交。数据库保留主键、唯一索引和必要的 CHECK 约束，不依赖自动级联。
+
 sessionService 负责发送消息的业务编排，调用 runService 建立任务分配。runService 完成任务后发出结果事件，由 sessionService 接收并保存回复；runService 不反向调用 sessionService。
 
 ### 2.1 userService、deviceService、agentService

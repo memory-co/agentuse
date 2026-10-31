@@ -1,6 +1,6 @@
 # harnessService：统一执行描述
 
-> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。
+> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。表之间只保留关联字段，不声明数据库外键；引用校验和关联清理由 service 在事务内完成。
 
 ## 职责
 
@@ -40,7 +40,7 @@ CREATE TABLE harnesses (
     kind TEXT NOT NULL,
     display_name TEXT NOT NULL,
     description TEXT,
-    owner_id TEXT REFERENCES users(id),
+    owner_id TEXT,
     config_yaml TEXT NOT NULL,
     config_revision TEXT NOT NULL,
     created_at INTEGER NOT NULL

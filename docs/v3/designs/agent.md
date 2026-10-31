@@ -1,6 +1,6 @@
 # agentService：任务角色与执行选择
 
-> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。
+> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。表之间只保留关联字段，不声明数据库外键；引用校验和关联清理由 service 在事务内完成。
 
 ## 职责
 
@@ -16,7 +16,7 @@ agent 是用户在会话中选择的任务角色。agentService 管名称、说�
 
 userService 提供当前身份；deviceService 提供设备归属和能力；harnessService 提供执行配置。创建配置和当前能够执行是两个检查：runService 建立/领取任务时仍需检查运行时是否可用。
 
-run 创建后保存本次 agent、device、harness 的选择。修改 agent 不改写已有 run；删除设备后 agent.device_id 可以为空，必须重新配置才能继续使用。
+run 创建后保存本次 agent、device、harness 的选择。修改 agent 不改写已有 run；删除设备时由 deviceService 协调 agentService 清空 agent.device_id，之后该字段可以为空，必须重新配置才能继续使用。
 
 ## 表结构
 
@@ -27,10 +27,10 @@ run 创建后保存本次 agent、device、harness 的选择。修改 agent 不�
 ```sql
 CREATE TABLE agents (
     id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id),
+    user_id TEXT NOT NULL,
     name TEXT NOT NULL,
-    device_id TEXT REFERENCES devices(id) ON DELETE SET NULL,
-    harness TEXT NOT NULL REFERENCES harnesses(name),
+    device_id TEXT,
+    harness TEXT NOT NULL,
     description TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL

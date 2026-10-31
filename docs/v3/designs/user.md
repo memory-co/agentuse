@@ -1,6 +1,6 @@
 # userService：用户与访问身份
 
-> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。
+> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。表之间只保留关联字段，不声明数据库外键；引用校验和关联清理由 service 在事务内完成。
 
 ## 职责
 
@@ -19,7 +19,7 @@ userService 管理用户身份、角色和访问令牌。它回答“当前请�
 | 重置令牌 | 替换 token_hash，旧令牌立即失效 |
 | 管理员代办 | 验证 admin 权限后解析目标用户；后续操作以该身份进行 |
 
-一个用户拥有多个 device、agent、session 和 work。userService 不直接级联清理这些业务；v3 第一版不提供删除用户操作，以免把资源删除策略混入身份管理。
+一个用户拥有多个 device、agent、session 和 work。userService 不直接清理这些关联业务；v3 第一版不提供删除用户操作，以免把资源删除策略混入身份管理。
 
 ## 表结构
 

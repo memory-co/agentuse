@@ -1,6 +1,6 @@
 # sessionService：共享对话与消息编排
 
-> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。
+> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。表之间只保留关联字段，不声明数据库外键；引用校验和关联清理由 service 在事务内完成。
 
 ## 职责
 
@@ -32,7 +32,7 @@ runService 先持久化终态与结果事件；sessionService 消费后，在同
 
 Session 状态是 run 的聚合投影，优先 waiting、running、pending，再到 idle；resolved 是用户的完成标记。投影由 sessionService 通过 runService 查询当前状态后更新，run 状态变化和最终结果事件都触发重算；重算读取当前 run 集合，不用旧事件直接覆盖投影。idle 不表示历史任务全部成功。
 
-有活跃 run 时拒绝删除，检查与删除共用事务；回复消费前也要重新检查会话是否存在，已删除的会话不恢复创建。删除会话级联清理业务记录；磁盘附件由 attachmentService 清理。Work 的协调会话和线程归属由 workService 决定。
+有活跃 run 时拒绝删除，检查与删除共用事务；回复消费前也要重新检查会话是否存在，已删除的会话不恢复创建。删除会话由 sessionService 协调相关 service，在同一事务内清理消息、run、run_prompts、事件、问题及辅助记录；磁盘附件由 attachmentService 清理。Work 的协调会话和线程归属由 workService 决定。
 
 ## 幂等
 
@@ -49,9 +49,9 @@ messages 中的唯一索引按 session、用户和非空 request_key 去重。�
 ```sql
 CREATE TABLE sessions (
     id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id),
-    created_by TEXT NOT NULL REFERENCES users(id),
-    work_id TEXT REFERENCES works(id),
+    user_id TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    work_id TEXT,
     title TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'idle',
     created_at INTEGER NOT NULL,
@@ -87,15 +87,15 @@ M1：@coder @reviewer 修复并评审
 ```sql
 CREATE TABLE messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL,
     role TEXT NOT NULL CHECK(role IN ('user','assistant')),
     content TEXT NOT NULL,
     format TEXT NOT NULL DEFAULT 'prompt' CHECK(format IN ('prompt','json')),
-    user_id TEXT REFERENCES users(id),
+    user_id TEXT,
     target_agent_ids TEXT NOT NULL DEFAULT '[]',
     agent_key TEXT,
     agent_name TEXT,
-    reply_to_message_id INTEGER REFERENCES messages(id),
+    reply_to_message_id INTEGER,
     request_key TEXT,
     request_digest TEXT,
     created_at INTEGER NOT NULL
