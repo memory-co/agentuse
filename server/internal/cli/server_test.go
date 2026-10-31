@@ -36,36 +36,36 @@ func TestServerAdminCommands(t *testing.T) {
 	t.Setenv("AGENTUSE_TOKEN", "")
 	quiet(t)
 
-	if code := ServerMain([]string{"user", "list", "-config", cfg}); code != 1 {
+	if code := Main([]string{"user", "list", "-config", cfg}); code != 1 {
 		t.Fatalf("没登录应该失败: %d", code)
 	}
-	if code := ServerMain([]string{"login", "-server", ts.URL, "-token", userTok, "-config", cfg}); code != 1 {
+	if code := Main([]string{"login", "-server", ts.URL, "-token", userTok, "-config", cfg}); code != 1 {
 		t.Fatalf("普通用户令牌 login 应该失败: %d", code)
 	}
-	if code := ServerMain([]string{"login", "-server", ts.URL, "-token", adminTok, "-config", cfg}); code != 0 {
+	if code := Main([]string{"login", "-server", ts.URL, "-token", adminTok, "-config", cfg}); code != 0 {
 		t.Fatalf("login: %d", code)
 	}
-	if code := ServerMain([]string{"user", "create", "alice", "-id", "u_10086", "-config", cfg}); code != 0 {
+	if code := Main([]string{"user", "create", "alice", "-id", "u_10086", "-config", cfg}); code != 0 {
 		t.Fatalf("user create: %d", code)
 	}
 	u, err := st.GetUser(ctx, "u_10086")
 	if err != nil || u.Name != "alice" || u.Role != store.RoleUser {
 		t.Fatalf("created: %v %+v", err, u)
 	}
-	if code := ServerMain([]string{"user", "list", "-json", "-config", cfg}); code != 0 {
+	if code := Main([]string{"user", "list", "-json", "-config", cfg}); code != 0 {
 		t.Fatalf("user list: %d", code)
 	}
-	if code := ServerMain([]string{"user", "token", "u_10086", "-config", cfg}); code != 0 {
+	if code := Main([]string{"user", "token", "u_10086", "-config", cfg}); code != 0 {
 		t.Fatalf("user token: %d", code)
 	}
-	if code := ServerMain([]string{"user", "token", "nobody", "-config", cfg}); code != 1 {
+	if code := Main([]string{"user", "token", "nobody", "-config", cfg}); code != 1 {
 		t.Fatalf("不存在的用户: %d", code)
 	}
 	// 参数优先于配置文件:用普通用户令牌调管理命令被拒
-	if code := ServerMain([]string{"user", "list", "-token", userTok, "-config", cfg}); code != 1 {
+	if code := Main([]string{"user", "list", "-token", userTok, "-config", cfg}); code != 1 {
 		t.Fatalf("普通用户令牌应该被拒: %d", code)
 	}
-	if code := ServerMain([]string{"user", "create", "-id", "x"}); code != 2 {
+	if code := Main([]string{"user", "create", "-id", "x"}); code != 2 {
 		t.Fatalf("缺用户名应该是用法错误: %d", code)
 	}
 }
@@ -128,7 +128,7 @@ func TestServerUsageErrors(t *testing.T) {
 	for _, args := range [][]string{
 		{"user"}, {"user", "nope"}, {"user", "token"}, {"user", "create"}, {"login"}, {"start", "-bogus"},
 	} {
-		if code := ServerMain(args); code != 2 {
+		if code := Main(args); code != 2 {
 			t.Errorf("%v: %d", args, code)
 		}
 	}

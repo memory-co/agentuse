@@ -1,38 +1,48 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
-	"io"
-	"log"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/memory-co/agentuse/internal/daemon"
-	"github.com/memory-co/agentuse/internal/server"
-	"github.com/memory-co/agentuse/internal/store"
 )
 
 func TestAgentuseCommands(t *testing.T) {
-	st, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	ctx := context.Background()
-	ts := httptest.NewServer(server.New(st, server.Config{Logger: log.New(io.Discard, "", 0)}))
+	var deleted bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if deleted {
+			w.WriteHeader(401)
+			return
+		}
+		switch r.URL.Path {
+		case "/api/daemon/register":
+			var req struct {
+				Token string `json:"token"`
+			}
+			json.NewDecoder(r.Body).Decode(&req)
+			if req.Token != "st_good" {
+				w.WriteHeader(401)
+				return
+			}
+			w.Write([]byte(`{"daemon_id":"dm_test","name":"laptop","key":"dk_test"}`))
+		case "/api/daemon/me":
+			w.Write([]byte(`{"daemon_id":"dm_test","name":"laptop","user_id":"alice","status":"offline"}`))
+		default:
+			w.WriteHeader(401)
+		}
+	}))
 	defer ts.Close()
-	u, _, _ := st.CreateUser(ctx, "", "alice", store.RoleUser)
-	d, _ := st.CreateDaemon(ctx, u.ID, "laptop")
-
+	d := struct{ ID, SetupToken string }{"dm_test", "st_good"}
 	cfg := filepath.Join(t.TempDir(), "daemon.json")
 	t.Setenv("PATH", t.TempDir()) // 本机没有 claude / codex
 	t.Setenv("TOKEN", "")
 	run := func(args ...string) (int, string, string) {
 		var code int
-		out, errOut := capture(t, func() { code = AgentuseMain(append(args, "-config", cfg)) })
+		out, errOut := capture(t, func() { code = Main(append(args, "-config", cfg)) })
 		return code, out, errOut
 	}
 
@@ -69,7 +79,7 @@ func TestAgentuseCommands(t *testing.T) {
 	}
 
 	// 页面上删掉后，密钥失效
-	st.DeleteDaemon(ctx, u, d.ID)
+	deleted = true
 	if code, out, _ := run("status"); code != 0 || !strings.Contains(out, "失败") {
 		t.Fatalf("status after delete: %d %q", code, out)
 	}

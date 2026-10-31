@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/memory-co/agentuse/internal/command"
 	"net/url"
 	"os"
 	"strings"
@@ -28,10 +29,10 @@ func runSession(args []string) error {
 		return nil
 	}
 	action := args[0]
-	fs := newFlags("agentuse session " + action)
+	fs := command.NewFlags("agentuse session " + action)
 	server := fs.String("server", os.Getenv("AGENTUSE_SERVER"), "服务地址")
 	token := fs.String("token", os.Getenv("AGENTUSE_TOKEN"), "用户或工作令牌")
-	config := fs.String("config", envOr("AGENTUSE_CONFIG", daemon.DefaultConfigPath()), "daemon 配置")
+	config := fs.String("config", command.EnvOr("AGENTUSE_CONFIG", daemon.DefaultConfigPath()), "daemon 配置")
 	session := fs.String("session", os.Getenv("AGENTUSE_SESSION"), "当前 session")
 	agents := fs.String("agents", "", "逗号分隔的 @ 目标")
 	asJSON := fs.Bool("json", false, "JSON 输出")
@@ -49,7 +50,7 @@ func runSession(args []string) error {
 			if !strings.Contains(v, "=") && key != "json" && key != "h" && key != "help" {
 				i++
 				if i >= len(args) {
-					return usageErr("参数缺少值")
+					return command.UsageErr("参数缺少值")
 				}
 				flags = append(flags, args[i])
 			}
@@ -57,7 +58,7 @@ func runSession(args []string) error {
 			pos = append(pos, v)
 		}
 	}
-	if err := parse(fs, flags); err != nil {
+	if err := command.Parse(fs, flags); err != nil {
 		return err
 	}
 	if *token == "" {
@@ -92,9 +93,9 @@ func runSession(args []string) error {
 		pos = pos[1:]
 	}
 	if *session == "" || len(pos) != need {
-		return usageErr("需要 session id 和对应命令参数")
+		return command.UsageErr("需要 session id 和对应命令参数")
 	}
-	ctx, stop := signalContext()
+	ctx, stop := command.SignalContext()
 	defer stop()
 	base := "/api/sessions/" + url.PathEscape(*session)
 	switch action {
@@ -151,6 +152,6 @@ func runSession(args []string) error {
 		}
 		return json.NewEncoder(os.Stdout).Encode(r)
 	default:
-		return usageErr("未知 session 子命令 %s", action)
+		return command.UsageErr("未知 session 子命令 %s", action)
 	}
 }

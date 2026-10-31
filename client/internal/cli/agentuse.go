@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/memory-co/agentuse/internal/command"
 	"github.com/memory-co/agentuse/internal/version"
 	"os"
 
@@ -25,9 +26,9 @@ const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 age
 所有命令都可以用 -config 指定配置文件，默认 ~/.agentuse/daemon.json。
 `
 
-// AgentuseMain 是用户电脑上的 agentuse。
-func AgentuseMain(args []string) int {
-	return dispatch("agentuse", agentuseUsage, args, []command{
+// Main 是用户电脑上的 agentuse。
+func Main(args []string) int {
+	return command.Dispatch("agentuse", agentuseUsage, args, []command.Command{
 		{"register", runRegister},
 		{"daemon", runDaemon},
 		{"status", runStatus},
@@ -39,15 +40,15 @@ func AgentuseMain(args []string) int {
 }
 
 func runRegister(args []string) error {
-	fs := newFlags("agentuse register")
+	fs := command.NewFlags("agentuse register")
 	cfgPath := fs.String("config", daemon.DefaultConfigPath(), "配置文件")
 	server := fs.String("server", "", "agentuse 服务地址")
 	token := fs.String("token", os.Getenv("TOKEN"), "页面上生成的安装令牌(默认读环境变量 TOKEN)")
-	if err := parse(fs, args); err != nil {
+	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
 	if *server == "" || *token == "" {
-		return usageErr("需要 -server 和 -token")
+		return command.UsageErr("需要 -server 和 -token")
 	}
 	cfg, err := daemon.Register(context.Background(), *server, *token, *cfgPath)
 	if err != nil {
@@ -66,9 +67,9 @@ func loadDaemonConfig(path string) (daemon.Config, error) {
 }
 
 func runDaemon(args []string) error {
-	fs := newFlags("agentuse daemon")
+	fs := command.NewFlags("agentuse daemon")
 	cfgPath := fs.String("config", daemon.DefaultConfigPath(), "配置文件")
-	if err := parse(fs, args); err != nil {
+	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
 	cfg, err := loadDaemonConfig(*cfgPath)
@@ -80,7 +81,7 @@ func runDaemon(args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx, stop := signalContext()
+	ctx, stop := command.SignalContext()
 	defer stop()
 	if err := d.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
@@ -89,9 +90,9 @@ func runDaemon(args []string) error {
 }
 
 func runStatus(args []string) error {
-	fs := newFlags("agentuse status")
+	fs := command.NewFlags("agentuse status")
 	cfgPath := fs.String("config", daemon.DefaultConfigPath(), "配置文件")
-	if err := parse(fs, args); err != nil {
+	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
 	cfg, err := loadDaemonConfig(*cfgPath)
@@ -104,7 +105,7 @@ func runStatus(args []string) error {
 	} else if _, err := daemon.CheckKey(context.Background(), cfg); err != nil {
 		conn = "失败: " + err.Error()
 	}
-	printTable(os.Stdout, [][]string{
+	command.PrintTable(os.Stdout, [][]string{
 		{"服务", cfg.Server},
 		{"daemon", cfg.DaemonID},
 		{"配置", *cfgPath},
@@ -115,10 +116,10 @@ func runStatus(args []string) error {
 }
 
 func runHarnesses(args []string) error {
-	fs := newFlags("agentuse harnesses")
+	fs := command.NewFlags("agentuse harnesses")
 	cfgPath := fs.String("config", daemon.DefaultConfigPath(), "配置文件")
 	asJSON := fs.Bool("json", false, "输出 JSON")
-	if err := parse(fs, args); err != nil {
+	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
 	cfg, err := daemon.LoadConfig(*cfgPath)
@@ -127,7 +128,7 @@ func runHarnesses(args []string) error {
 	}
 	harnesses := daemon.ListHarnesses(cfg)
 	if *asJSON {
-		return printJSON(os.Stdout, harnesses)
+		return command.PrintJSON(os.Stdout, harnesses)
 	}
 	rows := [][]string{{"名字", "命令", "版本"}}
 	for _, a := range harnesses {
@@ -140,6 +141,6 @@ func runHarnesses(args []string) error {
 		}
 		rows = append(rows, []string{a.Name, path, ver})
 	}
-	printTable(os.Stdout, rows)
+	command.PrintTable(os.Stdout, rows)
 	return nil
 }

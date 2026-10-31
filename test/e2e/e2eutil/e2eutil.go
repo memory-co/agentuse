@@ -23,8 +23,8 @@ const module = "github.com/memory-co/agentuse"
 
 // 被测的包，key 是编出来的文件名。
 var packages = map[string]string{
-	"agentuse":        module + "/cmd/agentuse",
-	"agentuse-server": module + "/cmd/agentuse-server",
+	"agentuse":        module + "/client/cmd/agentuse",
+	"agentuse-server": module + "/server/cmd/agentuse-server",
 	"fakeharness":     module + "/test/e2e/fakeharness",
 }
 

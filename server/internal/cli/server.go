@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/memory-co/agentuse/internal/command"
 	"log"
 	"net"
 	"net/http"
@@ -32,9 +33,9 @@ start 是服务进程，只有它读写数据库。其余是管理命令，带�
 服务地址和令牌按 -server/-token 参数 → AGENTUSE_SERVER/AGENTUSE_TOKEN → login 存的配置 的顺序找。
 `
 
-// ServerMain 是服务端的 agentuse-server。
-func ServerMain(args []string) int {
-	return dispatch("agentuse-server", serverUsage, args, []command{
+// Main 是服务端的 agentuse-server。
+func Main(args []string) int {
+	return command.Dispatch("agentuse-server", serverUsage, args, []command.Command{
 		{"start", runStart},
 		{"login", runLogin},
 		{"user", runUser},
@@ -53,13 +54,13 @@ func defaultDist() string {
 }
 
 func runStart(args []string) error {
-	fs := newFlags("agentuse-server start")
-	addr := fs.String("addr", envOr("AGENTUSE_ADDR", ":8080"), "监听地址")
-	dbPath := fs.String("db", envOr("AGENTUSE_DB", defaultDB()), "SQLite 数据库文件")
+	fs := command.NewFlags("agentuse-server start")
+	addr := fs.String("addr", command.EnvOr("AGENTUSE_ADDR", ":8080"), "监听地址")
+	dbPath := fs.String("db", command.EnvOr("AGENTUSE_DB", defaultDB()), "SQLite 数据库文件")
 	publicURL := fs.String("public-url", os.Getenv("AGENTUSE_PUBLIC_URL"), "用户电脑访问服务的地址(写进安装命令),空 = 按请求推断")
-	dist := fs.String("dist", envOr("AGENTUSE_DIST", defaultDist()), "各平台 agentuse 二进制所在目录(agentuse-<os>-<arch>)")
+	dist := fs.String("dist", command.EnvOr("AGENTUSE_DIST", defaultDist()), "各平台 agentuse 二进制所在目录(agentuse-<os>-<arch>)")
 	home, _ := os.UserHomeDir()
-	attachmentsDir := fs.String("attachments-dir", envOr("AGENTUSE_ATTACHMENTS_DIR", filepath.Join(home, ".agentuse", "attachments")), "附件存储目录")
+	attachmentsDir := fs.String("attachments-dir", command.EnvOr("AGENTUSE_ATTACHMENTS_DIR", filepath.Join(home, ".agentuse", "attachments")), "附件存储目录")
 	envInt := func(key string, def int64) int64 {
 		v := os.Getenv(key)
 		if v == "" {
@@ -74,7 +75,7 @@ func runStart(args []string) error {
 	maxBytes := fs.Int64("attachment-max-bytes", envInt("AGENTUSE_ATTACHMENT_MAX_BYTES", 100<<20), "单附件字节上限")
 	sessionMax := fs.Int64("attachment-session-max-bytes", envInt("AGENTUSE_ATTACHMENT_SESSION_MAX_BYTES", 1<<30), "会话附件总字节上限")
 	resetAdmin := fs.Bool("reset-admin-token", false, "启动时给管理员换一个新令牌并打印(令牌丢了用)")
-	if err := parse(fs, args); err != nil {
+	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
 	if *maxBytes <= 0 || *sessionMax <= 0 || *maxBytes > (1<<63-1)-(1<<20) {
@@ -93,7 +94,7 @@ func runStart(args []string) error {
 		return err
 	}
 	defer st.Close()
-	ctx, stop := signalContext()
+	ctx, stop := command.SignalContext()
 	defer stop()
 	if err := st.MarkAllDaemonsOffline(ctx); err != nil {
 		return err
@@ -175,15 +176,15 @@ func displayAddr(a net.Addr) string {
 }
 
 func runLogin(args []string) error {
-	fs := newFlags("agentuse-server login")
+	fs := command.NewFlags("agentuse-server login")
 	srvURL := fs.String("server", os.Getenv("AGENTUSE_SERVER"), "服务地址")
 	token := fs.String("token", os.Getenv("AGENTUSE_TOKEN"), "管理员登录令牌(ut_ 开头)")
 	path := fs.String("config", defaultClientConfig(), "保存到哪")
-	if err := parse(fs, args); err != nil {
+	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
 	if *srvURL == "" || *token == "" {
-		return usageErr("需要 -server 和 -token")
+		return command.UsageErr("需要 -server 和 -token")
 	}
 	c := &agentuse.Client{BaseURL: strings.TrimRight(*srvURL, "/"), Token: *token}
 	me, err := c.Me(context.Background(), "")
@@ -202,7 +203,7 @@ func runLogin(args []string) error {
 
 func runUser(args []string) error {
 	if len(args) == 0 {
-		return usageErr("用法: agentuse-server user create|list|token")
+		return command.UsageErr("用法: agentuse-server user create|list|token")
 	}
 	switch args[0] {
 	case "create":
@@ -212,12 +213,12 @@ func runUser(args []string) error {
 	case "token":
 		return runUserToken(args[1:])
 	}
-	return usageErr("未知命令 user %s", args[0])
+	return command.UsageErr("未知命令 user %s", args[0])
 }
 
 // clientFlags 给管理命令加上 -server / -token / -config。
 func clientFlags(name string) (*clientFlagSet, *flagsHolder) {
-	fs := newFlags(name)
+	fs := command.NewFlags(name)
 	h := &flagsHolder{
 		server: fs.String("server", "", "服务地址(默认 AGENTUSE_SERVER 或 login 存的配置)"),
 		token:  fs.String("token", "", "管理员令牌(默认 AGENTUSE_TOKEN 或 login 存的配置)"),
@@ -229,13 +230,13 @@ func clientFlags(name string) (*clientFlagSet, *flagsHolder) {
 func runUserCreate(args []string) error {
 	// 用户名放在最前面，后面才是参数:user create alice -id u_1
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return usageErr("用法: agentuse-server user create 用户名 [-id 用户id] [-role user|admin]")
+		return command.UsageErr("用法: agentuse-server user create 用户名 [-id 用户id] [-role user|admin]")
 	}
 	name := args[0]
 	cf, h := clientFlags("agentuse-server user create")
 	id := cf.String("id", "", "用户 id,填接入方自己的 user id;不填生成 UUID")
 	role := cf.String("role", store.RoleUser, "角色: user / admin")
-	if err := parse(cf.FlagSet, args[1:]); err != nil {
+	if err := command.Parse(cf.FlagSet, args[1:]); err != nil {
 		return err
 	}
 	c, err := h.client()
@@ -254,7 +255,7 @@ func runUserCreate(args []string) error {
 func runUserList(args []string) error {
 	cf, h := clientFlags("agentuse-server user list")
 	asJSON := cf.Bool("json", false, "输出 JSON")
-	if err := parse(cf.FlagSet, args); err != nil {
+	if err := command.Parse(cf.FlagSet, args); err != nil {
 		return err
 	}
 	c, err := h.client()
@@ -266,23 +267,23 @@ func runUserList(args []string) error {
 		return err
 	}
 	if *asJSON {
-		return printJSON(os.Stdout, users)
+		return command.PrintJSON(os.Stdout, users)
 	}
 	rows := [][]string{{"id", "用户名", "角色", "创建时间"}}
 	for _, u := range users {
 		rows = append(rows, []string{u.ID, u.Name, u.Role, time.Unix(u.CreatedAt, 0).Format("2006-01-02 15:04")})
 	}
-	printTable(os.Stdout, rows)
+	command.PrintTable(os.Stdout, rows)
 	return nil
 }
 
 func runUserToken(args []string) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return usageErr("用法: agentuse-server user token 用户id")
+		return command.UsageErr("用法: agentuse-server user token 用户id")
 	}
 	id := args[0]
 	cf, h := clientFlags("agentuse-server user token")
-	if err := parse(cf.FlagSet, args[1:]); err != nil {
+	if err := command.Parse(cf.FlagSet, args[1:]); err != nil {
 		return err
 	}
 	c, err := h.client()

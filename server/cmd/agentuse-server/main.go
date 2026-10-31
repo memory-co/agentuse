@@ -4,7 +4,7 @@ package main
 import (
 	"os"
 
-	"github.com/memory-co/agentuse/internal/cli"
+	"github.com/memory-co/agentuse/server/internal/cli"
 )
 
-func main() { os.Exit(cli.ServerMain(os.Args[1:])) }
+func main() { os.Exit(cli.Main(os.Args[1:])) }
