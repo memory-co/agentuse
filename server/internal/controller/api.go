@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/service"
 )
 
 const cookieName = "agentuse_token"
@@ -21,11 +21,11 @@ type userKey struct{}
 // workKey:请求用的是工作令牌(wt_)时，放着它能动的那个工作。
 type workKey struct{}
 
-func currentUser(r *http.Request) store.User { return r.Context().Value(userKey{}).(store.User) }
+func currentUser(r *http.Request) service.User { return r.Context().Value(userKey{}).(service.User) }
 
 // workScope 是工作令牌限定的工作;用户令牌时返回 nil。
-func workScope(r *http.Request) *store.Work {
-	w, _ := r.Context().Value(workKey{}).(*store.Work)
+func workScope(r *http.Request) *service.Work {
+	w, _ := r.Context().Value(workKey{}).(*service.Work)
 	return w
 }
 
@@ -58,7 +58,7 @@ func (s *Server) authWith(h http.HandlerFunc, allowWork bool) http.HandlerFunc {
 				writeErr(w, http.StatusForbidden, "工作令牌不能调这个接口")
 				return
 			}
-			wk, u, err := s.store.WorkByToken(r.Context(), tok)
+			wk, u, err := s.service.WorkByToken(r.Context(), tok)
 			if err != nil {
 				writeErr(w, http.StatusUnauthorized, "工作令牌无效或已过期(只在协调者这条消息还在跑时有效)")
 				return
@@ -67,7 +67,7 @@ func (s *Server) authWith(h http.HandlerFunc, allowWork bool) http.HandlerFunc {
 			h(w, r.WithContext(context.WithValue(ctx, workKey{}, &wk)))
 			return
 		}
-		u, err := s.store.UserByToken(r.Context(), tok)
+		u, err := s.service.UserByToken(r.Context(), tok)
 		if err != nil {
 			writeErr(w, http.StatusUnauthorized, "令牌无效")
 			return
@@ -87,13 +87,13 @@ func (s *Server) authWith(h http.HandlerFunc, allowWork bool) http.HandlerFunc {
 }
 
 // actAs 取 X-Agentuse-User 指的用户，第一次出现就自动建(role = user,name 取 id)。
-func (s *Server) actAs(ctx context.Context, id string) (store.User, error) {
-	u, err := s.store.GetUser(ctx, id)
-	if !errors.Is(err, store.ErrNotFound) {
+func (s *Server) actAs(ctx context.Context, id string) (service.User, error) {
+	u, err := s.service.GetUser(ctx, id)
+	if !errors.Is(err, service.ErrNotFound) {
 		return u, err
 	}
-	if u, _, err = s.store.CreateUser(ctx, id, id, store.RoleUser); err != nil {
-		if again, e := s.store.GetUser(ctx, id); e == nil { // 并发请求抢先建了
+	if u, _, err = s.service.CreateUser(ctx, id, id, service.RoleUser); err != nil {
+		if again, e := s.service.GetUser(ctx, id); e == nil { // 并发请求抢先建了
 			return again, nil
 		}
 	}
@@ -120,7 +120,7 @@ func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, token string,
 // handleLoginLink:GET /login?token=… 是服务启动时打印的登录链接。
 func (s *Server) handleLoginLink(w http.ResponseWriter, r *http.Request) {
 	tok := r.URL.Query().Get("token")
-	if _, err := s.store.UserByToken(r.Context(), tok); err != nil {
+	if _, err := s.service.UserByToken(r.Context(), tok); err != nil {
 		http.Redirect(w, r, "/?login=invalid", http.StatusFound)
 		return
 	}
@@ -136,7 +136,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	u, err := s.store.UserByToken(r.Context(), strings.TrimSpace(req.Token))
+	u, err := s.service.UserByToken(r.Context(), strings.TrimSpace(req.Token))
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, "令牌无效")
 		return
@@ -155,7 +155,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := s.store.ListUsers(r.Context())
+	users, err := s.service.ListUsers(r.Context())
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -174,9 +174,9 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Role == "" {
-		req.Role = store.RoleUser
+		req.Role = service.RoleUser
 	}
-	u, token, err := s.store.CreateUser(r.Context(), req.ID, req.Name, req.Role)
+	u, token, err := s.service.CreateUser(r.Context(), req.ID, req.Name, req.Role)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -187,7 +187,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleResetUserToken(w http.ResponseWriter, r *http.Request) {
-	u, token, err := s.store.ResetUserToken(r.Context(), r.PathValue("id"))
+	u, token, err := s.service.ResetUserToken(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -198,7 +198,7 @@ func (s *Server) handleResetUserToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListHarnesses(w http.ResponseWriter, r *http.Request) {
-	harnesses, err := s.store.ListHarnesses(r.Context())
+	harnesses, err := s.service.ListHarnesses(r.Context())
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -216,7 +216,7 @@ func (s *Server) handleCreateHarness(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a, err := s.store.CreateCustomHarness(r.Context(), currentUser(r).ID, req.Name, req.DisplayName, req.Description)
+	a, err := s.service.CreateCustomHarness(r.Context(), currentUser(r).ID, req.Name, req.DisplayName, req.Description)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -225,7 +225,7 @@ func (s *Server) handleCreateHarness(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteHarness(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteCustomHarness(r.Context(), currentUser(r), r.PathValue("name")); err != nil {
+	if err := s.service.DeleteCustomHarness(r.Context(), currentUser(r), r.PathValue("name")); err != nil {
 		s.storeErr(w, err)
 		return
 	}
@@ -233,7 +233,7 @@ func (s *Server) handleDeleteHarness(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
-	agents, err := s.store.ListAgents(r.Context(), currentUser(r))
+	agents, err := s.service.ListAgents(r.Context(), currentUser(r))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -253,7 +253,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a, err := s.store.CreateAgent(r.Context(), currentUser(r).ID, req.ID, req.Name, req.DaemonID, req.Harness, req.Description)
+	a, err := s.service.CreateAgent(r.Context(), currentUser(r).ID, req.ID, req.Name, req.DaemonID, req.Harness, req.Description)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -262,7 +262,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
-	a, err := s.store.GetAgent(r.Context(), currentUser(r), r.PathValue("id"))
+	a, err := s.service.GetAgent(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -282,8 +282,8 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a, err := s.store.UpdateAgent(r.Context(), currentUser(r), r.PathValue("id"),
-		store.AgentPatch{Name: req.Name, DaemonID: req.DaemonID, Harness: req.Harness, Description: req.Description})
+	a, err := s.service.UpdateAgent(r.Context(), currentUser(r), r.PathValue("id"),
+		service.AgentPatch{Name: req.Name, DaemonID: req.DaemonID, Harness: req.Harness, Description: req.Description})
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -292,7 +292,7 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteAgent(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
+	if err := s.service.DeleteAgent(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
 		s.storeErr(w, err)
 		return
 	}
@@ -301,11 +301,11 @@ func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 
 // daemonView 是页面上一台 daemon:待注册的附带安装命令。
 type daemonView struct {
-	store.Daemon
+	service.Daemon
 	SetupCommand string `json:"setup_command,omitempty"`
 }
 
-func (s *Server) view(r *http.Request, d store.Daemon) daemonView {
+func (s *Server) view(r *http.Request, d service.Daemon) daemonView {
 	v := daemonView{Daemon: d}
 	if d.SetupToken != "" {
 		v.SetupCommand = setupCommand(s.baseURL(r), d.SetupToken)
@@ -318,7 +318,7 @@ func setupCommand(base, token string) string {
 }
 
 func (s *Server) handleListDaemons(w http.ResponseWriter, r *http.Request) {
-	ds, err := s.store.ListDaemons(r.Context(), currentUser(r))
+	ds, err := s.service.ListDaemons(r.Context(), currentUser(r))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -340,7 +340,7 @@ func (s *Server) handleCreateDaemon(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	d, err := s.store.CreateDaemon(r.Context(), currentUser(r).ID, req.Name)
+	d, err := s.service.CreateDaemon(r.Context(), currentUser(r).ID, req.Name)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -350,27 +350,19 @@ func (s *Server) handleCreateDaemon(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteDaemon(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	d, err := s.store.GetDaemon(r.Context(), currentUser(r), id)
-	if err != nil {
+	if err := s.service.DeleteDaemon(r.Context(), currentUser(r), id); err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	if err := s.store.DeleteDaemon(r.Context(), currentUser(r), id); err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	s.service.Notifier.Disconnect(id)
-	s.service.Notifier.KickUser(d.UserID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleResetDaemon(w http.ResponseWriter, r *http.Request) {
-	d, err := s.store.ResetDaemonSetup(r.Context(), currentUser(r), r.PathValue("id"))
+	d, err := s.service.ResetDaemonSetup(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	s.service.Notifier.Disconnect(d.ID)
 	writeJSON(w, http.StatusOK, s.view(r, d))
 }
 
@@ -384,17 +376,14 @@ func (s *Server) handleToggleHarness(w http.ResponseWriter, r *http.Request) {
 	}
 	u := currentUser(r)
 	id := r.PathValue("id")
-	if err := s.store.SetDaemonHarnessEnabled(r.Context(), u, id, r.PathValue("harness"), req.Enabled); err != nil {
+	if err := s.service.SetDaemonHarnessEnabled(r.Context(), u, id, r.PathValue("harness"), req.Enabled); err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	d, err := s.store.GetDaemon(r.Context(), u, id)
+	d, err := s.service.GetDaemon(r.Context(), u, id)
 	if err != nil {
 		s.storeErr(w, err)
 		return
-	}
-	if req.Enabled {
-		s.service.Notifier.KickUser(d.UserID)
 	}
 	writeJSON(w, http.StatusOK, s.view(r, d))
 }
@@ -411,12 +400,12 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var sessions []store.Session
+	var sessions []service.Session
 	var err error
 	if workID != "" {
-		sessions, err = s.store.ListWorkSessions(r.Context(), currentUser(r), workID, 100)
+		sessions, err = s.service.ListWorkSessions(r.Context(), currentUser(r), workID, 100)
 	} else {
-		sessions, err = s.store.ListSessions(r.Context(), currentUser(r), 100)
+		sessions, err = s.service.ListSessions(r.Context(), currentUser(r), 100)
 	}
 	if err != nil {
 		s.storeErr(w, err)
@@ -452,7 +441,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Mode != "" && req.Mode != store.MultiAgent {
+	if req.Mode != "" && req.Mode != service.MultiAgent {
 		writeErr(w, 400, "只支持 multi_agent session")
 		return
 	}
@@ -482,13 +471,11 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, id) {
 		return
 	}
-	reply, err := s.store.SendMultiMessage(r.Context(), u, id, content, req.TargetAgentIDs, r.Header.Get("Idempotency-Key"), len(req.Input) == 0)
+	reply, err := s.service.SendMultiMessage(r.Context(), u, id, content, req.TargetAgentIDs, r.Header.Get("Idempotency-Key"), len(req.Input) == 0)
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	s.service.Notifier.KickAll()
-	s.service.Notifier.PushRunSteers(reply.Deliveries)
 	writeJSON(w, 201, reply)
 }
 
@@ -496,7 +483,7 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, r.PathValue("id")) {
 		return
 	}
-	ss, err := s.store.GetSession(r.Context(), currentUser(r), r.PathValue("id"))
+	ss, err := s.service.GetSession(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -509,12 +496,12 @@ func (s *Server) threadInScope(w http.ResponseWriter, r *http.Request, id string
 	if sc == nil {
 		return true
 	}
-	ss, err := s.store.GetSession(r.Context(), currentUser(r), id)
+	ss, err := s.service.GetSession(r.Context(), currentUser(r), id)
 	if err != nil {
 		s.storeErr(w, err)
 		return false
 	}
-	if ss.WorkID != sc.ID || (ss.WorkRole != store.WorkThread && ss.Mode != store.MultiAgent) {
+	if ss.WorkID != sc.ID || (ss.WorkRole != service.WorkThread && ss.Mode != service.MultiAgent) {
 		writeErr(w, http.StatusForbidden, "工作令牌只能动自己工作的线程")
 		return false
 	}
@@ -526,7 +513,7 @@ func (s *Server) handleResolveSession(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, r.PathValue("id")) {
 		return
 	}
-	ss, err := s.store.ResolveSession(r.Context(), currentUser(r), r.PathValue("id"))
+	ss, err := s.service.ResolveSession(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -535,7 +522,7 @@ func (s *Server) handleResolveSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReopenSession(w http.ResponseWriter, r *http.Request) {
-	ss, err := s.store.ReopenSession(r.Context(), currentUser(r), r.PathValue("id"))
+	ss, err := s.service.ReopenSession(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -544,7 +531,7 @@ func (s *Server) handleReopenSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListWorks(w http.ResponseWriter, r *http.Request) {
-	works, err := s.store.ListWorks(r.Context(), currentUser(r))
+	works, err := s.service.ListWorks(r.Context(), currentUser(r))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -564,11 +551,11 @@ func (s *Server) handleCreateWork(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Mode != "" && req.Mode != store.MultiAgent {
+	if req.Mode != "" && req.Mode != service.MultiAgent {
 		writeErr(w, 400, "只支持 multi_agent session")
 		return
 	}
-	create := s.store.CreateMultiWork
+	create := s.service.CreateMultiWork
 	wk, coord, err := create(r.Context(), currentUser(r), req.Name, req.AgentID, req.Instructions)
 	if err != nil {
 		s.storeErr(w, err)
@@ -578,7 +565,7 @@ func (s *Server) handleCreateWork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetWork(w http.ResponseWriter, r *http.Request) {
-	wk, err := s.store.GetWork(r.Context(), currentUser(r), r.PathValue("id"))
+	wk, err := s.service.GetWork(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -596,7 +583,7 @@ func (s *Server) handleUpdateWork(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	wk, err := s.store.UpdateWork(r.Context(), currentUser(r), r.PathValue("id"), store.WorkPatch{Name: req.Name, Instructions: req.Instructions, CoordinatorAgentID: req.CoordinatorAgentID})
+	wk, err := s.service.UpdateWork(r.Context(), currentUser(r), r.PathValue("id"), service.WorkPatch{Name: req.Name, Instructions: req.Instructions, CoordinatorAgentID: req.CoordinatorAgentID})
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -605,7 +592,7 @@ func (s *Server) handleUpdateWork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteWork(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteWork(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
+	if err := s.service.DeleteWork(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
 		s.storeErr(w, err)
 		return
 	}
@@ -613,7 +600,7 @@ func (s *Server) handleDeleteWork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteSession(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
+	if err := s.service.DeleteSession(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
 		s.storeErr(w, err)
 		return
 	}
@@ -631,7 +618,7 @@ func firstRunes(s string, n int) string {
 // handleDaemonMe:daemon 用密钥查自己，验证密钥是否还有效。
 func (s *Server) handleDaemonMe(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	d, err := s.store.DaemonByKey(r.Context(), key)
+	d, err := s.service.DaemonByKey(r.Context(), key)
 	if key == "" || err != nil {
 		writeErr(w, http.StatusUnauthorized, "daemon 密钥无效，请重新运行安装命令")
 		return
@@ -645,8 +632,8 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	d, key, err := s.store.RegisterDaemon(r.Context(), strings.TrimSpace(req.Token), req.Hostname)
-	if errors.Is(err, store.ErrNotFound) {
+	d, key, err := s.service.RegisterDaemon(r.Context(), strings.TrimSpace(req.Token), req.Hostname)
+	if errors.Is(err, service.ErrNotFound) {
 		writeErr(w, http.StatusUnauthorized, "安装令牌无效或已用过，请在页面上重新生成安装命令")
 		return
 	}

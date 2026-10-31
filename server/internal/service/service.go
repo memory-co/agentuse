@@ -2,8 +2,12 @@
 package service
 
 import (
+	"database/sql"
 	"github.com/memory-co/agentuse/internal/protocol"
 	"github.com/memory-co/agentuse/server/internal/store"
+	"log"
+	"sync"
+	"time"
 )
 
 type Notifier interface {
@@ -15,11 +19,27 @@ type Notifier interface {
 }
 
 type Service struct {
-	*store.Store
-	Notifier Notifier
+	attachments  AttachmentConfig
+	attachmentMu sync.RWMutex
+	log          *log.Logger
+	repository   *store.Store
+	db           *sql.DB
+	now          func() time.Time
+	Notifier     Notifier
 }
 
-func New(st *store.Store) *Service { return &Service{Store: st, Notifier: discardNotifier{}} }
+func New(st *store.Store) *Service {
+	return &Service{log: log.Default(), repository: st, db: st.Connection(), now: time.Now, Notifier: discardNotifier{}}
+}
+func Open(path string) (*Service, error) {
+	st, e := store.Open(path)
+	if e != nil {
+		return nil, e
+	}
+	return New(st), nil
+}
+func (s *Service) Close() error { return s.repository.Close() }
+func (s *Service) unix() int64  { return s.now().Unix() }
 func (s *Service) SetNotifier(n Notifier) {
 	if n != nil {
 		s.Notifier = n

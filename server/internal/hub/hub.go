@@ -15,7 +15,6 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // hub 管所有在线 daemon 的 WebSocket 连接，负责派活。
@@ -27,7 +26,7 @@ type Hub struct {
 }
 
 type daemonConn struct {
-	d      store.Daemon
+	d      service.Daemon
 	ws     *websocket.Conn
 	cancel context.CancelFunc
 
@@ -88,9 +87,9 @@ func (h *Hub) serve(ctx context.Context, c *daemonConn) error {
 		}
 		switch m.Type {
 		case protocol.TypeHello:
-			reported := make([]store.ReportedHarness, 0, len(m.Harnesses))
+			reported := make([]service.ReportedHarness, 0, len(m.Harnesses))
 			for _, a := range m.Harnesses {
-				reported = append(reported, store.ReportedHarness{Name: a.Name, Version: a.Version})
+				reported = append(reported, service.ReportedHarness{Name: a.Name, Version: a.Version})
 			}
 			ignored, err := st.DaemonConnected(ctx, c.d, reported, m.Capabilities)
 			if err != nil {
@@ -143,10 +142,6 @@ func (h *Hub) serve(ctx context.Context, c *daemonConn) error {
 				if err := st.ReportRunEvent(ctx, c.d.ID, m.RunID, m.AttemptID, m.EventSeq, m.Kind, m.Payload, protocol.LeaseSeconds); err != nil {
 					_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, RunID: m.RunID, AttemptID: m.AttemptID, MessageID: m.MessageID, Error: err.Error()})
 				}
-				if ds, e := st.PendingRunSteers(ctx); e == nil {
-					h.PushRunSteers(ds)
-				}
-				h.KickAll()
 				continue
 			}
 			_ = c.send(ctx, protocol.Message{Type: protocol.TypeError, Error: "run_id and attempt_id are required"})
@@ -172,7 +167,7 @@ func (h *Hub) dispatch(ctx context.Context, c *daemonConn) {
 		}
 		return
 	}
-	if !errors.Is(runErr, store.ErrNotFound) {
+	if !errors.Is(runErr, service.ErrNotFound) {
 		h.log.Printf("claim run: %v", runErr)
 		return
 	}
@@ -233,12 +228,12 @@ func (h *Hub) PushRun(daemon string, m protocol.Message) {
 		_ = c.send(context.Background(), m)
 	}
 }
-func (h *Hub) PushRunSteers(ds []store.Delivery) {
+func (h *Hub) PushRunSteers(ds []service.Delivery) {
 	for _, d := range ds {
 		if d.Kind != "steer" || d.Status != "pending" {
 			continue
 		}
-		run, err := h.service.GetRun(context.Background(), store.User{Role: store.RoleAdmin}, d.SessionID, d.RunID)
+		run, err := h.service.GetRun(context.Background(), service.User{Role: service.RoleAdmin}, d.SessionID, d.RunID)
 		if err != nil || run.Status != "running" {
 			continue
 		}

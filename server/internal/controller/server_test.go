@@ -12,20 +12,20 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/service"
 )
 
 // env 是一个跑在 httptest 上的服务，带一个内存库。
 type env struct {
 	t   *testing.T
-	st  *store.Store
+	st  *service.Service
 	srv *Server
 	ts  *httptest.Server
 }
 
 func newEnv(t *testing.T, cfg Config) *env {
 	t.Helper()
-	st, err := store.Open(":memory:")
+	st, err := service.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func newEnv(t *testing.T, cfg Config) *env {
 }
 
 // user 建一个用户，返回它的令牌。
-func (e *env) user(name, role string) (store.User, string) {
+func (e *env) user(name, role string) (service.User, string) {
 	e.t.Helper()
 	u, tok, err := e.st.CreateUser(context.Background(), "", name, role)
 	if err != nil {
@@ -109,11 +109,11 @@ func TestBaseURL(t *testing.T) {
 func TestStoreErr(t *testing.T) {
 	s := &Server{}
 	for err, code := range map[error]int{
-		store.ErrNotFound:                         404,
-		fmt.Errorf("wrap: %w", store.ErrNotFound): 404,
-		store.ErrSessionBusy:                      409,
-		errors.New("名字不对"):                        400,
-		fmt.Errorf("x: %w", store.ErrSessionBusy): 409,
+		service.ErrNotFound:                         404,
+		fmt.Errorf("wrap: %w", service.ErrNotFound): 404,
+		service.ErrSessionBusy:                      409,
+		errors.New("名字不对"):                          400,
+		fmt.Errorf("x: %w", service.ErrSessionBusy): 409,
 	} {
 		w := httptest.NewRecorder()
 		s.storeErr(w, err)

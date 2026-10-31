@@ -7,6 +7,7 @@ import (
 )
 
 type Run struct {
+	AgentUserID     string `json:"agent_user_id"`
 	ID              string `json:"id"`
 	SessionID       string `json:"session_id"`
 	MessageID       int64  `json:"message_id"`
@@ -25,6 +26,7 @@ type Run struct {
 	UpdatedAt       int64  `json:"updated_at"`
 }
 type Delivery struct {
+	SessionID string `json:"session_id"`
 	ID        int64  `json:"id"`
 	MessageID int64  `json:"message_id"`
 	AgentID   string `json:"agent_id,omitempty"`

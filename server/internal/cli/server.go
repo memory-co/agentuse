@@ -91,11 +91,12 @@ func runStart(args []string) error {
 			return err
 		}
 	}
-	st, err := store.Open(*dbPath)
+	repository, err := store.Open(*dbPath)
 	if err != nil {
 		return err
 	}
-	defer st.Close()
+	defer repository.Close()
+	st := service.New(repository)
 	ctx, stop := command.SignalContext()
 	defer stop()
 	if err := st.MarkAllDaemonsOffline(ctx); err != nil {
@@ -118,11 +119,11 @@ func runStart(args []string) error {
 			*dist, strings.Join(missing, ", "))
 	}
 
-	svc := service.New(st)
+	svc := st
 	transport := hub.New(svc, log.Default())
 	svc.SetNotifier(transport)
-	srv := server.New(st, server.Config{Service: svc, DaemonHandler: transport, PublicURL: *publicURL, DistDir: *dist, AttachmentsDir: *attachmentsDir, AttachmentMaxBytes: *maxBytes, AttachmentSessionMaxBytes: *sessionMax})
-	go srv.Run(ctx)
+	srv := server.New(st, server.Config{DaemonHandler: transport, PublicURL: *publicURL, DistDir: *dist, AttachmentsDir: *attachmentsDir, AttachmentMaxBytes: *maxBytes, AttachmentSessionMaxBytes: *sessionMax})
+	go svc.Run(ctx)
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -138,7 +139,7 @@ func runStart(args []string) error {
 }
 
 // bootstrapAdmin:库里没用户就建 admin;要求重置就给最早的管理员换令牌。都会打印登录链接。
-func bootstrapAdmin(ctx context.Context, st *store.Store, base string, reset bool) error {
+func bootstrapAdmin(ctx context.Context, st *service.Service, base string, reset bool) error {
 	n, err := st.CountUsers(ctx)
 	if err != nil {
 		return err

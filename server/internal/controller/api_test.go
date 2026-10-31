@@ -7,13 +7,13 @@ import (
 	"testing"
 
 	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/service"
 )
 
 func TestAuth(t *testing.T) {
 	e := newEnv(t, Config{})
-	_, adminTok := e.user("root", store.RoleAdmin)
-	alice, aliceTok := e.user("alice", store.RoleUser)
+	_, adminTok := e.user("root", service.RoleAdmin)
+	alice, aliceTok := e.user("alice", service.RoleUser)
 
 	if c := e.code("", "GET", "/api/me", nil); c != http.StatusUnauthorized {
 		t.Fatalf("no token: %d", c)
@@ -21,7 +21,7 @@ func TestAuth(t *testing.T) {
 	if c := e.code("ut_bad", "GET", "/api/me", nil); c != http.StatusUnauthorized {
 		t.Fatalf("bad token: %d", c)
 	}
-	var me store.User
+	var me service.User
 	if e.req(aliceTok, "GET", "/api/me", nil, &me); me.ID != alice.ID {
 		t.Fatalf("me: %+v", me)
 	}
@@ -48,16 +48,16 @@ func TestAuth(t *testing.T) {
 
 func TestActAsUser(t *testing.T) {
 	e := newEnv(t, Config{})
-	_, adminTok := e.user("root", store.RoleAdmin)
-	alice, aliceTok, _ := e.st.CreateUser(context.Background(), "alice", "alice", store.RoleUser)
+	_, adminTok := e.user("root", service.RoleAdmin)
+	alice, aliceTok, _ := e.st.CreateUser(context.Background(), "alice", "alice", service.RoleUser)
 
 	// 不存在的用户自动建
-	var me store.User
-	if r := e.req(adminTok, "GET", "/api/me", nil, &me, actAsHeader, "u_10086"); r.StatusCode != 200 || me.ID != "u_10086" || me.Role != store.RoleUser {
+	var me service.User
+	if r := e.req(adminTok, "GET", "/api/me", nil, &me, actAsHeader, "u_10086"); r.StatusCode != 200 || me.ID != "u_10086" || me.Role != service.RoleUser {
 		t.Fatalf("act as new user: %d %+v", r.StatusCode, me)
 	}
 	// 代为 alice 添加的 daemon 挂在 alice 下
-	var d store.Daemon
+	var d service.Daemon
 	if r := e.req(adminTok, "POST", "/api/daemons", map[string]string{"name": "x"}, &d, actAsHeader, alice.ID); r.StatusCode != http.StatusCreated || d.UserID != alice.ID {
 		t.Fatalf("create daemon as alice: %d %+v", r.StatusCode, d)
 	}
@@ -73,9 +73,9 @@ func TestActAsUser(t *testing.T) {
 
 func TestLogin(t *testing.T) {
 	e := newEnv(t, Config{})
-	alice, tok := e.user("alice", store.RoleUser)
+	alice, tok := e.user("alice", service.RoleUser)
 
-	var u store.User
+	var u service.User
 	resp := e.req("", "POST", "/api/login", map[string]string{"token": " " + tok + " "}, &u)
 	if resp.StatusCode != 200 || u.ID != alice.ID || cookie(resp) == nil || cookie(resp).Value != tok || !cookie(resp).HttpOnly {
 		t.Fatalf("login: %d %+v %+v", resp.StatusCode, u, cookie(resp))
@@ -117,15 +117,15 @@ func cookie(resp *http.Response) *http.Cookie {
 
 func TestUsersAPI(t *testing.T) {
 	e := newEnv(t, Config{PublicURL: "https://agentuse.example.com"})
-	_, adminTok := e.user("root", store.RoleAdmin)
+	_, adminTok := e.user("root", service.RoleAdmin)
 
 	var created struct {
-		User     store.User `json:"user"`
-		Token    string     `json:"token"`
-		LoginURL string     `json:"login_url"`
+		User     service.User `json:"user"`
+		Token    string       `json:"token"`
+		LoginURL string       `json:"login_url"`
 	}
 	if r := e.req(adminTok, "POST", "/api/users", map[string]string{"id": "u_1", "name": "alice"}, &created); r.StatusCode != http.StatusCreated ||
-		created.User.Role != store.RoleUser || created.LoginURL != "https://agentuse.example.com/login?token="+created.Token {
+		created.User.Role != service.RoleUser || created.LoginURL != "https://agentuse.example.com/login?token="+created.Token {
 		t.Fatalf("create: %d %+v", r.StatusCode, created)
 	}
 	if c := e.code(adminTok, "POST", "/api/users", map[string]string{"name": "alice"}); c != http.StatusBadRequest {
@@ -144,7 +144,7 @@ func TestUsersAPI(t *testing.T) {
 	if c := e.code(adminTok, "POST", "/api/users/nobody/token", nil); c != http.StatusNotFound {
 		t.Fatalf("reset unknown: %d", c)
 	}
-	var users []store.User
+	var users []service.User
 	if e.req(adminTok, "GET", "/api/users", nil, &users); len(users) != 2 {
 		t.Fatalf("list: %+v", users)
 	}
@@ -152,17 +152,17 @@ func TestUsersAPI(t *testing.T) {
 
 func TestHarnessesAPI(t *testing.T) {
 	e := newEnv(t, Config{})
-	_, aliceTok := e.user("alice", store.RoleUser)
-	_, bobTok := e.user("bob", store.RoleUser)
+	_, aliceTok := e.user("alice", service.RoleUser)
+	_, bobTok := e.user("bob", service.RoleUser)
 
-	var h store.Harness
-	if r := e.req(aliceTok, "POST", "/api/harnesses", map[string]string{"name": "mine", "description": "d"}, &h); r.StatusCode != http.StatusCreated || h.Kind != store.HarnessCustom {
+	var h service.Harness
+	if r := e.req(aliceTok, "POST", "/api/harnesses", map[string]string{"name": "mine", "description": "d"}, &h); r.StatusCode != http.StatusCreated || h.Kind != service.HarnessCustom {
 		t.Fatalf("create: %d %+v", r.StatusCode, h)
 	}
 	if c := e.code(aliceTok, "POST", "/api/harnesses", map[string]string{"name": "Bad Name"}); c != http.StatusBadRequest {
 		t.Fatalf("bad name: %d", c)
 	}
-	var hs []store.Harness
+	var hs []service.Harness
 	if e.req(bobTok, "GET", "/api/harnesses", nil, &hs); len(hs) != 3 {
 		t.Fatalf("list: %+v", hs)
 	}
@@ -175,14 +175,14 @@ func TestHarnessesAPI(t *testing.T) {
 }
 
 // daemonWith 建一台 u 的、已上报并开启 harnesses 的 daemon。
-func (e *env) daemonWith(u store.User, harnesses ...string) store.Daemon {
+func (e *env) daemonWith(u service.User, harnesses ...string) service.Daemon {
 	e.t.Helper()
 	ctx := context.Background()
 	d, _ := e.st.CreateDaemon(ctx, u.ID, "laptop")
 	d, _, _ = e.st.RegisterDaemon(ctx, d.SetupToken, "")
-	var rep []store.ReportedHarness
+	var rep []service.ReportedHarness
 	for _, h := range harnesses {
-		rep = append(rep, store.ReportedHarness{Name: h})
+		rep = append(rep, service.ReportedHarness{Name: h})
 	}
 	e.st.DaemonConnected(ctx, d, rep)
 	for _, h := range harnesses {
@@ -193,11 +193,11 @@ func (e *env) daemonWith(u store.User, harnesses ...string) store.Daemon {
 
 func TestAgentsAPI(t *testing.T) {
 	e := newEnv(t, Config{})
-	alice, aliceTok := e.user("alice", store.RoleUser)
-	_, bobTok := e.user("bob", store.RoleUser)
+	alice, aliceTok := e.user("alice", service.RoleUser)
+	_, bobTok := e.user("bob", service.RoleUser)
 	d := e.daemonWith(alice, "claude", "codex")
 
-	var a store.Agent
+	var a service.Agent
 	if r := e.req(aliceTok, "POST", "/api/agents", map[string]string{"id": "coder", "name": "写代码", "daemon_id": d.ID, "harness": "claude"}, &a); r.StatusCode != http.StatusCreated || a.ID != "coder" {
 		t.Fatalf("create: %d %+v", r.StatusCode, a)
 	}
@@ -223,7 +223,7 @@ func TestAgentsAPI(t *testing.T) {
 	if c := e.code(aliceTok, "PATCH", "/api/agents/coder", "x"); c != http.StatusBadRequest {
 		t.Fatalf("bad json: %d", c)
 	}
-	var list []store.Agent
+	var list []service.Agent
 	if e.req(aliceTok, "GET", "/api/agents", nil, &list); len(list) != 1 {
 		t.Fatalf("list: %+v", list)
 	}
@@ -243,8 +243,8 @@ func TestAgentsAPI(t *testing.T) {
 
 func TestDaemonsAPI(t *testing.T) {
 	e := newEnv(t, Config{})
-	_, aliceTok := e.user("alice", store.RoleUser)
-	_, bobTok := e.user("bob", store.RoleUser)
+	_, aliceTok := e.user("alice", service.RoleUser)
+	_, bobTok := e.user("bob", service.RoleUser)
 
 	// 不带请求体也能建
 	var v daemonView
@@ -290,7 +290,7 @@ func TestDaemonsAPI(t *testing.T) {
 		t.Fatalf("toggle bad json: %d", c)
 	}
 	d, _ := e.st.DaemonByKey(context.Background(), reg.Key)
-	e.st.DaemonConnected(context.Background(), d, []store.ReportedHarness{{Name: "claude"}})
+	e.st.DaemonConnected(context.Background(), d, []service.ReportedHarness{{Name: "claude"}})
 	if r := e.req(aliceTok, "PUT", "/api/daemons/"+v.ID+"/harnesses/claude", map[string]bool{"enabled": true}, &v); r.StatusCode != 200 || !v.Harnesses[0].Enabled {
 		t.Fatalf("toggle: %d %+v", r.StatusCode, v)
 	}
@@ -299,7 +299,7 @@ func TestDaemonsAPI(t *testing.T) {
 	if c := e.code(bobTok, "POST", "/api/daemons/"+v.ID+"/reset", nil); c != http.StatusNotFound {
 		t.Fatalf("bob reset: %d", c)
 	}
-	if r := e.req(aliceTok, "POST", "/api/daemons/"+v.ID+"/reset", nil, &v); r.StatusCode != 200 || v.SetupCommand == "" || v.Status != store.DaemonPending {
+	if r := e.req(aliceTok, "POST", "/api/daemons/"+v.ID+"/reset", nil, &v); r.StatusCode != 200 || v.SetupCommand == "" || v.Status != service.DaemonPending {
 		t.Fatalf("reset: %d %+v", r.StatusCode, v)
 	}
 	if c := e.code(reg.Key, "GET", "/api/daemon/me", nil); c != http.StatusUnauthorized {

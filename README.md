@@ -125,27 +125,29 @@ bin/agentuse-server start -dist dist
 ```bash
 make test     # 单元测试 go test -short ./...
 make e2e      # e2e 场景(编好二进制再跑):make e2e E2E=install / E2E=session 只跑一个，见 test/e2e/
-make build    # bin/agentuse、bin/agentuse-server(先构建网页 frontend/dist 再嵌进去，需要 Node 18+)
+make build    # bin/agentuse、bin/agentuse-server(先构建两端 frontend/dist 再嵌进去，需要 Node 18+)
 make dist     # dist/agentuse-{linux,darwin}-{amd64,arm64}(只有用户电脑上的 agentuse)
 ```
 
 ## 布局
 
 ```
-cmd/agentuse/        用户电脑上的 CLI:register / daemon / status / harnesses
-cmd/agentuse-server/ 服务端 CLI:start / login / user
-internal/
-├── cli/             命令行
-├── store/           SQLite 存储(表结构见 docs/v2/tables/)
-├── protocol/        daemon ⇄ 服务的注册接口和 WebSocket 消息
-├── server/          HTTP API、WebSocket 派活、setup.sh、托管网页
-└── daemon/          注册、连接、调用本地 CLI harness、汇报
-harness/             内置 harness 的描述:harness/<name>/harness.yaml
-frontend/            网页:React + Vite + shadcn/ui,构建产物 dist/ 嵌进 agentuse-server
-test/e2e/            e2e 场景:install(安装)、session(普通会话，用自研 fakeharness)
-sdk/                 嵌入用客户端:python / nodejs / golang
-docs/                v2(当前) / v1(旧版)
+client/
+├── cmd/agentuse/      用户电脑上的 CLI
+├── internal/         cli、service 主循环、只读 controller、本机 store
+└── frontend/         本机执行账本和 token 统计网页
+server/
+├── cmd/agentuse-server/ 服务端 CLI
+├── internal/         cli、HTTP controller、WebSocket hub、业务 service、SQLite store
+└── frontend/         管理网页
+internal/             protocol、harness、attachment 校验、command、version
+sdk/                  HTTP API 类型及客户端：golang / nodejs / python
+test/e2e/             两个二进制的端到端场景
+test/architecture/    分层依赖检查
+docs/                 v2（当前）/ v1（旧版）
 ```
+
+client 和 server 通过 Go internal 规则隔离；本机 controller 只接收账本 Reader，service 只接收 Writer。服务端写操作和事务编排经过 service，store 保存 SQL、schema 和行解码。详见[目录设计](docs/v2/designs/layout.md)。
 
 ## License
 

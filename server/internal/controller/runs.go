@@ -7,8 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/service"
 )
 
 func (s *Server) createMultiSession(w http.ResponseWriter, r *http.Request, work, title, agent string, input json.RawMessage, prompt *string, targets []string) {
@@ -44,7 +43,7 @@ func (s *Server) createMultiSession(w http.ResponseWriter, r *http.Request, work
 		writeErr(w, 400, "指定目标时需要 prompt/input")
 		return
 	}
-	ss, reply, err := s.store.CreateMultiSession(r.Context(), currentUser(r), work, title, content, targets, r.Header.Get("Idempotency-Key"), len(input) == 0)
+	ss, reply, err := s.service.CreateMultiSession(r.Context(), currentUser(r), work, title, content, targets, r.Header.Get("Idempotency-Key"), len(input) == 0)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -55,11 +54,10 @@ func (s *Server) createMultiSession(w http.ResponseWriter, r *http.Request, work
 		out["runs"] = reply.Runs
 		out["deliveries"] = reply.Deliveries
 	}
-	s.service.Notifier.KickAll()
 	writeJSON(w, 201, out)
 }
-func (s *Server) getMultiSession(w http.ResponseWriter, r *http.Request, ss store.Session) {
-	detail, err := s.store.ReadSession(r.Context(), currentUser(r), ss.ID)
+func (s *Server) getMultiSession(w http.ResponseWriter, r *http.Request, ss service.Session) {
+	detail, err := s.service.ReadSession(r.Context(), currentUser(r), ss.ID)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -76,21 +74,21 @@ func (s *Server) sessionReadAuth(h http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, 403, "daemon 不能代为用户")
 			return
 		}
-		d, err := s.store.DaemonByKey(r.Context(), requestToken(r))
+		d, err := s.service.DaemonByKey(r.Context(), requestToken(r))
 		if err != nil {
 			writeErr(w, 401, "daemon 密钥无效")
 			return
 		}
-		if _, err = s.store.RunAccess(r.Context(), d.ID, r.PathValue("id"), r.Header.Get("X-Agentuse-Run"), r.Header.Get("X-Agentuse-Attempt")); err != nil {
+		if _, err = s.service.RunAccess(r.Context(), d.ID, r.PathValue("id"), r.Header.Get("X-Agentuse-Run"), r.Header.Get("X-Agentuse-Attempt")); err != nil {
 			s.storeErr(w, err)
 			return
 		}
-		ss, err := s.store.GetSession(r.Context(), store.User{Role: store.RoleAdmin}, r.PathValue("id"))
+		ss, err := s.service.GetSession(r.Context(), service.User{Role: service.RoleAdmin}, r.PathValue("id"))
 		if err != nil {
 			s.storeErr(w, err)
 			return
 		}
-		u, err := s.store.GetUser(r.Context(), ss.UserID)
+		u, err := s.service.GetUser(r.Context(), ss.UserID)
 		if err != nil {
 			s.storeErr(w, err)
 			return
@@ -102,17 +100,17 @@ func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, r.PathValue("id")) {
 		return
 	}
-	run, err := s.store.GetRun(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("run_id"))
+	run, err := s.service.GetRun(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("run_id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	events, err := s.store.RunEvents(r.Context(), run.SessionID)
+	events, err := s.service.RunEvents(r.Context(), run.SessionID)
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	filtered := []store.SessionEvent{}
+	filtered := []service.SessionEvent{}
 	for _, e := range events {
 		if e.RunID == run.ID {
 			filtered = append(filtered, e)
@@ -124,13 +122,11 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, r.PathValue("id")) {
 		return
 	}
-	run, err := s.store.CancelRun(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("run_id"))
+	run, err := s.service.CancelRun(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("run_id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	s.service.Notifier.PushRun(run.DaemonID, protocol.Message{Type: protocol.TypeCancel, RunID: run.ID, AttemptID: run.AttemptID})
-	s.service.Notifier.KickAll()
 	writeJSON(w, 200, run)
 }
 func (s *Server) handleAnswerRun(w http.ResponseWriter, r *http.Request) {
@@ -149,11 +145,10 @@ func (s *Server) handleAnswerRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	run, q, err := s.store.AnswerRunQuestion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("run_id"), id, req.Answers)
+	_, q, err := s.service.AnswerRunQuestion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("run_id"), id, req.Answers)
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	s.service.Notifier.PushRun(run.DaemonID, protocol.Message{Type: protocol.TypeAnswer, Answer: &protocol.Answer{RunID: run.ID, AttemptID: run.AttemptID, MessageID: run.MessageID, ToolUseID: q.ToolUseID, Answers: q.Answers}})
 	writeJSON(w, 202, q)
 }

@@ -9,38 +9,38 @@ import (
 
 	"github.com/memory-co/agentuse/internal/attachment"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/service"
 )
 
-func enableRuns(t *testing.T, e *env, u store.User, d store.Daemon) {
+func enableRuns(t *testing.T, e *env, u service.User, d service.Daemon) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := e.st.DaemonConnected(ctx, d, []store.ReportedHarness{{Name: "claude"}}, []string{store.RunCapability, attachment.Capability}); err != nil {
+	if _, err := e.st.DaemonConnected(ctx, d, []service.ReportedHarness{{Name: "claude"}}, []string{service.RunCapability, attachment.Capability}); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.st.SetDaemonHarnessEnabled(ctx, u, d.ID, "claude", true); err != nil {
 		t.Fatal(err)
 	}
 }
-func multiSession(t *testing.T, f *attachmentFixture) store.Session {
+func multiSession(t *testing.T, f *attachmentFixture) service.Session {
 	t.Helper()
-	var res struct{ Session store.Session }
-	r := f.e.req(f.token, "POST", "/api/sessions", map[string]any{"mode": store.MultiAgent}, &res)
-	if r.StatusCode != 201 || res.Session.Mode != store.MultiAgent {
+	var res struct{ Session service.Session }
+	r := f.e.req(f.token, "POST", "/api/sessions", map[string]any{"mode": service.MultiAgent}, &res)
+	if r.StatusCode != 201 || res.Session.Mode != service.MultiAgent {
 		t.Fatalf("multi session %d %+v", r.StatusCode, res)
 	}
 	return res.Session
 }
-func sendMulti(t *testing.T, f *attachmentFixture, id, prompt string, targets []string) store.MultiReply {
+func sendMulti(t *testing.T, f *attachmentFixture, id, prompt string, targets []string) service.MultiReply {
 	t.Helper()
-	var reply store.MultiReply
+	var reply service.MultiReply
 	r := f.e.req(f.token, "POST", "/api/sessions/"+id+"/messages", map[string]any{"prompt": prompt, "target_agent_ids": targets}, &reply)
 	if r.StatusCode != 201 {
 		t.Fatalf("send %d %+v", r.StatusCode, reply)
 	}
 	return reply
 }
-func finishMulti(t *testing.T, e *env, cl store.RunClaim, output string) {
+func finishMulti(t *testing.T, e *env, cl service.RunClaim, output string) {
 	t.Helper()
 	ctx := context.Background()
 	if err := e.st.ReportRunEvent(ctx, cl.Run.DaemonID, cl.Run.ID, cl.Run.AttemptID, 1, "started", json.RawMessage(`{}`), 60); err != nil {
@@ -56,7 +56,7 @@ func TestMultiAgentRoutingAndHistory(t *testing.T) {
 	e := f.e
 	ctx := context.Background()
 	enableRuns(t, e, f.u, f.d)
-	bob, bobTok := e.user("bob", store.RoleUser)
+	bob, bobTok := e.user("bob", service.RoleUser)
 	dB := e.daemonWith(bob, "claude")
 	enableRuns(t, e, bob, dB)
 	aB, err := e.st.CreateAgent(ctx, bob.ID, "reviewer", "reviewer", dB.ID, "claude", "")
@@ -162,7 +162,7 @@ func TestMultiInputQueueAndFencing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var custom store.MultiReply
+	var custom service.MultiReply
 	e.req(f.token, "POST", "/api/sessions/"+ss.ID+"/messages", map[string]any{"input": map[string]string{"json": "keep"}, "target_agent_ids": []string{f.agent}}, &custom)
 	third := sendMulti(t, f, ss.ID, "third", []string{f.agent})
 	finishMulti(t, e, cl, "first done")
@@ -197,7 +197,7 @@ func TestMultiInputQueueAndFencing(t *testing.T) {
 	if err != nil || cl4.Run.ID != cl3.Run.ID || cl4.Run.AttemptID == cl3.Run.AttemptID {
 		t.Fatal("reclaim", cl4, err)
 	}
-	if err = e.st.ReportRunEvent(ctx, f.d.ID, cl3.Run.ID, cl3.Run.AttemptID, 1, "done", json.RawMessage(`{"ok":true}`), 60); err != store.ErrStaleMessage {
+	if err = e.st.ReportRunEvent(ctx, f.d.ID, cl3.Run.ID, cl3.Run.AttemptID, 1, "done", json.RawMessage(`{"ok":true}`), 60); err != service.ErrStaleMessage {
 		t.Fatal("old attempt accepted", err)
 	}
 	c := agentuse.Client{BaseURL: e.ts.URL, Token: f.key, RunID: cl3.Run.ID, AttemptID: cl3.Run.AttemptID}
@@ -229,7 +229,7 @@ func TestMultiAtomicIdempotency(t *testing.T) {
 	enableRuns(t, e, f.u, f.d)
 	ss := multiSession(t, f)
 	for i := 0; i < 2; i++ {
-		var reply store.MultiReply
+		var reply service.MultiReply
 		r := e.req(f.token, "POST", "/api/sessions/"+ss.ID+"/messages", map[string]any{"prompt": "same", "target_agent_ids": []string{f.agent}}, &reply, "Idempotency-Key", "test")
 		if r.StatusCode != 201 || len(reply.Runs) != 1 {
 			t.Fatal("idempotency", r.StatusCode, reply)
@@ -293,7 +293,7 @@ func TestMultiIdempotencyCanonicalJSON(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
 	ss := multiSession(t, f)
 	path := "/api/sessions/" + ss.ID + "/messages"
-	var first, second store.MultiReply
+	var first, second service.MultiReply
 	f.e.req(f.token, "POST", path, `{"input":{"a":1,"b":2}}`, &first, "Idempotency-Key", "canonical")
 	resp := f.e.req(f.token, "POST", path, `{"input": {"b":2,"a":1}}`, &second, "Idempotency-Key", "canonical")
 	if resp.StatusCode != 201 || first.Message.ID != second.Message.ID {
@@ -343,9 +343,9 @@ func TestMultiDaemonResetRevokesWorkExecution(t *testing.T) {
 
 func TestSharedSessionIsOnlyModel(t *testing.T) {
 	e := newEnv(t, Config{})
-	_, token := e.user("alice", store.RoleUser)
-	var out struct{ Session store.Session }
-	if code := e.req(token, "POST", "/api/sessions", map[string]any{}, &out).StatusCode; code != 201 || out.Session.Mode != store.MultiAgent || out.Session.Status != "idle" {
+	_, token := e.user("alice", service.RoleUser)
+	var out struct{ Session service.Session }
+	if code := e.req(token, "POST", "/api/sessions", map[string]any{}, &out).StatusCode; code != 201 || out.Session.Mode != service.MultiAgent || out.Session.Status != "idle" {
 		t.Fatalf("default %d %+v", code, out)
 	}
 	for _, body := range []map[string]any{{"mode": "legacy"}, {"agent_id": "coder"}, {"mode": "unknown"}} {

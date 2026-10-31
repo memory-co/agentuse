@@ -151,9 +151,9 @@ type CreateSessionResponse struct {
 }
 
 type SessionDetail struct {
-	Runs       []Run          `json:"runs,omitempty"`
-	Deliveries []Delivery     `json:"deliveries,omitempty"`
-	RunCounts  map[string]int `json:"run_counts,omitempty"`
+	Runs       []Run          `json:"runs"`
+	Deliveries []Delivery     `json:"deliveries"`
+	RunCounts  map[string]int `json:"run_counts"`
 	Session    Session        `json:"session"`
 	Messages   []Message      `json:"messages"`
 	Questions  []Question     `json:"questions"`
@@ -189,9 +189,9 @@ type QuestionOption struct {
 
 // Reply 包含共享消息和各目标的执行/投递。
 type Reply struct {
-	Runs       []Run      `json:"runs,omitempty"`
-	Deliveries []Delivery `json:"deliveries,omitempty"`
-	Message    *Message   `json:"message,omitempty"`
+	Runs       []Run      `json:"runs"`
+	Deliveries []Delivery `json:"deliveries"`
+	Message    *Message   `json:"message"`
 }
 
 // Work 是工作：协调者会话 + 若干线程会话 + 一份共用说明，见 docs/v2/apis/works.md。
@@ -225,3 +225,5 @@ type WorkPatch struct {
 	Name               *string `json:"name,omitempty"`
 	Instructions       *string `json:"instructions,omitempty"`
 }
+
+func (u User) IsAdmin() bool { return u.Role == "admin" }
