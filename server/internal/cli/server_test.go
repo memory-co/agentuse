@@ -14,12 +14,12 @@ import (
 	"testing"
 
 	server "github.com/memory-co/agentuse/server/internal/controller"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/service"
 )
 
 // 管理命令只走 HTTP API:用 httptest 起服务，命令行建用户、列用户、重置令牌。
 func TestServerAdminCommands(t *testing.T) {
-	st, err := store.Open(":memory:")
+	st, err := service.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,8 +27,8 @@ func TestServerAdminCommands(t *testing.T) {
 	ctx := context.Background()
 	ts := httptest.NewServer(server.New(st, server.Config{Logger: log.New(io.Discard, "", 0)}))
 	defer ts.Close()
-	_, adminTok, _ := st.CreateUser(ctx, "", "admin", store.RoleAdmin)
-	_, userTok, _ := st.CreateUser(ctx, "", "bob", store.RoleUser)
+	_, adminTok, _ := st.CreateUser(ctx, "", "admin", service.RoleAdmin)
+	_, userTok, _ := st.CreateUser(ctx, "", "bob", service.RoleUser)
 
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "server-cli.json")
@@ -49,7 +49,7 @@ func TestServerAdminCommands(t *testing.T) {
 		t.Fatalf("user create: %d", code)
 	}
 	u, err := st.GetUser(ctx, "u_10086")
-	if err != nil || u.Name != "alice" || u.Role != store.RoleUser {
+	if err != nil || u.Name != "alice" || u.Role != service.RoleUser {
 		t.Fatalf("created: %v %+v", err, u)
 	}
 	if code := Main([]string{"user", "list", "-json", "-config", cfg}); code != 0 {
@@ -78,7 +78,7 @@ func quiet(t *testing.T) {
 }
 
 func TestBootstrapAdmin(t *testing.T) {
-	st, err := store.Open(":memory:")
+	st, err := service.Open(":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}

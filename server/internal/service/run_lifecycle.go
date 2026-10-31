@@ -1,4 +1,4 @@
-package store
+package service
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/memory-co/agentuse/server/internal/store"
 	"strings"
 )
 
@@ -17,8 +18,9 @@ func promptContent(content json.RawMessage) bool {
 	p, ok := v["prompt"].(string)
 	return ok && strings.TrimSpace(p) != "" && len(v) == 1
 }
-func (s *Store) CheckRun(ctx context.Context, q querier, daemon, run, attempt string) (Run, error) {
-	r, err := scanRun(q.QueryRowContext(ctx, runCols+` WHERE id=?`, run))
+
+func (s *Service) CheckRun(ctx context.Context, q querier, daemon, run, attempt string) (Run, error) {
+	r, err := scanRun(q.QueryRowContext(ctx, runCols+store.CheckRunClause, run))
 	if err != nil {
 		return r, err
 	}
@@ -30,41 +32,38 @@ func (s *Store) CheckRun(ctx context.Context, q querier, daemon, run, attempt st
 	}
 	return r, nil
 }
-func (s *Store) RunAccess(ctx context.Context, daemon, session, run, attempt string) (Run, error) {
+
+func (s *Service) RunAccess(ctx context.Context, daemon, session, run, attempt string) (Run, error) {
 	r, e := s.CheckRun(ctx, s.db, daemon, run, attempt)
 	if e == nil && r.SessionID != session {
 		return Run{}, ErrNotFound
 	}
 	return r, e
 }
-func (s *Store) RenewRun(ctx context.Context, daemon, run, attempt string, lease int64) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
+
+func (s *Service) RenewRun(ctx context.Context, daemon, run, attempt string, lease int64) error {
+	return s.repository.Tx(ctx, func(tx *sql.Tx) error {
+		if _, err := s.CheckRun(ctx, tx, daemon, run, attempt); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, store.RenewRunUpdate, s.unix()+lease, run)
 		return err
-	}
-	defer tx.Rollback()
-	if _, err = s.CheckRun(ctx, tx, daemon, run, attempt); err != nil {
-		return err
-	}
-	if _, err = tx.ExecContext(ctx, `UPDATE session_runs SET lease_until=? WHERE id=?`, s.unix()+lease, run); err != nil {
-		return err
-	}
-	return tx.Commit()
+	})
 }
-func (s *Store) runInputs(ctx context.Context, tx *sql.Tx, r Run) ([]Message, []int64, error) {
-	ds, err := deliveries(ctx, tx, `run_id=? AND status IN ('pending','delivered')`, r.ID)
+func (s *Service) runInputs(ctx context.Context, tx *sql.Tx, r Run) ([]Message, []int64, error) {
+	ds, err := deliveries(ctx, tx, store.RunInputsClause, r.ID)
 	if err != nil {
 		return nil, nil, err
 	}
 	tasks := []int64{}
 	blocked := false
 	var primaryPrompt bool
-	if err = tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT is_prompt FROM message_formats WHERE message_id=?),0)`, r.MessageID).Scan(&primaryPrompt); err != nil {
+	if err = tx.QueryRowContext(ctx, store.RunInputsSelect, r.MessageID).Scan(&primaryPrompt); err != nil {
 		return nil, nil, err
 	}
 	for _, d := range ds {
 		var isPrompt bool
-		if err = tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT is_prompt FROM message_formats WHERE message_id=?),0)`, d.MessageID).Scan(&isPrompt); err != nil {
+		if err = tx.QueryRowContext(ctx, store.RunInputsSelect2, d.MessageID).Scan(&isPrompt); err != nil {
 			return nil, nil, err
 		}
 		include := d.Kind == "new_run" || (!blocked && primaryPrompt && isPrompt)
@@ -73,12 +72,12 @@ func (s *Store) runInputs(ctx context.Context, tx *sql.Tx, r Run) ([]Message, []
 		}
 		if include {
 			tasks = append(tasks, d.MessageID)
-			if _, err = tx.ExecContext(ctx, `UPDATE message_deliveries SET prepared_attempt=? WHERE id=?`, r.AttemptID, d.ID); err != nil {
+			if _, err = tx.ExecContext(ctx, store.RunInputsUpdate, r.AttemptID, d.ID); err != nil {
 				return nil, nil, err
 			}
 		}
 	}
-	rows, err := tx.QueryContext(ctx, messageCols+` WHERE session_id=? ORDER BY id`, r.SessionID)
+	rows, err := tx.QueryContext(ctx, messageCols+store.RunInputsClause2, r.SessionID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -93,7 +92,8 @@ func (s *Store) runInputs(ctx context.Context, tx *sql.Tx, r Run) ([]Message, []
 	}
 	return msgs, tasks, rows.Err()
 }
-func (s *Store) ClaimRun(ctx context.Context, d Daemon, lease int64) (RunClaim, error) {
+
+func (s *Service) ClaimRun(ctx context.Context, d Daemon, lease int64) (RunClaim, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return RunClaim{}, err
@@ -102,7 +102,7 @@ func (s *Store) ClaimRun(ctx context.Context, d Daemon, lease int64) (RunClaim, 
 	if err = s.failUnavailableRuns(ctx, tx); err != nil {
 		return RunClaim{}, err
 	}
-	r, err := scanRun(tx.QueryRowContext(ctx, runCols+` WHERE status='pending' AND daemon_id=? ORDER BY created_at,message_id,id LIMIT 1`, d.ID))
+	r, err := scanRun(tx.QueryRowContext(ctx, runCols+store.ClaimRunClause, d.ID))
 	if errors.Is(err, ErrNotFound) {
 		if e := tx.Commit(); e != nil {
 			return RunClaim{}, e
@@ -116,7 +116,7 @@ func (s *Store) ClaimRun(ctx context.Context, d Daemon, lease int64) (RunClaim, 
 	r.AttemptID = randomID("ra_")
 	until := s.unix() + lease
 	r.LeaseUntil = &until
-	if _, err = tx.ExecContext(ctx, `UPDATE session_runs SET status='running',attempt_id=?,lease_until=?,updated_at=? WHERE id=?`, r.AttemptID, until, s.unix(), r.ID); err != nil {
+	if _, err = tx.ExecContext(ctx, store.ClaimRunUpdate, r.AttemptID, until, s.unix(), r.ID); err != nil {
 		return RunClaim{}, err
 	}
 	msgs, tasks, err := s.runInputs(ctx, tx, r)
@@ -126,11 +126,11 @@ func (s *Store) ClaimRun(ctx context.Context, d Daemon, lease int64) (RunClaim, 
 	if len(msgs) > 0 {
 		r.ContextSeq = msgs[len(msgs)-1].ID
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE session_runs SET context_seq=? WHERE id=?`, r.ContextSeq, r.ID); err != nil {
+	if _, err = tx.ExecContext(ctx, store.ClaimRunUpdate2, r.ContextSeq, r.ID); err != nil {
 		return RunClaim{}, err
 	}
 	var input string
-	if err = tx.QueryRowContext(ctx, `SELECT content FROM messages WHERE id=?`, r.MessageID).Scan(&input); err != nil {
+	if err = tx.QueryRowContext(ctx, store.ClaimRunSelect, r.MessageID).Scan(&input); err != nil {
 		return RunClaim{}, err
 	}
 	cl := RunClaim{Run: r, Input: json.RawMessage(input), Messages: msgs, TaskMessageIDs: tasks}
@@ -139,17 +139,17 @@ func (s *Store) ClaimRun(ctx context.Context, d Daemon, lease int64) (RunClaim, 
 		return cl, err
 	}
 	cl.WorkID = ss.WorkID
-	if err = tx.QueryRowContext(ctx, `SELECT id,name FROM users WHERE id=?`, ss.CreatedBy).Scan(&cl.Sender.ID, &cl.Sender.Name); err != nil {
+	if err = tx.QueryRowContext(ctx, store.ClaimRunSelect2, ss.CreatedBy).Scan(&cl.Sender.ID, &cl.Sender.Name); err != nil {
 		return cl, err
 	}
 	if ss.WorkID != "" {
 		var agent sql.NullString
-		if err = tx.QueryRowContext(ctx, `SELECT instructions,coordinator_agent_id FROM works WHERE id=?`, ss.WorkID).Scan(&cl.Instructions, &agent); err != nil {
+		if err = tx.QueryRowContext(ctx, store.ClaimRunSelect3, ss.WorkID).Scan(&cl.Instructions, &agent); err != nil {
 			return cl, err
 		}
 		if ss.WorkRole == WorkCoordinator && agent.String == r.AgentID {
 			cl.WorkToken = RandomToken("wt_")
-			if _, err = tx.ExecContext(ctx, `INSERT INTO work_run_tokens VALUES(?,?,?,?)`, HashSecret(cl.WorkToken), ss.WorkID, r.ID, r.AttemptID); err != nil {
+			if _, err = tx.ExecContext(ctx, store.ClaimRunInsert, HashSecret(cl.WorkToken), ss.WorkID, r.ID, r.AttemptID); err != nil {
 				return cl, err
 			}
 		}
@@ -159,8 +159,9 @@ func (s *Store) ClaimRun(ctx context.Context, d Daemon, lease int64) (RunClaim, 
 	}
 	return cl, tx.Commit()
 }
-func (s *Store) failUnavailableRuns(ctx context.Context, tx *sql.Tx) error {
-	rows, err := tx.QueryContext(ctx, runCols+` WHERE status='pending' ORDER BY created_at,id`)
+
+func (s *Service) failUnavailableRuns(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, runCols+store.FailUnavailableRunsClause)
 	if err != nil {
 		return err
 	}
@@ -187,7 +188,7 @@ func (s *Store) failUnavailableRuns(ctx context.Context, tx *sql.Tx) error {
 		}
 		if reason == nil {
 			var n int
-			if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM attachments WHERE session_id=? AND NOT EXISTS(SELECT 1 FROM daemon_capabilities WHERE daemon_id=? AND capability='attachments-v1')`, r.SessionID, r.DaemonID).Scan(&n); err != nil {
+			if err = tx.QueryRowContext(ctx, store.FailUnavailableRunsSelect, r.SessionID, r.DaemonID).Scan(&n); err != nil {
 				return err
 			}
 			if n > 0 {
@@ -203,7 +204,8 @@ func (s *Store) failUnavailableRuns(ctx context.Context, tx *sql.Tx) error {
 	}
 	return nil
 }
-func (s *Store) finishRun(ctx context.Context, tx *sql.Tx, r Run, status string, payload json.RawMessage, fallback bool) error {
+
+func (s *Service) finishRun(ctx context.Context, tx *sql.Tx, r Run, status string, payload json.RawMessage, fallback bool) error {
 	now := s.unix()
 	var resultID any
 	if status != "cancelled" {
@@ -212,7 +214,7 @@ func (s *Store) finishRun(ctx context.Context, tx *sql.Tx, r Run, status string,
 			return err
 		}
 		resultID = m.ID
-		if _, err = tx.ExecContext(ctx, `INSERT INTO message_authors VALUES(?,?,?,?)`, m.ID, r.ID, r.AgentKey, r.AgentName); err != nil {
+		if _, err = tx.ExecContext(ctx, store.FinishRunInsert, m.ID, r.ID, r.AgentKey, r.AgentName); err != nil {
 			return err
 		}
 	}
@@ -220,25 +222,25 @@ func (s *Store) finishRun(ctx context.Context, tx *sql.Tx, r Run, status string,
 		Error string `json:"error"`
 	}
 	_ = json.Unmarshal(payload, &body)
-	if _, err := tx.ExecContext(ctx, `UPDATE session_runs SET status=?,lease_until=NULL,result_message_id=?,error=?,updated_at=? WHERE id=?`, status, resultID, body.Error, now, r.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, store.FinishRunUpdate, status, resultID, body.Error, now, r.ID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM work_run_tokens WHERE run_id=?`, r.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, store.FinishRunDelete, r.ID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE run_questions SET status='expired',updated_at=? WHERE run_id=? AND status='pending'`, now, r.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, store.FinishRunUpdate2, now, r.ID); err != nil {
 		return err
 	}
 	// Main tasks and confirmed steers finish with this run. Unreceived steers move to a follow-up.
-	if _, err := tx.ExecContext(ctx, `UPDATE message_deliveries SET status=?,error=? WHERE run_id=? AND (kind='new_run' OR status='delivered' OR (prepared_attempt=? AND ?='succeeded'))`, status, body.Error, r.ID, r.AttemptID, status); err != nil {
+	if _, err := tx.ExecContext(ctx, store.FinishRunUpdate3, status, body.Error, r.ID, r.AttemptID, status); err != nil {
 		return err
 	}
-	pending, err := deliveries(ctx, tx, `run_id=? AND status='pending'`, r.ID)
+	pending, err := deliveries(ctx, tx, store.FinishRunClause, r.ID)
 	if err != nil {
 		return err
 	}
 	if !fallback || status == "cancelled" {
-		if _, err = tx.ExecContext(ctx, `UPDATE message_deliveries SET status=?,error=? WHERE run_id=? AND status='pending'`, status, body.Error, r.ID); err != nil {
+		if _, err = tx.ExecContext(ctx, store.FinishRunUpdate4, status, body.Error, r.ID); err != nil {
 			return err
 		}
 	} else if len(pending) > 0 {
@@ -252,14 +254,14 @@ func (s *Store) finishRun(ctx context.Context, tx *sql.Tx, r Run, status string,
 			next, e = s.newRun(ctx, tx, ss, a, pending[0].MessageID)
 		}
 		if e != nil {
-			if _, err = tx.ExecContext(ctx, `UPDATE message_deliveries SET status='failed',error=? WHERE run_id=? AND status='pending'`, e.Error(), r.ID); err != nil {
+			if _, err = tx.ExecContext(ctx, store.FinishRunUpdate5, e.Error(), r.ID); err != nil {
 				return err
 			}
 		} else {
-			if _, err = tx.ExecContext(ctx, `UPDATE message_deliveries SET run_id=?,kind='steer',prepared_attempt='' WHERE run_id=? AND status='pending'`, next.ID, r.ID); err != nil {
+			if _, err = tx.ExecContext(ctx, store.FinishRunUpdate6, next.ID, r.ID); err != nil {
 				return err
 			}
-			if _, err = tx.ExecContext(ctx, `UPDATE message_deliveries SET kind='new_run' WHERE id=?`, pending[0].ID); err != nil {
+			if _, err = tx.ExecContext(ctx, store.FinishRunUpdate7, pending[0].ID); err != nil {
 				return err
 			}
 		}
@@ -269,19 +271,22 @@ func (s *Store) finishRun(ctx context.Context, tx *sql.Tx, r Run, status string,
 	}
 	return s.notifyRunMessages(ctx, tx, r.SessionID)
 }
-func (s *Store) RunSteers(ctx context.Context, run string) ([]Delivery, error) {
-	return deliveries(ctx, s.db, `run_id=? AND kind='steer' AND status='pending' AND prepared_attempt != (SELECT attempt_id FROM session_runs WHERE id=message_deliveries.run_id) AND message_id IN (SELECT message_id FROM message_formats WHERE is_prompt=1)`, run)
+
+func (s *Service) RunSteers(ctx context.Context, run string) ([]Delivery, error) {
+	return deliveries(ctx, s.db, store.RunSteersClause, run)
 }
-func (s *Store) RunTaskPrompt(ctx context.Context, messageID int64) (string, error) {
+
+func (s *Service) RunTaskPrompt(ctx context.Context, messageID int64) (string, error) {
 	var b string
-	err := s.db.QueryRowContext(ctx, `SELECT content FROM messages WHERE id=? AND EXISTS(SELECT 1 FROM message_formats f WHERE f.message_id=messages.id AND f.is_prompt=1)`, messageID).Scan(&b)
+	err := s.db.QueryRowContext(ctx, store.RunTaskPromptSelect, messageID).Scan(&b)
 	var p struct {
 		Prompt string `json:"prompt"`
 	}
 	_ = json.Unmarshal([]byte(b), &p)
 	return p.Prompt, err
 }
-func (s *Store) CancelRun(ctx context.Context, u User, session, id string) (Run, error) {
+
+func (s *Service) cancelRun(ctx context.Context, u User, session, id string) (Run, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Run{}, err
@@ -290,7 +295,7 @@ func (s *Store) CancelRun(ctx context.Context, u User, session, id string) (Run,
 	if _, err = s.getSession(ctx, tx, u, session); err != nil {
 		return Run{}, err
 	}
-	r, err := scanRun(tx.QueryRowContext(ctx, runCols+` WHERE id=? AND session_id=?`, id, session))
+	r, err := scanRun(tx.QueryRowContext(ctx, runCols+store.CancelRunClause, id, session))
 	if err != nil {
 		return r, err
 	}
@@ -301,7 +306,7 @@ func (s *Store) CancelRun(ctx context.Context, u User, session, id string) (Run,
 		return r, ErrSessionState
 	}
 	b, _ := json.Marshal(map[string]string{"by": u.ID, "reason": "用户取消"})
-	if _, err = tx.ExecContext(ctx, `INSERT INTO run_events(session_id,run_id,attempt_id,message_id,daemon_id,event_seq,kind,payload,created_at) VALUES(?,?,?,?,?,(SELECT COALESCE(MAX(event_seq),0)+1 FROM run_events WHERE run_id=? AND attempt_id=?),'cancelled',?,?)`, r.SessionID, r.ID, r.AttemptID, r.MessageID, r.DaemonID, r.ID, r.AttemptID, string(b), s.unix()); err != nil {
+	if _, err = tx.ExecContext(ctx, store.CancelRunInsert, r.SessionID, r.ID, r.AttemptID, r.MessageID, r.DaemonID, r.ID, r.AttemptID, string(b), s.unix()); err != nil {
 		return r, err
 	}
 	if err = s.finishRun(ctx, tx, r, "cancelled", json.RawMessage(`{"error":"已取消"}`), false); err != nil {
@@ -311,13 +316,14 @@ func (s *Store) CancelRun(ctx context.Context, u User, session, id string) (Run,
 	r.LeaseUntil = nil
 	return r, tx.Commit()
 }
-func (s *Store) RequeueRuns(ctx context.Context) error {
+
+func (s *Service) RequeueRuns(ctx context.Context) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `UPDATE session_runs SET status='pending',lease_until=NULL,updated_at=? WHERE status IN ('running','waiting') AND lease_until<=? RETURNING id,session_id`, s.unix(), s.unix())
+	rows, err := tx.QueryContext(ctx, store.RequeueRunsUpdate, s.unix(), s.unix())
 	if err != nil {
 		return err
 	}
@@ -337,17 +343,17 @@ func (s *Store) RequeueRuns(ctx context.Context) error {
 		return err
 	}
 	for i, id := range ids {
-		r, e := scanRun(tx.QueryRowContext(ctx, runCols+` WHERE id=?`, id))
+		r, e := scanRun(tx.QueryRowContext(ctx, runCols+store.RequeueRunsClause, id))
 		if e != nil {
 			return e
 		}
 		if e = s.recoverRunAnswers(ctx, tx, r, `1=1`); e != nil {
 			return e
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE message_deliveries SET status='pending',prepared_attempt='' WHERE run_id=? AND status='delivered'`, id); err != nil {
+		if _, err = tx.ExecContext(ctx, store.RequeueRunsUpdate2, id); err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE run_questions SET status='expired',updated_at=? WHERE run_id=? AND status='pending'`, s.unix(), id); err != nil {
+		if _, err = tx.ExecContext(ctx, store.RequeueRunsUpdate3, s.unix(), id); err != nil {
 			return err
 		}
 		if err = multiStatus(ctx, tx, sessions[i], s.unix()); err != nil {
@@ -360,13 +366,13 @@ func (s *Store) RequeueRuns(ctx context.Context) error {
 	return tx.Commit()
 }
 
-func (s *Store) ReconcileRuns(ctx context.Context, daemon string, live map[string]string) ([]Run, error) {
+func (s *Service) ReconcileRuns(ctx context.Context, daemon string, live map[string]string) ([]Run, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, runCols+` WHERE daemon_id=? AND status IN ('running','waiting')`, daemon)
+	rows, err := tx.QueryContext(ctx, runCols+store.ReconcileRunsClause, daemon)
 	if err != nil {
 		return nil, err
 	}
@@ -393,7 +399,7 @@ func (s *Store) ReconcileRuns(ctx context.Context, daemon string, live map[strin
 		if err = s.recoverRunAnswers(ctx, tx, r, `1=1`); err != nil {
 			return nil, err
 		}
-		for _, q := range []string{`UPDATE session_runs SET status='pending',lease_until=NULL WHERE id=?`, `UPDATE message_deliveries SET status='pending',prepared_attempt='' WHERE run_id=? AND status='delivered'`, `UPDATE run_questions SET status='expired' WHERE run_id=? AND status='pending'`, `DELETE FROM work_run_tokens WHERE run_id=?`} {
+		for _, q := range []string{store.ReconcileRunsUpdate, store.ReconcileRunsUpdate2, store.ReconcileRunsUpdate3, store.ReconcileRunsDelete} {
 			if _, err = tx.ExecContext(ctx, q, r.ID); err != nil {
 				return nil, err
 			}
@@ -405,14 +411,14 @@ func (s *Store) ReconcileRuns(ctx context.Context, daemon string, live map[strin
 	return valid, tx.Commit()
 }
 
-func (s *Store) PendingRunSteers(ctx context.Context) ([]Delivery, error) {
-	return deliveries(ctx, s.db, `kind='steer' AND status='pending' AND EXISTS(SELECT 1 FROM session_runs r WHERE r.id=message_deliveries.run_id AND r.status='running' AND r.attempt_id!=message_deliveries.prepared_attempt) AND message_id IN (SELECT message_id FROM message_formats WHERE is_prompt=1)`)
+func (s *Service) PendingRunSteers(ctx context.Context) ([]Delivery, error) {
+	return deliveries(ctx, s.db, store.PendingRunSteersClause)
 }
 
 // Credential removal must revoke run-scoped work tokens in the same transaction.
-func (s *Store) terminateDaemonRuns(ctx context.Context, tx *sql.Tx, daemon, reason string) error {
+func (s *Service) terminateDaemonRuns(ctx context.Context, tx *sql.Tx, daemon, reason string) error {
 	for {
-		rows, err := tx.QueryContext(ctx, runCols+` WHERE daemon_id=? AND status IN ('pending','running','waiting')`, daemon)
+		rows, err := tx.QueryContext(ctx, runCols+store.TerminateDaemonRunsClause, daemon)
 		if err != nil {
 			return err
 		}

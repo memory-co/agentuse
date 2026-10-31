@@ -1,35 +1,15 @@
-package store
+package service
 
 import (
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/memory-co/agentuse/server/internal/store"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 )
-
-// Agent 是用户起了名字的 agent,绑定一个运行时(主人的某台 daemon + 上面的某个 harness);
-// 切换运行时(daemon 和 harness 一起换)时 agent 不变。
-type Agent struct {
-	ID          string `json:"id"`
-	UserID      string `json:"user_id"`
-	Name        string `json:"name"`
-	DaemonID    string `json:"daemon_id,omitempty"` // daemon 被删后为空，要先切换运行时
-	Harness     string `json:"harness"`
-	Description string `json:"description"`
-	CreatedAt   int64  `json:"created_at"`
-	UpdatedAt   int64  `json:"updated_at"`
-}
-
-// AgentPatch 是修改 agent 时要改的字段，nil 表示不改。DaemonID 和 Harness 要一起给。
-type AgentPatch struct {
-	Name        *string
-	DaemonID    *string
-	Harness     *string
-	Description *string
-}
 
 // agent id 全局唯一，建好后不能改。
 var agentIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
@@ -46,13 +26,13 @@ func cleanAgentName(name string) (string, error) {
 }
 
 // checkRuntime 确认 (daemonID, harness) 是 userID 自己的 daemon 上报过、而且现在可用并开启的 harness。
-func (s *Store) checkRuntime(ctx context.Context, userID, daemonID, harness string) error {
+func (s *Service) checkRuntime(ctx context.Context, userID, daemonID, harness string) error {
 	if daemonID == "" || harness == "" {
 		return errors.New("daemon_id 和 harness 必填")
 	}
 	var one int
 	err := s.db.QueryRowContext(ctx,
-		`SELECT 1 FROM daemon_harnesses WHERE daemon_id = ? AND harness = ? AND user_id = ?`,
+		store.CheckRuntimeSelect,
 		daemonID, harness, userID).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("daemon %q 上没有 harness %q(daemon 要是自己的，并且上报过这个 harness)", daemonID, harness)
@@ -68,7 +48,7 @@ func (s *Store) checkRuntime(ctx context.Context, userID, daemonID, harness stri
 func runtimeErr(ctx context.Context, q querier, daemonID, harness string) error {
 	var available, enabled bool
 	err := q.QueryRowContext(ctx,
-		`SELECT available, enabled FROM daemon_harnesses WHERE daemon_id = ? AND harness = ?`,
+		store.RuntimeErrSelect,
 		daemonID, harness).Scan(&available, &enabled)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -99,7 +79,7 @@ func agentWriteErr(err error, id, name, harness string) error {
 
 // CreateAgent 给用户建一个 agent。id 由调用方传入、全局唯一，不传时生成 ag_xxx;
 // 同一用户下名字不能重复;运行时 (daemonID, harness) 必须是这个用户自己的 daemon 上报过的 harness。
-func (s *Store) CreateAgent(ctx context.Context, userID, id, name, daemonID, harness, description string) (Agent, error) {
+func (s *Service) CreateAgent(ctx context.Context, userID, id, name, daemonID, harness, description string) (Agent, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		id = randomID("ag_")
@@ -117,7 +97,7 @@ func (s *Store) CreateAgent(ctx context.Context, userID, id, name, daemonID, har
 	now := s.unix()
 	a := Agent{ID: id, UserID: userID, Name: name, DaemonID: daemonID, Harness: harness, Description: description, CreatedAt: now, UpdatedAt: now}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO agents (id, user_id, name, daemon_id, harness, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		store.CreateAgentInsert,
 		a.ID, a.UserID, a.Name, a.DaemonID, a.Harness, a.Description, now, now)
 	if err != nil {
 		return Agent{}, agentWriteErr(err, id, name, harness)
@@ -127,7 +107,7 @@ func (s *Store) CreateAgent(ctx context.Context, userID, id, name, daemonID, har
 
 // UpdateAgent 改名字、切换运行时或改说明，只有主人(或 admin)能改。
 // 切换运行时 DaemonID 和 Harness 要一起给;已有会话不受影响，只对之后新建的会话生效。
-func (s *Store) UpdateAgent(ctx context.Context, u User, id string, p AgentPatch) (Agent, error) {
+func (s *Service) UpdateAgent(ctx context.Context, u User, id string, p AgentPatch) (Agent, error) {
 	a, err := s.GetAgent(ctx, u, id)
 	if err != nil {
 		return Agent{}, err
@@ -151,7 +131,7 @@ func (s *Store) UpdateAgent(ctx context.Context, u User, id string, p AgentPatch
 	}
 	a.UpdatedAt = s.unix()
 	_, err = s.db.ExecContext(ctx,
-		`UPDATE agents SET name = ?, daemon_id = ?, harness = ?, description = ?, updated_at = ? WHERE id = ?`,
+		store.UpdateAgentUpdate,
 		a.Name, nullIfEmpty(a.DaemonID), a.Harness, a.Description, a.UpdatedAt, a.ID)
 	if err != nil {
 		return Agent{}, agentWriteErr(err, a.ID, a.Name, a.Harness)
@@ -160,11 +140,11 @@ func (s *Store) UpdateAgent(ctx context.Context, u User, id string, p AgentPatch
 }
 
 // DeleteAgent 删除 agent。用过它的会话保留，会话的 agent_id 变空。
-func (s *Store) DeleteAgent(ctx context.Context, u User, id string) error {
-	q := `DELETE FROM agents WHERE id = ?`
+func (s *Service) DeleteAgent(ctx context.Context, u User, id string) error {
+	q := store.DeleteAgentDelete
 	args := []any{id}
 	if !u.IsAdmin() {
-		q += ` AND user_id = ?`
+		q += store.DeleteAgentClause
 		args = append(args, u.ID)
 	}
 	res, err := s.db.ExecContext(ctx, q, args...)
@@ -177,38 +157,25 @@ func (s *Store) DeleteAgent(ctx context.Context, u User, id string) error {
 	return nil
 }
 
-const agentCols = `SELECT id, user_id, name, daemon_id, harness, description, created_at, updated_at FROM agents`
-
-func scanAgent(row scanner) (Agent, error) {
-	var a Agent
-	var daemon, desc sql.NullString
-	err := row.Scan(&a.ID, &a.UserID, &a.Name, &daemon, &a.Harness, &desc, &a.CreatedAt, &a.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Agent{}, ErrNotFound
-	}
-	a.DaemonID, a.Description = daemon.String, desc.String
-	return a, err
-}
-
-func (s *Store) GetAgent(ctx context.Context, u User, id string) (Agent, error) {
-	q := agentCols + ` WHERE id = ?`
+func (s *Service) GetAgent(ctx context.Context, u User, id string) (Agent, error) {
+	q := agentCols + store.GetAgentClause
 	args := []any{id}
 	if !u.IsAdmin() {
-		q += ` AND user_id = ?`
+		q += store.GetAgentClause2
 		args = append(args, u.ID)
 	}
 	return scanAgent(s.db.QueryRowContext(ctx, q, args...))
 }
 
 // ListAgents 列 agent,按名字排序;admin 看所有人的。
-func (s *Store) ListAgents(ctx context.Context, u User) ([]Agent, error) {
+func (s *Service) ListAgents(ctx context.Context, u User) ([]Agent, error) {
 	q := agentCols
 	var args []any
 	if !u.IsAdmin() {
-		q += ` WHERE user_id = ?`
+		q += store.ListAgentsClause
 		args = append(args, u.ID)
 	}
-	q += ` ORDER BY name, id`
+	q += store.ListAgentsClause2
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err

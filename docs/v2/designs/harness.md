@@ -22,7 +22,7 @@ harness/
 
 现在 harness 的知识散在代码里：
 
-- `server/internal/store/harnesses.go`:内置 harness 的名字、显示名、说明(写进 [harnesses](../tables/harnesses.md) 表)。
+- `server/internal/store/seed.go`:内置 harness 的名字、显示名、说明(写进 [harnesses](../tables/harnesses.md) 表)。
 - `client/internal/service/harnesses.go`:默认命令、`--version` 探测、拼参数(`-p` / `--resume` / `exec … resume`)、`runClaude` / `runCodex` 两套解析。
 - [connect](connect.md#本机怎么跑-harness) 里再抄一遍命令表。
 
@@ -167,7 +167,7 @@ harness 没报会话 id 时沿用续接的那个，这条对所有 harness 都�
 
 ## 谁读它
 
-- **服务**:启动时把每个 `internal/harness/*/harness.yaml` 的 `name` / `display_name` / `description` upsert 进 harnesses 表(`kind = builtin`),代替 `server/internal/store/harnesses.go` 里写死的列表。目录删了的内置 harness 不自动删行，避免 agent、会话引用断掉。
+- **服务**:启动时把每个 `internal/harness/*/harness.yaml` 的 `name` / `display_name` / `description` upsert 进 harnesses 表(`kind = builtin`),代替 `server/internal/store/seed.go` 里写死的列表。目录删了的内置 harness 不自动删行，避免 agent、会话引用断掉。
 - **daemon**:探测和运行都按 yaml 来,Claude 使用通用 JSONL 执行器，Codex 使用 app-server 适配器。daemon.json 的 `harnesses.<name>` 仍然可以改 `command`、加 `args`、`disabled`,写法不变。
 - **文档**:[connect](connect.md#本机怎么跑-harness) 的命令表改成指向 `internal/harness/<name>/harness.yaml`,不再手抄。
 

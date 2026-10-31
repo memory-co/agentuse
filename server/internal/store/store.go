@@ -174,7 +174,7 @@ func RandomToken(prefix string) string {
 	return prefix + hex.EncodeToString(b)
 }
 
-func randomID(prefix string) string {
+func RandomID(prefix string) string {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
 		panic(err)
@@ -182,7 +182,7 @@ func randomID(prefix string) string {
 	return prefix + hex.EncodeToString(b)
 }
 
-func newUUID() string {
+func NewUUID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		panic(err)
@@ -201,3 +201,19 @@ func nullInt(v sql.NullInt64) *int64 {
 }
 
 func nullStr(v sql.NullString) string { return v.String }
+
+// Connection supplies the persistence executor for service-owned transactions.
+func (s *Store) Connection() *sql.DB { return s.db }
+
+// Tx keeps transaction creation and rollback semantics in the persistence layer.
+func (s *Store) Tx(ctx context.Context, fn func(*sql.Tx) error) error {
+	tx, e := s.db.BeginTx(ctx, nil)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	if e = fn(tx); e != nil {
+		return e
+	}
+	return tx.Commit()
+}

@@ -17,21 +17,21 @@ import (
 	"time"
 
 	"github.com/memory-co/agentuse/internal/attachment"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/service"
 )
 
 type attachmentFixture struct {
 	e          *env
-	u          store.User
+	u          service.User
 	token, key string
-	d          store.Daemon
-	session    store.Session
+	d          service.Daemon
+	session    service.Session
 	agent      string
 }
 
 func attachmentEnv(t *testing.T, max, total int64) *attachmentFixture {
 	e := newEnv(t, Config{AttachmentsDir: t.TempDir(), AttachmentMaxBytes: max, AttachmentSessionMaxBytes: total})
-	u, tok := e.user("alice", store.RoleUser)
+	u, tok := e.user("alice", service.RoleUser)
 	ctx := context.Background()
 	d, err := e.st.CreateDaemon(ctx, u.ID, "laptop")
 	if err != nil {
@@ -41,17 +41,17 @@ func attachmentEnv(t *testing.T, max, total int64) *attachmentFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = e.st.DaemonConnected(ctx, d, []store.ReportedHarness{{Name: "claude"}}, []string{attachment.Capability, store.RunCapability}); err != nil {
+	if _, err = e.st.DaemonConnected(ctx, d, []service.ReportedHarness{{Name: "claude"}}, []string{attachment.Capability, service.RunCapability}); err != nil {
 		t.Fatal(err)
 	}
 	if err = e.st.SetDaemonHarnessEnabled(ctx, u, d.ID, "claude", true); err != nil {
 		t.Fatal(err)
 	}
-	var agent store.Agent
+	var agent service.Agent
 	e.req(tok, "POST", "/api/agents", map[string]string{"name": "coder", "daemon_id": d.ID, "harness": "claude"}, &agent)
 	var res struct {
-		Session store.Session
-		Message *store.Message
+		Session service.Session
+		Message *service.Message
 	}
 	r := e.req(tok, "POST", "/api/sessions", map[string]any{}, &res)
 	if r.StatusCode != 201 || res.Session.Status != "idle" || res.Message != nil {
@@ -136,7 +136,7 @@ func TestAttachmentsLifecycle(t *testing.T) {
 	if r.StatusCode != 200 || string(b) != "hello" || r.Header.Get("X-Content-Type-Options") != "nosniff" || !strings.HasPrefix(r.Header.Get("Content-Disposition"), "attachment;") {
 		t.Fatalf("content %d %s %+v", r.StatusCode, b, r.Header)
 	}
-	bobUser, bob := e.user("bob", store.RoleUser)
+	bobUser, bob := e.user("bob", service.RoleUser)
 	for _, tok := range []string{bob, ""} {
 		want := 404
 		if tok == "" {
@@ -146,7 +146,7 @@ func TestAttachmentsLifecycle(t *testing.T) {
 			t.Fatalf("unauthorized %s", tok)
 		}
 	}
-	_, admin := e.user("admin", store.RoleAdmin)
+	_, admin := e.user("admin", service.RoleAdmin)
 	if e.code(admin, "GET", first.DownloadPath, nil) != 200 {
 		t.Fatal("admin")
 	}
@@ -204,7 +204,7 @@ func TestAttachmentOrphanCleanup(t *testing.T) {
 	os.Chtimes(orphan, old, old)
 	live := filepath.Dir(f.e.srv.attachmentPath(a.SessionID, a.ID))
 	os.Chtimes(live, old, old)
-	if err := f.e.srv.CleanupAttachments(context.Background()); err != nil {
+	if err := f.e.st.CleanupAttachments(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(orphan); !os.IsNotExist(err) {

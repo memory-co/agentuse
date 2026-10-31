@@ -1,4 +1,4 @@
-package store
+package service
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func runStore(t *testing.T) (*Store, User, Daemon, Agent) {
+func runStore(t *testing.T) (*Service, User, Daemon, Agent) {
 	t.Helper()
 	s := newStore(t)
 	s.now = func() time.Time { return time.Unix(100000, 0) }

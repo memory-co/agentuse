@@ -1,4 +1,4 @@
-package store
+package service
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 )
 
 // newStore 开一个内存库，测试结束时关掉。时钟每读一次走一秒，按时间排序的结果是确定的。
-func newStore(t *testing.T) *Store {
+func newStore(t *testing.T) *Service {
 	t.Helper()
 	s, err := Open(":memory:")
 	if err != nil {
@@ -21,7 +21,7 @@ func newStore(t *testing.T) *Store {
 }
 
 // registered 建一台已注册的 daemon,并上报 harnesses。
-func registered(t *testing.T, s *Store, u User, name string, harnesses ...string) Daemon {
+func registered(t *testing.T, s *Service, u User, name string, harnesses ...string) Daemon {
 	t.Helper()
 	ctx := context.Background()
 	d, err := s.CreateDaemon(ctx, u.ID, name)

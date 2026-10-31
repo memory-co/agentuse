@@ -1,4 +1,4 @@
-package store
+package service
 
 import (
 	"context"
@@ -9,19 +9,9 @@ type rowsQuerier interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }
 
-type SessionDetail struct {
-	Session    Session        `json:"session"`
-	Messages   []Message      `json:"messages"`
-	Runs       []Run          `json:"runs"`
-	Deliveries []Delivery     `json:"deliveries"`
-	Events     []SessionEvent `json:"events"`
-	Questions  []Question     `json:"questions"`
-	RunCounts  map[string]int `json:"run_counts"`
-}
-
 // ReadSession returns one consistent view. A completed delivery must never be
 // paired with messages read before its result was committed.
-func (s *Store) ReadSession(ctx context.Context, u User, id string) (SessionDetail, error) {
+func (s *Service) ReadSession(ctx context.Context, u User, id string) (SessionDetail, error) {
 	var detail SessionDetail
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

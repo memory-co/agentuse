@@ -1,8 +1,7 @@
-// Package server 是 agentuse 服务：网页、HTTP API、setup.sh 和 daemon 的 WebSocket。
+// Package controller serves the HTTP API, management UI and installation endpoints.
 package controller
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"github.com/memory-co/agentuse/server/internal/service"
@@ -11,15 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 type Config struct {
-	Service                   *service.Service
 	DaemonHandler             http.Handler
 	AttachmentsDir            string
 	AttachmentMaxBytes        int64
@@ -32,15 +27,13 @@ type Config struct {
 }
 
 type Server struct {
-	attachmentMu sync.RWMutex
-	cfg          Config
-	store        *store.Store
-	service      *service.Service
-	log          *log.Logger
-	mux          *http.ServeMux
+	cfg     Config
+	service *service.Service
+	log     *log.Logger
+	mux     *http.ServeMux
 }
 
-func New(st *store.Store, cfg Config) *Server {
+func New(st *service.Service, cfg Config) *Server {
 	if cfg.Logger == nil {
 		cfg.Logger = log.Default()
 	}
@@ -55,10 +48,10 @@ func New(st *store.Store, cfg Config) *Server {
 		cfg.AttachmentSessionMaxBytes = 1 << 30
 	}
 	cfg.PublicURL = strings.TrimRight(cfg.PublicURL, "/")
-	s := &Server{cfg: cfg, store: st, log: cfg.Logger, mux: http.NewServeMux()}
-	s.service = cfg.Service
-	if s.service == nil {
-		s.service = service.New(st)
+	s := &Server{cfg: cfg, log: cfg.Logger, mux: http.NewServeMux()}
+	s.service = st
+	if st != nil {
+		s.service.ConfigureAttachments(cfg.AttachmentsDir, cfg.AttachmentMaxBytes, cfg.AttachmentSessionMaxBytes, cfg.Logger)
 	}
 	if s.cfg.DaemonHandler == nil {
 		s.cfg.DaemonHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeErr(w, 503, "daemon transport not configured") })
@@ -68,33 +61,6 @@ func New(st *store.Store, cfg Config) *Server {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
-
-// Run 跑后台任务(收回过期租约),直到 ctx 结束。
-func (s *Server) Run(ctx context.Context) {
-	if err := s.CleanupAttachments(ctx); err != nil {
-		s.log.Printf("attachment cleanup: %v", err)
-	}
-	cleanup := time.NewTicker(time.Hour)
-	defer cleanup.Stop()
-	t := time.NewTicker(5 * time.Second)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-cleanup.C:
-			if err := s.CleanupAttachments(ctx); err != nil {
-				s.log.Printf("attachment cleanup: %v", err)
-			}
-		case <-t.C:
-			if err := s.store.RequeueRuns(ctx); err != nil {
-				s.log.Printf("runs: %v", err)
-			}
-			s.service.Notifier.KickAll()
-
-		}
-	}
-}
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /", s.handleWeb)
@@ -185,11 +151,11 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 }
 
 func (s *Server) storeErr(w http.ResponseWriter, err error) {
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, service.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "不存在")
 		return
 	}
-	if errors.Is(err, store.ErrStaleMessage) || errors.Is(err, store.ErrSessionBusy) || errors.Is(err, store.ErrQuestionClosed) || errors.Is(err, store.ErrSessionState) {
+	if errors.Is(err, service.ErrStaleMessage) || errors.Is(err, service.ErrSessionBusy) || errors.Is(err, service.ErrQuestionClosed) || errors.Is(err, service.ErrSessionState) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}

@@ -1,4 +1,4 @@
-package store
+package service
 
 import (
 	"context"
@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/memory-co/agentuse/server/internal/store"
 	"strings"
 )
 
-func (s *Store) CreateMultiWork(ctx context.Context, u User, name, agentID, instructions string) (Work, Session, error) {
+func (s *Service) CreateMultiWork(ctx context.Context, u User, name, agentID, instructions string) (Work, Session, error) {
 	name, err := cleanWorkName(name)
 	if err != nil {
 		return Work{}, Session{}, err
@@ -19,7 +20,7 @@ func (s *Store) CreateMultiWork(ctx context.Context, u User, name, agentID, inst
 		return Work{}, Session{}, err
 	}
 	defer tx.Rollback()
-	a, err := scanAgent(tx.QueryRowContext(ctx, agentCols+` WHERE id=? AND user_id=?`, agentID, u.ID))
+	a, err := scanAgent(tx.QueryRowContext(ctx, agentCols+store.CreateMultiWorkClause, agentID, u.ID))
 	if err != nil {
 		return Work{}, Session{}, err
 	}
@@ -28,40 +29,43 @@ func (s *Store) CreateMultiWork(ctx context.Context, u User, name, agentID, inst
 	}
 	now := s.unix()
 	w := Work{ID: randomID("wk_"), UserID: u.ID, Name: name, Instructions: instructions, CoordinatorID: randomID("ss_"), CoordinatorAgentID: agentID, CreatedAt: now, UpdatedAt: now}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO works(id,user_id,name,instructions,coordinator_id,coordinator_agent_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, w.ID, u.ID, name, instructions, w.CoordinatorID, agentID, now, now); err != nil {
+	if _, err = tx.ExecContext(ctx, store.CreateMultiWorkInsert, w.ID, u.ID, name, instructions, w.CoordinatorID, agentID, now, now); err != nil {
 		return w, Session{}, err
 	}
 	ss, err := s.insertMulti(ctx, tx, u, w.ID, name)
 	if err != nil {
 		return w, ss, err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE works SET coordinator_id=? WHERE id=?`, ss.ID, w.ID); err != nil {
+	if _, err = tx.ExecContext(ctx, store.CreateMultiWorkUpdate, ss.ID, w.ID); err != nil {
 		return w, ss, err
 	}
 	w.CoordinatorID = ss.ID
 	ss.WorkRole = WorkCoordinator
 	return w, ss, tx.Commit()
 }
-func (s *Store) WorkRunByToken(ctx context.Context, token string) (Run, error) {
-	return scanRun(s.db.QueryRowContext(ctx, runCols+` WHERE id=(SELECT run_id FROM work_run_tokens t WHERE t.token_hash=? AND t.attempt_id=session_runs.attempt_id) AND status IN ('running','waiting') AND lease_until>?`, HashSecret(token), s.unix()))
+
+func (s *Service) WorkRunByToken(ctx context.Context, token string) (Run, error) {
+	return scanRun(s.db.QueryRowContext(ctx, runCols+store.WorkRunByTokenClause, HashSecret(token), s.unix()))
 }
-func (s *Store) runWorkToken(ctx context.Context, token string) (Work, User, error) {
+
+func (s *Service) runWorkToken(ctx context.Context, token string) (Work, User, error) {
 	var id string
-	err := s.db.QueryRowContext(ctx, `SELECT t.work_id FROM work_run_tokens t JOIN session_runs r ON r.id=t.run_id WHERE t.token_hash=? AND t.attempt_id=r.attempt_id AND r.status IN ('running','waiting') AND r.lease_until>?`, HashSecret(token), s.unix()).Scan(&id)
+	err := s.db.QueryRowContext(ctx, store.RunWorkTokenSelect, HashSecret(token), s.unix()).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Work{}, User{}, ErrNotFound
 	}
 	if err != nil {
 		return Work{}, User{}, err
 	}
-	w, err := scanWork(s.db.QueryRowContext(ctx, workCols+` WHERE w.id=?`, id))
+	w, err := scanWork(s.db.QueryRowContext(ctx, workCols+store.RunWorkTokenClause, id))
 	if err != nil {
 		return w, User{}, err
 	}
 	u, err := s.GetUser(ctx, w.UserID)
 	return w, u, err
 }
-func (s *Store) notifyRunMessages(ctx context.Context, tx *sql.Tx, session string) error {
+
+func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, session string) error {
 	ss, err := s.getSession(ctx, tx, User{Role: RoleAdmin}, session)
 	if err != nil {
 		return err
@@ -91,7 +95,7 @@ func (s *Store) notifyRunMessages(ctx context.Context, tx *sql.Tx, session strin
 		if !ready {
 			continue
 		}
-		res, e := tx.ExecContext(ctx, `INSERT INTO run_notifications VALUES(?) ON CONFLICT DO NOTHING`, id)
+		res, e := tx.ExecContext(ctx, store.NotifyRunMessagesInsert, id)
 		if e != nil {
 			return e
 		}
@@ -104,7 +108,7 @@ func (s *Store) notifyRunMessages(ctx context.Context, tx *sql.Tx, session strin
 			fmt.Fprintf(&summary, "\n@%s: %s", d.AgentKey, d.Status)
 			if d.RunID != "" {
 				var raw sql.NullString
-				if e = tx.QueryRowContext(ctx, `SELECT m.content FROM session_runs r LEFT JOIN messages m ON m.id=r.result_message_id WHERE r.id=?`, d.RunID).Scan(&raw); e != nil {
+				if e = tx.QueryRowContext(ctx, store.NotifyRunMessagesSelect, d.RunID).Scan(&raw); e != nil {
 					return e
 				}
 				if raw.Valid {

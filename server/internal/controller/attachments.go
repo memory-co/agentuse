@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -16,22 +15,22 @@ import (
 	"time"
 
 	"github.com/memory-co/agentuse/internal/attachment"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/service"
 )
 
 type attachmentKey struct{}
 
-func attachmentAccess(r *http.Request) store.AttachmentAccess {
-	return r.Context().Value(attachmentKey{}).(store.AttachmentAccess)
+func attachmentAccess(r *http.Request) service.AttachmentAccess {
+	return r.Context().Value(attachmentKey{}).(service.AttachmentAccess)
 }
 func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := requestToken(r)
 		finish := func(w http.ResponseWriter, r *http.Request) {
-			a := store.AttachmentAccess{User: currentUser(r), Token: token}
+			a := service.AttachmentAccess{User: currentUser(r), Token: token}
 			if wk := workScope(r); wk != nil {
 				a.WorkID = wk.ID
-				if run, e := s.store.WorkRunByToken(r.Context(), token); e == nil {
+				if run, e := s.service.WorkRunByToken(r.Context(), token); e == nil {
 					a.RunID = run.ID
 					a.AttemptID = run.AttemptID
 				}
@@ -42,7 +41,7 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 			s.workAuth(finish)(w, r)
 			return
 		}
-		d, err := s.store.DaemonByKey(r.Context(), token)
+		d, err := s.service.DaemonByKey(r.Context(), token)
 		if err != nil {
 			writeErr(w, 401, "daemon 密钥无效")
 			return
@@ -55,24 +54,24 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, 403, "daemon 不能删除附件")
 			return
 		}
-		u, err := s.store.GetUser(r.Context(), d.UserID)
+		u, err := s.service.GetUser(r.Context(), d.UserID)
 		if err != nil {
 			s.attachmentErr(w, err)
 			return
 		}
-		a := store.AttachmentAccess{User: u, DaemonID: d.ID, Token: token, RunID: r.Header.Get("X-Agentuse-Run"), AttemptID: r.Header.Get("X-Agentuse-Attempt")}
+		a := service.AttachmentAccess{User: u, DaemonID: d.ID, Token: token, RunID: r.Header.Get("X-Agentuse-Run"), AttemptID: r.Header.Get("X-Agentuse-Attempt")}
 		h(w, r.WithContext(context.WithValue(r.Context(), attachmentKey{}, a)))
 	}
 }
 func (s *Server) attachmentErr(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, store.ErrAttachmentUnauthorized):
+	case errors.Is(err, service.ErrAttachmentUnauthorized):
 		writeErr(w, 401, err.Error())
-	case errors.Is(err, store.ErrNotFound):
+	case errors.Is(err, service.ErrNotFound):
 		writeErr(w, 404, "会话或附件不存在")
-	case errors.Is(err, store.ErrStaleMessage), errors.Is(err, store.ErrAttachmentCapability):
+	case errors.Is(err, service.ErrStaleMessage), errors.Is(err, service.ErrAttachmentCapability):
 		writeErr(w, 409, err.Error())
-	case errors.Is(err, store.ErrAttachmentQuota):
+	case errors.Is(err, service.ErrAttachmentQuota):
 		writeErr(w, 413, err.Error())
 	default:
 		s.log.Printf("attachment: %v", err)
@@ -87,7 +86,7 @@ func (s *Server) attachmentSession(w http.ResponseWriter, r *http.Request, uploa
 	}
 	a := attachmentAccess(r)
 	if a.WorkID != "" {
-		ss, err := s.store.GetSession(r.Context(), a.User, id)
+		ss, err := s.service.GetSession(r.Context(), a.User, id)
 		if err != nil {
 			s.attachmentErr(w, err)
 			return false
@@ -97,7 +96,7 @@ func (s *Server) attachmentSession(w http.ResponseWriter, r *http.Request, uploa
 			return false
 		}
 	}
-	if _, err := s.store.AttachmentSession(r.Context(), a, id, upload); err != nil {
+	if _, err := s.service.AttachmentSession(r.Context(), a, id, upload); err != nil {
 		s.attachmentErr(w, err)
 		return false
 	}
@@ -123,8 +122,6 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 400, "multipart 格式不合法")
 		return
 	}
-	s.attachmentMu.RLock()
-	defer s.attachmentMu.RUnlock()
 	tmpdir := filepath.Join(s.cfg.AttachmentsDir, ".tmp")
 	if err = os.MkdirAll(tmpdir, 0700); err != nil {
 		s.attachmentErr(w, err)
@@ -245,7 +242,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		s.attachmentErr(w, err)
 		return
 	}
-	v := attachment.Attachment{ID: s.store.NewAttachmentID(), SessionID: r.PathValue("id"), Filename: filename, ContentType: ctype, SizeBytes: size, SHA256: digest, CreatedBy: a.User.ID, Source: "user", CreatedAt: time.Now().Unix()}
+	v := attachment.Attachment{ID: s.service.NewAttachmentID(), SessionID: r.PathValue("id"), Filename: filename, ContentType: ctype, SizeBytes: size, SHA256: digest, CreatedBy: a.User.ID, Source: "user", CreatedAt: time.Now().Unix()}
 	if a.DaemonID != "" {
 		v.Source = "daemon"
 		v.DaemonID = a.DaemonID
@@ -255,7 +252,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 	}
 	if a.RunID != "" {
 		v.CreatedByRunID = a.RunID
-		if run, e := s.store.GetRun(r.Context(), store.User{Role: store.RoleAdmin}, func() string {
+		if run, e := s.service.GetRun(r.Context(), service.User{Role: service.RoleAdmin}, func() string {
 			if a.WorkID != "" {
 				wk := workScope(r)
 				if wk != nil {
@@ -267,16 +264,9 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 			v.CreatedByAgentKey = run.AgentKey
 		}
 	}
-	final := s.attachmentPath(v.SessionID, v.ID)
-	err = s.store.CommitAttachment(r.Context(), a, v, s.cfg.AttachmentSessionMaxBytes, func() error {
-		if e := os.MkdirAll(filepath.Dir(final), 0700); e != nil {
-			return e
-		}
-		return os.Rename(tmp, final)
-	})
+	err = s.service.PublishAttachment(r.Context(), a, v, tmp)
 	if err != nil {
-		os.RemoveAll(filepath.Dir(final))
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, service.ErrNotFound) {
 			writeErr(w, 409, "上传期间会话或权限发生变化")
 			return
 		}
@@ -300,9 +290,9 @@ func (s *Server) handleListAttachments(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = v
 	}
-	page, err := s.store.ListAttachments(r.Context(), r.PathValue("id"), r.URL.Query().Get("cursor"), limit)
+	page, err := s.service.ListAttachments(r.Context(), r.PathValue("id"), r.URL.Query().Get("cursor"), limit)
 	if err != nil {
-		if errors.Is(err, store.ErrAttachmentCursor) {
+		if errors.Is(err, service.ErrAttachmentCursor) {
 			writeErr(w, 400, err.Error())
 		} else {
 			s.attachmentErr(w, err)
@@ -315,7 +305,7 @@ func (s *Server) handleGetAttachment(w http.ResponseWriter, r *http.Request) {
 	if !s.attachmentSession(w, r, false) {
 		return
 	}
-	v, err := s.store.GetAttachment(r.Context(), r.PathValue("id"), r.PathValue("attachment_id"))
+	v, err := s.service.GetAttachment(r.Context(), r.PathValue("id"), r.PathValue("attachment_id"))
 	if err != nil {
 		s.attachmentErr(w, err)
 		return
@@ -326,14 +316,12 @@ func (s *Server) handleAttachmentContent(w http.ResponseWriter, r *http.Request)
 	if !s.attachmentSession(w, r, false) {
 		return
 	}
-	v, err := s.store.GetAttachment(r.Context(), r.PathValue("id"), r.PathValue("attachment_id"))
+	v, err := s.service.GetAttachment(r.Context(), r.PathValue("id"), r.PathValue("attachment_id"))
 	if err != nil {
 		s.attachmentErr(w, err)
 		return
 	}
-	s.attachmentMu.RLock()
-	f, err := os.Open(s.attachmentPath(v.SessionID, v.ID))
-	s.attachmentMu.RUnlock()
+	f, err := s.service.OpenAttachmentFile(v.SessionID, v.ID)
 	if err != nil {
 		s.attachmentErr(w, err)
 		return
@@ -353,75 +341,9 @@ func (s *Server) handleDeleteAttachment(w http.ResponseWriter, r *http.Request) 
 	if !s.attachmentSession(w, r, false) {
 		return
 	}
-	if err := s.store.DeleteAttachment(r.Context(), attachmentAccess(r), r.PathValue("id"), r.PathValue("attachment_id")); err != nil {
+	if err := s.service.DeleteAttachment(r.Context(), attachmentAccess(r), r.PathValue("id"), r.PathValue("attachment_id")); err != nil {
 		s.attachmentErr(w, err)
 		return
 	}
-	s.attachmentMu.Lock()
-	err := os.RemoveAll(filepath.Dir(s.attachmentPath(r.PathValue("id"), r.PathValue("attachment_id"))))
-	s.attachmentMu.Unlock()
-	if err != nil {
-		s.log.Printf("attachment cleanup: %v", err)
-	}
 	w.WriteHeader(204)
-}
-
-// CleanupAttachments removes only aged, unreferenced files under generated IDs.
-func (s *Server) CleanupAttachments(ctx context.Context) error {
-	if !s.attachmentMu.TryLock() {
-		return nil
-	}
-	defer s.attachmentMu.Unlock()
-	entries, err := os.ReadDir(s.cfg.AttachmentsDir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	cutoff := time.Now().Add(-24 * time.Hour)
-	for _, session := range entries {
-		if session.Name() == ".tmp" {
-			if !session.IsDir() {
-				continue
-			}
-			files, e := os.ReadDir(filepath.Join(s.cfg.AttachmentsDir, ".tmp"))
-			if e != nil {
-				return e
-			}
-			for _, f := range files {
-				info, e := f.Info()
-				if e == nil && info.ModTime().Before(cutoff) {
-					os.Remove(filepath.Join(s.cfg.AttachmentsDir, ".tmp", f.Name()))
-				}
-			}
-			continue
-		}
-		if !session.IsDir() || !attachment.ValidID(session.Name(), "ss_") {
-			continue
-		}
-		files, e := os.ReadDir(filepath.Join(s.cfg.AttachmentsDir, session.Name()))
-		if e != nil {
-			return e
-		}
-		for _, f := range files {
-			if !f.IsDir() || !attachment.ValidID(f.Name(), "at_") {
-				continue
-			}
-			info, e := f.Info()
-			if e != nil || !info.ModTime().Before(cutoff) {
-				continue
-			}
-			exists, e := s.store.AttachmentExists(ctx, session.Name(), f.Name())
-			if e != nil {
-				return e
-			}
-			if !exists {
-				if e = os.RemoveAll(filepath.Join(s.cfg.AttachmentsDir, session.Name(), f.Name())); e != nil {
-					return fmt.Errorf("cleanup: %w", e)
-				}
-			}
-		}
-	}
-	return nil
 }

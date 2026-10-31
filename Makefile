@@ -5,7 +5,7 @@ LDFLAGS := -s -w -X github.com/memory-co/agentuse/internal/version.Version=$(VER
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 SERVER_PLATFORMS := $(PLATFORMS)
 
-# 网页:frontend/ 构建到 frontend/dist,编译 agentuse-server 时嵌进去
+# 两个独立前端分别构建到各自 dist，嵌入 client 和 server 二进制
 web:
 	cd client/frontend && npm ci && npm run build
 	cd server/frontend && npm ci && npm run build
