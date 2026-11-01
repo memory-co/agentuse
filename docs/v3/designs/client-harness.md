@@ -31,6 +31,12 @@ YAML、shell 命令、argv/env、脚本、原生 RPC 帧、hook 请求和控制�
 
 ![Server 与 Client 的执行边界](../../images/harness-integration.svg)
 
+## 独立 harnessctl 接入层
+
+仓库顶层的 [harnessctl 协议与实现](../../../harnessctl/README.md) 可以独立分发，包含 `harness/claudecode`、`harness/codex` 两个同名 CLI 入口。其命令和事件不携带 AgentUse 业务身份，不引用本仓库模块；复杂原生协议由适配器代码处理，manifest 声明能力和依赖。
+
+后续 client harnessService 可以调用其 start/send/cancel/reply/close/status/doctor，读取事件文件并映射到本机 session 与平台 run。harnessctl 会话、turn 和输入回执不能直接等同于平台 run；尤其 Claude 的插话回显只证明收到，轮次不确定时必须保留 unknown。当前新增独立适配层，client 原有 Go 执行链路尚未切换。下文已有 YAML 接入流程仍描述现有链路及其目标设计。
+
 ## 三、接入包不只是 YAML
 
 YAML 能声明已有能力的接入方式，不能让原生程序凭空具有插话或提问能力。所有 harness 适配器统一存放在 `~/.agentuse/harness/`，由 harnessService 从该目录加载。每种 harness 按标识分目录，再按接入包版本分目录；Codex、Claude Code 及后续适配器都遵循这一结构。接入包按需包含：

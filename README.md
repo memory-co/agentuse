@@ -25,6 +25,10 @@ agentuse 是一个可以自己部署的 agent 中间件。用户用**一行命�
 
 <p align="center"><img src="docs/images/flow.svg" alt="使用流程：添加机器 → 一行命令安装 → 打开 harness → 建 agent → 开会话" width="860"></p>
 
+## 独立 Harness CLI
+
+[`harnessctl/`](harnessctl/README.md) 定义统一的本机命令与 JSONL 事件协议，提供 Codex 和 Claude Code 适配器。整个目录可独立打包分发，仅依赖 Python 标准库和原生 CLI，不依赖 AgentUse。当前 AgentUse client 仍使用原有执行链路，后续再迁移调用。
+
 ## 快速开始
 
 ### 1. 安装并起服务

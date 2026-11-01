@@ -1,0 +1,28 @@
+{
+  "name": "codex",
+  "version": "0.1.0",
+  "protocol": "harnessctl/0",
+  "entrypoint": "harnessctl",
+  "platforms": [
+    "linux"
+  ],
+  "requires": {
+    "python": ">=3.9",
+    "bin": [
+      "codex"
+    ]
+  },
+  "tested_backend_version": "0.165.0",
+  "delivery": [
+    "steer",
+    "queue",
+    "interrupt"
+  ],
+  "requests": [
+    "approval",
+    "question"
+  ],
+  "resume": true,
+  "delivery_confirmation": "rpc_response",
+  "distribution_root": "../.."
+}
