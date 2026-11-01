@@ -8,11 +8,11 @@ def argv(config):
     if config['model']:
         import json
         args += ['-c', 'model=' + json.dumps(config['model'])]
-    return args + config['backend_args']
+    return args
 
 
 def initialize(r):
-    r.request('initialize', dict(clientInfo=dict(name='harnessctl', version='0.1.0'),
+    r.request('initialize', dict(clientInfo=dict(name='harnessctl', version='0.2.0'),
                                  capabilities=dict(experimentalApi=True)))
 
 
@@ -37,16 +37,22 @@ def cancel(r, drop_queued=False):
 
 
 def reply(r, request, answer):
-    import json
+    from runtime import question_answers
     native = request['native']
-    if request['kind'] == 'approval':
+    if request['kind'] == 'permission':
+        answer = answer.strip()
         if answer not in ('allow', 'deny'):
             from runtime import Rejected
             raise Rejected('approval answer must be allow or deny', 2)
         result = dict(decision='accept' if answer == 'allow' else 'decline')
     else:
-        result = json.loads(answer)
+        answers = question_answers(request, answer)
+        result = dict(answers={key: dict(answers=value) for key, value in answers.items()})
     r.write(dict(id=native['id'], result=result))
+
+
+def decline(r, native):
+    r.write(dict(id=native['id'], error=dict(code=-32800, message='Execution cancelled')))
 
 
 def before_finished(r, native):
@@ -56,20 +62,24 @@ def before_finished(r, native):
 def frame(r, f):
     method = f.get('method')
     if method and 'id' in f:
-        key = str(f['id'])
-        # Only known approval methods receive allow/deny translation. Unknown
-        # requests remain raw questions, never implicitly approved.
+        params = f.get('params', {})
         approval = method in ('item/commandExecution/requestApproval', 'item/fileChange/requestApproval')
-        request = dict(native=f, kind='approval' if approval else 'question')
-        r.requests[key] = request
-        r.emit('request.opened', request=key, kind=request['kind'], summary=method,
-               payload=f.get('params', {}), native=f)
+        if approval:
+            r.open_request(f, 'permission', params.get('command') or params.get('reason') or method)
+        elif method == 'item/tool/requestUserInput':
+            from runtime import question_specs
+            r.open_request(f, 'question', 'Please answer the questions', question_specs(params.get('questions', []), True))
+        else:
+            r.write(dict(id=f['id'], error=dict(code=-32601, message='Unsupported native request')))
+            r.emit('error', message='Unsupported native request: ' + method, native=f)
         return
     if 'id' in f:
         pending = r.pending.pop(f['id'], None)
         if pending is None:
             return
         method, item, _ = pending
+        if item is not None and item.get('cancelled') and method == 'turn/steer':
+            return
         if f.get('error'):
             reason = f['error'].get('message', 'native request failed')
             if method == 'turn/steer':
@@ -77,18 +87,15 @@ def frame(r, f):
                 # Retry as a new turn only for the documented idle race, never
                 # for auth errors or arbitrary backend failures.
                 if 'no active turn' in reason.lower() or 'expected active turn' in reason.lower():
-                    if item['if_idle'] == 'start':
-                        r.queued.append(item)
-                        r.emit('input.queued', input=item['id'], reason='steer_race')
-                        r.drain()
-                    else:
-                        r.dropped(item, 'no_active_turn')
+                    r.queued.append(item)
+                    r.drain()
                 else:
                     r.dropped(item, reason)
             elif method == 'turn/start':
                 r.dropped(item, reason)
                 r.finished('failed', f)
             elif method == 'turn/interrupt':
+                r.cancelling = False
                 r.emit('error', message=reason, native=f)
             else:
                 raise RuntimeError(method + ': ' + reason)
@@ -103,7 +110,7 @@ def frame(r, f):
             r.request('thread/resume' if resume else 'thread/start', params)
         elif method in ('thread/start', 'thread/resume'):
             r.thread = result['thread']['id']
-            r.emit('session.started', adapter=NAME, native_session=r.thread, native=f)
+            r.native_ready(f)
             r.drain()
         elif method == 'turn/start':
             r.turn = result['turn']['id']

@@ -1,234 +1,314 @@
-"""Run from any directory: python3 -m unittest discover -s harnessctl/tests -v."""
+"""Only each independent adapter directory is made available to the CLI."""
 import concurrent.futures
-import json
 import importlib.util
-import signal
-import tarfile
+import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
+import tarfile
 import tempfile
 import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+ADAPTERS = ('codex', 'claudecode')
 
 
 class ProtocolTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='harnessctl-test-')
         self.root = Path(self.temp.name)
-        # Copy only individual adapter directories, with no shared parent lib,
-        # protocol source tree, package builder, or AgentUse modules available.
-        self.dist = self.root / 'distribution'
-        for adapter in ('codex', 'claudecode'):
-            shutil.copytree(ROOT / 'harness' / adapter, self.dist / adapter,
+        self.dist = self.root/'distribution'
+        for name in ADAPTERS:
+            shutil.copytree(ROOT/'harness'/name, self.dist/name,
                             ignore=shutil.ignore_patterns('__pycache__'))
-        self.bin = self.root / 'bin'
-        self.bin.mkdir()
+        binary = self.root/'bin'
+        binary.mkdir()
         for name in ('codex', 'claude'):
-            target = self.bin / name
-            shutil.copy(ROOT / 'tests/fake_backend.py', target)
+            target = binary/name
+            shutil.copy(ROOT/'tests/fake_backend.py', target)
             target.chmod(0o700)
-        self.env = dict(os.environ, PATH=str(self.bin) + ':' + os.environ['PATH'])
-        self.sessions = []
+        self.log = self.root/'native.jsonl'
+        self.env = dict(os.environ, PATH=str(binary)+':'+os.environ['PATH'],
+                        HARNESSCTL_TEST_LOG=str(self.log))
+        self.sessions = {}
 
-    def tearDown(self):
-        for adapter, event in self.sessions:
-            self.call(adapter, 'close', event)
-        for _, event in self.sessions:
-            try:
-                self.wait(event, 'session.exited')
-            except AssertionError:
-                pass
-        self.temp.cleanup()
-
-    def call(self, adapter, verb, event=None, *args):
-        argv = [str(self.dist / adapter / 'harnessctl'), verb]
+    def call(self, adapter, verb, event=None, *args, stdin=None):
+        argv = [str(self.dist/adapter/'harnessctl'), verb]
         if event is not None:
             argv.append(str(event))
-        return subprocess.run(argv + list(args), cwd=self.root, env=self.env,
-                              capture_output=True, text=True, timeout=10)
+        return subprocess.run(argv+list(args), cwd=self.root, env=self.env,
+                              input=stdin, capture_output=True, text=True, timeout=10)
 
     def events(self, event):
         return [json.loads(line) for line in event.read_text().splitlines()] if event.exists() else []
 
     def wait(self, event, event_type, **fields):
-        end = time.monotonic() + 8
-        while time.monotonic() < end:
-            for e in self.events(event):
-                if e['type'] == event_type and all(e.get(k) == v for k, v in fields.items()):
-                    return e
-            time.sleep(.025)
+        deadline = time.monotonic()+8
+        while time.monotonic()<deadline:
+            for item in self.events(event):
+                if item['type']==event_type and all(item.get(k)==v for k,v in fields.items()):
+                    return item
+            time.sleep(.02)
         self.fail(f'missing {event_type} {fields}: {self.events(event)}')
 
-    def start(self, adapter, prompt='hold'):
-        event = self.root / (adapter + '.jsonl')
-        result = self.call(adapter, 'start', event, '--cwd', str(self.root), '--id', 'initial', prompt)
-        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, '', ''))
-        self.sessions.append((adapter, event))
-        self.wait(event, 'session.started')
-        self.wait(event, 'turn.started')
+    def send(self, adapter, prompt='hold', *args, event=None, stdin=None):
+        event = event or self.root/(adapter+'.jsonl')
+        self.sessions[event] = adapter
+        argv = list(args)
+        if prompt is not None:
+            argv.append(prompt)
+        result = self.call(adapter, 'send', event, *argv, stdin=stdin)
+        self.assertEqual((result.returncode,result.stdout,result.stderr),(0,'',''))
         return event
 
-    def test_both_adapters_lifecycle_and_independent_distribution(self):
-        for adapter in ('codex','claudecode'):
-            with self.subTest(adapter=adapter):
-                doctor = self.call(adapter, 'doctor')
-                self.assertEqual(doctor.returncode, 0)
-                self.assertTrue(json.loads(doctor.stdout)['ok'])
-                event = self.start(adapter)
-                result = self.call(adapter, 'send', event, '--delivery', 'queue', '--id', 'queued', 'next')
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.wait(event, 'input.queued', input='queued')
-                self.assertEqual(json.loads(self.call(adapter,'status',event).stdout)['queued'], 1)
-                result = self.call(adapter, 'cancel', event)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.wait(event,'turn.finished',status='interrupted')
-                self.wait(event,'input.delivered',input='queued',outcome='started_turn')
-                self.wait(event,'turn.finished',status='completed')
-                self.assertEqual(self.call(adapter,'send',event,'--if-idle','fail','no').returncode,5)
-                self.assertEqual(self.call(adapter,'close',event).stdout,'')
-                self.wait(event,'session.exited',reason='closed')
-                self.assertEqual(json.loads(self.call(adapter,'status',event).stdout)['state'],'exited')
-                self.assertEqual(self.call(adapter,'send',event,'late').returncode,4)
-                self.assertEqual(event.stat().st_mode & 0o777,0o600)
+    def status(self, adapter, event):
+        result = self.call(adapter,'status',event)
+        self.assertEqual(result.returncode,0,result.stderr)
+        return json.loads(result.stdout)
 
-    def test_codex_steer_receipt_dedup_and_race(self):
-        event=self.start('codex')
-        for _ in range(2):
-            p=self.call('codex','send',event,'--id','steer-1','supplement')
-            self.assertEqual(p.returncode,0,p.stderr)
-        self.wait(event,'input.delivered',input='steer-1',outcome='injected')
-        self.assertEqual(len([e for e in self.events(event) if e['type']=='input.accepted' and e['input']=='steer-1']),1)
-        self.assertEqual(self.call('codex','send',event,'--id','steer-1','different').returncode,2)
-        self.assertEqual(self.call('codex','send',event,'--id','race','race').returncode,0)
-        self.wait(event,'input.delivered',input='race',outcome='started_turn')
+    def stop(self, event, abrupt=False):
+        process = Path(str(event)+'.d/process.json')
+        if not process.exists():
+            return
+        data = json.loads(process.read_text())
+        # Private test cleanup simulates adapter-owned shutdown; no public close.
+        try:
+            os.kill(data['pid'],signal.SIGKILL if abrupt else signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        if abrupt:
+            try: os.killpg(data['backend_pid'],signal.SIGTERM)
+            except ProcessLookupError: pass
+        lockpath = Path(str(event)+'.d/runtime.lock')
+        import fcntl
+        deadline = time.monotonic()+4
+        while time.monotonic()<deadline:
+            with lockpath.open('a') as lock:
+                try:
+                    fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                    return
+                except BlockingIOError:
+                    pass
+            time.sleep(.02)
+        self.fail('runtime did not stop')
 
-    def test_claude_replay_does_not_claim_injection(self):
-        event=self.start('claudecode')
-        self.assertEqual(self.call('claudecode','send',event,'--id','steer-1','next').returncode,0)
-        self.wait(event,'input.observed',input='steer-1')
-        self.wait(event,'input.delivered',input='steer-1',outcome='unknown')
-        self.assertFalse(any(e.get('outcome')=='injected' for e in self.events(event)))
+    def tearDown(self):
+        for event in self.sessions:
+            self.stop(event)
+        self.temp.cleanup()
 
-    def test_approval_reply_and_drop_queue(self):
-        for adapter in ('codex','claudecode'):
-            event=self.start(adapter,'question')
-            self.wait(event,'request.opened',request='approval-1',kind='approval')
-            p=self.call(adapter,'reply',event,'approval-1','invalid')
-            self.assertEqual(p.returncode,2,p.stderr)
-            p=self.call(adapter,'reply',event,'approval-1','deny')
-            self.assertEqual(p.returncode,0,p.stderr)
-            self.wait(event,'request.replied',request='approval-1')
+    def test_four_commands_only(self):
+        for adapter in ADAPTERS:
+            result=self.call(adapter,'--help')
+            self.assertEqual(result.returncode,0)
+            self.assertIn('{send,cancel,status,reply}',result.stdout)
+            for verb in ('start','doctor','close'):
+                self.assertEqual(self.call(adapter,verb,self.root/'absent').returncode,2)
+            for flag in ('--delivery','--if-idle','--resume','--id','--backend-arg'):
+                self.assertEqual(self.call(adapter,'send',self.root/'absent',flag,'x','prompt').returncode,2)
+
+    def test_first_send_stdin_continuation_and_binding(self):
+        for adapter in ADAPTERS:
+            text='literal $HOME `whoami` \\ "quote"\n中文\n'
+            event=self.send(adapter,None,'--cwd',str(self.root),'--model','test-model',stdin=text)
+            self.wait(event,'message',text=text)
             self.wait(event,'turn.finished',status='completed')
-            self.assertEqual(self.call(adapter,'reply',event,'approval-1','allow').returncode,4)
-            self.assertEqual(self.call(adapter,'send',event,'hold').returncode,0)
-            self.assertEqual(self.call(adapter,'send',event,'--delivery','queue','--id','drop','next').returncode,0)
-            self.assertEqual(self.call(adapter,'cancel',event,'--drop-queued').returncode,0)
-            self.wait(event,'input.dropped',input='drop',reason='cancelled')
+            state=self.status(adapter,event)
+            self.assertEqual(state['state'],'idle')
+            self.assertEqual(state['cwd'],str(self.root))
+            self.assertEqual(state['model'],'test-model')
+            self.assertNotIn('native_session',state)
+            self.assertNotIn('pid',state)
+            self.send(adapter,'second',event=event)
+            self.wait(event,'message',text='second')
+            other=self.root/'other';other.mkdir(exist_ok=True)
+            for args in (('--cwd',str(other)),('--model','different')):
+                self.assertEqual(self.call(adapter,'send',event,*args,'no').returncode,2)
+            self.assertEqual(event.stat().st_mode&0o777,0o600)
 
-    def test_concurrent_sends_and_wrong_adapter(self):
-        event=self.start('codex')
-        self.assertEqual(self.call('claudecode','status',event).returncode,2)
-        self.assertEqual(self.call('codex','start',event,'oops').returncode,2)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            results=list(pool.map(lambda i:self.call('codex','send',event,'--id',f'in-{i}','more'),range(12)))
-        self.assertTrue(all(p.returncode==0 for p in results))
-        for i in range(12):
-            self.wait(event,'input.delivered',input=f'in-{i}',outcome='injected')
-        self.assertTrue(all('ts' in e for e in self.events(event)))
+    def test_automatic_busy_delivery_and_race(self):
+        event=self.send('codex')
+        self.wait(event,'input.delivered',outcome='started_turn')
+        self.send('codex','supplement',event=event)
+        self.wait(event,'input.delivered',outcome='injected')
+        self.send('codex','race',event=event)
+        self.wait(event,'message',text='race')
+        other=self.send('claudecode')
+        self.wait(other,'input.observed')
+        self.send('claudecode','more',event=other)
+        self.wait(other,'message',text='more')
+        self.wait(other,'input.delivered',outcome='unknown')
+        self.assertFalse(any(x.get('outcome')=='injected' for x in self.events(other)))
 
-    def test_interrupt_starts_new_turn_and_resume_uses_new_address(self):
-        for adapter in ('codex', 'claudecode'):
-            event=self.start(adapter)
-            p=self.call(adapter,'send',event,'--delivery','interrupt','--id','urgent','urgent')
-            self.assertEqual(p.returncode,0,p.stderr)
+    def test_cancel_drops_waiting_input_and_can_send_again(self):
+        for adapter in ADAPTERS:
+            event=self.send(adapter,'question')
+            self.wait(event,'request.opened')
+            self.send(adapter,'must-not-run',event=event)
+            result=self.call(adapter,'cancel',event)
+            self.assertEqual((result.returncode,result.stdout),(0,''))
             self.wait(event,'turn.finished',status='interrupted')
-            self.wait(event,'input.delivered',input='urgent',outcome='started_turn')
-            self.wait(event,'turn.finished',status='completed')
-            self.call(adapter,'close',event)
-            self.wait(event,'session.exited')
-            resumed=self.root/(adapter+'-resumed.jsonl')
-            p=self.call(adapter,'start',resumed,'--resume','native-session','continue')
-            self.assertEqual(p.returncode,0,p.stderr)
-            self.sessions.append((adapter,resumed))
-            self.wait(resumed,'session.started',native_session='native-session')
-            self.wait(resumed,'turn.finished',status='completed')
+            self.wait(event,'input.dropped',reason='cancelled')
+            self.assertFalse(any(x.get('text')=='must-not-run' for x in self.events(event)))
+            self.send(adapter,'after-cancel',event=event)
+            self.wait(event,'message',text='after-cancel')
 
-    def test_cancel_while_codex_start_response_is_pending(self):
-        event=self.root/'starting.jsonl'
+    def test_replies_normalize_permissions_and_questions(self):
+        for adapter in ADAPTERS:
+            event=self.send(adapter,'question')
+            request=self.wait(event,'request.opened',kind='permission')
+            key=request['request_id']
+            self.assertEqual(self.status(adapter,event)['requests'][0]['request_id'],key)
+            self.assertEqual(self.call(adapter,'reply',event,key,'bad').returncode,2)
+            result=self.call(adapter,'reply',event,key,stdin='deny\n')
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.wait(event,'request.replied',request_id=key)
+            self.wait(event,'turn.finished',status='completed')
+            self.assertEqual(self.call(adapter,'reply',event,key,'allow').returncode,4)
+            self.send(adapter,'ask',event=event)
+            question=self.wait(event,'request.opened',kind='question')
+            self.assertEqual(question['questions'][0]['id'],'q1')
+            self.assertEqual(question['questions'][0]['text'],'Which language?')
+            key=question['request_id']
+            self.assertEqual(self.call(adapter,'reply',event,key,'{"wrong":"Go"}').returncode,2)
+            result=self.call(adapter,'reply',event,key,stdin='{"q1":"Go"}\n')
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.wait(event,'request.replied',request_id=key)
+            # Fixture asserts the exact, different native answer formats.
+            self.wait(event,'message',text='answered') if adapter=='claudecode' else self.wait(event,'request.replied',request_id=key)
+
+    def test_cancel_expires_reply(self):
+        for adapter in ADAPTERS:
+            event=self.send(adapter,'ask')
+            key=self.wait(event,'request.opened')['request_id']
+            self.assertEqual(self.call(adapter,'cancel',event).returncode,0)
+            self.wait(event,'request.expired',request_id=key)
+            self.assertEqual(self.call(adapter,'reply',event,key,'{"q1":"Go"}').returncode,4)
+
+    def test_concurrent_first_sends_have_one_runtime(self):
+        event=self.root/'concurrent.jsonl'
+        self.sessions[event]='codex'
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            results=list(pool.map(lambda _:self.call('codex','send',event,'hold'),range(8)))
+        self.assertTrue(all(x.returncode==0 for x in results),[x.stderr for x in results])
+        deadline=time.monotonic()+5
+        while time.monotonic()<deadline:
+            if len([x for x in self.events(event) if x['type']=='input.accepted'])==8:break
+            time.sleep(.02)
+        self.assertEqual(len([x for x in self.events(event) if x['type']=='input.accepted']),8)
+        self.assertEqual(len([x for x in self.events(event) if x['type']=='session.ready']),1)
+
+    def test_restart_resumes_without_public_native_ids(self):
+        for adapter in ADAPTERS:
+            event=self.send(adapter,'first')
+            self.wait(event,'turn.finished',status='completed')
+            self.stop(event)
+            self.assertEqual(self.status(adapter,event)['state'],'idle')
+            self.send(adapter,'resumed',event=event)
+            self.wait(event,'message',text='resumed')
+        frames=[json.loads(x) for x in self.log.read_text().splitlines()]
+        self.assertTrue(any(x.get('frame',{}).get('method')=='thread/resume' for x in frames))
+        self.assertTrue(any('--resume' in x.get('argv',[]) for x in frames))
+
+    def test_loss_is_reported_once_and_next_send_resumes(self):
+        event=self.send('codex')
+        self.wait(event,'session.ready')
+        self.stop(event,abrupt=True)
+        for _ in range(2):self.assertEqual(self.status('codex',event)['state'],'failed')
+        self.assertEqual(len([x for x in self.events(event) if x['type']=='runtime.stopped' and x['reason']=='lost']),1)
+        self.send('codex','recovered',event=event)
+        self.wait(event,'message',text='recovered')
+
+    def test_orphan_backend_is_not_resumed_concurrently(self):
+        self.env['HARNESSCTL_TEST_KEEP_ORPHAN']='1'
+        event=self.send('codex')
+        self.wait(event,'session.ready')
+        process=json.loads(Path(str(event)+'.d/process.json').read_text())
+        os.kill(process['pid'],signal.SIGKILL)
+        try:
+            self.assertEqual(self.status('codex',event)['state'],'failed')
+            result=self.call('codex','send',event,'do-not-duplicate')
+            self.assertEqual(result.returncode,1,result.stderr)
+            self.assertIn('still running',result.stderr)
+            self.assertEqual(self.call('codex','cancel',event).returncode,1)
+        finally:
+            try:os.killpg(process['backend_pid'],signal.SIGTERM)
+            except ProcessLookupError:pass
+
+    def test_missing_recovery_data_never_silently_starts_new_context(self):
+        for adapter in ADAPTERS:
+            event=self.send(adapter,'original')
+            self.wait(event,'turn.finished',status='completed')
+            self.stop(event)
+            Path(str(event)+'.d/native.json').unlink()
+            before=len(self.events(event))
+            result=self.call(adapter,'send',event,'must-not-start')
+            self.assertEqual(result.returncode,1,result.stderr)
+            self.assertIn('unavailable',result.stderr)
+            self.assertEqual(len(self.events(event)),before)
+
+    def test_invalid_utf8_stdin_rejected(self):
+        for adapter in ADAPTERS:
+            result=subprocess.run([str(self.dist/adapter/'harnessctl'),'send',str(self.root/'bad-utf8')],
+                                  input=b'\xff',capture_output=True,env=self.env,cwd=self.root,timeout=5)
+            self.assertEqual(result.returncode,2,result.stderr)
+            self.assertIn(b'UTF-8',result.stderr)
+
+    def test_stdin_limits_wrong_adapter_and_existing_files(self):
+        for adapter in ADAPTERS:
+            for content in ('','   ','x'*(256*1024+1)):
+                self.assertEqual(self.call(adapter,'send',self.root/'invalid',stdin=content).returncode,2)
+        event=self.send('codex')
+        self.assertEqual(self.call('claudecode','status',event).returncode,2)
+        existing=self.root/'foreign.jsonl';existing.write_text('preserve\n')
+        self.assertEqual(self.call('codex','send',existing,'no').returncode,2)
+        self.assertEqual(existing.read_text(),'preserve\n')
+        self.assertEqual(self.call('codex','status',self.root/'absent').returncode,4)
+
+    def test_cancel_while_native_start_pending(self):
         gate=self.root/'native-start-gate'
         self.env['HARNESSCTL_TEST_STARTING_GATE']=str(gate)
-        p=self.call('codex','start',event,'starting_hold')
-        self.assertEqual(p.returncode,0,p.stderr)
-        self.sessions.append(('codex',event))
+        event=self.send('codex','starting_hold')
         deadline=time.monotonic()+3
-        while not Path(str(gate)+'.started').exists() and time.monotonic()<deadline:
-            time.sleep(.01)
+        while not Path(str(gate)+'.started').exists() and time.monotonic()<deadline:time.sleep(.01)
         self.assertTrue(Path(str(gate)+'.started').exists())
         self.assertEqual(self.call('codex','cancel',event).returncode,0)
         gate.touch()
         self.wait(event,'turn.finished',status='interrupted')
-        self.wait(event,'control.response',operation='interrupt')
 
-    def test_native_questions_and_expiration(self):
-        for adapter in ('codex','claudecode'):
-            event=self.start(adapter,'ask')
-            self.wait(event,'request.opened',request='question-1',kind='question')
-            self.assertEqual(self.call(adapter,'reply',event,'question-1','not-json').returncode,2)
-            answer='{"answers":{"q1":{"answers":["yes"]}}}' if adapter=='codex' else '{"behavior":"allow","updatedInput":{"answers":{}}}'
-            self.assertEqual(self.call(adapter,'reply',event,'question-1',answer).returncode,0)
-            self.wait(event,'turn.finished',status='completed')
-            # A new native request in the next turn may reuse the same native ID.
-            self.assertEqual(self.call(adapter,'send',event,'question').returncode,0)
-            self.wait(event,'request.opened',request='approval-1')
-            self.assertEqual(self.call(adapter,'cancel',event).returncode,0)
-            self.wait(event,'request.expired',request='approval-1')
-            self.assertEqual(self.call(adapter,'reply',event,'approval-1','allow').returncode,4)
+    def test_idle_runtime_is_reclaimed_and_resumed(self):
+        # Speed up the private policy in the isolated test copy, not a user knob.
+        for adapter in ADAPTERS:
+            source=self.dist/adapter/'lib/runtime.py'
+            source.write_text(source.read_text().replace('IDLE_SECONDS = 60','IDLE_SECONDS = 0.3'))
+            event=self.send(adapter,'idle-test')
+            self.wait(event,'runtime.stopped',reason='idle')
+            self.assertEqual(self.status(adapter,event)['state'],'idle')
+            self.send(adapter,'again',event=event)
+            self.wait(event,'message',text='again')
 
-    def test_lost_runtime_recorded_once(self):
-        event=self.start('codex')
-        process=json.loads(Path(str(event)+'.d/process.json').read_text())
-        os.kill(process['pid'],signal.SIGKILL)
-        os.killpg(process['backend_pid'],signal.SIGTERM)
-        end=time.monotonic()+3
-        while time.monotonic()<end:
-            result=self.call('codex','status',event)
-            if result.returncode==0 and json.loads(result.stdout)['state']=='exited':break
-            time.sleep(.025)
-        self.assertEqual(result.returncode,0,result.stderr)
-        self.assertEqual(json.loads(result.stdout)['state'],'exited')
-        self.call('codex','status',event)
-        self.assertEqual(len([e for e in self.events(event) if e['type']=='session.exited']),1)
-
-    def test_reproducible_archives_are_independent(self):
-        spec=importlib.util.spec_from_file_location('package_tool', ROOT/'package.py')
+    def test_independent_reproducible_archives(self):
+        spec=importlib.util.spec_from_file_location('package_tool',ROOT/'package.py')
         package=importlib.util.module_from_spec(spec);spec.loader.exec_module(package)
         unpacked=self.root/'unpacked';unpacked.mkdir()
-        for adapter in ('codex','claudecode'):
-            archive=package.build(self.root/'build1', adapter)
-            other=package.build(self.root/'build2', adapter)
-            self.assertEqual(archive.read_bytes(),other.read_bytes())
+        for adapter in ADAPTERS:
+            archive=package.build(self.root/'build1',adapter)
+            self.assertEqual(archive.read_bytes(),package.build(self.root/'build2',adapter).read_bytes())
             with tarfile.open(archive) as source:
-                self.assertTrue(all(p.name.startswith(adapter+'/') for p in source.getmembers()))
-                self.assertNotIn(adapter+'/lib/'+('claudecode' if adapter=='codex' else 'codex')+'.py',source.getnames())
+                self.assertTrue(all(x.name.startswith(adapter+'/') for x in source.getmembers()))
                 source.extractall(unpacked)
-        shutil.rmtree(self.dist)
-        self.dist=unpacked
-        for adapter in ('codex','claudecode'):
-            # Hide the other package: no sibling can supply runtime dependencies.
-            sibling=self.dist/('claudecode' if adapter=='codex' else 'codex')
-            hidden=self.root/'hidden-adapter'
+        shutil.rmtree(self.dist);self.dist=unpacked
+        for adapter in ADAPTERS:
+            sibling=self.dist/('claudecode' if adapter=='codex' else 'codex');hidden=self.root/'hidden'
             sibling.rename(hidden)
             try:
-                event=self.start(adapter,'packaged')
-                self.wait(event,'turn.finished',status='completed')
-                self.call(adapter,'close',event)
-                self.wait(event,'session.exited')
-            finally:
-                hidden.rename(sibling)
+                event=self.send(adapter,'packaged')
+                self.wait(event,'message',text='packaged')
+                self.stop(event)
+            finally:hidden.rename(sibling)
 
 
 if __name__=='__main__':

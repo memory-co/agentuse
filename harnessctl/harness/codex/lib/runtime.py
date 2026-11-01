@@ -8,7 +8,6 @@ import json
 import os
 from pathlib import Path
 import queue
-import shutil
 import signal
 import socket
 import struct
@@ -18,8 +17,10 @@ import threading
 import time
 import uuid
 
-PROTOCOL = 'harnessctl/0'
-MAX_COMMAND = 1024 * 1024
+PROTOCOL = 'harnessctl/1'
+IDLE_SECONDS = 60
+MAX_TEXT = 256 * 1024
+MAX_COMMAND = 2 * 1024 * 1024
 
 
 class Rejected(Exception):
@@ -90,27 +91,57 @@ class Runtime:
         self.inputs = {}  # input id -> exact request and terminal delivery receipt
         self.queued = collections.deque()
         self.requests = {}
-        self.replies = set()
         self.pending = {}
         self.counter = 0
         self.frames = queue.Queue()
         self.exit_reason = 'backend_exited'
         self.last_status = None
+        self.cancelling = False
+        self.failed = False
+        self.last_activity = time.monotonic()
+        self.shutdown_lock = None
 
     def emit(self, event_type, **fields):
+        fields.pop('turn', None)  # Native turn identity is adapter-private.
         append_event(self.events, event_type, **fields)
 
     def snapshot(self):
-        state = 'awaiting_reply' if self.requests else 'running' if self.turn or self.starting else 'idle'
-        return dict(state=state, turn=self.turn, queued=len(self.queued),
-                    open_requests=len(self.requests), native_session=self.thread,
-                    adapter=self.backend.NAME, pid=os.getpid())
+        state = ('cancelling' if self.cancelling else 'awaiting_reply' if self.requests
+                 else 'running' if self.turn or self.starting or self.queued
+                 else 'failed' if self.failed else 'idle')
+        return dict(state=state, queued=len(self.queued), requests=[v['public'] for v in self.requests.values()],
+                    native_session=self.thread if self.thread != 'pending' else None,
+                    adapter=self.backend.NAME, pid=os.getpid(), live=True)
+
+    def public_status(self):
+        return public_status(self.snapshot(), self.config)
 
     def save(self):
         value = self.snapshot()
         if value != self.last_status:
             write_json(self.directory / 'status.json', value)
             self.last_status = value
+
+    def native_ready(self, native):
+        if not isinstance(self.thread, str) or not self.thread or self.thread == 'pending':
+            raise RuntimeError('backend did not provide a resumable context')
+        write_json(self.directory / 'native.json', dict(resume=self.thread))
+        self.emit('session.ready', native=native)
+
+    def open_request(self, native, kind, message, questions=None):
+        if self.cancelling:
+            self.backend.decline(self, native)
+            return
+        key = identity()
+        if kind == 'question' and not questions:
+            raise RuntimeError('native question has no supported question schema')
+        if not isinstance(message, str):
+            message = json.dumps(message, ensure_ascii=False)
+        public = dict(request_id=key, kind=kind, message=message)
+        if questions is not None:
+            public['questions'] = questions
+        self.requests[key] = dict(native=native, kind=kind, public=public)
+        self.emit('request.opened', native=native, **public)
 
     def write(self, frame):
         self.proc.stdin.write(json.dumps(frame, ensure_ascii=False) + '\n')
@@ -135,30 +166,21 @@ class Runtime:
         item['delivered'] = True
         self.emit('input.dropped', input=item['id'], reason=reason)
 
-    def accept(self, command, initial=False):
-        key = command.get('id') or identity()
-        item = dict(id=key, text=command['prompt'], delivery=command.get('delivery', 'steer'),
-                    if_idle=command.get('if_idle', 'start'))
-        if key in self.inputs:
-            previous = {k: self.inputs[key][k] for k in item}
-            if previous != item:
-                raise Rejected('input id already used with different content', 2)
-            return
-        busy = self.turn is not None or self.starting
-        if not initial and not busy and item['if_idle'] == 'fail':
-            raise Rejected('no active turn', 5)
-        self.inputs[key] = item
-        self.emit('input.accepted', input=key, delivery='start' if initial else item['delivery'])
-        if busy and item['delivery'] == 'steer' and self.turn:
+    def accept(self, command):
+        item = dict(id=identity(), text=command['prompt'])
+        # This flag prevents silent context resets after a runtime dies before
+        # the native backend has supplied its persistent resume identity.
+        self.config['history_started'] = True
+        persisted = {k: v for k, v in self.config.items() if k != 'resume'}
+        write_json(self.directory / 'config.json', persisted)
+        self.inputs[item['id']] = item
+        self.failed = False
+        self.last_activity = time.monotonic()
+        self.emit('input.accepted', input=item['id'])
+        if self.turn and not self.cancelling and not self.requests:
             self.backend.steer(self, item)
         else:
-            if busy and item['delivery'] == 'interrupt':
-                self.queued.appendleft(item)
-                self.backend.cancel(self)
-            else:
-                self.queued.append(item)
-            if busy:
-                self.emit('input.queued', input=key)
+            self.queued.append(item)
             self.drain()
 
     def drain(self):
@@ -175,38 +197,43 @@ class Runtime:
         self.backend.before_finished(self, native)
         self.emit('turn.finished', turn=turn, status=status, native=native, **fields)
         for key in list(self.requests):
-            self.emit('request.expired', request=key, reason='turn_finished')
+            self.emit('request.expired', request_id=key, reason='turn_finished')
         self.requests.clear()
         self.turn = None
         self.starting = False
+        self.cancelling = False
+        self.failed = status == 'failed'
+        self.last_activity = time.monotonic()
         self.drain()
 
     def command(self, cmd):
         verb = cmd['verb']
         if verb == 'status':
-            return self.snapshot()
+            return self.public_status()
         if verb == 'send':
             self.accept(cmd)
         elif verb == 'cancel':
-            if cmd.get('drop_queued'):
-                while self.queued:
-                    self.dropped(self.queued.popleft(), 'cancelled')
-            self.backend.cancel(self, drop_queued=bool(cmd.get('drop_queued')))
+            while self.queued:
+                self.dropped(self.queued.popleft(), 'cancelled')
+            for item in self.inputs.values():
+                if not item.get('delivered'):
+                    item['cancelled'] = True
+                    self.dropped(item, 'cancelled')
+            for key in self.requests:
+                self.emit('request.expired', request_id=key, reason='cancelled')
+            self.requests.clear()
+            self.cancelling = bool(self.turn or self.starting)
+            self.backend.cancel(self, drop_queued=True)
+            self.emit('cancel.accepted')
+            self.last_activity = time.monotonic()
         elif verb == 'reply':
-            key = cmd['request']
-            if key in self.replies:
-                raise Rejected('request already replied', 4)
+            key = cmd['request_id']
             if key not in self.requests:
-                raise Rejected('unknown or expired request', 4)
-            request = self.requests[key]
-            self.backend.reply(self, request, cmd['answer'])
-            self.replies.add(key)
+                raise Rejected('unknown, replied or expired request', 4)
+            self.backend.reply(self, self.requests[key], cmd['answer'])
             del self.requests[key]
-            # A successful write confirms submission, not native resolution.
-            self.emit('request.replied', request=key)
-        elif verb == 'close':
-            self.exit_reason = 'closed'
-            self.stopping = True
+            self.emit('request.replied', request_id=key)
+            self.last_activity = time.monotonic()
         else:
             raise Rejected('unknown command', 2)
         self.save()
@@ -264,7 +291,6 @@ class Runtime:
                         write_json(self.directory / 'process.json', dict(pid=os.getpid(), backend_pid=self.proc.pid))
                         threading.Thread(target=self.read_frames, daemon=True).start()
                         self.backend.initialize(self)
-                        self.accept(self.config['initial'], initial=True)
                         self.save()
                         while not self.stopping:
                             # Bound the batch so chatty output cannot starve control commands.
@@ -287,6 +313,17 @@ class Runtime:
                                 self.serve_connection(listener)
                             except socket.timeout:
                                 pass
+                            if (not self.turn and not self.starting and not self.queued and not self.requests
+                                    and not self.pending and time.monotonic()-self.last_activity > IDLE_SECONDS):
+                                shutdown = open(self.directory / 'control.lock', 'a')
+                                try:
+                                    fcntl.flock(shutdown, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                                except BlockingIOError:
+                                    shutdown.close()
+                                else:
+                                    self.shutdown_lock = shutdown
+                                    self.exit_reason = 'idle'
+                                    self.stopping = True
                             if any(time.monotonic()-p[2] > 60 for p in self.pending.values()):
                                 raise RuntimeError('native control response timed out')
                 except Exception as exc:
@@ -295,7 +332,7 @@ class Runtime:
                 finally:
                     self.stopping = True
                     if self.turn or self.starting:
-                        self.finished('interrupted' if self.exit_reason in ('closed','terminated') else 'failed', None)
+                        self.finished('interrupted' if self.exit_reason == 'terminated' else 'failed', None)
                     for item in self.inputs.values():
                         self.dropped(item, self.exit_reason)
                     if self.proc:
@@ -312,133 +349,213 @@ class Runtime:
                         except ProcessLookupError:
                             pass
                         self.proc.wait()
-                    self.emit('session.exited', reason=self.exit_reason)
-                    write_json(self.directory / 'status.json', dict(self.snapshot(), state='exited'))
+                    failed = self.exit_reason not in ('idle', 'terminated') or self.failed
+                    self.emit('runtime.stopped', reason=self.exit_reason)
+                    write_json(self.directory / 'status.json', dict(self.snapshot(), state='failed' if failed else 'idle', live=False))
+        if self.shutdown_lock:
+            self.shutdown_lock.close()
+
+
+def question_specs(questions, native_ids=False):
+    return [dict(id=q['id'] if native_ids else 'q'+str(i+1),
+                 text=q.get('question', ''), header=q.get('header', ''),
+                 multiple=bool(q.get('multiSelect', False)),
+                 options=[dict(label=o.get('label', ''), description=o.get('description', ''))
+                          for o in q.get('options', [])]) for i, q in enumerate(questions)]
+
+
+def question_answers(request, answer):
+    try:
+        value = json.loads(answer)
+    except ValueError as exc:
+        raise Rejected('question answer must be a JSON object keyed by question id', 2) from exc
+    questions = request['public'].get('questions', [])
+    if not questions or not isinstance(value, dict) or set(value) != {q['id'] for q in questions}:
+        raise Rejected('answer must contain exactly the question ids from request.opened', 2)
+    result = {}
+    for q in questions:
+        selected = value[q['id']]
+        if isinstance(selected, str):
+            selected = [selected]
+        if not isinstance(selected, list) or not selected or not all(isinstance(x,str) and x.strip() for x in selected):
+            raise Rejected('each answer must be nonempty text or a list of nonempty text', 2)
+        if not q['multiple'] and len(selected) != 1:
+            raise Rejected('question only accepts one answer', 2)
+        result[q['id']] = selected
+    return result
+
+
+def public_status(state, config):
+    return dict(state=state['state'], queued=state.get('queued', 0),
+                requests=state.get('requests', []), cwd=config['cwd'], model=config.get('model'))
 
 
 def parser():
-    p = argparse.ArgumentParser(description='harnessctl/0 standalone harness adapter')
+    p = argparse.ArgumentParser(description='harnessctl/1: send, cancel, status, reply')
     sub = p.add_subparsers(dest='verb', required=True)
-    sub.add_parser('doctor')
-    for verb in ('start', 'send', 'cancel', 'reply', 'close', 'status'):
+    for verb in ('send', 'cancel', 'status', 'reply'):
         sp = sub.add_parser(verb)
         sp.add_argument('events', type=Path)
-        if verb in ('start', 'send'):
-            sp.add_argument('--id')
-            sp.add_argument('prompt')
-        if verb == 'start':
-            sp.add_argument('--cwd', default=os.getcwd())
-            sp.add_argument('--resume', help='native session/thread ID')
-            sp.add_argument('--model')
-            sp.add_argument('--backend-arg', action='append', default=[], help='repeat with --backend-arg=VALUE')
         if verb == 'send':
-            sp.add_argument('--delivery', choices=('steer','queue','interrupt'), default='steer')
-            sp.add_argument('--if-idle', choices=('start','fail'), default='start')
-        if verb == 'cancel':
-            sp.add_argument('--drop-queued', action='store_true')
+            sp.add_argument('--cwd')
+            sp.add_argument('--model')
+            sp.add_argument('prompt', nargs='?', help='omitted: read UTF-8 stdin to EOF')
         if verb == 'reply':
-            sp.add_argument('request')
-            sp.add_argument('answer')
-    sp = sub.add_parser('_worker', help=argparse.SUPPRESS)
-    sp.add_argument('events', type=Path)
+            sp.add_argument('request_id')
+            sp.add_argument('answer', nargs='?', help='omitted: read UTF-8 stdin to EOF')
     return p
+
+
+def body(value):
+    if value is None:
+        if sys.stdin.isatty():
+            raise Rejected('provide text as argument or pipe UTF-8 stdin', 2)
+        data = sys.stdin.buffer.read(MAX_TEXT + 1)
+        if len(data) > MAX_TEXT:
+            raise Rejected('input exceeds 256 KiB', 2)
+        try:
+            value = data.decode('utf8')
+        except UnicodeDecodeError as exc:
+            raise Rejected('stdin must contain valid UTF-8', 2) from exc
+    if not value.strip() or len(value.encode('utf8')) > MAX_TEXT:
+        raise Rejected('input must be nonempty and at most 256 KiB', 2)
+    return value
+
+
+def inspect_state(events, config):
+    directory = Path(str(events) + '.d')
+    state_path = directory / 'status.json'
+    try:
+        return rpc(events, dict(verb='status')), True
+    except Rejected:
+        with open(directory / 'runtime.lock', 'a') as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise Rejected('runtime alive but unresponsive; command was not retried')
+            state = json.loads(state_path.read_text()) if state_path.exists() else dict(state='idle')
+            if state.pop('live', False):
+                # The runtime never completed its own cleanup. Do not replay
+                # uncertain inputs; the next send resumes only native history.
+                for request in state.get('requests', []):
+                    append_event(events, 'request.expired', request_id=request['request_id'], reason='runtime_lost')
+                state.update(state='failed', queued=0, requests=[])
+                append_event(events, 'runtime.stopped', reason='lost')
+                write_json(state_path, state)
+            return public_status(state, config), False
+
+
+def backend_alive(directory):
+    path = directory / 'process.json'
+    if not path.exists():
+        return False
+    group = json.loads(path.read_text())['backend_pid']
+    # A runtime killed with SIGKILL may leave a native process or tools behind.
+    # Never resume the same native history concurrently with that process group.
+    for stat in Path('/proc').glob('[0-9]*/stat'):
+        try:
+            parts = stat.read_text().rsplit(')', 1)[1].split()
+            if parts[0] != 'Z' and int(parts[2]) == group:
+                return True
+        except (OSError, ValueError, IndexError):
+            continue
+    return False
+
+
+def launch(events, backend, config):
+    directory = Path(str(events) + '.d')
+    native = directory / 'native.json'
+    if backend_alive(directory):
+        raise Rejected('previous native process is still running; refusing concurrent context recovery')
+    if native.exists() and not isinstance(json.loads(native.read_text()).get('resume'), str):
+        raise Rejected('invalid private context recovery data')
+    if native.exists() and not json.loads(native.read_text()).get('resume'):
+        raise Rejected('empty private context recovery data')
+    if config.get('history_started') and not native.exists():
+        raise Rejected('native context is unavailable; refusing to silently start a new conversation')
+    with open(directory / 'runtime.stderr.log', 'a') as log:
+        process = subprocess.Popen([sys.executable, str(Path(sys.argv[0]).resolve()), '_worker', str(events)],
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                   stderr=log, start_new_session=True)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            rpc(events, dict(verb='status'))
+            return
+        except Rejected:
+            if process.poll() is not None:
+                raise Rejected('runtime initialization failed; inspect events and private diagnostics')
+            time.sleep(.025)
+    raise Rejected('runtime initialization timed out; inspect status before retrying')
 
 
 def main(backend):
     os.umask(0o077)
-    args = parser().parse_args()
     try:
-        if args.verb == 'doctor':
-            found = shutil.which(backend.BINARY)
-            version = None
-            if found:
-                try:
-                    result = subprocess.run([found, '--version'], capture_output=True, text=True, timeout=5)
-                    if result.returncode == 0:
-                        version = result.stdout.strip().splitlines()[0]
-                except (OSError, subprocess.TimeoutExpired, IndexError):
-                    pass
-            ok = sys.platform == 'linux' and bool(version)
-            print(json.dumps(dict(ok=ok, protocol=PROTOCOL, adapter=backend.NAME,
-                                  backend=found, version=version, platform=sys.platform)))
-            return 0 if ok else 1
-        events = args.events.expanduser().absolute()
-        directory = Path(str(events) + '.d')
-        if args.verb == '_worker':
+        # Private entrypoint is not part of the command parser or public API.
+        if len(sys.argv) == 3 and sys.argv[1] == '_worker':
+            events = Path(sys.argv[2])
+            directory = Path(str(events) + '.d')
             config = json.loads((directory / 'config.json').read_text())
+            native = directory / 'native.json'
+            config['resume'] = json.loads(native.read_text())['resume'] if native.exists() else None
             Runtime(events, backend, config).run()
             return 0
-        if args.verb == 'start':
-            if not args.prompt.strip():
-                raise Rejected('prompt must not be empty', 2)
-            if len(json.dumps(vars(args), default=str).encode()) > MAX_COMMAND:
-                raise Rejected('command too large', 2)
-            cwd = str(Path(args.cwd).expanduser().resolve(strict=True))
-            if not Path(cwd).is_dir():
-                raise Rejected('cwd must be a directory', 2)
-            if not shutil.which(backend.BINARY):
-                raise Rejected('backend not installed: ' + backend.BINARY)
-            try:
-                directory.mkdir(mode=0o700)
-            except FileExistsError as exc:
-                raise Rejected('session exists; choose a new event file', 2) from exc
-            try:
-                fd = os.open(events, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-                os.close(fd)
-            except OSError:
-                directory.rmdir()
-                raise
-            initial = dict(verb='send', prompt=args.prompt, id=args.id or identity())
-            config = dict(cwd=cwd, resume=args.resume, model=args.model, backend_args=args.backend_arg, initial=initial)
-            write_json(directory / 'config.json', config)
-            with open(directory / 'runtime.stderr.log', 'a') as log:
-                process = subprocess.Popen([sys.executable, str(Path(sys.argv[0]).resolve()), '_worker', str(events)],
-                                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                           stderr=log, start_new_session=True)
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline:
+        args = parser().parse_args()
+        content = body(args.prompt) if args.verb == 'send' else body(args.answer) if args.verb == 'reply' else None
+        events = args.events.expanduser().resolve()
+        directory = Path(str(events) + '.d')
+        if not directory.exists() and args.verb != 'send':
+            raise Rejected('conversation does not exist', 4)
+        directory.mkdir(mode=0o700, exist_ok=True)
+        # This lock serializes first creation, restarts, send and cancel; two
+        # concurrent first sends can never create two native contexts.
+        with open(directory / 'control.lock', 'a') as control:
+            fcntl.flock(control, fcntl.LOCK_EX)
+            path = directory / 'config.json'
+            if path.exists():
+                config = json.loads(path.read_text())
+                if not events.is_file():
+                    raise Rejected('event file is missing; refusing to silently recreate conversation history')
+                if config.get('adapter') != backend.NAME:
+                    raise Rejected('event file belongs to another adapter', 2)
+                if args.verb == 'send':
+                    if args.cwd is not None and str(Path(args.cwd).expanduser().resolve(strict=True)) != config['cwd']:
+                        raise Rejected('cwd is bound to this event path; use a different event file', 2)
+                    if args.model is not None and args.model != config.get('model'):
+                        raise Rejected('model is bound to this event path; use a different event file', 2)
+            else:
+                if args.verb != 'send':
+                    raise Rejected('conversation does not exist', 4)
+                cwd = str(Path(args.cwd or os.getcwd()).expanduser().resolve(strict=True))
+                if not Path(cwd).is_dir():
+                    raise Rejected('cwd must be a directory', 2)
                 try:
-                    rpc(events, dict(verb='status'))
-                    return 0
-                except Rejected:
-                    if process.poll() is not None:
-                        raise Rejected('runtime startup failed; inspect ' + str(directory / 'runtime.stderr.log'))
-                    time.sleep(.025)
-            raise Rejected('runtime startup timed out; inspect status before retrying')
-        if not directory.is_dir():
-            raise Rejected('session does not exist', 4)
-        config = json.loads((directory / 'config.json').read_text())
-        # Adapter selection is part of the address, not a way to switch a live backend.
-        state = json.loads((directory / 'status.json').read_text())
-        if state['adapter'] != backend.NAME:
-            raise Rejected('event file belongs to another adapter', 2)
-        if args.verb == 'status':
-            try:
-                value = rpc(events, dict(verb='status'))
-            except Rejected:
-                # Serialize loss detection; never append duplicate exit events.
-                with open(directory / 'runtime.lock', 'a') as lock:
-                    try:
-                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    except BlockingIOError:
-                        raise Rejected('runtime alive but unresponsive')
-                    value = json.loads((directory / 'status.json').read_text())
-                    if value['state'] != 'exited':
-                        append_event(events, 'session.exited', reason='lost')
-                        value.update(state='exited', turn=None, queued=0, open_requests=0)
-                        write_json(directory / 'status.json', value)
-            print(json.dumps(value))
-            return 0
-        if state['state'] == 'exited':
-            raise Rejected('session has exited', 4)
-        cmd = vars(args).copy()
-        cmd.pop('events')
-        if args.verb == 'send' and not args.prompt.strip():
-            raise Rejected('prompt must not be empty', 2)
-        raw = json.dumps(cmd).encode()
-        if len(raw) > MAX_COMMAND:
-            raise Rejected('command too large', 2)
-        rpc(events, cmd)
+                    fd = os.open(events, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                    os.close(fd)
+                except FileExistsError as exc:
+                    raise Rejected('existing event file has no adapter state; refusing to overwrite it', 2) from exc
+                config = dict(adapter=backend.NAME, cwd=cwd, model=args.model, history_started=False)
+                write_json(path, config)
+            state, live = inspect_state(events, config)
+            if args.verb == 'status':
+                print(json.dumps(state, ensure_ascii=False))
+                return 0
+            if args.verb == 'send':
+                if not live:
+                    launch(events, backend, config)
+                rpc(events, dict(verb='send', prompt=content))
+            elif args.verb == 'cancel':
+                if live:
+                    rpc(events, dict(verb='cancel'))
+                else:
+                    if backend_alive(directory):
+                        raise Rejected('runtime lost but native process still running; cancellation cannot be confirmed')
+                    append_event(events, 'cancel.accepted')
+            else:
+                if not live:
+                    raise Rejected('request has expired', 4)
+                rpc(events, dict(verb='reply', request_id=args.request_id, answer=content))
         return 0
     except Rejected as exc:
         print(str(exc), file=sys.stderr)

@@ -18,7 +18,7 @@ def argv(config):
         args += ['--resume', config['resume']]
     if config['model']:
         args += ['--model', config['model']]
-    return args + config['backend_args']
+    return args
 
 
 def initialize(r):
@@ -64,9 +64,11 @@ def cancel(r, drop_queued=False):
 
 
 def reply(r, request, answer):
+    from runtime import question_answers
     native = request['native']
     body = native['request']
-    if request['kind'] == 'approval':
+    if request['kind'] == 'permission':
+        answer = answer.strip()
         if answer == 'allow':
             result = dict(behavior='allow', updatedInput=body.get('input', {}))
         elif answer == 'deny':
@@ -75,10 +77,18 @@ def reply(r, request, answer):
             from runtime import Rejected
             raise Rejected('approval answer must be allow or deny', 2)
     else:
-        # Caller passes the native JSON response, not a second protocol envelope.
-        result = json.loads(answer)
+        answers = question_answers(request, answer)
+        updated = dict(body.get('input', {}))
+        updated['answers'] = {q['question']: ', '.join(answers[public['id']])
+                              for q, public in zip(body['input']['questions'], request['public']['questions'])}
+        result = dict(behavior='allow', updatedInput=updated)
     r.write(dict(type='control_response', response=dict(subtype='success',
                  request_id=native['request_id'], response=result)))
+
+
+def decline(r, native):
+    r.write(dict(type='control_response', response=dict(subtype='error',
+                 request_id=native['request_id'], error='Execution cancelled')))
 
 
 def before_finished(r, native):
@@ -103,11 +113,12 @@ def frame(r, f):
             raise RuntimeError('Claude control initialization failed: ' + str(response.get('error')))
         if pending and pending[0] == 'interrupt' and response.get('subtype') == 'error':
             r.claude_interrupt = False
+            r.cancelling = False
             r.emit('error', message=str(response.get('error')), native=f)
         return
     if typ == 'system' and f.get('subtype') == 'init':
         r.thread = f['session_id']
-        r.emit('session.started', adapter=NAME, native_session=r.thread, native=f)
+        r.native_ready(f)
     elif typ == 'user':
         item = r.claude_writes.get(f.get('uuid'))
         if item:
@@ -144,13 +155,19 @@ def frame(r, f):
         r.claude_interrupt = False
         r.finished(status, f, output=f.get('result'))
     elif typ == 'control_request':
-        key = f['request_id']
         body = f.get('request', {})
-        approval = body.get('subtype') == 'can_use_tool' and body.get('tool_name') != 'AskUserQuestion'
-        request = dict(native=f, kind='approval' if approval else 'question')
-        r.requests[key] = request
-        r.emit('request.opened', request=key, kind=request['kind'],
-               summary=body.get('tool_name',body.get('subtype')), payload=body, native=f)
+        if body.get('subtype') == 'can_use_tool':
+            if body.get('tool_name') == 'AskUserQuestion':
+                from runtime import question_specs
+                r.open_request(f, 'question', 'Please answer the questions',
+                               question_specs(body.get('input', {}).get('questions', [])))
+            else:
+                command = body.get('input', {}).get('command')
+                r.open_request(f, 'permission', command or body.get('tool_name', 'Tool execution'))
+        else:
+            r.write(dict(type='control_response', response=dict(subtype='error',
+                         request_id=f['request_id'], error='Unsupported native request')))
+            r.emit('error', message='Unsupported native request', native=f)
     elif typ == 'user_message_rejected':
         item = r.claude_writes.get(f.get('uuid'))
         if item:

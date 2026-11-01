@@ -9,6 +9,10 @@ import time
 if '--version' in sys.argv:
     print('fake 1.0.0')
     raise SystemExit
+log = os.environ.get('HARNESSCTL_TEST_LOG')
+if log:
+    with open(log, 'a') as output:
+        output.write(json.dumps(dict(argv=sys.argv))+'\n')
 claude = os.path.basename(sys.argv[0]) == 'claude'
 turn = None
 count = 0
@@ -30,12 +34,17 @@ def finish(status='completed'):
 
 for line in sys.stdin:
     f = json.loads(line)
+    if log:
+        with open(log, 'a') as output:
+            output.write(json.dumps(dict(frame=f))+'\n')
     if claude:
         if f.get('type') == 'control_request':
             emit(dict(type='control_response', response=dict(subtype='success', request_id=f['request_id'], response={})))
             if f['request']['subtype'] == 'interrupt' and turn:
                 finish('interrupted')
         elif f.get('type') == 'control_response':
+            if f.get('response',{}).get('response',{}).get('updatedInput',{}).get('answers') is not None:
+                assert f['response']['response']['updatedInput']['answers'] == {'Which language?': 'Go'}
             emit(dict(type='assistant', message=dict(content=[dict(type='text', text='answered')])))
             finish()
         elif f.get('type') == 'user':
@@ -46,7 +55,7 @@ for line in sys.stdin:
             text = f['message']['content']
             turn = turn or 'active'
             if text == 'ask':
-                emit(dict(type='control_request', request_id='question-1', request=dict(subtype='can_use_tool', tool_name='AskUserQuestion', input=dict(questions=[]))))
+                emit(dict(type='control_request', request_id='question-1', request=dict(subtype='can_use_tool', tool_name='AskUserQuestion', input=dict(questions=[dict(header='Language',question='Which language?',options=[dict(label='Go',description='Go language')],multiSelect=False)]))))
             elif text == 'question':
                 emit(dict(type='control_request', request_id='approval-1', request=dict(subtype='can_use_tool', tool_name='Bash', input=dict(command='echo OK'))))
             elif text not in ('hold', 'starting_hold'):
@@ -73,7 +82,7 @@ for line in sys.stdin:
             emit(dict(id=f['id'], result=dict(turn=dict(id=turn))))
             text = f['params']['input'][0]['text']
             if text == 'ask':
-                emit(dict(id='question-1',method='item/tool/requestUserInput',params=dict(threadId='native-session',turnId=turn,questions=[])))
+                emit(dict(id='question-1',method='item/tool/requestUserInput',params=dict(threadId='native-session',turnId=turn,questions=[dict(id='q1',header='Language',question='Which language?',options=[dict(label='Go',description='Go language')])])))
             elif text == 'question':
                 emit(dict(id='approval-1',method='item/commandExecution/requestApproval',params=dict(threadId='native-session',turnId=turn,command='echo OK')))
             elif text not in ('hold', 'starting_hold'):
@@ -90,4 +99,11 @@ for line in sys.stdin:
             if turn:
                 finish('interrupted')
         elif 'result' in f:
+            if 'answers' in f['result']:
+                assert f['result']['answers'] == {'q1': {'answers':['Go']}}
             finish()
+
+# Simulate a backend/tool that survives its owner's stdin closing.
+if os.environ.get('HARNESSCTL_TEST_KEEP_ORPHAN'):
+    while True:
+        time.sleep(1)

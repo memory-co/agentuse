@@ -1,7 +1,7 @@
 {
   "name": "claudecode",
-  "version": "0.1.0",
-  "protocol": "harnessctl/0",
+  "version": "0.2.0",
+  "protocol": "harnessctl/1",
   "entrypoint": "harnessctl",
   "platforms": [
     "linux"
@@ -13,15 +13,18 @@
     ]
   },
   "tested_backend_version": "2.1.316",
-  "delivery": [
-    "steer",
-    "queue",
-    "interrupt"
-  ],
   "requests": [
-    "approval",
+    "permission",
     "question"
   ],
-  "resume": true,
-  "delivery_confirmation": "user_replay; steer turn attribution unknown"
+  "commands": [
+    "send",
+    "cancel",
+    "status",
+    "reply"
+  ],
+  "stdin": [
+    "send",
+    "reply"
+  ]
 }
