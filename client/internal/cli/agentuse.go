@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	services "github.com/memory-co/agentuse/client/internal/service"
+	endpointservice "github.com/memory-co/agentuse/client/internal/service/endpoint"
+	harnessservice "github.com/memory-co/agentuse/client/internal/service/harness"
+	runservice "github.com/memory-co/agentuse/client/internal/service/run"
+	settingservice "github.com/memory-co/agentuse/client/internal/service/setting"
 	"github.com/memory-co/agentuse/client/internal/store"
 	"github.com/memory-co/agentuse/internal/command"
 	"os"
 	"path/filepath"
 	"strings"
-
-	daemon "github.com/memory-co/agentuse/client/internal/service"
 )
 
 const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 agentuse 服务领活
@@ -46,7 +49,7 @@ func Main(args []string) int {
 
 func runRegister(args []string) error {
 	fs := command.NewFlags("agentuse register")
-	cfgPath := fs.String("config", daemon.DefaultConfigPath(), "配置文件")
+	cfgPath := fs.String("config", endpointservice.DefaultPath(), "配置文件")
 	server := fs.String("server", "", "agentuse 服务地址")
 	token := fs.String("token", os.Getenv("TOKEN"), "页面上生成的安装令牌(默认读环境变量 TOKEN)")
 	if err := command.Parse(fs, args); err != nil {
@@ -55,7 +58,7 @@ func runRegister(args []string) error {
 	if *server == "" || *token == "" {
 		return command.UsageErr("需要 -server 和 -token")
 	}
-	cfg, err := daemon.Register(context.Background(), *server, *token, *cfgPath)
+	cfg, err := services.Register(context.Background(), *server, *token, *cfgPath)
 	if err != nil {
 		return fmt.Errorf("注册失败: %w", err)
 	}
@@ -63,8 +66,8 @@ func runRegister(args []string) error {
 	return nil
 }
 
-func loadDaemonConfig(path string) (daemon.Config, error) {
-	cfg, err := daemon.LoadConfig(path)
+func loadDaemonConfig(path string) (runservice.Config, error) {
+	cfg, err := services.LoadConfig(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return cfg, fmt.Errorf("这台电脑还没注册(%s 不存在):请在 agentuse 页面上添加 daemon,复制安装命令运行", path)
 	}
@@ -75,19 +78,19 @@ func runStart(args []string) error  { return runClient(args, true) }
 func runDaemon(args []string) error { return runClient(args, false) }
 func runClient(args []string, allowLocal bool) error {
 	fs := command.NewFlags("agentuse daemon")
-	cfgPath := fs.String("config", daemon.DefaultConfigPath(), "配置文件")
+	cfgPath := fs.String("config", endpointservice.DefaultPath(), "配置文件")
 	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
 	cfg, err := loadDaemonConfig(*cfgPath)
 	if allowLocal {
-		all, loadErr := daemon.LoadConfigs(*cfgPath)
+		all, loadErr := services.LoadConfigs(*cfgPath)
 		if errors.Is(loadErr, os.ErrNotExist) || (loadErr == nil && len(all) == 0) {
-			setting, se := daemon.NewSettingService(filepath.Join(filepath.Dir(*cfgPath), "setting.yaml"))
+			setting, se := settingservice.New(filepath.Join(filepath.Dir(*cfgPath), "setting.yaml"))
 			if se != nil {
 				return se
 			}
-			cfg = daemon.Config{ConfigPath: *cfgPath, Settings: setting.Get()}
+			cfg = runservice.Config{ConfigPath: *cfgPath, Settings: setting.Get()}
 			err = nil
 		}
 	}
@@ -109,7 +112,7 @@ func runClient(args []string, allowLocal bool) error {
 	if err = ledger.RecoverSessions(ctx); err != nil {
 		return err
 	}
-	manager, err := daemon.NewRunService(*cfgPath, ledger)
+	manager, err := services.New(*cfgPath, ledger)
 	if err != nil {
 		return err
 	}
@@ -131,7 +134,7 @@ func runClient(args []string, allowLocal bool) error {
 
 func runStatus(args []string) error {
 	fs := command.NewFlags("agentuse status")
-	cfgPath := fs.String("config", daemon.DefaultConfigPath(), "配置文件")
+	cfgPath := fs.String("config", endpointservice.DefaultPath(), "配置文件")
 	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
@@ -142,7 +145,7 @@ func runStatus(args []string) error {
 	conn := "正常(密钥有效)"
 	if cfg.Key == "" {
 		conn = "未注册"
-	} else if _, err := daemon.CheckKey(context.Background(), cfg); err != nil {
+	} else if _, err := endpointservice.CheckKey(context.Background(), endpointservice.Endpoint{ServerURL: cfg.Server, DeviceKey: cfg.Key}); err != nil {
 		conn = "失败: " + err.Error()
 	}
 	command.PrintTable(os.Stdout, [][]string{
@@ -150,7 +153,7 @@ func runStatus(args []string) error {
 		{"daemon", cfg.DaemonID},
 		{"配置", *cfgPath},
 		{"服务连通", conn},
-		{"后台服务", daemon.ServiceStatus()},
+		{"后台服务", ServiceStatus()},
 		{"本机页面", localUIAddress(cfg)},
 	})
 	return nil
@@ -158,16 +161,16 @@ func runStatus(args []string) error {
 
 func runHarnesses(args []string) error {
 	fs := command.NewFlags("agentuse harnesses")
-	cfgPath := fs.String("config", daemon.DefaultConfigPath(), "配置文件")
+	cfgPath := fs.String("config", endpointservice.DefaultPath(), "配置文件")
 	asJSON := fs.Bool("json", false, "输出 JSON")
 	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
-	cfg, err := daemon.LoadConfig(*cfgPath)
+	cfg, err := services.LoadConfig(*cfgPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	harnesses := daemon.ListHarnesses(cfg)
+	harnesses := harnessservice.ListHarnesses(cfg.HarnessConfig())
 	if *asJSON {
 		return command.PrintJSON(os.Stdout, harnesses)
 	}
@@ -186,7 +189,7 @@ func runHarnesses(args []string) error {
 	return nil
 }
 
-func localUIAddress(cfg daemon.Config) string {
+func localUIAddress(cfg runservice.Config) string {
 	if cfg.UIAddress() == "" {
 		return "已关闭"
 	}

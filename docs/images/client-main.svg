@@ -9,12 +9,12 @@
   <g font-family="sans-serif" fill="#0f172a">
     <text x="45" y="48" font-size="30">Client：五个 Service，文件是唯一持久化事实</text>
     <rect x="45" y="85" width="1410" height="95" rx="14" fill="#f8fafc" stroke="#94a3b8"/>
-    <text x="65" y="119" font-size="23">CLI / 本机只读页面</text>
-    <text x="65" y="152" font-size="17">CLI 装配与配置操作；页面经只读文件 Reader 查询状态，执行服务由 CLI 启动。</text>
+    <text x="65" y="119" font-size="23">CLI / 本机页面</text>
+    <text x="65" y="152" font-size="17">services.go 装配五个 service；平台记录只读，local 通过 runService 调试本机适配器。</text>
     <rect x="45" y="225" width="420" height="135" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
     <text x="65" y="259" font-size="23">endpointService</text>
-    <text x="65" y="292" font-size="17">注册了哪些 server / device 身份与凭据</text>
-    <text x="65" y="319" font-size="17">仅管理注册文件，不连接、不领任务</text>
+    <text x="65" y="292" font-size="17">内置 local 与平台注册 / device 身份与凭据</text>
+    <text x="65" y="319" font-size="17">统一提供 local / 平台模式，不连接、不领任务</text>
     <rect x="535" y="225" width="430" height="135" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
     <text x="555" y="259" font-size="23">settingService</text>
     <text x="555" y="292" font-size="17">本机端口、session 默认父目录</text>

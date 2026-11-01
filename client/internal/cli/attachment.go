@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	services "github.com/memory-co/agentuse/client/internal/service"
+	endpointservice "github.com/memory-co/agentuse/client/internal/service/endpoint"
+	runservice "github.com/memory-co/agentuse/client/internal/service/run"
 	"github.com/memory-co/agentuse/internal/command"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	daemon "github.com/memory-co/agentuse/client/internal/service"
-	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 func runAttachment(args []string) error {
@@ -23,7 +24,7 @@ func runAttachment(args []string) error {
 	session := fs.String("session", os.Getenv("AGENTUSE_SESSION"), "会话 id")
 	server := fs.String("server", os.Getenv("AGENTUSE_SERVER"), "服务地址")
 	token := fs.String("token", os.Getenv("AGENTUSE_TOKEN"), "用户或工作令牌")
-	cfgPath := fs.String("config", command.EnvOr("AGENTUSE_CONFIG", daemon.DefaultConfigPath()), "daemon 配置")
+	cfgPath := fs.String("config", command.EnvOr("AGENTUSE_CONFIG", endpointservice.DefaultPath()), "daemon 配置")
 	name := fs.String("name", "", "上传文件名")
 	output := fs.String("output", "", "下载目标文件")
 	force := fs.Bool("force", false, "允许覆盖下载目标")
@@ -61,16 +62,16 @@ func runAttachment(args []string) error {
 	if *token == "" {
 		*token = os.Getenv("AGENTUSE_WORK")
 	}
-	if os.Getenv("AGENTUSE_ENDPOINT") == "local" && *server == "" {
+	if os.Getenv("AGENTUSE_ENDPOINT") == endpointservice.LocalID && *server == "" {
 		return errors.New("本地模式没有 server；请在本地调试页面查看执行和 workspace")
 	}
 	if *server == "" || *token == "" {
-		var cfg daemon.Config
+		var cfg runservice.Config
 		var err error
 		if *server != "" {
-			cfg, err = daemon.LoadConfigForServer(*cfgPath, *server)
+			cfg, err = services.LoadConfigForServer(*cfgPath, *server)
 		} else {
-			cfg, err = daemon.LoadConfig(*cfgPath)
+			cfg, err = services.LoadConfig(*cfgPath)
 		}
 		if err != nil {
 			return err

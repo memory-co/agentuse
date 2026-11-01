@@ -5,6 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/memory-co/agentuse/client/internal/controller"
+	endpointservice "github.com/memory-co/agentuse/client/internal/service/endpoint"
+	harnessservice "github.com/memory-co/agentuse/client/internal/service/harness"
+	runservice "github.com/memory-co/agentuse/client/internal/service/run"
+	settingservice "github.com/memory-co/agentuse/client/internal/service/setting"
+	"github.com/memory-co/agentuse/client/internal/store"
+	"github.com/memory-co/agentuse/internal/command"
 	"log"
 	"net/http"
 	"net/url"
@@ -14,18 +21,13 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"github.com/memory-co/agentuse/client/internal/controller"
-	daemon "github.com/memory-co/agentuse/client/internal/service"
-	"github.com/memory-co/agentuse/client/internal/store"
-	"github.com/memory-co/agentuse/internal/command"
 )
 
 func localPath(name string) string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".agentuse", name)
 }
-func startLocalUI(cfg daemon.Config, reader store.Reader, managers ...*daemon.RunService) (func(), error) {
+func startLocalUI(cfg runservice.Config, reader store.Reader, managers ...*runservice.Service) (func(), error) {
 	addr := cfg.UIAddress()
 	if addr == "" {
 		return func() {}, nil
@@ -39,35 +41,35 @@ func startLocalUI(cfg daemon.Config, reader store.Reader, managers ...*daemon.Ru
 		ln.Close()
 		return nil, err
 	}
-	var local *daemon.LocalService
+	var manager *runservice.Service
 	if len(managers) > 0 {
-		local = managers[0].Local
+		manager = managers[0]
 	}
 	handler, err := controller.New(reader, ln.Addr().String(), token, controller.PublicData{
 		LocalCreate: func(ctx context.Context, title string) (store.Conversation, error) {
-			return local.CreateConversation(ctx, title)
+			return manager.CreateConversation(ctx, endpointservice.LocalID, title)
 		},
 		LocalStart: func(ctx context.Context, conversation string, b json.RawMessage) (store.Run, error) {
-			var req daemon.LocalRunRequest
+			var req runservice.Request
 			if err := json.Unmarshal(b, &req); err != nil {
 				return store.Run{}, store.ErrInvalid
 			}
-			return local.Start(ctx, conversation, req)
+			return manager.Start(ctx, endpointservice.LocalID, conversation, req)
 		},
 		LocalControl: func(ctx context.Context, c, s, r, a, action string, b json.RawMessage) error {
-			return local.Control(ctx, c, s, r, a, action, b)
+			return manager.Control(ctx, endpointservice.LocalID, c, s, r, a, action, b)
 		},
-		LocalHarnesses: func() (any, error) { return local.Harnesses() },
+		LocalHarnesses: func() (any, error) { return manager.ProbeHarnesses() },
 		Endpoints: func() any {
-			items, e := (daemon.EndpointService{Path: cfg.ConfigPath}).List()
-			if e != nil && !errors.Is(e, os.ErrNotExist) {
+			providers := &endpointservice.Service{Path: cfg.ConfigPath}
+			if manager != nil {
+				providers = manager.Endpoints
+			}
+			items, e := providers.Views()
+			if e != nil {
 				return controller.ReadFailure{Err: e}
 			}
-			out := []map[string]any{{"endpoint_id": "local", "name": "本地调试", "server_url": "", "enabled": true, "mode": "local"}}
-			for _, ep := range items {
-				out = append(out, map[string]any{"endpoint_id": ep.ID(), "server_url": ep.ServerURL, "name": ep.Name, "enabled": ep.Enabled})
-			}
-			return map[string]any{"items": out}
+			return map[string]any{"items": items}
 		},
 		Settings: func() any {
 			if len(managers) > 0 {
@@ -87,7 +89,7 @@ func startLocalUI(cfg daemon.Config, reader store.Reader, managers ...*daemon.Ru
 			if len(managers) > 0 {
 				return managers[0].Harnesses()
 			}
-			return []daemon.HarnessInfo{}
+			return []harnessservice.HarnessInfo{}
 		},
 		Status: func() any {
 			if len(managers) > 0 {
@@ -116,7 +118,7 @@ func startLocalUI(cfg daemon.Config, reader store.Reader, managers ...*daemon.Ru
 }
 func runUI(args []string) error {
 	fs := command.NewFlags("agentuse ui")
-	fs.String("config", daemon.DefaultConfigPath(), "client 配置")
+	fs.String("config", endpointservice.DefaultPath(), "client 配置")
 	open := fs.Bool("open", false, "同时在浏览器打开")
 	if err := command.Parse(fs, args); err != nil {
 		return err
@@ -140,10 +142,10 @@ func runUI(args []string) error {
 	}
 	return nil
 }
-func startLedger(ctx context.Context, cfg daemon.Config) (*store.Ledger, error) {
+func startLedger(ctx context.Context, cfg runservice.Config) (*store.Ledger, error) {
 	root := cfg.Settings.Session.WorkRoot
 	if root == "" {
-		root = daemon.DefaultSettings().Session.WorkRoot
+		root = settingservice.Defaults().Session.WorkRoot
 	}
 	ledger, err := store.Open(root)
 	if err != nil {

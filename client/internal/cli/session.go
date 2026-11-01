@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	services "github.com/memory-co/agentuse/client/internal/service"
+	endpointservice "github.com/memory-co/agentuse/client/internal/service/endpoint"
+	runservice "github.com/memory-co/agentuse/client/internal/service/run"
 	"github.com/memory-co/agentuse/internal/command"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"net/url"
 	"os"
 	"strings"
 	"time"
-
-	daemon "github.com/memory-co/agentuse/client/internal/service"
-	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 func splitAgents(s string) []string {
@@ -32,7 +33,7 @@ func runSession(args []string) error {
 	fs := command.NewFlags("agentuse session " + action)
 	server := fs.String("server", os.Getenv("AGENTUSE_SERVER"), "服务地址")
 	token := fs.String("token", os.Getenv("AGENTUSE_TOKEN"), "用户或工作令牌")
-	config := fs.String("config", command.EnvOr("AGENTUSE_CONFIG", daemon.DefaultConfigPath()), "daemon 配置")
+	config := fs.String("config", command.EnvOr("AGENTUSE_CONFIG", endpointservice.DefaultPath()), "daemon 配置")
 	session := fs.String("session", os.Getenv("AGENTUSE_SESSION"), "当前 session")
 	agents := fs.String("agents", "", "逗号分隔的 @ 目标")
 	asJSON := fs.Bool("json", false, "JSON 输出")
@@ -64,16 +65,16 @@ func runSession(args []string) error {
 	if *token == "" {
 		*token = os.Getenv("AGENTUSE_WORK")
 	}
-	if os.Getenv("AGENTUSE_ENDPOINT") == "local" && *server == "" {
+	if os.Getenv("AGENTUSE_ENDPOINT") == endpointservice.LocalID && *server == "" {
 		return errors.New("本地模式没有 server；请在本地调试页面查看执行和 workspace")
 	}
 	if *server == "" || *token == "" {
-		var cfg daemon.Config
+		var cfg runservice.Config
 		var e error
 		if *server != "" {
-			cfg, e = daemon.LoadConfigForServer(*config, *server)
+			cfg, e = services.LoadConfigForServer(*config, *server)
 		} else {
-			cfg, e = daemon.LoadConfig(*config)
+			cfg, e = services.LoadConfig(*config)
 		}
 		if e != nil {
 			return e

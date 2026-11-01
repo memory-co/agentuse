@@ -110,6 +110,7 @@ type Harness struct {
 
 // Dispatch 是派给 daemon 的一条用户消息，带上会话的信息。
 type Dispatch struct {
+	EndpointID        string            `json:"-"`
 	Local             bool              `json:"-"`
 	Sender            agentuse.Sender   `json:"sender"`
 	WorkID            string            `json:"work_id,omitempty"`

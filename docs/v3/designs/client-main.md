@@ -15,6 +15,20 @@ Client 负责本地连接、领取、原生 session 和执行；server 负责 co
 
 每个 endpoint 的连接循环属于 runService 的内部连接机制；进程、流、RPC、hook 等原语属于 harnessService 的本地执行机制，不再和业务 service 平铺为另一组顶层服务。
 
+代码按五个 service 分包，顶层 `services.go` 只负责装配和启动配置读取：
+
+```text
+client/internal/service/
+├── services.go              装配五个 service，注入 runService 的依赖
+├── endpoint/                endpoint 列表、模式、注册及凭据；统一提供内置 local
+├── setting/                 setting.yaml 的读取、校验和保存
+├── session/                 会话选择、conversation 目录与容量策略
+├── run/                     任务编排、平台连接、本地提交、记录与控制
+└── harness/                 适配器加载、探测、执行、进程、RPC/hook 和输入交互
+```
+
+local 是 endpointService 返回的一种 endpoint 模式，不是额外的 LocalService。CLI 读取 endpointService 的公开列表，不拼装 local 选项。runService 查询 endpoint 的模式后，负责本地任务或平台领取；会话和目录交给 sessionService，原生能力由 harnessService 判断及执行。新增 endpoint 模式沿用这个调用关系，不在顶层堆放独立的功能文件。
+
 ## 二、有哪些 Service
 
 | Service | 负责什么 | 主要拥有的数据 |
@@ -29,7 +43,7 @@ Client 共五个 service，全部以各自文件作为唯一持久化事实，�
 
 ### 2.1 endpointService：注册信息
 
-endpointService 只读写 endpoints.yaml，记录 client 已向哪些 server 注册，以及对应地址、device_id、device_key 和启用状态。CLI 完成注册后保存记录，runService 读取这些记录。
+endpointService 统一提供内置 local 和 endpoints.yaml 中的注册记录，记录 client 已向哪些 server 注册，以及对应地址、device_id、device_key 和启用状态。CLI 完成注册后保存记录，runService 读取这些记录。
 
 `endpoint_id: local` 是 client 内置入口，不写入 endpoints.yaml、不注册设备、不连接 server；即使没有任何已注册平台，`agentuse start` 也能打开本地模式。endpointService 不创建中心连接，不领取任务，不管理槽位，也不向 runService 派活。配置变更通知只提示消费者重读数据。
 
@@ -245,7 +259,10 @@ Endpoint 下拉始终内置 `local`，无需用户声明，也没有 device 凭�
 
 | 方法 | 输入 → 输出 | 行为 |
 |---|---|---|
-| List | 无 → Endpoint[] | 读取 YAML；CLI 展示时移除 device_key |
+| List | 无 → Endpoint[] | 返回内置 local 与 YAML 中的平台注册，统一标明模式 |
+| Registrations | 无 → Endpoint[] | 只读取持久化平台注册，保存时不会把 local 写回文件 |
+| Views | 无 → 公开 Endpoint[] | 返回派生 endpoint_id、名称、模式、地址及启用状态，不含 device_key |
+| GetByID | endpoint_id → Endpoint | 统一解析 local 或平台身份，供 runService 判断任务来源 |
 | Get | server_url → Endpoint | 规范化地址后查询，返回对应注册 |
 | SaveRegistration | name、server_url、enabled、device_id、device_key → EndpointRef | 保存成功注册身份；不接受 id，不发起注册网络请求 |
 | Update | server_url、name/ enabled → EndpointRef | 仅更新名称、启停；更换地址需新增注册 |

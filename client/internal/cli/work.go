@@ -7,12 +7,11 @@ import (
 	"flag"
 	"fmt"
 	"github.com/memory-co/agentuse/internal/command"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
-
-	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 const workUsage = `agentuse work —— 工作的协调者用来管理线程(docs/v2/designs/work.md)

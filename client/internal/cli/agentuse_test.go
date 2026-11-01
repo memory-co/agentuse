@@ -2,13 +2,12 @@ package cli
 
 import (
 	"encoding/json"
+	harnessservice "github.com/memory-co/agentuse/client/internal/service/harness"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	daemon "github.com/memory-co/agentuse/client/internal/service"
 )
 
 func TestAgentuseCommands(t *testing.T) {
@@ -71,7 +70,7 @@ func TestAgentuseCommands(t *testing.T) {
 	}
 
 	// harnesses:没装的内置 harness 也列出来
-	var hs []daemon.HarnessInfo
+	var hs []harnessservice.HarnessInfo
 	code, out, _ := run("harnesses", "-json")
 	if json.Unmarshal([]byte(out), &hs); code != 0 || len(hs) != 2 || hs[0].Found {
 		t.Fatalf("harnesses -json: %d %q", code, out)

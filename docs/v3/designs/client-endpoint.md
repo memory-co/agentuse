@@ -10,7 +10,9 @@ endpointService 提供新增、查询、修改、启用/停用和移除操作。
 
 ## 内置 local
 
-`endpoint_id: local` 默认存在，由 client 直接提供，不写入 endpoints.yaml。它不注册设备、不连接中心，供用户创建 conversation 并调试本机 Codex、Claude Code 或自定义 harness。local 执行复用 client 的 session/run/harness 流程。
+`endpoint_id: local` 默认存在，由 endpointService 统一提供，不写入 endpoints.yaml。它不注册设备、不连接中心，供用户创建 conversation 并调试本机 Codex、Claude Code 或自定义 harness。local 执行复用 client 的 session/run/harness 流程。
+
+endpointService 的 List / GetByID 统一解析 endpoint 身份与模式，Views 提供不含密钥的页面数据；Registrations 专门读写文件中的平台注册。runService 消费这些结果，不自行拼装 local 选项或建立另一套 endpoint 列表。
 
 ## endpoints.yaml
 
