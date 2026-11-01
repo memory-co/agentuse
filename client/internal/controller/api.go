@@ -23,7 +23,7 @@ func (c *Controller) registerAPI() {
 		"bearerAuth": {Type: "http", Scheme: "bearer", Description: "agentuse ui 使用的本机 token"},
 		"cookieAuth": {Type: "apiKey", In: "cookie", Name: "agentuse_client_" + c.port, Description: "登录后自动设置的 HttpOnly cookie"},
 	}
-	config.Security = []map[string][]string{{"bearerAuth": {}}, {"cookieAuth": {}}}
+	config.Security = []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}}
 	api := humago.New(c.mux, config)
 	schema := func(v any) *huma.Schema { return api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(v), true, "") }
 	bind := func(method, path, id, summary, tag string, output any, status int, input any, handler http.HandlerFunc, params ...*huma.Param) {

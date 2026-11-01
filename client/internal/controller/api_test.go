@@ -59,7 +59,7 @@ func TestAPIDocumentationAuthenticationAndContract(t *testing.T) {
 	if !strings.HasPrefix(doc.OpenAPI, "3.1.") || len(doc.Paths) != 15 {
 		t.Fatalf("unexpected document version or routes: %s %d", doc.OpenAPI, len(doc.Paths))
 	}
-	if len(doc.Security) != 2 || doc.Components.SecuritySchemes["cookieAuth"].Name != "agentuse_client_8091" || doc.Components.SecuritySchemes["bearerAuth"].Scheme != "bearer" {
+	if len(doc.Security) != 2 || doc.Security[0]["cookieAuth"] == nil || doc.Components.SecuritySchemes["cookieAuth"].Name != "agentuse_client_8091" || doc.Components.SecuritySchemes["bearerAuth"].Scheme != "bearer" {
 		t.Fatal("missing authentication schemes")
 	}
 	if _, ok := doc.Paths["/api/runs"]; ok {
