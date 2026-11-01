@@ -63,7 +63,7 @@ send 的正文和 reply 的答案通过 UTF-8 stdin 传递，避免 shell 字符
 
 所有适配器仍从同一 conversation 的 `workspace/` 启动。session.yaml 不保存原生 thread/session ID；原生身份及恢复信息由适配器保存在事件文件相邻的私有目录中，client 不解析它。首次 send 自动创建，后续 send 自动复用。
 
-run/attempt 的共享历史、附件和业务指令由 runService 准备，harnessService 组织为输入文本。历史按 session 已同步的位置传增量，不覆盖 workspace 内其他 agent 的说明文件。
+业务指令（包括协调者职责和工作规则）由 server 生成，client 不根据工作凭据推断角色。runService 准备本机共享历史和附件，harnessService 将 server 指令与本机资源说明组织为输入文本。历史按 session 已同步的位置传增量，不覆盖 workspace 内其他 agent 的说明文件。
 
 ## 五种事件
 

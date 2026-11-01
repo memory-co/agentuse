@@ -126,9 +126,11 @@ type Dispatch struct {
 	SessionID         string            `json:"session_id"`
 	Harness           string            `json:"harness"`
 	Input             json.RawMessage   `json:"input"` // 消息内容
-	// Instructions 是会话所在工作的说明，写进会话目录的 CLAUDE.md / AGENTS.md(docs/v2/designs/work.md)。
+	// Instructions contains server-prepared business instructions. Clients forward
+	// it to the executor without interpreting roles or constructing work policy.
 	Instructions string `json:"instructions,omitempty"`
-	// WorkToken 只在会话是工作的协调者时有，作为 AGENTUSE_WORK 给 harness 进程，让它用 agentuse work 开线程。
+	// WorkToken is a server-scoped credential, passed through as AGENTUSE_WORK.
+	// Clients must not infer a business role or generate instructions from it.
 	WorkToken string `json:"work_token,omitempty"`
 }
 

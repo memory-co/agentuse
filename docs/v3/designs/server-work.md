@@ -22,6 +22,8 @@ workService 将多个 conversation 组织成一项工作。一个 work 有一个
 
 协调 agent 的 run 领取时，工作授权参与领取事务，由 workService 签发限定 work/run/attempt 的令牌；明文只交给对应 client。每次使用时同时检查 run 当前状态、attempt 和租约。run 结束、重排或设备凭据撤销时协调撤销，不把令牌当作长期用户身份。
 
+协调者职责、派活规则及工作说明由 server 在领取 run 时组织到 Instructions，再随任务下发。只有协调 conversation 当前指定的协调 agent 获得协调者指令；线程和其他 agent 只收到共享工作说明。client 不根据 WorkToken 推断角色或生成协调策略，只透传凭据和已准备的指令。
+
 `coordinator_id` 是协调 conversation 的 UUID；`conversations.work_id` 是对话归属。两者仅以标识关联，由 workService 在创建/删除事务里保证一致，不声明外键。
 
 ## 表结构

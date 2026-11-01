@@ -148,6 +148,7 @@ func (s *Service) ClaimRun(ctx context.Context, d Daemon, lease int64) (RunClaim
 			return cl, err
 		}
 		if ss.WorkRole == WorkCoordinator && agent.String == r.AgentID {
+			cl.Instructions = coordinatorInstructions(cl.Instructions)
 			cl.WorkToken = RandomToken("wt_")
 			if _, err = tx.ExecContext(ctx, store.ClaimRunInsert, HashSecret(cl.WorkToken), ss.WorkID, r.ID, r.AttemptID); err != nil {
 				return cl, err

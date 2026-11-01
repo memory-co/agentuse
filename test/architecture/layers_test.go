@@ -59,6 +59,14 @@ func TestClientServiceDependencies(t *testing.T) {
 				}
 			}
 		}
+		if owner == "harness" && !strings.HasSuffix(d.Name(), "_test.go") {
+			ast.Inspect(file, func(node ast.Node) bool {
+				if selector, ok := node.(*ast.SelectorExpr); ok && (selector.Sel.Name == "WorkToken" || selector.Sel.Name == "WorkRole") {
+					t.Errorf("%s inspects work identity inside the execution adapter; business policy belongs to server", rel)
+				}
+				return true
+			})
+		}
 		for _, decl := range file.Decls {
 			gen, ok := decl.(*ast.GenDecl)
 			if !ok {
