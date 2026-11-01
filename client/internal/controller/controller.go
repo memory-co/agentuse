@@ -165,10 +165,21 @@ func (c *Controller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	if strings.HasPrefix(r.URL.Path, "/api/") {
-		credential := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		authorization := r.Header.Get("Authorization")
+		credential := strings.TrimPrefix(authorization, "Bearer ")
+		cookieName := "agentuse_client_" + c.port
+		if authorization == "" {
+			if cookie, err := r.Cookie(cookieName); err == nil {
+				credential = cookie.Value
+			}
+		}
 		if subtle.ConstantTimeCompare([]byte(credential), []byte(c.token)) != 1 {
 			apiError(w, 401, "unauthorized", "请运行 agentuse ui 获取本机页面链接")
 			return
+		}
+
+		if authorization != "" {
+			http.SetCookie(w, &http.Cookie{Name: cookieName, Value: c.token, Path: "/api", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil, MaxAge: 30 * 24 * 60 * 60})
 		}
 	}
 	c.mux.ServeHTTP(w, r)

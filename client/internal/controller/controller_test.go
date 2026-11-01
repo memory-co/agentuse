@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -157,5 +158,49 @@ func TestPublicListenerKeepsAPIAuthentication(t *testing.T) {
 		if w.Code != tc.status {
 			t.Fatal(tc.host, w.Code, tc.status)
 		}
+	}
+}
+
+func TestBearerLoginPersistsInHTTPOnlyCookie(t *testing.T) {
+	files, _ := store.Open(t.TempDir())
+	token := strings.Repeat("x", 64)
+	ui, _ := New(files.Reader(), "0.0.0.0:8091", token)
+	call := func(auth string, cookie *http.Cookie) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", "http://public.example:8091/api/status", nil)
+		if auth != "" {
+			r.Header.Set("Authorization", auth)
+		}
+		if cookie != nil {
+			r.AddCookie(cookie)
+		}
+		w := httptest.NewRecorder()
+		ui.ServeHTTP(w, r)
+		return w
+	}
+	login := call("Bearer "+token, nil)
+	cookies := login.Result().Cookies()
+	if login.Code != 200 || len(cookies) != 1 {
+		t.Fatal(login.Code, cookies)
+	}
+	cookie := cookies[0]
+	if !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.MaxAge != 30*24*60*60 || cookie.Path != "/api" || cookie.Domain != "" || cookie.Name != "agentuse_client_8091" {
+		t.Fatal("invalid cookie attributes", cookie)
+	}
+	if w := call("", cookie); w.Code != 200 {
+		t.Fatal("refresh lost authentication", w.Code)
+	}
+	if w := call("Bearer invalid", cookie); w.Code != 401 || len(w.Result().Cookies()) != 0 {
+		t.Fatal("invalid explicit token accepted", w.Code)
+	}
+	if w := call("", nil); w.Code != 401 {
+		t.Fatal("unauthenticated request accepted", w.Code)
+	}
+	restarted, _ := New(files.Reader(), "0.0.0.0:8091", strings.Repeat("y", 64))
+	r := httptest.NewRequest("GET", "http://public.example:8091/api/status", nil)
+	r.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	restarted.ServeHTTP(w, r)
+	if w.Code != 401 {
+		t.Fatal("rotated token accepted stale cookie", w.Code)
 	}
 }

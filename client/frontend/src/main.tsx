@@ -114,10 +114,12 @@ class ApiError extends Error {
 async function api<T>(path: string, signal?: AbortSignal): Promise<T> {
   const r = await fetch(path, {
     signal,
-    headers: { Authorization: `Bearer ${token}` },
+    credentials: "same-origin",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   const data = await r.json();
   if (!r.ok) throw new ApiError(r.status, data.error?.message ?? "请求失败");
+  token = ""; // The validated token is now held in an HttpOnly cookie.
   return data;
 }
 const enc = encodeURIComponent;
