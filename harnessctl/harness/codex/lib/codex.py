@@ -115,7 +115,7 @@ def frame(r, f):
         elif method == 'turn/start':
             r.turn = result['turn']['id']
             r.starting = False
-            r.emit('turn.started', turn=r.turn, native=f)
+            r.emit('turn.started', turn=r.turn, evidence='rpc_response', native=f)
             r.delivered(item, 'started_turn', f, turn=r.turn, evidence='rpc_response')
             if getattr(r, 'cancel_starting', False):
                 r.cancel_starting = False
@@ -150,12 +150,14 @@ def frame(r, f):
         if item.get('type') == 'agentMessage' and method == 'item/completed':
             r.emit('message', turn=p.get('turnId'), text=item.get('text', ''), native=f)
         elif item.get('type') in ('commandExecution','fileChange','mcpToolCall','webSearch'):
+            from events import tool_status
             r.emit('tool.started' if method == 'item/started' else 'tool.finished',
                    turn=p.get('turnId'), tool=item.get('id'), title=item.get('command',item.get('type')),
-                   status=item.get('status'), native=f)
+                   status=tool_status(item.get('status'), 'running' if method == 'item/started' else 'unknown'), native=f)
         elif item.get('type') == 'userMessage':
             r.emit('input.observed', turn=p.get('turnId'), native=f)
     elif method == 'turn/plan/updated':
-        r.emit('plan', turn=p.get('turnId'), steps=p.get('plan', []), native=f)
+        from events import plan_steps
+        r.emit('plan', turn=p.get('turnId'), steps=plan_steps(p.get('plan', [])), native=f)
     elif method == 'thread/tokenUsage/updated':
         r.emit('usage', turn=p.get('turnId'), usage=p.get('tokenUsage'), native=f)

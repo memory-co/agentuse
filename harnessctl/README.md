@@ -142,6 +142,8 @@ state 为 idle、running、awaiting_reply、cancelling 或 failed；queued 仅�
 
 ## 10. 事件和私有文件
 
+全部 21 种事件的字段、类型、枚举与示例见 [EVENT.md](EVENT.md)，机器格式为 [event.schema.json](event.schema.json)。两家适配器在写入前统一校验，独立包携带相同契约和包内校验器。
+
 事件文件是 UTF-8 JSONL，只追加，每条至少有 type 和 UTC ISO 8601 的 ts。读取按完整行推进，半行等待后续数据。写入经过文件锁并 flush/fsync，不把 IPC、事件和工具副作用伪装成跨进程事务。
 
 主要事件：input.accepted、input.observed、input.delivered、input.dropped、message.delta、message、tool.started/tool.finished、plan、usage、request.opened/request.replied/request.expired、cancel.accepted、turn.started/turn.finished、session.ready、runtime.stopped、error。内部投递失败及 native 帧可以作为诊断附加信息，允许扩展字段和未知事件类型。上层依赖统一状态、输出和请求即可，不需要解释原生协议。

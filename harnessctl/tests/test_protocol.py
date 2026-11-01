@@ -14,6 +14,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 ADAPTERS = ('codex', 'claudecode')
+from test_events import load_contract
+CONTRACTS = {adapter:load_contract(adapter) for adapter in ADAPTERS}
 
 
 class ProtocolTests(unittest.TestCase):
@@ -43,7 +45,11 @@ class ProtocolTests(unittest.TestCase):
                               input=stdin, capture_output=True, text=True, timeout=10)
 
     def events(self, event):
-        return [json.loads(line) for line in event.read_text().splitlines()] if event.exists() else []
+        items = [json.loads(line) for line in event.read_text().splitlines()] if event.exists() else []
+        for item in items:
+            for contract in CONTRACTS.values():
+                contract.validate_event(item)
+        return items
 
     def wait(self, event, event_type, **fields):
         deadline = time.monotonic()+8
@@ -290,6 +296,24 @@ class ProtocolTests(unittest.TestCase):
             self.send(adapter,'again',event=event)
             self.wait(event,'message',text='again')
 
+    def test_normalized_native_events_follow_the_contract(self):
+        for adapter in ADAPTERS:
+            event=self.send(adapter,'events')
+            self.wait(event,'turn.finished',status='completed')
+            self.wait(event,'tool.started',status='running')
+            self.wait(event,'tool.finished',status='completed')
+            self.wait(event,'message.delta',text='delta')
+            self.wait(event,'usage')
+            if adapter=='codex':
+                self.wait(event,'plan',steps=[{'text':'Check','status':'in_progress'}])
+
+    def test_bad_native_event_becomes_valid_error_not_invalid_jsonl(self):
+        for adapter in ADAPTERS:
+            event=self.send(adapter,'invalid-event')
+            self.wait(event,'runtime.stopped',reason='error')
+            self.wait(event,'error')
+            self.assertFalse(any(x['type']=='message' for x in self.events(event)))
+
     def test_independent_reproducible_archives(self):
         spec=importlib.util.spec_from_file_location('package_tool',ROOT/'package.py')
         package=importlib.util.module_from_spec(spec);spec.loader.exec_module(package)
@@ -299,6 +323,7 @@ class ProtocolTests(unittest.TestCase):
             self.assertEqual(archive.read_bytes(),package.build(self.root/'build2',adapter).read_bytes())
             with tarfile.open(archive) as source:
                 self.assertTrue(all(x.name.startswith(adapter+'/') for x in source.getmembers()))
+                self.assertTrue({adapter+'/EVENT.md',adapter+'/event.schema.json',adapter+'/lib/events.py'}.issubset(source.getnames()))
                 source.extractall(unpacked)
         shutil.rmtree(self.dist);self.dist=unpacked
         for adapter in ADAPTERS:

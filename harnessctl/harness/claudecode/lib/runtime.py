@@ -17,6 +17,8 @@ import threading
 import time
 import uuid
 
+from events import validate_event
+
 PROTOCOL = 'harnessctl/1'
 IDLE_SECONDS = 60
 MAX_TEXT = 256 * 1024
@@ -54,10 +56,13 @@ def address(events):
 
 
 def append_event(events, event_type, **fields):
+    event = dict(type=event_type, ts=timestamp(), **fields)
+    validate_event(event)
+    line = json.dumps(event, ensure_ascii=False, allow_nan=False) + '\n'
     with open(str(events) + '.d/events.lock', 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         with open(events, 'a', encoding='utf8') as out:
-            out.write(json.dumps(dict(type=event_type, ts=timestamp(), **fields), ensure_ascii=False) + '\n')
+            out.write(line)
             out.flush()
             os.fsync(out.fileno())
 

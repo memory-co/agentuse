@@ -141,7 +141,7 @@ def frame(r, f):
             if block.get('type') == 'text':
                 r.emit('message', turn=r.turn, text=block.get('text', ''), native=f)
             elif block.get('type') == 'tool_use':
-                r.emit('tool.started', turn=r.turn, tool=block.get('id'), title=block.get('name'), native=f)
+                r.emit('tool.started', turn=r.turn, tool=block.get('id'), title=block.get('name'), status='running', native=f)
     elif typ == 'stream_event':
         event = f.get('event', {})
         if event.get('type') == 'content_block_delta' and event.get('delta', {}).get('type') == 'text_delta':

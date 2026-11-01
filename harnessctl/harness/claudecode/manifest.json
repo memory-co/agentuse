@@ -26,5 +26,9 @@
   "stdin": [
     "send",
     "reply"
-  ]
+  ],
+  "events": {
+    "schema": "event.schema.json",
+    "documentation": "EVENT.md"
+  }
 }

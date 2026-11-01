@@ -56,6 +56,13 @@ for line in sys.stdin:
             turn = turn or 'active'
             if text == 'ask':
                 emit(dict(type='control_request', request_id='question-1', request=dict(subtype='can_use_tool', tool_name='AskUserQuestion', input=dict(questions=[dict(header='Language',question='Which language?',options=[dict(label='Go',description='Go language')],multiSelect=False)]))))
+            elif text == 'invalid-event':
+                emit(dict(type='assistant',message=dict(content=[dict(type='text',text=42)])))
+            elif text == 'events':
+                emit(dict(type='stream_event',event=dict(type='content_block_delta',delta=dict(type='text_delta',text='delta'))))
+                emit(dict(type='assistant',message=dict(content=[dict(type='tool_use',id='tool-1',name='Bash')])))
+                emit(dict(type='user',message=dict(content=[dict(type='tool_result',tool_use_id='tool-1',is_error=False)])))
+                finish()
             elif text == 'question':
                 emit(dict(type='control_request', request_id='approval-1', request=dict(subtype='can_use_tool', tool_name='Bash', input=dict(command='echo OK'))))
             elif text not in ('hold', 'starting_hold'):
@@ -83,6 +90,15 @@ for line in sys.stdin:
             text = f['params']['input'][0]['text']
             if text == 'ask':
                 emit(dict(id='question-1',method='item/tool/requestUserInput',params=dict(threadId='native-session',turnId=turn,questions=[dict(id='q1',header='Language',question='Which language?',options=[dict(label='Go',description='Go language')])])))
+            elif text == 'invalid-event':
+                emit(dict(method='item/completed',params=dict(threadId='native-session',turnId=turn,item=dict(type='agentMessage',text=42))))
+            elif text == 'events':
+                emit(dict(method='item/agentMessage/delta',params=dict(threadId='native-session',delta='delta')))
+                emit(dict(method='item/started',params=dict(threadId='native-session',item=dict(type='commandExecution',id='tool-1',command='echo OK',status='inProgress'))))
+                emit(dict(method='item/completed',params=dict(threadId='native-session',item=dict(type='commandExecution',id='tool-1',command='echo OK',status='completed'))))
+                emit(dict(method='turn/plan/updated',params=dict(threadId='native-session',plan=[dict(step='Check',status='inProgress')])))
+                emit(dict(method='thread/tokenUsage/updated',params=dict(threadId='native-session',tokenUsage={'total':{'inputTokens':2}})))
+                finish()
             elif text == 'question':
                 emit(dict(id='approval-1',method='item/commandExecution/requestApproval',params=dict(threadId='native-session',turnId=turn,command='echo OK')))
             elif text not in ('hold', 'starting_hold'):

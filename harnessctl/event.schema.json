@@ -1,0 +1,924 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "harnessctl/1 JSONL event",
+  "description": "Each complete JSONL line must match exactly one event variant. See EVENT.md.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/sessionReady"
+    },
+    {
+      "$ref": "#/$defs/turnStarted"
+    },
+    {
+      "$ref": "#/$defs/turnFinished"
+    },
+    {
+      "$ref": "#/$defs/inputAccepted"
+    },
+    {
+      "$ref": "#/$defs/inputObserved"
+    },
+    {
+      "$ref": "#/$defs/inputDelivered"
+    },
+    {
+      "$ref": "#/$defs/inputRejected"
+    },
+    {
+      "$ref": "#/$defs/inputDropped"
+    },
+    {
+      "$ref": "#/$defs/messageDelta"
+    },
+    {
+      "$ref": "#/$defs/message"
+    },
+    {
+      "$ref": "#/$defs/toolStarted"
+    },
+    {
+      "$ref": "#/$defs/toolFinished"
+    },
+    {
+      "$ref": "#/$defs/plan"
+    },
+    {
+      "$ref": "#/$defs/usage"
+    },
+    {
+      "$ref": "#/$defs/permissionRequest"
+    },
+    {
+      "$ref": "#/$defs/questionRequest"
+    },
+    {
+      "$ref": "#/$defs/requestReplied"
+    },
+    {
+      "$ref": "#/$defs/requestExpired"
+    },
+    {
+      "$ref": "#/$defs/cancelAccepted"
+    },
+    {
+      "$ref": "#/$defs/controlResponse"
+    },
+    {
+      "$ref": "#/$defs/runtimeStopped"
+    },
+    {
+      "$ref": "#/$defs/error"
+    }
+  ],
+  "$defs": {
+    "question": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string"
+        },
+        "header": {
+          "type": "string"
+        },
+        "multiple": {
+          "type": "boolean"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/option"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "header",
+        "multiple",
+        "options"
+      ],
+      "additionalProperties": false
+    },
+    "option": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "step": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_progress",
+            "completed",
+            "unknown"
+          ]
+        }
+      },
+      "required": [
+        "text",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "sessionReady": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "session.ready"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "ts"
+      ],
+      "additionalProperties": false
+    },
+    "turnStarted": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "turn.started"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "evidence": {
+          "type": "string",
+          "enum": [
+            "adapter_submission",
+            "assistant_output",
+            "result",
+            "rpc_response"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "ts"
+      ],
+      "additionalProperties": false
+    },
+    "turnFinished": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "turn.finished"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "interrupted",
+            "failed"
+          ]
+        },
+        "output": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "inputAccepted": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "input.accepted"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "input": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "input"
+      ],
+      "additionalProperties": false
+    },
+    "inputObserved": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "input.observed"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "input": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {
+          "type": "string",
+          "enum": [
+            "user_replay"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "ts"
+      ],
+      "additionalProperties": false
+    },
+    "inputDelivered": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "input.delivered"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "input": {
+          "type": "string",
+          "minLength": 1
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "injected",
+            "started_turn",
+            "unknown"
+          ]
+        },
+        "evidence": {
+          "type": "string",
+          "enum": [
+            "rpc_response",
+            "user_replay",
+            "native_result"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "input",
+        "outcome",
+        "evidence"
+      ],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "outcome": {
+              "const": "injected"
+            },
+            "evidence": {
+              "enum": [
+                "rpc_response"
+              ]
+            }
+          }
+        },
+        {
+          "properties": {
+            "outcome": {
+              "const": "started_turn"
+            },
+            "evidence": {
+              "enum": [
+                "rpc_response",
+                "user_replay",
+                "native_result"
+              ]
+            }
+          }
+        },
+        {
+          "properties": {
+            "outcome": {
+              "const": "unknown"
+            },
+            "evidence": {
+              "enum": [
+                "user_replay"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "inputRejected": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "input.rejected"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "input": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "input",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "inputDropped": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "input.dropped"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "input": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "input",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "messageDelta": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "message.delta"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "message": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "message"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "toolStarted": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "tool.started"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "tool": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "running",
+            "completed",
+            "failed",
+            "interrupted",
+            "unknown"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "tool",
+        "title",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "toolFinished": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "tool.finished"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "tool": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "running",
+            "completed",
+            "failed",
+            "interrupted",
+            "unknown"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "tool",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "plan": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "plan"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/step"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "steps"
+      ],
+      "additionalProperties": false
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "usage"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "usage": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "cost_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "usage"
+      ],
+      "additionalProperties": false
+    },
+    "permissionRequest": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request.opened"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "permission"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "request_id",
+        "kind",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "questionRequest": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request.opened"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "question"
+        },
+        "message": {
+          "type": "string"
+        },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/question"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "request_id",
+        "kind",
+        "message",
+        "questions"
+      ],
+      "additionalProperties": false
+    },
+    "requestReplied": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request.replied"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "request_id"
+      ],
+      "additionalProperties": false
+    },
+    "requestExpired": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request.expired"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "turn_finished",
+            "cancelled",
+            "runtime_lost"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "request_id",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "cancelAccepted": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "cancel.accepted"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "ts"
+      ],
+      "additionalProperties": false
+    },
+    "controlResponse": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "control.response"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "operation": {
+          "const": "interrupt"
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "operation"
+      ],
+      "additionalProperties": false
+    },
+    "runtimeStopped": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "runtime.stopped"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "terminated",
+            "backend_exited",
+            "error",
+            "lost"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "error"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "native": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "message"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
