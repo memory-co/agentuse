@@ -46,6 +46,9 @@ func TestClientServiceDependencies(t *testing.T) {
 		}
 		for _, im := range file.Imports {
 			value, _ := strconv.Unquote(im.Path.Value)
+			if strings.HasPrefix(value, "github.com/memory-co/agentuse/internal/harness") {
+				t.Errorf("%s reintroduces native adapter logic into client", rel)
+			}
 			if value == prefix {
 				t.Errorf("%s imports the composition layer", rel)
 			}

@@ -20,9 +20,9 @@
 | endpointService | 提供 endpoints.yaml 中的注册身份，连接与领取由 runService 管理 |
 | settingService | 提供工作目录及磁盘容量策略；runService 消费这些设置，不另存 run_settings |
 | sessionService | 选择/恢复原生会话、执行锁、历史增量位置；run 结束后保留 session |
-| harnessService | 在已选 session 中执行任务，将原生交互转换成标准事件 |
+| harnessService | 在已选 session 中执行任务，调用 harnessctl，将公共事件转换成业务状态 |
 
-每个 endpoint 的连接循环属于 runService，不在 endpointService 或 harnessService 中维护；原生 harness 连接由本地 harnessService 处理。session 的跨 run 生命周期与当前 run 的进程/回调清理分开处理。
+每个 endpoint 的连接循环属于 runService，不在 endpointService 或 harnessService 中维护；原生 harness 连接由独立 harnessctl 适配器处理。session 的跨 run 生命周期与当前 run 的进程/回调清理分开处理。
 
 ## 多个 Server 的连接与领取
 
@@ -100,3 +100,5 @@ run.json 是该执行记录的持久化事实。状态、耗时和计量由 runS
 ## 相关设计
 
 [Client 总览](client-main.md) · [settingService](client-setting.md) · [endpointService](client-endpoint.md) · [sessionService](client-session.md) · [harnessService](client-harness.md) · [Server runService](server-run.md)
+
+本机 run.json 额外保存 harness_run_ids：这些 UUID 由适配器分配，一个 server run/attempt 可以对应多个适配器交互。harnessService 等待本次所有输入都被 result 覆盖后才结束任务，详见 client-harness.md。

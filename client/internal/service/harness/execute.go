@@ -2,362 +2,435 @@ package harness
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/memory-co/agentuse/internal/harness"
-	"github.com/memory-co/agentuse/internal/protocol"
-	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/memory-co/agentuse/internal/protocol"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
-// Adapter 是本机一个可用的 harness。Spec 为 nil 的是自定义 harness。
-type Adapter struct {
-	LocalSessionID string
-	HistoryPath    string
-	PackageDir     string
-	Disabled       bool
-	Revision       string
-	ResumeID       string
-	Name           string
-	Path           string
-	Args           []string
-	Version        string
-	Spec           *harness.Spec
-	// Env 是这一次起进程要多带的环境变量(协调者的工作令牌等),跟着消息变。
-	Env []string
-}
-
-// detectHarnesses 找出本机可用的 harness:内置的(harness/*/harness.yaml)按默认命令探测，配置文件里的按配置。
-func Detect(cfg Config) map[string]Adapter {
-	out := map[string]Adapter{}
-	packages, err := (Service{Root: HarnessRoot(cfg)}).Packages()
-	if err != nil {
-		return out
-	}
-	for name, c := range cfg.Harnesses {
-		la := packages[name]
-		la.Name = name
-		if c.Command != "" {
-			la.Path = c.Command
-		}
-		la.Args = c.Args
-		la.Disabled = c.Disabled
-		packages[name] = la
-	}
-	for name, la := range packages {
-		if la.Disabled || la.Path == "" {
-			continue
-		}
-		path, err := exec.LookPath(expandHome(la.Path))
-		if err != nil {
-			continue
-		}
-		la.Path = path
-		if la.Spec != nil && len(la.Spec.Detect.Version) > 0 {
-			la.Version = probeVersion(path, la.Spec.Detect.Version)
-		}
-		out[name] = la
-	}
-
-	return out
-}
-
-func probeVersion(path string, args []string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	b, err := exec.CommandContext(ctx, path, args...).Output()
-	if err != nil {
-		return ""
-	}
-	line, _, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
-	return truncate(line, 60)
-}
-
-func expandHome(p string) string {
-	if strings.HasPrefix(p, "~/") {
-		home, _ := os.UserHomeDir()
-		return home + p[1:]
-	}
-	return p
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
-}
-
-// Result 是 harness 回一条消息的最终结果，作为 done / failed 的 payload。
 type Result struct {
-	Usage  *agentuse.Usage `json:"usage,omitempty"`
-	OK     bool            `json:"ok"`
-	Output string          `json:"output,omitempty"`
-	Error  string          `json:"error,omitempty"`
-	// SessionID 仅作为本次 harness 运行的诊断信息。
-	SessionID string  `json:"session_id,omitempty"`
-	CostUSD   float64 `json:"cost_usd,omitempty"`
+	OK             bool            `json:"ok"`
+	Output         string          `json:"output,omitempty"`
+	Error          string          `json:"error,omitempty"`
+	Usage          *agentuse.Usage `json:"usage,omitempty"`
+	CostUSD        float64         `json:"cost_usd,omitempty"`
+	HarnessRunIDs  []string        `json:"harness_run_ids,omitempty"`
+	CleanupPending bool            `json:"cleanup_pending,omitempty"`
+}
+type Reporter func(string, any)
+type Question struct {
+	ID       string            `json:"id"`
+	Text     string            `json:"text"`
+	Header   string            `json:"header"`
+	Multiple bool              `json:"multiple"`
+	Options  []protocol.Option `json:"options"`
+}
+type Event struct {
+	Type      string                     `json:"type"`
+	RunID     string                     `json:"run_id"`
+	InputID   string                     `json:"input_id"`
+	InputIDs  []string                   `json:"input_ids"`
+	Text      string                     `json:"text"`
+	MessageID string                     `json:"message_id"`
+	RequestID string                     `json:"request_id"`
+	State     string                     `json:"state"`
+	Kind      string                     `json:"kind"`
+	Message   string                     `json:"message"`
+	Questions []Question                 `json:"questions"`
+	Status    string                     `json:"status"`
+	Output    string                     `json:"output"`
+	Error     *string                    `json:"error"`
+	Usage     *agentuse.Usage            `json:"usage"`
+	CostUSD   *float64                   `json:"cost_usd"`
+	Topic     string                     `json:"topic"`
+	Data      map[string]json.RawMessage `json:"data"`
+}
+type submission struct {
+	prompt     string
+	steerID    int64
+	input, run string
+	done       bool
+}
+type pendingRequest struct {
+	event   Event
+	expires time.Time
 }
 
-// Reporter 回报一条进度(kind 是 progress、plan 或 steered),payload 是 JSON 对象。
-type Reporter func(kind string, payload any)
-
-// Execute creates or resumes the selected native session and reports this run.
-// in 是这条消息收到的插话和提问答案，harness 能插话、能提问时从里面取。
-func (s Service) Execute(ctx context.Context, la Adapter, m protocol.Dispatch, dir string, in *Input, report Reporter) Result {
-	if la.Spec == nil {
-		instructions := instructionsFor(m)
-		if la.HistoryPath != "" {
-			instructions = strings.ReplaceAll(instructions, ".agentuse/session-history.json", la.HistoryPath)
-		}
-		payload := protocol.HarnessInput{SessionID: m.SessionID, Instructions: instructions, Input: m.Input, Attachments: m.Attachments, RunID: m.RunID, AgentID: m.AgentID, TaskMessageIDs: m.TaskMessageIDs, SessionMessages: m.SessionMessages}
-		if m.Local {
-			payload.EndpointID = m.EndpointID
-			payload.ConversationID = m.SessionID
-			payload.SessionID = la.LocalSessionID
-			payload.Resume = la.ResumeID
-		}
-		in, _ := json.Marshal(payload)
-		cmd := exec.CommandContext(ctx, la.Path, la.Args...)
-		if len(la.Env) > 0 {
-			cmd.Env = append(os.Environ(), la.Env...)
-		}
-		return runCustomHarness(ctx, cmd, in, dir, report)
+func command(ctx context.Context, a Adapter, events, verb, body string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	argv := append([]string{verb, events}, args...)
+	cmd := exec.CommandContext(ctx, a.Path, argv...)
+	cmd.Env = append(os.Environ(), a.Env...)
+	cmd.Stdin = strings.NewReader(body)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if e := cmd.Run(); e != nil {
+		return nil, fmt.Errorf("harnessctl %s: %w: %s", verb, e, strings.TrimSpace(stderr.String()))
 	}
+	return stdout.Bytes(), nil
+}
+
+// Cancel uses only the public protocol and confirms the adapter has stopped foreground work.
+func Cancel(a Adapter, events string) error {
+	if _, e := os.Stat(events); os.IsNotExist(e) {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if _, e := command(ctx, a, events, "cancel", ""); e != nil {
+		return e
+	}
+	for ctx.Err() == nil {
+		data, e := command(ctx, a, events, "status", "")
+		if e != nil {
+			return e
+		}
+		var state struct {
+			State string `json:"state"`
+		}
+		if e = json.Unmarshal(data, &state); e != nil {
+			return e
+		}
+		if state.State == "idle" || state.State == "failed" {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("harnessctl cancellation not confirmed: %w", ctx.Err())
+}
+func EventsPath(workspace, sessionID string) string {
+	return filepath.Join(filepath.Dir(workspace), "sessions", sessionID, "events.jsonl")
+}
+func promptFor(m protocol.Dispatch, history string) (string, error) {
 	var pi protocol.PromptInput
-	_ = json.Unmarshal(m.Input, &pi)
-	skills := ""
-	if la.PackageDir != "" {
-		var err error
-		skills, err = harness.SkillInstructions(la.PackageDir)
-		if err != nil {
-			return Result{Error: err.Error()}
+	if json.Unmarshal(m.Input, &pi) != nil || strings.TrimSpace(pi.Prompt) == "" {
+		if m.Local && json.Valid(m.Input) {
+			return string(m.Input), nil
 		}
+		return "", fmt.Errorf("input.prompt must not be empty")
 	}
-	text := instructionsFor(m) + skills
-	if la.HistoryPath != "" {
-		text = strings.ReplaceAll(text, ".agentuse/session-history.json", la.HistoryPath)
+	instructions := instructionsFor(m)
+	if history != "" {
+		instructions = strings.ReplaceAll(instructions, ".agentuse/session-history.json", history)
 	}
-	if text != "" {
-		pi.Prompt = text + "\n\n# 本次任务\n" + pi.Prompt
-		m.Input, _ = json.Marshal(pi)
+	if instructions != "" {
+		return instructions + "\n\n# 本次任务\n" + pi.Prompt, nil
 	}
-	if la.Spec.Transport == harness.TransportCodexAppServer {
-		return runCodex(ctx, la, m, dir, in, report)
-	}
-	args, err := la.Spec.Args(pi.Prompt, la.ResumeID, la.Args)
-	if err != nil {
-		return Result{Error: err.Error()}
-	}
-	cmd := exec.CommandContext(ctx, la.Path, args...)
-	if env := append(la.Spec.Environ(m.ID, m.SessionID), la.Env...); len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
-	return runSpec(ctx, *la.Spec, cmd, la.Spec.Stdin(pi.Prompt), dir, in, report)
+	return pi.Prompt, nil
 }
-
-const maxOutput = 64 << 10
-
-// tail 只保留最后 maxOutput 字节的输出。
-type tail struct{ b []byte }
-
-func (t *tail) add(s string) {
-	t.b = append(t.b, s...)
-	t.b = append(t.b, '\n')
-	if len(t.b) > maxOutput {
-		t.b = t.b[len(t.b)-maxOutput:]
+func readEvents(path string, offset *int64) ([]Event, error) {
+	file, e := os.Open(path)
+	if os.IsNotExist(e) {
+		return nil, nil
 	}
-}
-func (t *tail) String() string { return strings.TrimRight(string(t.b), "\n") }
-
-func scanLines(r io.Reader, fn func(string)) {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
-	for sc.Scan() {
-		fn(sc.Text())
+	if e != nil {
+		return nil, e
 	}
-}
-
-func start(cmd *exec.Cmd, dir string, stdin io.Reader) (stdout, stderr io.ReadCloser, err error) {
-	prepareProcess(cmd)
-	cmd.Dir = dir
-	if stdin != nil {
-		cmd.Stdin = stdin
+	defer file.Close()
+	if _, e = file.Seek(*offset, io.SeekStart); e != nil {
+		return nil, e
 	}
-	if stdout, err = cmd.StdoutPipe(); err != nil {
-		return
-	}
-	if stderr, err = cmd.StderrPipe(); err != nil {
-		return
-	}
-	err = cmd.Start()
-	return
-}
-
-// runSpec 按 harness.yaml 的 output 规则读 stdout,按 finish 判成败。
-// input 不为空时写进 stdin 并保持打开(stream-json),读到 result 行后关掉，进程才会退出。
-// steer 为 claude-hooks 时先在 stdin 注册 hook,再在 hook 回调里塞插话;
-// ask 为 claude-permission 时在 can_use_tool 里等用户回答提问。
-func runSpec(ctx context.Context, sp harness.Spec, cmd *exec.Cmd, input []byte, dir string, in *Input, report Reporter) Result {
-	hooks := sp.Steer == harness.SteerClaudeHooks && input != nil
-	control := input != nil && (hooks || sp.Ask == harness.AskClaudePermission)
-	if sp.Ask != harness.AskClaudePermission && in != nil {
-		in = &Input{steers: in.steers} // 这个 harness 不能提问
-	}
-	var pipe io.WriteCloser
-	if input != nil {
-		var err error
-		if pipe, err = cmd.StdinPipe(); err != nil {
-			return Result{Error: err.Error()}
+	reader := bufio.NewReader(io.LimitReader(file, (16<<20)+1))
+	out := []Event{}
+	for {
+		line, e := reader.ReadBytes('\n')
+		if len(line) > 16<<20 {
+			return nil, fmt.Errorf("harnessctl event exceeds 16 MiB")
 		}
-	}
-	stdout, stderr, err := start(cmd, dir, nil)
-	if err != nil {
-		return Result{Error: err.Error()}
-	}
-	closeIn := func() {}
-	var w *stdinWriter
-	if pipe != nil {
-		w = &stdinWriter{w: pipe}
-		closeIn = w.close
-		go func() {
-			if hooks && w.writeJSON(claudeHooksInit()) != nil {
-				return
+		if e == io.EOF {
+			return out, nil
+		}
+		if e != nil {
+			return nil, e
+		}
+		var event Event
+		if e = json.Unmarshal(line, &event); e != nil {
+			return nil, fmt.Errorf("invalid harnessctl event: %w", e)
+		}
+		switch event.Type {
+		case "accepted", "message", "request", "result":
+			if _, e = uuid.Parse(event.RunID); e != nil {
+				return nil, fmt.Errorf("invalid harnessctl run_id")
 			}
-			if w.write(input) != nil {
-				w.close()
+		case "log":
+		default:
+			return nil, fmt.Errorf("unsupported harnessctl event %q", event.Type)
+		}
+		*offset += int64(len(line))
+		out = append(out, event)
+	}
+}
+func (s Service) Execute(ctx context.Context, a Adapter, m protocol.Dispatch, dir string, in *Input, report Reporter) (result Result) {
+	result.OK = true
+	if report == nil {
+		report = func(string, any) {}
+	}
+	events := a.EventsPath
+	if events == "" {
+		events = filepath.Join(filepath.Dir(dir), "harnessctl", a.Name+"-"+m.AgentID, "events.jsonl")
+	}
+	if e := os.MkdirAll(filepath.Dir(events), 0700); e != nil {
+		return Result{Error: e.Error()}
+	}
+	prompt, e := promptFor(m, a.HistoryPath)
+	if e != nil {
+		return Result{Error: e.Error()}
+	}
+	var offset int64
+	if info, e := os.Stat(events); e == nil {
+		offset = info.Size()
+	} else if !os.IsNotExist(e) {
+		return Result{Error: e.Error()}
+	}
+	submitted := []*submission{{prompt: prompt}}
+	requests := map[string]pendingRequest{}
+	seenRuns := map[string]bool{}
+	seenResults := map[string]bool{}
+	messageText := map[string]string{}
+	defer func() {
+		if in != nil {
+			in.mu.Lock()
+			in.closed = true
+			in.mu.Unlock()
+		}
+	}()
+	bindAccepted := func(event Event) {
+		for _, step := range submitted {
+			if step.input != "" || step.prompt != event.Text {
+				continue
 			}
-		}()
-	}
-	var errTail tail
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() { defer wg.Done(); scanLines(stderr, errTail.add) }()
-
-	var st harness.State
-	scanLines(stdout, func(line string) {
-		if control && claudeControl(line, w, in, report) {
-			return
-		}
-		sp.Line(&st, line, func(text string) { report("progress", map[string]string{"text": text}) })
-		if st.PlanDirty {
-			st.PlanDirty = false
-			report("plan", map[string]any{"steps": st.Plan})
-		}
-		if st.SawResult {
-			closeIn()
-		}
-	})
-	in.askBox().stop() // 进程的输出都读完了，还在等的提问作废
-	closeIn()
-	wg.Wait()
-	werr := cmd.Wait()
-
-	res := Result{Usage: st.Usage, SessionID: st.SessionID, Output: st.Output, Error: st.Error, CostUSD: st.CostUSD}
-	switch {
-	case sp.Finish.RequireResult:
-		res.OK = st.SawResult && st.ResultOK && werr == nil
-		if !st.SawResult || (st.ResultOK && werr != nil) {
-			res.Error = exitError(ctx, werr, errTail.String())
-		}
-	case sp.Finish.RequireOK:
-		res.OK = st.SawOK && werr == nil
-		if res.OK {
-			res.Error = ""
-		} else if res.Error == "" || werr != nil {
-			msg := exitError(ctx, werr, errTail.String())
-			if res.Error != "" {
-				msg = res.Error + "; " + msg
+			step.input = event.InputID
+			step.run = event.RunID
+			if !seenRuns[event.RunID] {
+				seenRuns[event.RunID] = true
+				result.HarnessRunIDs = append(result.HarnessRunIDs, event.RunID)
 			}
-			res.Error = msg
-		}
-	default:
-		res.OK = werr == nil
-		if !res.OK {
-			res.Error = exitError(ctx, werr, errTail.String())
-		}
-	}
-	if res.OK {
-		res.Error = ""
-	}
-	return res
-}
-
-// runCustomHarness 按自定义 harness 的约定跑:HarnessInput 写进 stdin,stdout 每行一个 JSON。
-//
-//	{"type":"progress", ...任意字段}         → 原样作为进度回报
-//	{"type":"result","ok":true,"output":"…","session_id":"…"} → 最终结果
-//
-// 不是 JSON 的行当作文本进度。没输出 result 就按退出码判断成败。
-func runCustomHarness(ctx context.Context, cmd *exec.Cmd, input json.RawMessage, dir string, report Reporter) Result {
-	stdout, stderr, err := start(cmd, dir, strings.NewReader(string(input)+"\n"))
-	if err != nil {
-		return Result{Error: err.Error()}
-	}
-	var out, errTail tail
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() { defer wg.Done(); scanLines(stderr, errTail.add) }()
-
-	var res *Result
-	scanLines(stdout, func(line string) {
-		if strings.TrimSpace(line) == "" {
+			if step.steerID > 0 {
+				report("steered", protocol.SteeredPayload{SteerID: step.steerID})
+			}
 			return
 		}
-		var m map[string]json.RawMessage
-		if json.Unmarshal([]byte(line), &m) != nil {
-			out.add(line)
-			report("progress", map[string]string{"text": truncate(line, 4000)})
-			return
-		}
-		var typ string
-		_ = json.Unmarshal(m["type"], &typ)
-		if typ == "result" {
-			var r Result
-			_ = json.Unmarshal([]byte(line), &r)
-			res = &r
-			return
-		}
-		if typ == "plan" {
-			report("plan", map[string]json.RawMessage{"steps": m["steps"]})
-			return
-		}
-		report("progress", json.RawMessage(line))
-	})
-	wg.Wait()
-	werr := cmd.Wait()
-	if res != nil {
-		if werr != nil && res.OK {
-			res.OK, res.Error = false, exitError(ctx, werr, errTail.String())
-		}
-		return *res
 	}
-	if werr != nil {
-		return Result{Output: out.String(), Error: exitError(ctx, werr, errTail.String())}
+	fail := func(e error) Result {
+		result.OK = false
+		result.Error = e.Error()
+		if cleanup := Cancel(a, events); cleanup != nil {
+			result.CleanupPending = true
+			result.Error += "; " + cleanup.Error()
+		}
+		// A timed-out command may still have durably accepted its input.
+		// Keep that adapter-owned association even on cancellation/failure.
+		if batch, readErr := readEvents(events, &offset); readErr == nil {
+			for _, event := range batch {
+				if event.Type == "accepted" {
+					bindAccepted(event)
+				}
+			}
+		}
+		return result
 	}
-	return Result{OK: true, Output: out.String()}
+	if _, e = command(ctx, a, events, "send", prompt, "--cwd", dir); e != nil {
+		return fail(e)
+	}
+	tick := time.NewTicker(40 * time.Millisecond)
+	defer tick.Stop()
+	lastPoll := time.Now()
+	idlePolls := 0
+	for {
+		if ctx.Err() != nil {
+			return fail(ctx.Err())
+		}
+		for _, control := range in.take() {
+			if control.steer != nil {
+				step := &submission{prompt: control.steer.Prompt, steerID: control.steer.ID}
+				submitted = append(submitted, step)
+				if _, e = command(ctx, a, events, "send", step.prompt, "--cwd", dir); e != nil {
+					return fail(e)
+				}
+			} else if control.answer != nil {
+				pending, ok := requests[control.answer.ToolUseID]
+				if !ok {
+					continue
+				}
+				event := pending.event
+				answer := ""
+				if event.Kind == "permission" {
+					answer = control.answer.Answers[event.Message]
+					if answer == "" {
+						for _, value := range control.answer.Answers {
+							answer = value
+							break
+						}
+					}
+				} else {
+					answers := map[string]string{}
+					for _, q := range event.Questions {
+						v := control.answer.Answers[q.Text]
+						if v == "" {
+							v = control.answer.Answers[q.ID]
+						}
+						answers[q.ID] = v
+					}
+					data, _ := json.Marshal(answers)
+					answer = string(data)
+				}
+				if _, e = command(ctx, a, events, "reply", answer, event.RequestID); e != nil {
+					return fail(e)
+				}
+			}
+		}
+		batch, e := readEvents(events, &offset)
+		if e != nil {
+			return fail(e)
+		}
+		for _, event := range batch {
+			if event.Type == "accepted" {
+				bindAccepted(event)
+				continue
+			}
+			if !seenRuns[event.RunID] {
+				continue
+			}
+			switch event.Type {
+			case "message":
+				if messageText[event.MessageID] != event.Text {
+					messageText[event.MessageID] = event.Text
+					report("progress", map[string]string{"text": event.Text, "harness_run_id": event.RunID})
+				}
+			case "log":
+				if event.Topic == "tool.started" {
+					var title string
+					_ = json.Unmarshal(event.Data["title"], &title)
+					if title != "" {
+						report("progress", map[string]string{"text": "🔧 " + title})
+					}
+				}
+				if event.Topic == "plan" {
+					report("plan", map[string]any{"steps": json.RawMessage(event.Data["steps"])})
+				}
+			case "request":
+				switch event.State {
+				case "pending":
+					if _, ok := requests[event.RequestID]; ok {
+						continue
+					}
+					timeout := DefaultAskTimeout
+					if in != nil {
+						timeout = in.timeout
+					}
+					requests[event.RequestID] = pendingRequest{event: event, expires: time.Now().Add(timeout)}
+					questions := []protocol.Question{}
+					if event.Kind == "permission" {
+						questions = append(questions, protocol.Question{Question: event.Message, Options: []protocol.Option{{Label: "allow", Description: "允许一次"}, {Label: "deny", Description: "拒绝"}}})
+					} else {
+						for _, q := range event.Questions {
+							questions = append(questions, protocol.Question{Question: q.Text, Header: q.Header, MultiSelect: q.Multiple, Options: q.Options})
+						}
+					}
+					report("question", protocol.QuestionPayload{ToolUseID: event.RequestID, Questions: questions})
+				case "replied", "expired":
+					delete(requests, event.RequestID)
+					kind := "answered"
+					if event.State == "expired" {
+						kind = "question_expired"
+					}
+					report(kind, protocol.QuestionPayload{ToolUseID: event.RequestID})
+				default:
+					return fail(fmt.Errorf("invalid harnessctl request state %q", event.State))
+				}
+			case "result":
+				if seenResults[event.RunID] {
+					continue
+				}
+				seenResults[event.RunID] = true
+				for _, step := range submitted {
+					for _, id := range event.InputIDs {
+						if step.input == id && step.run == event.RunID {
+							step.done = true
+						}
+					}
+				}
+				if event.Status != "completed" {
+					result.OK = false
+					if event.Error != nil {
+						result.Error = *event.Error
+					} else {
+						result.Error = event.Status
+					}
+				}
+				if result.Output != "" && event.Output != "" {
+					result.Output += "\n\n"
+				}
+				result.Output += event.Output
+				if event.Usage != nil {
+					if result.Usage == nil {
+						result.Usage = &agentuse.Usage{}
+					}
+					result.Usage.InputTokens += event.Usage.InputTokens
+					result.Usage.OutputTokens += event.Usage.OutputTokens
+					result.Usage.CacheReadTokens += event.Usage.CacheReadTokens
+					result.Usage.CacheWriteTokens += event.Usage.CacheWriteTokens
+				}
+				if event.CostUSD != nil {
+					result.CostUSD += *event.CostUSD
+				}
+			}
+		}
+		for _, pending := range requests {
+			if time.Now().After(pending.expires) {
+				return fail(fmt.Errorf("harnessctl request timed out"))
+			}
+		}
+		done := true
+		for _, step := range submitted {
+			done = done && step.done
+		}
+		if done && in.finish() {
+			return result
+		}
+		// Detect a dead backend through the public status command, never private PID/native data.
+		if len(batch) == 0 {
+			if time.Since(lastPoll) > time.Second {
+				lastPoll = time.Now()
+				data, statusErr := command(ctx, a, events, "status", "")
+				if statusErr != nil {
+					return fail(statusErr)
+				}
+				var state struct {
+					State string `json:"state"`
+				}
+				if e = json.Unmarshal(data, &state); e != nil {
+					return fail(e)
+				}
+				if state.State == "idle" || state.State == "failed" {
+					idlePolls++
+				} else {
+					idlePolls = 0
+				}
+				if idlePolls > 1 {
+					return fail(fmt.Errorf("harnessctl stopped without results for accepted inputs"))
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return fail(ctx.Err())
+			case <-tick.C:
+			}
+		}
+	}
 }
-
-func exitError(ctx context.Context, err error, stderr string) string {
-	if ctx.Err() != nil {
-		return "已取消"
-	}
-	msg := "进程没有给出结果"
-	if err != nil {
-		msg = err.Error()
-	}
-	if stderr != "" {
-		msg += ": " + truncate(stderr, 2000)
-	}
-	return msg
-}
-
-func (a Adapter) CanSteer() bool {
-	return a.Spec != nil && (a.Spec.Transport == harness.TransportCodexAppServer || a.Spec.Steer != "")
-}
-func (a Adapter) CanAsk() bool { return a.Spec != nil && a.Spec.Ask != "" }

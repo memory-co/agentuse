@@ -360,8 +360,7 @@ func (d *endpointConnection) session(ctx context.Context) error {
 				received := false
 				d.mu.Lock()
 				if r := d.running[executionKey(m.Steer.MessageID, m.Steer.RunID, m.Steer.AttemptID)]; r != nil && r.dispatch.RunID == m.Steer.RunID && r.dispatch.AttemptID == m.Steer.AttemptID {
-					r.in.Steer(*m.Steer)
-					received = true
+					received = r.in.Steer(*m.Steer)
 				}
 				d.mu.Unlock()
 				if received {
@@ -471,8 +470,14 @@ func (d *endpointConnection) startMessage(m protocol.Dispatch, reservations ...b
 				if !recorded {
 					d.recordCompleteLocal(m, r.local, res, ok, tctx.Err())
 				}
-				if err := d.cfg.LocalStore.ReleaseSession(r.local, res.SessionID, m.ContextSeq, res.OK, m.RunID, m.AttemptID); err != nil {
-					d.log.Printf("save session: %v", err)
+				seq := int64(0)
+				if res.OK {
+					seq = m.ContextSeq
+				}
+				if !res.CleanupPending {
+					if err := d.cfg.LocalStore.ReleaseSession(r.local, seq, res.OK || errors.Is(tctx.Err(), context.Canceled), m.RunID, m.AttemptID); err != nil {
+						d.log.Printf("save session: %v", err)
+					}
 				}
 			}
 		}()
@@ -488,7 +493,7 @@ func (d *endpointConnection) startMessage(m protocol.Dispatch, reservations ...b
 				if r.local.ID == "" {
 					r.local, dir, prepareErr = d.cfg.LocalStore.AcquireSession(tctx, d.cfg.EndpointID, m.SessionID, m.AgentID, m.Harness, la.Revision)
 				}
-				la.ResumeID = r.local.NativeSessionID
+				la.EventsPath = harness.EventsPath(dir, r.local.ID)
 				if prepareErr == nil {
 					d.recordReceivedLocal(m, r.local, dir)
 				}

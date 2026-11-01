@@ -159,7 +159,9 @@ def frame(r, f):
         if not r.turn:
             r.turn = 'turn_' + str(uuid.uuid4())
             r.log('execution.started', evidence='result', native=f)
-        r.usage(f.get('usage'), f.get('total_cost_usd'))
+        raw = f.get('usage')
+        counts = None if raw is None else dict(input_tokens=raw.get('input_tokens',0)+raw.get('cache_read_input_tokens',0)+raw.get('cache_creation_input_tokens',0),output_tokens=raw.get('output_tokens',0),cache_read_tokens=raw.get('cache_read_input_tokens',0),cache_write_tokens=raw.get('cache_creation_input_tokens',0))
+        r.usage(counts, f.get('total_cost_usd'))
         status = 'interrupted' if r.claude_interrupt else 'failed' if f.get('is_error') else 'completed'
         r.claude_interrupt = False
         r.finished(status, f, output=f.get('result'), error='; '.join(f.get('errors', [])) or None)

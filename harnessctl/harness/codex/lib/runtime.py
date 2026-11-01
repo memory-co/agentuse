@@ -396,6 +396,12 @@ class Runtime:
         verb = cmd['verb']
         if verb == 'status':
             return self.public_status()
+        if verb == '_recycle':
+            if self.turn or self.starting or self.queued or self.requests or self.pending:
+                raise Rejected('cannot change environment while work is active', 2)
+            self.stopping = True
+            self.exit_reason = 'reconfigured'
+            return
         if verb == 'send':
             return self.accept(cmd)
         elif verb == 'cancel':
@@ -559,7 +565,7 @@ class Runtime:
                         except ProcessLookupError:
                             pass
                         self.proc.wait()
-                    failed = self.exit_reason not in ('idle', 'terminated') or self.failed
+                    failed = self.exit_reason not in ('idle', 'terminated', 'reconfigured') or self.failed
                     self.log('runtime.stopped', reason=self.exit_reason)
                     write_json(self.directory / 'status.json', dict(self.snapshot(), state='failed' if failed else 'idle', live=False))
         if self.shutdown_lock:
@@ -685,6 +691,27 @@ def backend_alive(directory):
     return False
 
 
+def environment_hash():
+    ignored = {'_', 'SHLVL', 'PWD', 'OLDPWD'}
+    data = {key:value for key,value in os.environ.items() if key not in ignored}
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+
+def recycle(events):
+    rpc(events, dict(verb='_recycle'))
+    directory = Path(str(events)+'.d')
+    deadline = time.monotonic()+5
+    while time.monotonic()<deadline:
+        with open(directory/'runtime.lock','a') as lock:
+            try:
+                fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                return
+            except BlockingIOError:
+                pass
+        time.sleep(.025)
+    raise Rejected('runtime environment refresh timed out')
+
+
 def launch(events, backend, config):
     directory = Path(str(events) + '.d')
     native = directory / 'native.json'
@@ -761,13 +788,20 @@ def main(backend):
                     sync_directory(events.parent)
                 except FileExistsError as exc:
                     raise Rejected('existing event file has no adapter state; refusing to overwrite it', 2) from exc
-                config = dict(protocol=PROTOCOL, adapter=backend.NAME, cwd=cwd, model=args.model, history_started=False)
+                config = dict(protocol=PROTOCOL, adapter=backend.NAME, cwd=cwd, model=args.model, history_started=False, environment_hash=environment_hash())
                 write_json(path, config)
             state, live = inspect_state(events, config)
             if args.verb == 'status':
                 print(json.dumps(state, ensure_ascii=False))
                 return 0
             if args.verb == 'send':
+                current_environment = environment_hash()
+                if live and config.get('environment_hash') != current_environment:
+                    recycle(events)
+                    live = False
+                if not live:
+                    config['environment_hash'] = current_environment
+                    write_json(path, config)
                 if not live:
                     launch(events, backend, config)
                 rpc(events, dict(verb='send', prompt=content))

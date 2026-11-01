@@ -101,7 +101,7 @@ func (d *endpointConnection) prepareHistory(m *protocol.Dispatch, s store.Sessio
 	for _, msg := range messages {
 		var id int64
 		_ = json.Unmarshal(msg["id"], &id)
-		if s.NativeSessionID != "" && id <= s.LastContextSeq {
+		if s.LastContextSeq > 0 && id <= s.LastContextSeq {
 			continue
 		}
 		task := false
@@ -115,7 +115,7 @@ func (d *endpointConnection) prepareHistory(m *protocol.Dispatch, s store.Sessio
 		}
 		var author string
 		_ = json.Unmarshal(msg["agent_key"], &author)
-		if s.NativeSessionID != "" && author == m.AgentID {
+		if s.LastContextSeq > 0 && author == m.AgentID {
 			continue
 		}
 		filtered = append(filtered, msg)

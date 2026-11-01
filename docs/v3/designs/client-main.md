@@ -37,7 +37,7 @@ local 是 endpointService 返回的一种 endpoint 模式，不是额外的 Loca
 | [settingService](client-setting.md) | 管端口、session 共享工作根目录和容量回收策略 | `~/.agentuse/setting.yaml` |
 | [sessionService](client-session.md) | 管理原生会话复用、执行锁、历史位置及空闲工作目录回收 | conversation 下每个原生会话的 `session.yaml` |
 | [runService](client-run.md) | 读取 endpoints 和设置，自行领取/执行、上报事件并触发清理 | 每个执行尝试的 `run.json` |
-| [harnessService](client-harness.md) | 本地接入包探测、原生 session 操作、启动执行、RPC/hook/skill、输出解释 | `~/.agentuse/harness/` 下的适配器与资源文件 |
+| [harnessService](client-harness.md) | harnessctl 包探测、命令执行、公共事件和业务任务关联 | `~/.agentuse/harness/` 下的适配器与资源文件 |
 
 Client 共五个 service，全部以各自文件作为唯一持久化事实，不设本机数据库。Server 仍使用自己的业务数据库，不受本次调整影响。
 
@@ -69,7 +69,7 @@ runService 取得 run_prompts、共享历史和文件，调用 sessionService �
 
 ### 2.5 harnessService：本地原生接入
 
-harnessService 解析本地接入包，执行 create/resume/run/steer/answer/cancel 等原生操作，并将输出解释为标准业务事件。Codex RPC 和 Claude hook 的差异全部留在设备上。
+harnessService 加载本地 harnessctl 包，通过 send/cancel/status/reply 和 accepted/message/request/result/log 五种事件桥接执行。原生 RPC、排队、插话、会话恢复和后台进程由独立适配器管理。一个业务 run 可以对应多个适配器交互，全部完成后才结束业务任务。
 
 YAML、hook、桥接程序、skill 与指令资源本地管理；server 不下发执行命令、脚本、执行描述或原生协议帧。接入包升级先探测再上报，旧任务不静默换用新版本。
 
@@ -100,7 +100,7 @@ Server Conversation C
 | 连接各 server | runService 读取 endpointService → 各 endpoint 连接循环 |
 | 本地探测与能力上报 | runService → harnessService；探测结果由 runService 的各连接上报 |
 | 领取并执行任务 | runService 预留容量并领取 → sessionService / harnessService |
-| 创建/恢复原生会话 | sessionService → harnessService；保存原生会话 ID 和当前选择 |
+| 创建/恢复原生会话 | sessionService 固定 events.jsonl 地址；harnessctl 自动创建/恢复原生会话 |
 | 任务进度/结果 | harnessService → 标准事件回调 → runService → 所属中心连接 |
 | 用户答案/补充输入/取消 | 所属中心连接 → runService → 当前 session 内的原生执行 |
 | 执行收尾 | runService 结束本次占用，sessionService 保留原生历史，runService 释放槽位 |
@@ -131,6 +131,8 @@ Server Conversation C
 │   ├── workspace/    所有 Codex / Claude Code 的共享启动目录
 │   └── sessions/<session_id>/
 │       ├── session.yaml
+│       ├── events.jsonl
+│       ├── events.jsonl.d/
 │       └── runs/<run_id>/<attempt_id>/run.json
 └── ui.token
 ```
@@ -151,7 +153,7 @@ tmp 是默认父目录，可通过 setting.yaml 的 session.work_root 配置。s
 
 多文件更新不等于数据库事务。崩溃后读取状态文件，与 server 租约和原生状态核对；无法确认时记中断或建立新 session，不能仅凭旧 running 标记重跑。
 
-本地 session UUID、原生 session ID、server conversation UUID、server run/attempt 各自独立；路径包含由规范化 server 地址推导的 endpoint_id（如 https---company.example.com），避免多个平台返回相同 ID 时串目录或结果。
+本地 session UUID、适配器生成的交互 run UUID、server conversation UUID、server run/attempt 各自独立；路径包含由规范化 server 地址推导的 endpoint_id（如 https---company.example.com），避免多个平台返回相同 ID 时串目录或结果。
 
 ## 七、目录容量与清理
 
@@ -216,7 +218,7 @@ CLI 负责配置管理和提供页面链接。页面展示执行、所属 sessio
 | GET /api/conversations | endpoint_id（必填）、limit、cursor | 仅列出指定 endpoint 下的 conversation 目录标识，不读取下属 session/run 文件 |
 | GET /api/conversations/{endpoint_id}/{conversation_id} | 无 | conversation 标识、workspace 相对位置、session 数、最近一次容量扫描的字节数及扫描时间 |
 | GET /api/conversations/{endpoint_id}/{conversation_id}/sessions | harness、status、limit、cursor | 该 conversation 的 session 摘要 |
-| GET /api/conversations/{endpoint_id}/{conversation_id}/sessions/{session_id} | 无 | session.yaml 的会话标识、agent、harness/revision、原生 ID、状态、上下文位置和时间 |
+| GET /api/conversations/{endpoint_id}/{conversation_id}/sessions/{session_id} | 无 | session.yaml 的会话标识、agent、harness/revision、状态、上下文位置和时间 |
 | GET /api/conversations/{endpoint_id}/{conversation_id}/sessions/{session_id}/runs | status、limit、cursor | 指定 session 内的执行摘要，只读取该 session 的 runs/ 子树 |
 | GET /api/conversations/{endpoint_id}/{conversation_id}/sessions/{session_id}/runs/{run_id}/attempts/{attempt_id} | 无 | 单次执行的状态、摘要、时间、错误、用量、费用及插话/文件计数 |
 | GET /api/conversations/{endpoint_id}/{conversation_id}/sessions/{session_id}/usage | since、until | 只汇总指定 session 的已保留 run 文件，返回用量/费用、未知值条数和统计范围 |
@@ -295,7 +297,7 @@ Endpoint 下拉始终内置 `local`，无需用户声明，也没有 device 凭�
 
 | 方法 | 输入 → 输出 | 行为 |
 |---|---|---|
-| Acquire | ConversationRef、agent_id、HarnessRef → SessionRef、session 执行锁、workspace 路径 | 选择可恢复的空闲 session，或调用 harnessService 建立原生会话；登记共享目录占用 |
+| Acquire | ConversationRef、agent_id、HarnessRef → SessionRef、session 执行锁、workspace 路径 | 选择可恢复的空闲 session，并推导固定的 events.jsonl 地址；登记共享目录占用 |
 | Get | SessionRef → Session | 读取 session.yaml；缺失不自动创建 |
 | List | ConversationRef、筛选/分页 → Session[] | 读取该 conversation 的会话 |
 | CommitContext | SessionRef、已确认交付的 context_seq → Session | 在会话锁内更新历史位置，不允许回退或排队时提前推进 |
@@ -328,15 +330,13 @@ Acquire 不领取 server 任务、不生成 run_id，且只允许对有效的已
 |---|---|---|
 | List | 无 → 本地 HarnessRef[] | 扫描 ~/.agentuse/harness/，不执行程序 |
 | Probe | HarnessRef → 程序版本、可用性、能力 | 本地探测，不向 server 传命令或 YAML |
-| CreateSession | HarnessRef、workspace 路径 → 原生 session ID | 创建 Codex thread / Claude session；结果交 sessionService 保存 |
-| ResumeSession | HarnessRef、原生 session ID、workspace 路径 → 原生会话句柄 | 恢复指定会话，不猜测当前目录最近会话 |
-| Run | 原生会话句柄、RunRef、输入、独立资源目录、事件回调 → ExecutionHandle | 从共享 workspace/ 执行，hook/配置在 session/run/attempt 目录内 |
-| Steer | ExecutionHandle、run_prompts → 接收确认 | 按探测能力使用 RPC/hook；不支持时明确返回 |
-| Answer | ExecutionHandle、原生问题关联、答案 → 处理结果 | 回答原请求，过期或关联不匹配拒绝 |
-| Cancel | ExecutionHandle、原因 → 空 | 原生取消，超时终止进程树，终态通过回调确认 |
-| Release | 原生句柄 → 空 | 释放进程、连接和回调，不删除全局原生历史 |
+| Execute | Adapter、events.jsonl、任务输入、workspace、回调 → Result | 通过 stdin send，读取五种公共事件，等待所有输入结果 |
+| Steer | 当前 Input、补充输入 → 是否接收 | 排入控制队列，调用 send；accepted 后确认归属 |
+| Answer | 当前 Input、request_id、答案 → 是否接收 | 转成标准 reply；过期问题不能猜测关联 |
+| Cancel | Adapter、events.jsonl → 确认结果 | cancel 后轮询 status，确认后释放执行占用 |
+| Recover | 本机文件目录 → 恢复结果 | 用对应版本适配器取消遗留任务，不读取原生状态 |
 
-标准事件包含 started、progress、plan、prompt_delivery、question、usage、result、error、cancelled。终态由 server 保存后回 event_ack，未确认的回报保存在 run.json，重启后按原执行身份重发。每条带当前执行关联和本机时间；回调按执行串行处理。Create/Resume 失败须释放 Acquire 已登记的目录占用。适配器包安装/升级由本地安装流程完成，不提供从 server 或页面任意下载执行资源的 API。local 调试复用同一 harnessService，执行前重新加载本地包并记录内容版本。
+每个 session 的 events.jsonl 地址不变。session.yaml 不保存原生会话 ID，run.json 保存 harness_run_ids。client 不实现原生 RPC/hook；包安装由本地完成，不通过 server 或页面下发执行资源。事件协议及完整关联规则见 client-harness.md。
 
 ### 9.8 中心通信与原生回调
 
@@ -354,7 +354,8 @@ Acquire 不领取 server 任务、不生成 run_id，且只允许对有效的已
 
 runService 负责中心传输与租约，harnessService 不自行连接中心。既有 conversation/work 业务工具仍调用所属 server 的业务 API，不绕过身份和文件相对路径规则。
 
-Codex 原生 RPC 使用本机子进程管道；Claude hook 优先使用本地桥接程序。需要 HTTP 回调的适配器由 harnessService 为当前执行建立独立回调端点和临时能力令牌，不复用只读页面端口；具体原生请求体与应答由适配器包定义，不能变成通用执行命令 API。回调必须关联 ExecutionHandle 及有效原生请求，执行结束立即失效；回调只转成上述标准事件，不把原生协议帧传给中心。
+原生连接和回调归 harnessctl 适配器内部管理，不复用 client 页面端口，也不经过中心 WebSocket。client 只使用四种公共命令和公共 JSONL 事件。
+
 
 ## 相关设计
 

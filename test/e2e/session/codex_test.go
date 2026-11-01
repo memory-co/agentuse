@@ -148,5 +148,44 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 	if !acknowledged || assistantCount != 1 || !strings.Contains(output, nonce) {
 		t.Fatalf("steer not applied in original run: ack=%v assistants=%d output=%q", acknowledged, assistantCount, output)
 	}
+	files, e := filepath.Glob(filepath.Join(home, ".agentuse", "tmp", "*", id, "sessions", "*", "events.jsonl"))
+	if e != nil || len(files) != 1 {
+		t.Fatal("missing harnessctl session events", files, e)
+	}
+	data, e := os.ReadFile(files[0])
+	if e != nil {
+		t.Fatal(e)
+	}
+	accepted := 0
+	results := 0
+	nativeRun := ""
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var ev struct {
+			Type, Status string
+			RunID        string   `json:"run_id"`
+			InputIDs     []string `json:"input_ids"`
+		}
+		if e = json.Unmarshal([]byte(line), &ev); e != nil {
+			t.Fatal(e)
+		}
+		if ev.Type == "accepted" {
+			accepted++
+			if nativeRun == "" {
+				nativeRun = ev.RunID
+			}
+			if ev.RunID != nativeRun {
+				t.Fatal("confirmed native steer changed run", ev)
+			}
+		}
+		if ev.Type == "result" {
+			results++
+			if ev.RunID != nativeRun || ev.Status != "completed" || len(ev.InputIDs) != 2 {
+				t.Fatal("native interaction did not cover both inputs", ev)
+			}
+		}
+	}
+	if accepted != 2 || results != 1 {
+		t.Fatal("unexpected harnessctl lifecycle", accepted, results)
+	}
 	t.Logf("real=%v session=%s run=%s: one run, matching turn/steer acknowledgment, one answer containing %s", real, id, runID, nonce)
 }

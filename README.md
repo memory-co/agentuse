@@ -27,7 +27,7 @@ agentuse 是一个可以自己部署的 agent 中间件。用户用**一行命�
 
 ## 独立 Harness CLI
 
-[`harnessctl/`](harnessctl/README.md) 定义统一的本机命令与 JSONL 事件协议，提供 Codex 和 Claude Code 适配器。每个 `harnessctl/harness/<name>/` 都是可独立打包分发的完整适配器，仅依赖 Python 标准库和原生 CLI，不依赖 AgentUse。当前 AgentUse client 仍使用原有执行链路，后续再迁移调用。
+[`harnessctl/`](harnessctl/README.md) 定义统一的本机命令与 JSONL 事件协议，提供 Codex 和 Claude Code 适配器。每个 `harnessctl/harness/<name>/` 都是可独立打包分发的完整适配器，仅依赖 Python 标准库和原生 CLI，不依赖 AgentUse。AgentUse client 已使用这个协议执行任务；原生 RPC、插话/排队和会话恢复都由独立适配器负责。内置适配器当前支持 Linux，需要 Python 3.9+ 和对应原生 CLI。
 
 ## 快速开始
 
@@ -210,7 +210,7 @@ session:
 
 省略 quota 则不限容量；声明即自动清理空闲 conversation 目录，运行中、等待回答和未获中心确认的结果均受保护。端口或根目录修改后重启 client，根目录变更需要保留记录时先完整迁移目录。端口变更不会自动重启正在运行的进程。
 
-适配器位于 `~/.agentuse/harness/<harness>/<revision>/`。默认适配器首次自动写入本机目录，后续从文件加载。自定义命令适配器可在该目录的 `harness.yaml` 中声明 `name`、`command`、`custom: true` 及可选 `args`；设置 `disabled: true` 可禁用适配器。
+适配器位于 `~/.agentuse/harness/<harness>/<revision>/`。默认适配器首次自动写入本机目录，后续从文件加载。自定义适配器安装到 `<harness>/local/`，提供 `manifest.json` 与可执行的 `harnessctl` 入口，遵循四命令、五事件协议。写入 `local/disabled` 文件可禁用。旧的 harness.yaml 不再加载。
 
 Client 不再使用 SQLite，文件结构为：
 
@@ -218,6 +218,8 @@ Client 不再使用 SQLite，文件结构为：
 <session.work_root>/<endpoint_id>/<conversation_id>/
   workspace/                    # 所有 Codex / Claude Code 的共同 cwd
   sessions/<local_session_id>/
+    events.jsonl                # 固定的 harnessctl 会话地址
+    events.jsonl.d/              # 适配器私有状态
     session.yaml
     runs/<run_id>/<attempt_id>/
       run.json

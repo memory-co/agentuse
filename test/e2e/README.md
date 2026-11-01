@@ -35,15 +35,9 @@ go test -count=1 -v ./test/e2e/session/
 
 编好的 agentuse-server + `agentuse daemon` + fakeharness,用 Go SDK(admin 令牌 + 用户 id)走一遍：添加设备 → `agentuse register` → 上报 harness → 建 agent → 开会话 → 续接 → 失败 → 别人用你的 agent → daemon 断线重连 → 删除设备。
 
-fakeharness 在 daemon.json 里同时配成三个 harness:
+所有执行入口均安装为 manifest.json + harnessctl 包。Codex、Claude 用实际独立适配器连接 fakeharness 模拟的 app-server / stream-json；自定义 fake 通过 tests/fake_adapter.py 提供相同四命令、五事件协议，不调用模型。
 
-| harness | 怎么跑 | 测的是 |
-|---|---|---|
-| `fake`(自定义) | stdin 读 `{session_id,resume,input}`,stdout 写 progress / result | 自定义 harness 的约定 |
-| `claude` | `-p … --output-format stream-json [--resume id]` | `harness/claude/harness.yaml` 的参数和输出规则 |
-| `codex` | `exec --json … [resume id] prompt` | `harness/codex/harness.yaml` 的参数和输出规则 |
-
-回复里带上 prompt、续接的会话 id 和工作目录名，测试据此确认 daemon 传对了参数、在对的目录里跑;prompt 为 `fail` 时按各自格式报失败。
+覆盖多中心、本机 API、本地调试、会话复用、共享目录并发、补充输入聚合、问答、取消、工作线程及附件。原生协议细节另由 harnessctl/tests 的独立测试覆盖。真实 Codex 测试通过 AGENTUSE_REAL_CODEX=1 显式启用。独立内置适配器需要 Linux 和 Python 3.9+。
 
 ## 加一个场景
 

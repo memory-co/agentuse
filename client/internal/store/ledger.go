@@ -18,6 +18,7 @@ import (
 )
 
 type Run struct {
+	HarnessRunIDs   []string        `json:"harness_run_ids,omitempty"`
 	ServerConfirmed bool            `json:"server_confirmed"`
 	PendingReport   json.RawMessage `json:"pending_report,omitempty"`
 	EndpointID      string          `json:"endpoint_id"`
@@ -53,6 +54,7 @@ type Event struct {
 	Payload json.RawMessage `json:"payload"`
 }
 type Finish struct {
+	HarnessRunIDs         []string
 	Status, Error, Output string
 	AttachmentCount       int
 	Usage                 *agentuse.Usage
@@ -187,6 +189,7 @@ func (w *writeStore) Complete(ctx context.Context, run, attempt string, f Finish
 		r.Status = f.Status
 		r.Error = f.Error
 		r.Output = f.Output
+		r.HarnessRunIDs = f.HarnessRunIDs
 		r.FinishedAt = &now
 		r.DurationMS = max(0, now-r.ReceivedAt)
 		r.Usage = f.Usage

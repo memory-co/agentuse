@@ -60,6 +60,7 @@ for line in sys.stdin:
                 initialized = True
             emit(f)  # replay confirms receipt, not consumption
             text = f['message']['content']
+            if '\n\n# 本次任务\n' in text:text=text.split('\n\n# 本次任务\n',1)[1]
             turn = turn or 'active'
             if text == 'gated':
                 def gated():
@@ -68,6 +69,9 @@ for line in sys.stdin:
                     emit(dict(type='assistant',message=dict(id='gated-message',content=[dict(type='text',text='gated done')])))
                     finish()
                 threading.Thread(target=gated,daemon=True).start()
+            elif text == 'environment':
+                emit(dict(type='assistant',message=dict(content=[dict(type='text',text=os.environ.get('AGENTUSE_RUN',''))])))
+                finish()
             elif text == 'ask':
                 emit(dict(type='control_request', request_id='question-1', request=dict(subtype='can_use_tool', tool_name='AskUserQuestion', input=dict(questions=[dict(header='Language',question='Which language?',options=[dict(label='Go',description='Go language')],multiSelect=False)]))))
             elif text == 'invalid-event':
@@ -110,7 +114,11 @@ for line in sys.stdin:
             turn = 'turn-' + str(count)
             emit(dict(id=f['id'], result=dict(turn=dict(id=turn))))
             text = f['params']['input'][0]['text']
-            if text == 'ask':
+            if '\n\n# 本次任务\n' in text:text=text.split('\n\n# 本次任务\n',1)[1]
+            if text == 'environment':
+                emit(dict(method='item/completed',params=dict(threadId='native-session',turnId=turn,item=dict(type='agentMessage',id='env',text=os.environ.get('AGENTUSE_RUN','')))))
+                finish()
+            elif text == 'ask':
                 emit(dict(id='question-1',method='item/tool/requestUserInput',params=dict(threadId='native-session',turnId=turn,questions=[dict(id='q1',header='Language',question='Which language?',options=[dict(label='Go',description='Go language')])])))
             elif text == 'invalid-event':
                 emit(dict(method='item/completed',params=dict(threadId='native-session',turnId=turn,item=dict(type='agentMessage',text=42))))
@@ -123,10 +131,12 @@ for line in sys.stdin:
                 emit(dict(method='item/started',params=dict(threadId='native-session',item=dict(type='commandExecution',id='tool-1',command='echo OK',status='inProgress'))))
                 emit(dict(method='item/completed',params=dict(threadId='native-session',item=dict(type='commandExecution',id='tool-1',command='echo OK',status='completed'))))
                 emit(dict(method='turn/plan/updated',params=dict(threadId='native-session',plan=[dict(step='Check',status='inProgress')])))
-                emit(dict(method='thread/tokenUsage/updated',params=dict(threadId='native-session',tokenUsage={'total':{'inputTokens':2}})))
+                emit(dict(method='thread/tokenUsage/updated',params=dict(threadId='native-session',tokenUsage={'last':{'inputTokens':2},'total':{'inputTokens':200}})))
                 finish()
             elif text == 'question':
                 emit(dict(id='approval-1',method='item/commandExecution/requestApproval',params=dict(threadId='native-session',turnId=turn,command='echo OK')))
+            elif text == 'hold':
+                emit(dict(method='item/started',params=dict(threadId='native-session',turnId=turn,item=dict(type='commandExecution',id='held',command='hold'))))
             elif text not in ('hold', 'starting_hold'):
                 emit(dict(method='item/completed', params=dict(threadId='native-session',turnId=turn,item=dict(type='agentMessage',text=text))))
                 finish()
@@ -136,6 +146,9 @@ for line in sys.stdin:
                 emit(dict(id=f['id'], error=dict(code=-32600,message='no active turn to steer')))
             else:
                 emit(dict(id=f['id'], result=dict(turnId=turn)))
+                if f['params']['input'][0]['text']=='finish':
+                    emit(dict(method='item/completed',params=dict(threadId='native-session',turnId=turn,item=dict(type='agentMessage',id='done',text='steered'))))
+                    finish()
         elif method == 'turn/interrupt':
             emit(dict(id=f['id'],result={}))
             if turn:

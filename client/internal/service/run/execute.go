@@ -95,7 +95,7 @@ func (s *Service) Start(ctx context.Context, endpointID, conversation string, re
 	}
 	writer := s.Store.ForEndpoint(endpoint.LocalID)
 	if e = writer.Receive(ctx, run); e != nil {
-		_ = s.Store.ReleaseSession(session, "", 0, false)
+		_ = s.Store.ReleaseSession(session, 0, true)
 		return store.Run{}, e
 	}
 	resource, e := store.SafePath(s.Store.Root, endpoint.LocalID, conversation, "sessions", session.ID, "runs", run.RunID, run.AttemptID, "input.json")
@@ -108,11 +108,10 @@ func (s *Service) Start(ctx context.Context, endpointID, conversation string, re
 	}
 	if e != nil {
 		_ = writer.Complete(context.Background(), run.RunID, run.AttemptID, store.Finish{Status: "failed", Error: e.Error()})
-		_ = s.Store.ReleaseSession(session, "", 0, false)
+		_ = s.Store.ReleaseSession(session, 0, true)
 		return store.Run{}, e
 	}
-	la.ResumeID = session.NativeSessionID
-	la.LocalSessionID = session.ID
+	la.EventsPath = harness.EventsPath(cwd, session.ID)
 	la.Env = []string{"AGENTUSE_SERVER=", "AGENTUSE_TOKEN=", "AGENTUSE_WORK=", "AGENTUSE_CONFIG=", "AGENTUSE_ENDPOINT=local", "AGENTUSE_CONVERSATION=" + conversation, "AGENTUSE_SESSION=" + conversation, "AGENTUSE_RUN=" + run.RunID, "AGENTUSE_ATTEMPT=" + run.AttemptID, "AGENTUSE_AGENT=" + session.AgentID, "AGENTUSE_RESOURCES=" + filepath.Dir(resource)}
 	execCtx, cancel := context.WithCancel(s.localCtx)
 	canSteer := la.CanSteer()
@@ -136,9 +135,11 @@ func (s *Service) Start(ctx context.Context, endpointID, conversation string, re
 				status = "cancelled"
 			}
 			c := context.Background()
-			_ = writer.Complete(c, run.RunID, run.AttemptID, store.Finish{Status: status, Error: result.Error, Output: result.Output, Usage: result.Usage, CostUSD: result.CostUSD})
+			_ = writer.Complete(c, run.RunID, run.AttemptID, store.Finish{Status: status, Error: result.Error, Output: result.Output, Usage: result.Usage, CostUSD: result.CostUSD, HarnessRunIDs: result.HarnessRunIDs})
 			_ = s.Store.Confirm(c, endpoint.LocalID, run.RunID, run.AttemptID)
-			_ = s.Sessions.Release(session, result.SessionID, 0, result.OK, run.RunID, run.AttemptID)
+			if !result.CleanupPending {
+				_ = s.Sessions.Release(session, 0, result.OK || execCtx.Err() == context.Canceled, run.RunID, run.AttemptID)
+			}
 		}()
 		report := func(kind string, payload any) {
 			data, _ := json.Marshal(payload)
@@ -147,11 +148,7 @@ func (s *Service) Start(ctx context.Context, endpointID, conversation string, re
 		report("started", map[string]any{"mode": endpoint.LocalID, "harness_revision": la.Revision})
 		dispatch := protocol.Dispatch{EndpointID: endpointID, Local: true, ID: s.sequence.Add(1), RunID: run.RunID, AttemptID: run.AttemptID, SessionID: conversation, AgentID: session.AgentID, Harness: la.Name, Input: input, SessionMessages: json.RawMessage("[]")}
 		result = s.Harness.Execute(execCtx, la, dispatch, cwd, execution.in, report)
-		if session.NativeSessionID != "" && result.SessionID != "" && session.NativeSessionID != result.SessionID {
-			result.OK = false
-			result.Error = "harness returned a different native session ID while resuming"
-			result.SessionID = ""
-		}
+
 		kind := "done"
 		if !result.OK {
 			kind = "failed"
@@ -187,7 +184,9 @@ func (s *Service) Control(ctx context.Context, endpointID, conversation, session
 			return store.ErrInvalid
 		}
 		id := s.sequence.Add(1)
-		execution.in.Steer(protocol.Steer{ID: id, RunID: run, AttemptID: attempt, Prompt: v.Prompt})
+		if !execution.in.Steer(protocol.Steer{ID: id, RunID: run, AttemptID: attempt, Prompt: v.Prompt}) {
+			return ErrLocalBusy
+		}
 		return s.Store.ForEndpoint(endpoint.LocalID).Steer(ctx, run, attempt, id)
 	case "answer":
 		if !execution.canAsk {
@@ -200,7 +199,9 @@ func (s *Service) Control(ctx context.Context, endpointID, conversation, session
 		if json.Unmarshal(payload, &v) != nil || v.ToolUseID == "" {
 			return store.ErrInvalid
 		}
-		execution.in.Answer(protocol.Answer{RunID: run, AttemptID: attempt, ToolUseID: v.ToolUseID, Answers: v.Answers})
+		if !execution.in.Answer(protocol.Answer{RunID: run, AttemptID: attempt, ToolUseID: v.ToolUseID, Answers: v.Answers}) {
+			return ErrLocalBusy
+		}
 	default:
 		return store.ErrInvalid
 	}

@@ -352,7 +352,7 @@ class ProtocolTests(unittest.TestCase):
             event=self.send(adapter,'events')
             result=self.wait(event,'result',status='completed')
             self.assertEqual(result['output'],'delta')
-            self.assertIsNotNone(result['usage'])
+            self.assertEqual(result['usage'],dict(input_tokens=2,output_tokens=0,cache_read_tokens=0,cache_write_tokens=0))
             self.wait(event,'message',text='delta')
             self.assertFalse(any(e['type']=='log' for e in self.events(event)))
             self.send(adapter,'ask',event=event)
@@ -361,6 +361,27 @@ class ProtocolTests(unittest.TestCase):
             self.assertEqual(p.returncode,0,p.stderr)
             self.wait(event,'request',state='replied',request_id=request['request_id'])
             self.assertTrue(any(e['type']=='accepted' and e['text']=='ask' for e in self.events(event)))
+
+    def test_environment_refresh_keeps_context_and_rejects_busy_change(self):
+        for adapter in ADAPTERS:
+            self.env['AGENTUSE_RUN']='first'
+            event=self.send(adapter,'environment')
+            first=self.wait(event,'result',status='completed')
+            self.assertEqual(first['output'],'first')
+            self.env['AGENTUSE_RUN']='second'
+            self.send(adapter,'environment',event=event)
+            deadline=time.monotonic()+5
+            while time.monotonic()<deadline:
+                results=[e for e in self.events(event) if e['type']=='result']
+                if len(results)==2:break
+                time.sleep(.02)
+            self.assertEqual(results[-1]['output'],'second')
+            self.send(adapter,'hold',event=event)
+            self.env['AGENTUSE_RUN']='third'
+            rejected=self.call(adapter,'send',event,stdin='must not enter')
+            self.assertNotEqual(rejected.returncode,0)
+            self.assertFalse(any(e['type']=='accepted' and e['text']=='must not enter' for e in self.events(event)))
+            self.call(adapter,'cancel',event)
 
     def test_stream_only_output_has_durable_full_message(self):
         for adapter in ADAPTERS:

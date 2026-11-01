@@ -3,342 +3,252 @@ package harness
 import (
 	"context"
 	"encoding/json"
-	"github.com/memory-co/agentuse/internal/harness"
-	"github.com/memory-co/agentuse/internal/protocol"
-	"io"
 	"os"
 	"path/filepath"
-	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/memory-co/agentuse/client/internal/store"
+	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-// 假 claude:从 stdin 读一行消息，按 stream-json 输出,result 行给结果和会话 id;
-// 之后像真的 claude 一样等 stdin 关掉才退出。
-const fakeClaude = `#!/bin/sh
-echo "$@" > args.txt
-read init; echo "$init" > init.txt
-read line; echo "$line" > stdin.txt
-echo '{"type":"system","subtype":"init","session_id":"s-1"}'
-echo '{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}'
-echo '{"type":"result","subtype":"success","is_error":false,"result":"ok!","session_id":"s-1"}'
-cat >/dev/null
-`
-
-func TestRunClaudeFresh(t *testing.T) {
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "claude")
-	os.WriteFile(bin, []byte(fakeClaude), 0o755)
-	sp, _ := harness.Get("claude")
-	la := Adapter{Name: "claude", Path: bin, Spec: &sp}
-	res := (Service{}).Execute(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, nil, func(string, any) {})
-	args, _ := os.ReadFile(filepath.Join(dir, "args.txt"))
-	if got := strings.TrimSpace(string(args)); !res.OK || res.Output != "ok!" || res.SessionID != "s-1" ||
-		got != "-p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions --permission-prompt-tool stdio" {
-		t.Fatalf("%+v %q", res, got)
-	}
-	in, _ := os.ReadFile(filepath.Join(dir, "stdin.txt"))
-	if got := strings.TrimSpace(string(in)); got != `{"message":{"content":"hi","role":"user"},"type":"user"}` {
-		t.Fatalf("stdin: %q", got)
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".claude")); !os.IsNotExist(err) {
-		t.Fatal("adapter modified shared workspace configuration", err)
-	}
-
-	// 没有 result 行 → 失败
-	os.WriteFile(bin, []byte("#!/bin/sh\necho '{\"type\":\"system\"}'\n"), 0o755)
-	if res = (Service{}).Execute(context.Background(), la, protocol.Dispatch{SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, nil, func(string, any) {}); res.OK || res.Error == "" {
-		t.Fatalf("no result: %+v", res)
-	}
-}
-
-func custom(t *testing.T, script string) Adapter {
+func fixture(t *testing.T, name string) (Service, Adapter, string) {
 	t.Helper()
-	return Adapter{Name: "mine", Path: fakeBin(t, t.TempDir(), "mine", script)}
+	if runtime.GOOS != "linux" {
+		t.Skip("bundled harnessctl adapters support Linux")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	_, file, _, _ := runtime.Caller(0)
+	source := filepath.Join(filepath.Dir(file), "../../../../harnessctl/tests/fake_backend.py")
+	script, e := os.ReadFile(source)
+	if e != nil {
+		t.Fatal(e)
+	}
+	bin := filepath.Join(home, "bin")
+	os.MkdirAll(bin, 0700)
+	for _, name := range []string{"codex", "claude"} {
+		if e = os.WriteFile(filepath.Join(bin, name), script, 0700); e != nil {
+			t.Fatal(e)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	service := Service{Root: filepath.Join(home, "harness")}
+	adapter, e := service.Resolve(name)
+	if e != nil {
+		t.Fatal(e)
+	}
+	workspace := filepath.Join(home, "conversation", "workspace")
+	os.MkdirAll(workspace, 0700)
+	adapter.EventsPath = EventsPath(workspace, "session-1")
+	t.Cleanup(func() { _ = Cancel(adapter, adapter.EventsPath) })
+	return service, adapter, workspace
 }
-
 func dispatch(prompt string) protocol.Dispatch {
-	in, _ := json.Marshal(protocol.PromptInput{Prompt: prompt})
-	return protocol.Dispatch{ID: 1, SessionID: "ss_1", Harness: "mine", Input: in}
+	data, _ := json.Marshal(protocol.PromptInput{Prompt: prompt})
+	return protocol.Dispatch{Local: true, SessionID: "conversation", AgentID: "agent", Input: data}
 }
-
-func TestRunCustomHarness(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	for _, c := range []struct {
-		name, script string
-		want         Result
-		progress     []string
-	}{
-		{"result", `read in; echo '{"type":"progress","n":1}'; echo "$in" | sed 's/^/got /'; echo '{"type":"plan","steps":[{"text":"a","status":"pending"}]}'; echo '{"type":"result","ok":true,"output":"done","session_id":"h-2","cost_usd":0.5}'`,
-			Result{OK: true, Output: "done", SessionID: "h-2", CostUSD: 0.5},
-			[]string{`{"type":"progress","n":1}`, `{"text":"got {\"session_id\":\"ss_1\",\"input\":{\"prompt\":\"hi\"}}"}`, `plan {"steps":[{"text":"a","status":"pending"}]}`}},
-		// 没有 result:退出码 0 就成功，文本输出当结果;没报会话 id 时沿用续接的
-		{"plain text", "cat >/dev/null; echo line1; echo; echo line2",
-			Result{OK: true, Output: "line1\nline2"}, []string{`{"text":"line1"}`, `{"text":"line2"}`}},
-		{"exit code", "cat >/dev/null; echo partial; echo oops >&2; exit 3",
-			Result{Output: "partial", Error: "exit status 3: oops"}, []string{`{"text":"partial"}`}},
-		// 报了成功但退出码非 0:按失败算
-		{"result but exit 1", `cat >/dev/null; echo '{"type":"result","ok":true,"output":"x"}'; exit 1`,
-			Result{Output: "x", Error: "exit status 1"}, nil},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			var progress []string
-			res := (Service{}).Execute(ctx, custom(t, c.script), dispatch("hi"), dir, nil, func(kind string, p any) {
-				b, _ := json.Marshal(p)
-				if kind != "progress" {
-					b = append([]byte(kind+" "), b...)
+func waitAccepted(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		data, _ := os.ReadFile(path)
+		if strings.Contains(string(data), `"type": "accepted"`) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("no harnessctl accepted event")
+}
+func TestHarnessctlExecutionAndEnvironmentRefresh(t *testing.T) {
+	for _, name := range []string{"codex", "claude"} {
+		t.Run(name, func(t *testing.T) {
+			service, adapter, workspace := fixture(t, name)
+			for _, id := range []string{"first-attempt", "second-attempt"} {
+				adapter.Env = []string{"AGENTUSE_RUN=" + id}
+				result := service.Execute(context.Background(), adapter, dispatch("environment"), workspace, NewInput(time.Second), nil)
+				if !result.OK || result.Output != id || len(result.HarnessRunIDs) != 1 {
+					t.Fatalf("%s: %+v", id, result)
 				}
-				progress = append(progress, string(b))
-			})
-			if res != c.want || !reflect.DeepEqual(progress, c.progress) {
-				t.Fatalf("got %+v %q\nwant %+v %q", res, progress, c.want, c.progress)
+			}
+			data, _ := os.ReadFile(adapter.EventsPath)
+			if strings.Count(string(data), `"type": "accepted"`) != 2 {
+				t.Fatal(string(data))
 			}
 		})
 	}
-
-	// 跑在会话目录里
-	res := (Service{}).Execute(ctx, custom(t, "cat >/dev/null; pwd"), dispatch("hi"), dir, nil, func(string, any) {})
-	if wd, _ := filepath.EvalSymlinks(dir); !res.OK || (res.Output != dir && res.Output != wd) {
-		t.Fatalf("cwd: %+v", res)
+}
+func TestHarnessctlSteerCompletionAndBusinessRunMapping(t *testing.T) {
+	service, adapter, workspace := fixture(t, "codex")
+	input := NewInput(time.Second)
+	results := make(chan Result, 1)
+	var mu sync.Mutex
+	confirmed := []int64{}
+	go func() {
+		results <- service.Execute(context.Background(), adapter, dispatch("hold"), workspace, input, func(kind string, payload any) {
+			if kind == "steered" {
+				mu.Lock()
+				confirmed = append(confirmed, payload.(protocol.SteeredPayload).SteerID)
+				mu.Unlock()
+			}
+		})
+	}()
+	waitAccepted(t, adapter.EventsPath)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		data, _ := os.ReadFile(adapter.EventsPath)
+		if strings.Contains(string(data), `"topic": "tool.started"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("native turn did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	// 可执行文件没了
-	if res := (Service{}).Execute(ctx, Adapter{Name: "x", Path: filepath.Join(dir, "missing")}, dispatch("hi"), dir, nil, func(string, any) {}); res.OK || res.Error == "" {
-		t.Fatalf("missing binary: %+v", res)
+	input.Steer(protocol.Steer{ID: 7, Prompt: "race"})
+	select {
+	case result := <-results:
+		if !result.OK || result.Output != "race" || len(result.HarnessRunIDs) != 2 {
+			t.Fatalf("did not wait for queued native interaction: %+v", result)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("bridge did not finish")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(confirmed) != 1 || confirmed[0] != 7 {
+		t.Fatal(confirmed)
 	}
 }
-
-func TestRunCancelled(t *testing.T) {
+func TestHarnessctlQuestionsPermissionsAndCancellation(t *testing.T) {
+	for _, name := range []string{"codex", "claude"} {
+		for _, prompt := range []string{"ask", "question"} {
+			t.Run(name+"/"+prompt, func(t *testing.T) {
+				service, adapter, workspace := fixture(t, name)
+				input := NewInput(time.Second)
+				asked := false
+				answered := false
+				result := service.Execute(context.Background(), adapter, dispatch(prompt), workspace, input, func(kind string, value any) {
+					if kind == "question" {
+						asked = true
+						question := value.(protocol.QuestionPayload)
+						answer := "Go"
+						if prompt == "question" {
+							answer = "deny"
+						}
+						input.Answer(protocol.Answer{ToolUseID: question.ToolUseID, Answers: map[string]string{question.Questions[0].Question: answer}})
+					}
+					if kind == "answered" {
+						answered = true
+					}
+				})
+				if !result.OK || !asked || !answered {
+					t.Fatal(result, asked, answered)
+				}
+			})
+		}
+	}
+	service, adapter, workspace := fixture(t, "codex")
 	ctx, cancel := context.WithCancel(context.Background())
-	started := make(chan struct{})
-	go func() { <-started; cancel() }()
-	// exec:让 sleep 顶替 shell。harness 的子进程如果还拿着 stdout,取消要等它退出(见 PR 说明)
-	res := (Service{}).Execute(ctx, custom(t, "cat >/dev/null; echo started; exec sleep 10"), dispatch("hi"), t.TempDir(), nil, func(string, any) { close(started) })
-	if res.OK || res.Error != "已取消" {
-		t.Fatalf("%+v", res)
-	}
-}
-
-func TestRunSpecFinish(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	var codex harness.Spec
-	codex.Name = "jsonl"
-	codex.Run.New = []string{"{prompt}"}
-	codex.Finish.RequireOK = true
-	codex.Output.Rules = []harness.Rule{{Match: map[string]any{"type": "turn.failed"}, Error: "error.message"}, {Match: map[string]any{"type": "turn.completed"}, OK: true}}
-	claude, _ := harness.Get("claude")
-	run := func(sp harness.Spec, script string) Result {
-		la := Adapter{Name: sp.Name, Path: fakeBin(t, t.TempDir(), sp.Name, script), Spec: &sp}
-		return (Service{}).Execute(ctx, la, dispatch("hi"), dir, nil, func(string, any) {})
-	}
-
-	// codex(require_ok):turn.failed 的错误 + 退出码都报出来
-	res := run(codex, `echo '{"type":"turn.failed","error":{"message":"boom"}}'; echo bad >&2; exit 1`)
-	if res.OK || res.Error != "boom; exit status 1: bad" {
-		t.Fatalf("codex failed: %+v", res)
-	}
-	// 没看到 turn.completed 也算失败
-	if res = run(codex, `echo '{"type":"item.completed","item":{"type":"agent_message","text":"x"}}'`); res.OK || res.Error != "进程没有给出结果" {
-		t.Fatalf("codex no ok: %+v", res)
-	}
-	// claude(require_result):result 说成功但退出码非 0
-	if res = run(claude, `echo '{"type":"result","subtype":"success","is_error":false,"result":"x"}'; exit 2`); res.OK || res.Error != "exit status 2" {
-		t.Fatalf("claude exit 2: %+v", res)
-	}
-	// result 说失败:用 result 里的错误
-	if res = run(claude, `echo '{"type":"result","subtype":"error_max_turns","is_error":true}'; exit 1`); res.OK || res.Error != "error_max_turns" {
-		t.Fatalf("claude error result: %+v", res)
-	}
-	// 空 prompt 不起进程
-	la := Adapter{Name: "claude", Path: "/nonexistent", Spec: &claude}
-	if res = (Service{}).Execute(ctx, la, protocol.Dispatch{Input: json.RawMessage(`{}`)}, dir, nil, func(string, any) {}); res.OK || !strings.Contains(res.Error, "prompt") {
-		t.Fatalf("empty prompt: %+v", res)
-	}
-	// 都不写 finish:按退出码
-	var plain harness.Spec
-	plain.Name, plain.Run.New = "plain", []string{"{prompt}"}
-	if res = run(plain, `echo "$1"`); !res.OK || res.Error != "" {
-		t.Fatalf("plain ok: %+v", res)
-	}
-	if res = run(plain, `exit 4`); res.OK || res.Error != "exit status 4" {
-		t.Fatalf("plain fail: %+v", res)
-	}
-}
-
-func TestHelpers(t *testing.T) {
-	t.Setenv("HOME", "/home/x")
-	if expandHome("~/a") != "/home/x/a" || expandHome("/abs") != "/abs" || expandHome("~user") != "~user" {
-		t.Fatal("expandHome")
-	}
-	if truncate("abcd", 2) != "ab…" || truncate("ab", 2) != "ab" {
-		t.Fatal("truncate")
-	}
-	var tl tail
-	tl.add(strings.Repeat("x", maxOutput))
-	tl.add("end")
-	if s := tl.String(); len(s) > maxOutput || !strings.HasSuffix(s, "\nend") {
-		t.Fatalf("tail keeps the last %d bytes: %d", maxOutput, len(s))
-	}
-}
-
-// 假 claude:先后发 PreToolUse、Stop 两个 hook 回调，把 daemon 回的 control_response 记下来。
-const fakeClaudeHooks = `#!/bin/sh
-read init; echo "$init" > init.txt
-read line
-echo '{"type":"system","subtype":"init","session_id":"s-1"}'
-echo '{"type":"control_request","request_id":"r1","request":{"subtype":"hook_callback","callback_id":"agentuse-pre","input":{}}}'
-read -r resp; printf "%s\n" "$resp" > pre.txt
-echo '{"type":"control_request","request_id":"r2","request":{"subtype":"hook_callback","callback_id":"agentuse-stop","input":{}}}'
-read -r resp; printf "%s\n" "$resp" > stop.txt
-echo '{"type":"control_request","request_id":"r3","request":{"subtype":"something_else"}}'
-read -r resp; printf "%s\n" "$resp" > other.txt
-echo '{"type":"result","subtype":"success","is_error":false,"result":"ok!","session_id":"s-1"}'
-cat >/dev/null
-`
-
-func TestRunClaudeSteer(t *testing.T) {
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "claude")
-	os.WriteFile(bin, []byte(fakeClaudeHooks), 0o755)
-	sp, _ := harness.Get("claude")
-	la := Adapter{Name: "claude", Path: bin, Spec: &sp}
-	steers := &steerQueue{}
-	steers.push(protocol.Steer{ID: 7, MessageID: 1, Prompt: "顺便改 CHANGELOG"})
-	steers.push(protocol.Steer{ID: 8, MessageID: 1, Prompt: "还有 README"})
-	var reports []string
-	res := (Service{}).Execute(context.Background(), la, protocol.Dispatch{ID: 1, SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)}, dir, &Input{steers: steers}, func(kind string, p any) {
-		if kind == "steered" {
-			b, _ := json.Marshal(p)
-			reports = append(reports, string(b))
+	result := make(chan Result, 1)
+	go func() {
+		result <- service.Execute(ctx, adapter, dispatch("hold"), workspace, NewInput(time.Second), nil)
+	}()
+	waitAccepted(t, adapter.EventsPath)
+	cancel()
+	select {
+	case got := <-result:
+		if got.OK || got.CleanupPending {
+			t.Fatal(got)
 		}
-	})
-	if !res.OK || res.Output != "ok!" {
-		t.Fatalf("%+v", res)
-	}
-	read := func(name string) string {
-		b, _ := os.ReadFile(filepath.Join(dir, name))
-		return strings.TrimSpace(string(b))
-	}
-	if init := read("init.txt"); !strings.Contains(init, `"subtype":"initialize"`) || !strings.Contains(init, `"agentuse-pre"`) || !strings.Contains(init, `"agentuse-stop"`) {
-		t.Fatalf("init: %s", init)
-	}
-	want := `{"response":{"request_id":"r1","response":{"hookSpecificOutput":{"additionalContext":"[用户插话] 用户在你工作时补充了下面的话。这是对原任务的补充，不是替换原任务：\n顺便改 CHANGELOG\n\n还有 README","hookEventName":"PreToolUse"}},"subtype":"success"},"type":"control_response"}`
-	if got := read("pre.txt"); got != want {
-		t.Fatalf("pre:\n%s\n%s", got, want)
-	}
-	// 插话已经在 PreToolUse 送出去了,Stop 不再拦
-	if got := read("stop.txt"); got != `{"response":{"request_id":"r2","response":{},"subtype":"success"},"type":"control_response"}` {
-		t.Fatalf("stop: %s", got)
-	}
-	if got := read("other.txt"); got != `{"response":{"request_id":"r3","response":{},"subtype":"success"},"type":"control_response"}` {
-		t.Fatalf("other: %s", got)
-	}
-	if !reflect.DeepEqual(reports, []string{`{"steer_id":7}`, `{"steer_id":8}`}) {
-		t.Fatalf("steered: %v", reports)
+	case <-time.After(8 * time.Second):
+		t.Fatal("native cancellation not confirmed")
 	}
 }
-
-func TestClaudeControlStop(t *testing.T) {
-	var buf strings.Builder
-	w := &stdinWriter{w: nopCloser{&buf}}
-	steers := &steerQueue{}
-	steers.push(protocol.Steer{ID: 1, Prompt: "再加个测试"})
-	var n int
-	if !claudeControl(`{"type":"control_request","request_id":"r","request":{"subtype":"hook_callback","callback_id":"agentuse-stop"}}`, w, &Input{steers: steers}, func(string, any) { n++ }) {
-		t.Fatal("应该处理 control_request")
+func TestPackageProtocolAndNoNativeSpecification(t *testing.T) {
+	service, _, _ := fixture(t, "codex")
+	packages, e := service.Packages()
+	if e != nil {
+		t.Fatal(e)
 	}
-	if !strings.Contains(buf.String(), `"decision":"block"`) || !strings.Contains(buf.String(), "再加个测试") || n != 1 {
-		t.Fatalf("stop: %s %d", buf.String(), n)
-	}
-	if claudeControl(`{"type":"assistant"}`, w, &Input{steers: steers}, func(string, any) {}) {
-		t.Fatal("不是 control_request")
-	}
-	// stdin 关了：插话放回队列，不算送达
-	w.close()
-	steers.push(protocol.Steer{ID: 2, Prompt: "x"})
-	claudeControl(`{"type":"control_request","request_id":"r","request":{"subtype":"hook_callback","callback_id":"agentuse-pre"}}`, w, &Input{steers: steers}, func(string, any) { n++ })
-	if got := steers.take(); len(got) != 1 || n != 1 {
-		t.Fatalf("closed: %+v %d", got, n)
-	}
-}
-
-type nopCloser struct{ io.Writer }
-
-func (nopCloser) Close() error { return nil }
-
-const askLine = `{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","tool_use_id":"t1",` +
-	`"input":{"questions":[{"question":"语言？","header":"语言","multiSelect":true,"options":[{"label":"Go"},{"label":"Python"}]}]}}}`
-
-func TestClaudeAsk(t *testing.T) {
-	var buf syncBuf
-	w := &stdinWriter{w: nopCloser{&buf}}
-	kinds := make(chan string, 10)
-	var payload protocol.QuestionPayload
-	report := func(kind string, p any) {
-		if kind == "question" {
-			payload = p.(protocol.QuestionPayload)
+	for name, adapter := range packages {
+		if adapter.Manifest.Protocol != "harnessctl/2" || filepath.Base(adapter.Path) != "harnessctl" {
+			t.Fatal(name, adapter)
 		}
-		kinds <- kind
 	}
-
-	// 别的工具直接放行
-	in := &Input{asks: newAskBox(time.Minute)}
-	claudeControl(`{"type":"control_request","request_id":"r0","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"}}}`, w, in, report)
-	if !strings.Contains(buf.String(), `"behavior":"allow","updatedInput":{"command":"ls"}`) {
-		t.Fatalf("bash: %s", buf.String())
+	if e = SaveCommandAdapters(service.Root, map[string]HarnessConfig{"claude": {Disabled: true}}); e != nil {
+		t.Fatal(e)
 	}
-
-	// 提问：先回报 question,不回 control_response;答案到了再回 allow,带上 answers
-	buf.Reset()
-	if !claudeControl(askLine, w, in, report) {
-		t.Fatal("应该处理 control_request")
-	}
-	if k := <-kinds; k != "question" || payload.ToolUseID != "t1" || len(payload.Questions) != 1 || !payload.Questions[0].MultiSelect || payload.Questions[0].Options[1].Label != "Python" {
-		t.Fatalf("question: %s %+v", k, payload)
-	}
-	if buf.String() != "" {
-		t.Fatalf("还没答就回了: %s", buf.String())
-	}
-	in.asks.answer(protocol.Answer{ToolUseID: "other", Answers: map[string]string{"语言？": "Python"}})
-	in.asks.answer(protocol.Answer{ToolUseID: "t1", Answers: map[string]string{"语言？": "Go"}})
-	if k := <-kinds; k != "answered" || !strings.Contains(buf.String(), `"answers":{"语言？":"Go"}`) || !strings.Contains(buf.String(), `"request_id":"r1"`) || !strings.Contains(buf.String(), `"questions":[`) {
-		t.Fatalf("answered: %s %s", k, buf.String())
-	}
-
-	// 超时：回 deny,回报 question_expired
-	buf.Reset()
-	in = &Input{asks: newAskBox(20 * time.Millisecond)}
-	claudeControl(askLine, w, in, report)
-	<-kinds
-	if k := <-kinds; k != "question_expired" || !strings.Contains(buf.String(), `"behavior":"deny"`) {
-		t.Fatalf("timeout: %s %s", k, buf.String())
-	}
-
-	// 运行结束：还在等的作废
-	in = &Input{asks: newAskBox(time.Minute)}
-	claudeControl(askLine, w, in, report)
-	<-kinds
-	in.asks.stop()
-	if k := <-kinds; k != "question_expired" {
-		t.Fatalf("stop: %s", k)
-	}
-
-	// 不能提问的 harness:直接 deny
-	buf.Reset()
-	claudeControl(askLine, w, &Input{}, report)
-	if !strings.Contains(buf.String(), `"behavior":"deny"`) || len(kinds) != 0 {
-		t.Fatalf("no ask: %s", buf.String())
+	if _, e = service.Resolve("claude"); e == nil {
+		t.Fatal("disabled adapter resolved")
 	}
 }
 
-type syncBuf struct {
-	mu sync.Mutex
-	b  strings.Builder
+func TestCriticalReaderWaitsForCompleteLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	row := `{"type":"accepted","run_id":"550e8400-e29b-41d4-a716-446655440000","input_id":"in-1","text":"hello"}`
+	os.WriteFile(path, []byte(row[:40]), 0600)
+	var offset int64
+	items, err := readEvents(path, &offset)
+	if err != nil || len(items) != 0 || offset != 0 {
+		t.Fatal(items, offset, err)
+	}
+	os.WriteFile(path, []byte(row+"\n"), 0600)
+	items, err = readEvents(path, &offset)
+	if err != nil || len(items) != 1 || offset != int64(len(row)+1) {
+		t.Fatal(items, offset, err)
+	}
+	items, err = readEvents(path, &offset)
+	if err != nil || len(items) != 0 {
+		t.Fatal(items, err)
+	}
 }
 
-func (s *syncBuf) Write(p []byte) (int, error) { s.mu.Lock(); defer s.mu.Unlock(); return s.b.Write(p) }
-func (s *syncBuf) String() string              { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }
-func (s *syncBuf) Reset()                      { s.mu.Lock(); defer s.mu.Unlock(); s.b.Reset() }
+func TestRecoveryCancelsBeforeReleasingSession(t *testing.T) {
+	service, adapter, _ := fixture(t, "codex")
+	files, err := store.Open(filepath.Join(t.TempDir(), "work"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, cwd, err := files.AcquireSession(context.Background(), "endpoint", "conversation", "agent", adapter.Name, adapter.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := EventsPath(cwd, session.ID)
+	os.MkdirAll(filepath.Dir(events), 0700)
+	if _, err = command(context.Background(), adapter, events, "send", "hold", "--cwd", cwd); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.Recover(context.Background(), files); err != nil {
+		t.Fatal(err)
+	}
+	if err = files.RecoverSessions(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(events)
+	if err != nil || !strings.Contains(string(data), `"status": "cancelled"`) {
+		t.Fatal(string(data), err)
+	}
+	sessions, err := files.Reader().Sessions(context.Background(), "endpoint", "conversation")
+	if err != nil || len(sessions) != 1 || sessions[0].Status != "idle" {
+		t.Fatal(sessions, err)
+	}
+}
+
+func TestRecoveryRequiresTheOriginalAdapterRevision(t *testing.T) {
+	service, adapter, _ := fixture(t, "codex")
+	// Installed historical package remains available even if local overrides win selection.
+	if err := SaveCommandAdapters(service.Root, map[string]HarnessConfig{"codex": {Command: "/bin/false"}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := service.resolveRevision("codex", adapter.Revision)
+	if err != nil || got.Path != adapter.Path {
+		t.Fatal(got, err)
+	}
+	if _, err = service.resolveRevision("codex", "missing-revision"); err == nil {
+		t.Fatal("recovery silently changed adapter")
+	}
+}

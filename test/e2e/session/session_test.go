@@ -6,8 +6,9 @@ package session
 import (
 	"context"
 	"encoding/json"
-	"github.com/memory-co/agentuse/internal/harness"
-	"gopkg.in/yaml.v3"
+	"fmt"
+	bundled "github.com/memory-co/agentuse/harnessctl"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -88,30 +89,58 @@ func waitStatus(t *testing.T, c *agentuse.Client, user, id, status string) {
 func writeAdapterConfig(t *testing.T, path string, v map[string]any) {
 	t.Helper()
 	root := filepath.Join(filepath.Dir(path), "harness")
-	if e := harness.InstallBuiltins(root); e != nil {
-		t.Fatal(e)
-	}
 	for name, raw := range v["harnesses"].(map[string]any) {
 		opts := raw.(map[string]any)
 		dir := filepath.Join(root, name, "local")
-		if e := os.MkdirAll(dir, 0700); e != nil {
-			t.Fatal(e)
+		os.MkdirAll(dir, 0700)
+		if opts["disabled"] == true {
+			os.WriteFile(filepath.Join(dir, "disabled"), []byte("true"), 0600)
+			continue
 		}
-		doc := map[string]any{"name": name, "custom": true}
-		if sp, ok := harness.Get(name); ok {
-			if e := harness.CopyBuiltin(name, dir); e != nil {
-				t.Fatal(e)
+		command := opts["command"].(string)
+		native := name == "codex" || name == "claude"
+		if native {
+			source := name
+			bin := name
+			if name == "claude" {
+				source = "claudecode"
+				bin = "claude"
 			}
-			b, _ := yaml.Marshal(sp)
-			yaml.Unmarshal(b, &doc)
-			doc["custom"] = false
-		}
-		for k, val := range opts {
-			doc[k] = val
-		}
-		b, _ := yaml.Marshal(doc)
-		if e := os.WriteFile(filepath.Join(dir, "harness.yaml"), b, 0600); e != nil {
-			t.Fatal(e)
+			base := "harness/" + source
+			err := fs.WalkDir(bundled.Files, base, func(path string, d fs.DirEntry, e error) error {
+				if e != nil {
+					return e
+				}
+				rel, _ := filepath.Rel(base, path)
+				target := filepath.Join(dir, rel)
+				if d.IsDir() {
+					return os.MkdirAll(target, 0700)
+				}
+				data, e := bundled.Files.ReadFile(path)
+				if e != nil {
+					return e
+				}
+				return os.WriteFile(target, data, 0700)
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			mb, _ := os.ReadFile(filepath.Join(dir, "manifest.json"))
+			var manifest map[string]any
+			json.Unmarshal(mb, &manifest)
+			manifest["requires"] = map[string]any{"python": ">=3.9"}
+			mb, _ = json.Marshal(manifest)
+			os.WriteFile(filepath.Join(dir, "manifest.json"), mb, 0600)
+			bins := filepath.Join(dir, "bin")
+			os.MkdirAll(bins, 0700)
+			os.WriteFile(filepath.Join(bins, bin), []byte(fmt.Sprintf("#!/bin/sh\nexec %q \"$@\"\n", command)), 0700)
+			os.Rename(filepath.Join(dir, "harnessctl"), filepath.Join(dir, "entry"))
+			os.WriteFile(filepath.Join(dir, "harnessctl"), []byte(fmt.Sprintf("#!/bin/sh\nexport PATH=%q:$PATH\nexec %q \"$@\"\n", bins, filepath.Join(dir, "entry"))), 0700)
+		} else {
+			script, _ := filepath.Abs("../../../harnessctl/tests/fake_adapter.py")
+			os.WriteFile(filepath.Join(dir, "harnessctl"), []byte(fmt.Sprintf("#!/bin/sh\nexec python3 %q %q \"$@\"\n", script, command)), 0700)
+			data, _ := json.Marshal(map[string]any{"name": name, "version": "fixture", "protocol": "harnessctl/2", "entrypoint": "harnessctl", "commands": []string{"send", "cancel", "status", "reply"}})
+			os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0600)
 		}
 	}
 }

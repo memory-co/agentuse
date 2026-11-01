@@ -39,7 +39,7 @@ func TestFileLedgerHierarchyAndRestart(t *testing.T) {
 	if e = l.Confirm(ctx, s.EndpointID, "run", "attempt"); e != nil {
 		t.Fatal(e)
 	}
-	if e = l.ReleaseSession(s, "thread-1", 9, true, "run", "attempt"); e != nil {
+	if e = l.ReleaseSession(s, 9, true, "run", "attempt"); e != nil {
 		t.Fatal(e)
 	}
 	path := filepath.Join(filepath.Dir(workspace), "sessions", s.ID, "runs", "run", "attempt", "run.json")
@@ -52,7 +52,7 @@ func TestFileLedgerHierarchyAndRestart(t *testing.T) {
 		t.Fatal(got, e)
 	}
 	same, cwd, e := l.AcquireSession(ctx, s.EndpointID, s.ConversationID, "coder", "codex", "v1")
-	if e != nil || same.ID != s.ID || same.NativeSessionID != "thread-1" || cwd != workspace {
+	if e != nil || same.ID != s.ID || cwd != workspace {
 		t.Fatal(same, cwd, e)
 	}
 	other, cwd, e := l.AcquireSession(ctx, s.EndpointID, s.ConversationID, "reviewer", "claude", "v1")
@@ -93,7 +93,7 @@ func TestEndpointIsolationAndQuota(t *testing.T) {
 			t.Fatal(e)
 		}
 		if ep == "https---two" {
-			if e = l.ReleaseSession(s, "", 0, true, "same", "same"); e != nil {
+			if e = l.ReleaseSession(s, 0, true, "same", "same"); e != nil {
 				t.Fatal(e)
 			}
 		}
@@ -133,7 +133,7 @@ func TestPendingResultSurvivesRestart(t *testing.T) {
 	w.Receive(ctx, Run{EndpointID: "ep", ConversationID: "c", SessionID: s.ID, RunID: "r", AttemptID: "a"})
 	w.Complete(ctx, "r", "a", Finish{Status: "succeeded"})
 	l.PrepareReport(ctx, "ep", "r", "a", json.RawMessage(`{"type":"event","kind":"done"}`))
-	l.ReleaseSession(s, "", 0, true, "r", "a")
+	l.ReleaseSession(s, 0, true, "r", "a")
 	l, _ = Open(root)
 	if e = l.Writer().Reconcile(ctx); e != nil {
 		t.Fatal(e)
@@ -186,7 +186,7 @@ func TestBusinessFilesAreNotExecutionMetadata(t *testing.T) {
 	if e = l.Writer().Reconcile(ctx); e != nil {
 		t.Fatal("recovery parsed business file", e)
 	}
-	l.ReleaseSession(s, "", 0, true)
+	l.ReleaseSession(s, 0, true)
 	if _, e = l.Reclaim(ctx, 1); e != nil {
 		t.Fatal("cleanup parsed business file", e)
 	}
@@ -200,7 +200,7 @@ func TestStalePendingReportCanBeReclaimed(t *testing.T) {
 	w.Receive(ctx, Run{EndpointID: "ep", ConversationID: "c", SessionID: s.ID, RunID: "r", AttemptID: "a"})
 	w.Complete(ctx, "r", "a", Finish{Status: "succeeded"})
 	l.PrepareReport(ctx, "ep", "r", "a", json.RawMessage(`{"kind":"done"}`))
-	l.ReleaseSession(s, "native", 1, true, "r", "a")
+	l.ReleaseSession(s, 1, true, "r", "a")
 	if e := l.RejectReport(ctx, "ep", "r", "a", "lease expired"); e != nil {
 		t.Fatal(e)
 	}

@@ -1,22 +1,12 @@
-// fakeharness 是 e2e 测试用的自研 harness:一个可执行文件，按命令行的样子扮演三种 harness,
-// 不调用任何模型，输出可预测，方便断言。
-//
-//	fakeharness --version                    → 打印版本(daemon 探测用)
-//	fakeharness -p … [--resume ID]          → 扮演 claude(harness/claude/harness.yaml 的 stream-json,prompt 从 stdin 读)
-//	fakeharness exec --json … [resume ID] PROMPT → 扮演 codex(harness/codex/harness.yaml 的 JSONL)
-//	fakeharness(其它)                        → 自定义 harness:stdin 读 {session_id,resume,input},stdout 写 progress / result
-//
-// 回复内容都带上 prompt、续接的会话 id 和工作目录名，测试据此确认 daemon 传对了参数、在对的目录里跑。
-// prompt 为 "fail" 时按各自的格式报失败;claude 模式下 "ask" 会用 AskUserQuestion 提问，等 daemon 回答;
-// "spawn <agent> <要做的事>" 像工作的协调者一样用 agentuse work new 开线程(docs/v2/designs/work.md)。
-// claude 模式下会话目录里有 CLAUDE.md(工作的说明)时，回复带上它的第一行。
+// fakeharness provides deterministic native app-server and stream-json backends
+// for the independent harnessctl packages, plus a custom worker wrapped by
+// harnessctl/tests/fake_adapter.py. It never calls a model.
 package main
 
 import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,7 +48,7 @@ func reply(mode, prompt, resume string) string {
 }
 
 // claude:-p --input-format stream-json … [--resume ID] [额外参数…],stdin 一行 {"type":"user",…}。
-// 和真的 claude 一样，回完以后等 stdin 关掉才退出;会话目录里没有 agentuse skill 就报错。
+// Keep the native connection open for subsequent turns.
 func claude(args []string) int {
 	resume := ""
 	for i := 1; i < len(args)-1; i++ {
@@ -67,80 +57,85 @@ func claude(args []string) int {
 		}
 	}
 	stdin := bufio.NewReader(os.Stdin)
-	// 第一行是 daemon 注册 hook 的 control_request(插话用)
-	if line, _ := stdin.ReadBytes('\n'); !strings.Contains(string(line), `"initialize"`) {
+	// The adapter initializes the native stream protocol before sending input.
+	line, _ := stdin.ReadBytes('\n')
+	if !strings.Contains(string(line), `"initialize"`) {
 		fmt.Fprintln(os.Stderr, "missing initialize:", string(line))
 		return 2
 	}
-	line, _ := stdin.ReadBytes('\n')
-	var in struct {
-		Type    string `json:"type"`
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	}
-	if err := json.Unmarshal(line, &in); err != nil || in.Type != "user" {
-		fmt.Fprintln(os.Stderr, "bad stdin:", string(line))
-		return 2
-	}
-	// Adapter instructions are now passed with the input, without mutating cwd.
-	instructionText := in.Message.Content
-	if parts := strings.SplitN(in.Message.Content, "\n\n# 本次任务\n", 2); len(parts) == 2 {
-		in.Message.Content = parts[1]
-	}
-	defer io.Copy(io.Discard, stdin)
-	prompt := in.Message.Content
-	sid := resume
-	if sid == "" {
-		sid = "claude-" + cwd()
-	}
-	emit(map[string]any{"type": "system", "subtype": "init", "session_id": sid})
-	emit(map[string]any{"type": "assistant", "message": map[string]any{"content": []any{
-		map[string]any{"type": "text", "text": "thinking about " + prompt},
-		map[string]any{"type": "tool_use", "name": "TodoWrite", "input": map[string]any{"todos": []any{
-			map[string]any{"content": "读 " + prompt, "status": "completed"},
-			map[string]any{"content": "回复", "status": "in_progress"},
-		}}},
-		map[string]any{"type": "tool_use", "name": "Bash", "input": map[string]any{"command": "ls"}},
-	}}})
-	if prompt == "fail" {
-		emit(map[string]any{"type": "result", "subtype": "error_during_execution", "is_error": true, "session_id": sid})
-		return 1
-	}
-	out := reply("claude", prompt, resume)
-	if instructionText != in.Message.Content {
-		first, _, _ := strings.Cut(instructionText, "\n")
-		if first != "" {
-			out += " claude.md=" + first
-		}
-	}
-	if f := strings.SplitN(prompt, " ", 3); len(f) == 3 && f[0] == "spawn" {
-		b, err := exec.Command("agentuse", "work", "new", "--agents", f[1], f[2]).CombinedOutput()
-		out += " spawned=" + strings.TrimSpace(string(b))
+	var init map[string]any
+	json.Unmarshal(line, &init)
+	emit(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": init["request_id"], "response": map[string]any{}}})
+	return claudeTurns(args, resume, stdin)
+}
+func claudeTurns(args []string, resume string, stdin *bufio.Reader) int {
+	for {
+		line, err := stdin.ReadBytes('\n')
 		if err != nil {
-			out += " err=" + err.Error()
+			return 0
 		}
-	}
-	if prompt == "wait-steer" {
-		// 每 100ms 发一次 PreToolUse 回调，直到 daemon 塞来插话，最多 10 秒
-		for i := 0; i < 100; i++ {
-			if extra := preToolUse(stdin, i); extra != "" {
-				out += " +" + extra[strings.LastIndex(extra, "\n")+1:]
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
+		var in struct {
+			Type    string `json:"type"`
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
 		}
-	}
-	if prompt == "ask" {
-		if !contains(args, "--permission-prompt-tool") {
-			fmt.Fprintln(os.Stderr, "AskUserQuestion 没打开")
+		if err := json.Unmarshal(line, &in); err != nil || in.Type != "user" {
+			fmt.Fprintln(os.Stderr, "bad stdin:", string(line))
 			return 2
 		}
-		out += " " + askUser(stdin)
+		// Adapter instructions are now passed with the input, without mutating cwd.
+		instructionText := in.Message.Content
+		if parts := strings.SplitN(in.Message.Content, "\n\n# 本次任务\n", 2); len(parts) == 2 {
+			in.Message.Content = parts[1]
+		}
+
+		prompt := in.Message.Content
+		sid := resume
+		if sid == "" {
+			sid = "claude-" + cwd()
+		}
+		emit(map[string]any{"type": "system", "subtype": "init", "session_id": sid})
+		emit(map[string]any{"type": "assistant", "message": map[string]any{"content": []any{
+			map[string]any{"type": "text", "text": "thinking about " + prompt},
+			map[string]any{"type": "tool_use", "name": "TodoWrite", "input": map[string]any{"todos": []any{
+				map[string]any{"content": "读 " + prompt, "status": "completed"},
+				map[string]any{"content": "回复", "status": "in_progress"},
+			}}},
+			map[string]any{"type": "tool_use", "name": "Bash", "input": map[string]any{"command": "ls"}},
+		}}})
+		if prompt == "fail" {
+			emit(map[string]any{"type": "result", "subtype": "error_during_execution", "is_error": true, "session_id": sid})
+			return 1
+		}
+		out := reply("claude", prompt, resume)
+		if instructionText != in.Message.Content {
+			first, _, _ := strings.Cut(instructionText, "\n")
+			if first != "" {
+				out += " claude.md=" + first
+			}
+		}
+		if f := strings.SplitN(prompt, " ", 3); len(f) == 3 && f[0] == "spawn" {
+			b, err := exec.Command("agentuse", "work", "new", "--agents", f[1], f[2]).CombinedOutput()
+			out += " spawned=" + strings.TrimSpace(string(b))
+			if err != nil {
+				out += " err=" + err.Error()
+			}
+		}
+		if prompt == "wait-steer" {
+			time.Sleep(1500 * time.Millisecond)
+		}
+		if prompt == "ask" {
+			if !contains(args, "--permission-prompt-tool") {
+				fmt.Fprintln(os.Stderr, "AskUserQuestion 没打开")
+				return 2
+			}
+			out += " " + askUser(stdin)
+		}
+		emit(map[string]any{"type": "result", "subtype": "success", "is_error": false, "session_id": sid,
+			"result": out, "total_cost_usd": 0.01})
+		resume = sid
 	}
-	emit(map[string]any{"type": "result", "subtype": "success", "is_error": false, "session_id": sid,
-		"result": out, "total_cost_usd": 0.01})
-	return 0
 }
 
 func contains(args []string, s string) bool {
@@ -180,28 +175,6 @@ func askUser(stdin *bufio.Reader) string {
 		return "answer=" + r.UpdatedInput.Answers[q]
 	}
 	return "denied=" + resp.Response.Response.Message
-}
-
-// preToolUse 发一次 PreToolUse hook 回调，返回 daemon 塞来的 additionalContext。
-func preToolUse(stdin *bufio.Reader, n int) string {
-	id := fmt.Sprintf("pre-%d", n)
-	emit(map[string]any{"type": "control_request", "request_id": id, "request": map[string]any{
-		"subtype": "hook_callback", "callback_id": "agentuse-pre", "input": map[string]any{}}})
-	line, _ := stdin.ReadBytes('\n')
-	var resp struct {
-		Response struct {
-			RequestID string `json:"request_id"`
-			Response  struct {
-				HookSpecificOutput struct {
-					AdditionalContext string `json:"additionalContext"`
-				} `json:"hookSpecificOutput"`
-			} `json:"response"`
-		} `json:"response"`
-	}
-	if json.Unmarshal(line, &resp) != nil || resp.Response.RequestID != id {
-		return ""
-	}
-	return resp.Response.Response.HookSpecificOutput.AdditionalContext
 }
 
 // codex:exec --json --skip-git-repo-check [额外参数…] [resume ID] PROMPT

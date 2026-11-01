@@ -159,4 +159,7 @@ def frame(r, f):
         from events import plan_steps
         r.log('plan', steps=plan_steps(p.get('plan', [])), native=f)
     elif method == 'thread/tokenUsage/updated':
-        r.usage(p.get('tokenUsage'))
+        raw = p.get('tokenUsage')
+        # total is cumulative across the session; never bill it again as this turn.
+        counts = raw.get('last') if raw else None
+        r.usage(None if counts is None else dict(input_tokens=counts.get('inputTokens',0), output_tokens=counts.get('outputTokens',0),cache_read_tokens=counts.get('cachedInputTokens',0),cache_write_tokens=counts.get('cacheWriteInputTokens',0)))

@@ -42,6 +42,6 @@ func (d *endpointConnection) recordCompleteLocal(m protocol.Dispatch, s store.Se
 		r.Error = canceled.Error()
 	}
 	d.ledgerWrite(func(ctx context.Context) error {
-		return d.ledger.Complete(ctx, m.RunID, m.AttemptID, store.Finish{Status: status, Error: r.Error, Output: r.Output, AttachmentCount: len(m.Attachments), Usage: r.Usage, CostUSD: r.CostUSD})
+		return d.ledger.Complete(ctx, m.RunID, m.AttemptID, store.Finish{Status: status, Error: r.Error, Output: r.Output, AttachmentCount: len(m.Attachments), Usage: r.Usage, CostUSD: r.CostUSD, HarnessRunIDs: r.HarnessRunIDs})
 	})
 }

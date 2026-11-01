@@ -41,6 +41,7 @@ def _validate(value, schema, path='$'):
     types = {'object':isinstance(value,dict), 'array':isinstance(value,list),
              'string':isinstance(value,str), 'boolean':isinstance(value,bool),
              'number':isinstance(value,(int,float)) and not isinstance(value,bool),
+             'integer':isinstance(value,int) and not isinstance(value,bool),
              'null':value is None}
     if kinds and not any(types[name] for name in kinds):
         raise ValueError(f'{path}: expected {kind}')

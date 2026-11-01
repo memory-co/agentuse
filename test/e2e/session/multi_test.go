@@ -130,17 +130,17 @@ func TestMultiAgentSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(detail.Runs) != 3 || len(detail.Messages) != 6 {
-		t.Fatalf("fallback duplicated history: runs=%d messages=%d", len(detail.Runs), len(detail.Messages))
+	if len(detail.Runs) != 2 || len(detail.Messages) != 5 {
+		t.Fatalf("supplement duplicated business runs: runs=%d messages=%d", len(detail.Runs), len(detail.Messages))
 	}
 	var lastA agentuse.Run
 	for _, r := range detail.Runs {
-		if r.AgentKey == "coder" && r.MessageID == second.Message.ID {
+		if r.AgentKey == "coder" {
 			lastA = r
 		}
 	}
 	if lastA.ID == "" || lastA.Status != "succeeded" {
-		t.Fatal("fallback missing", lastA)
+		t.Fatal("original business run did not finish", lastA)
 	}
 	for _, m := range detail.Messages {
 		if m.Role != "assistant" {
@@ -156,23 +156,39 @@ func TestMultiAgentSession(t *testing.T) {
 			RunID   string             `json:"run_id"`
 			Live    []agentuse.Message `json:"live"`
 		}
-		if err = json.Unmarshal([]byte(r.Output), &out); err != nil {
-			t.Fatal(err)
-		}
-		if out.Resume != "" || out.RunID != m.RunID || len(out.History) < 2 || len(out.Live) < 2 {
-			t.Fatalf("shared context %+v", out)
-		}
-		if m.RunID == lastA.ID {
-			found := false
-			for _, h := range out.History {
-				if h.AgentKey == "reviewer" {
-					found = true
-				}
+		for _, output := range strings.Split(r.Output, "\n\n") {
+			if err = json.Unmarshal([]byte(output), &out); err != nil {
+				t.Fatal(err)
 			}
-			if !found {
-				t.Fatal("A cannot see reviewer result")
+			if out.Resume != "" || out.RunID != m.RunID || len(out.History) < 1 || len(out.Live) < 2 {
+				t.Fatalf("shared context %+v", out)
 			}
 		}
+	}
+	// A later run keeps the local session and receives other agents' new replies.
+	next, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:after-review", TargetAgentIDs: []string{"coder"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := c.WaitMessageRuns(ctx, user, id, next.Message.ID, 50*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shared struct {
+		History []agentuse.Message `json:"history"`
+	}
+	rafter := lastResult(t, after)
+	if !rafter.OK || json.Unmarshal([]byte(rafter.Output), &shared) != nil {
+		t.Fatal(rafter)
+	}
+	reviewerSeen := false
+	for _, message := range shared.History {
+		if message.AgentKey == "reviewer" {
+			reviewerSeen = true
+		}
+	}
+	if !reviewerSeen {
+		t.Fatal("resumed session missed reviewer context")
 	}
 	// New runs pick the agent's current runtime; no per-agent resume or rebind step.
 	if _, err = c.UpdateAgent(ctx, user, "coder", agentuse.UpdateAgentRequest{DaemonID: &dB.ID, Harness: ptrString("fake")}); err != nil {

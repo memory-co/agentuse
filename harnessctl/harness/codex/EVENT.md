@@ -118,7 +118,7 @@ replied 说明答案已写向原生连接，不保证工具已执行。执行结
 | input_ids | 非空、无重复的 string 数组；均属于此 run |
 | status | completed、cancelled、failed |
 | output | string；完整输出汇总，可为空 |
-| usage | object 或 null；原生计量结构暂不强行统一 |
+| usage | object 或 null；统一为 input_tokens、output_tokens、cache_read_tokens、cache_write_tokens 非负整数，未知时为 null。input_tokens 包含缓存输入计量 |
 | cost_usd | 非负有限 number 或 null |
 | error | failed 时为非空 string；其余状态必须为 null |
 

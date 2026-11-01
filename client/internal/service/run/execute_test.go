@@ -29,16 +29,6 @@ func localFixture(t *testing.T) (*Service, string) {
 	t.Cleanup(local.Close)
 	return local, home
 }
-func installDebugHarness(t *testing.T, home, script string) {
-	t.Helper()
-	command := filepath.Join(home, "debug-harness")
-	if e := os.WriteFile(command, []byte("#!/bin/sh\n"+script), 0700); e != nil {
-		t.Fatal(e)
-	}
-	if e := store.WriteYAML(filepath.Join(home, ".agentuse", "harness", "debug", "local", "harness.yaml"), map[string]any{"name": "debug", "custom": true, "command": command}); e != nil {
-		t.Fatal(e)
-	}
-}
 func awaitLocal(t *testing.T, s *Service, run store.Run) store.Run {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -84,7 +74,7 @@ printf '{"type":"result","ok":true,"output":"local result","session_id":"native-
 		t.Fatal(e)
 	}
 	got = awaitLocal(t, local, second)
-	if got.Status != "succeeded" || second.SessionID != first.SessionID {
+	if got.Status != "succeeded" || second.SessionID != first.SessionID || len(got.HarnessRunIDs) != 1 {
 		t.Fatal(got)
 	}
 	b, e := os.ReadFile(filepath.Join(got.Directory, "received.json"))
@@ -94,14 +84,13 @@ printf '{"type":"result","ok":true,"output":"local result","session_id":"native-
 	var input struct {
 		Endpoint     string `json:"endpoint_id"`
 		Conversation string `json:"conversation_id"`
-		Session      string `json:"session_id"`
 		Resume       string `json:"resume"`
 		Instructions string `json:"instructions"`
 	}
 	if e = json.Unmarshal(b, &input); e != nil {
 		t.Fatal(e)
 	}
-	if input.Endpoint != "local" || input.Conversation != conversation.ID || input.Session != first.SessionID || input.Resume != "native-debug" || strings.Contains(input.Instructions, "remote-secret") {
+	if input.Endpoint != "local" || input.Conversation != conversation.ID || input.Resume != "" || strings.Contains(input.Instructions, "remote-secret") {
 		t.Fatal(input)
 	}
 	if b, e := os.ReadFile(filepath.Join(got.Directory, "environment.txt")); e != nil || string(b) != "||" {

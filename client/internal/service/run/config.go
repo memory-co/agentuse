@@ -23,8 +23,8 @@ type Config struct {
 	Server     string           `json:"server"`
 	DaemonID   string           `json:"daemon_id"`
 	Key        string           `json:"key"`
-	// Harnesses 配置本机 harness 的启动命令。内置的(claude / codex)不配也会自动检测;
-	// 自定义 harness 必须在这里配，名字要和服务上注册的一致。
+	// Harnesses provides in-memory harnessctl executable overrides for embedding/tests.
+	// Normal installations load manifest packages from the local harness directory.
 	Harnesses map[string]harness.HarnessConfig `json:"harnesses,omitempty"`
 	// AskTimeout 是等用户回答提问的最长时间，如 "30m";不填默认 30 分钟。
 	AskTimeout string `json:"ask_timeout,omitempty"`

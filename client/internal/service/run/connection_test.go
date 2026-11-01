@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -154,7 +155,7 @@ func TestRun(t *testing.T) {
 	mine := fakeBin(t, t.TempDir(), "mine", `read in; echo '{"type":"progress","text":"p"}'; echo '{"type":"result","ok":true,"output":"done","session_id":"h-1"}'`)
 	t.Setenv("HOME", t.TempDir())
 	d, _ := newConnection(Config{Server: f.URL, Key: "dk_ok", Harnesses: map[string]harness.HarnessConfig{
-		"mine": {Command: mine}, "claude": {Disabled: true}, "codex": {Disabled: true},
+		"mine": {Command: fixtureCommand(t, mine)}, "claude": {Disabled: true}, "codex": {Disabled: true},
 	}}, log.New(io.Discard, "", 0))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error)
@@ -169,17 +170,17 @@ func TestRun(t *testing.T) {
 
 	f.send <- protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{RunID: "sr_test", AttemptID: "attempt_test", ID: 5, SessionID: "ss_1", Harness: "mine", Input: json.RawMessage(`{"prompt":"hi"}`)}}
 	f.next(t, protocol.TypeEvent) // started
-	if ev := f.next(t, protocol.TypeEvent); ev.Kind != "progress" || ev.MessageID != 5 || string(ev.Payload) != `{"type":"progress","text":"p"}` {
+	if ev := f.next(t, protocol.TypeEvent); ev.Kind != "progress" || ev.MessageID != 5 || !strings.Contains(string(ev.Payload), `"text":"p"`) {
 		t.Fatalf("progress: %+v", ev)
 	}
 	var res harness.Result
-	if ev := f.next(t, protocol.TypeEvent); ev.Kind != "done" || json.Unmarshal(ev.Payload, &res) != nil || res.Output != "done" || res.SessionID != "h-1" {
+	if ev := f.next(t, protocol.TypeEvent); ev.Kind != "done" || json.Unmarshal(ev.Payload, &res) != nil || res.Output != "done" || len(res.HarnessRunIDs) == 0 {
 		t.Fatalf("done: %+v", ev)
 	}
 	f.next(t, protocol.TypeReady)
 
 	// 本机没有的 harness:回报失败
-	f.send <- protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{RunID: "sr_test", AttemptID: "attempt_test", ID: 6, SessionID: "ss_2", Harness: "ghost", Input: json.RawMessage(`{}`)}}
+	f.send <- protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{RunID: "sr_test", AttemptID: "attempt_test", ID: 6, SessionID: "ss_2", Harness: "ghost", Input: json.RawMessage(`{"prompt":"wait"}`)}}
 	if ev := f.next(t, protocol.TypeEvent); ev.Kind != "failed" || json.Unmarshal(ev.Payload, &res) != nil || res.Error != "本机没有 harness ghost" {
 		t.Fatalf("unknown harness: %+v %+v", ev, res)
 	}
@@ -197,7 +198,7 @@ func TestRunStaleMessage(t *testing.T) {
 	slow := fakeBin(t, t.TempDir(), "slow", `read in; echo '{"type":"progress"}'; exec sleep 10`)
 	t.Setenv("HOME", t.TempDir())
 	d, _ := newConnection(Config{Server: f.URL, Key: "dk_ok", Harnesses: map[string]harness.HarnessConfig{
-		"slow": {Command: slow}, "claude": {Disabled: true}, "codex": {Disabled: true},
+		"slow": {Command: fixtureCommand(t, slow)}, "claude": {Disabled: true}, "codex": {Disabled: true},
 	}}, log.New(io.Discard, "", 0))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -206,7 +207,7 @@ func TestRunStaleMessage(t *testing.T) {
 	f.next(t, protocol.TypeHello)
 	f.send <- protocol.Message{Type: protocol.TypeWelcome}
 	f.next(t, protocol.TypeReady)
-	f.send <- protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{RunID: "sr_test", AttemptID: "attempt_test", ID: 9, SessionID: "ss_1", Harness: "slow", Input: json.RawMessage(`{}`)}}
+	f.send <- protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{RunID: "sr_test", AttemptID: "attempt_test", ID: 9, SessionID: "ss_1", Harness: "slow", Input: json.RawMessage(`{"prompt":"wait"}`)}}
 	f.next(t, protocol.TypeEvent)
 	start := time.Now()
 	f.send <- protocol.Message{Type: protocol.TypeError, RunID: "sr_test", AttemptID: "attempt_test", MessageID: 9, Error: "stale"}
@@ -230,14 +231,14 @@ func TestRunShutdownStopsHarness(t *testing.T) {
 	f := newFakeServer(t)
 	slow := fakeBin(t, t.TempDir(), "slow", `read in; echo '{"type":"progress"}'; exec sleep 30`)
 	t.Setenv("HOME", t.TempDir())
-	d, _ := newConnection(Config{Server: f.URL, Key: "dk_ok", Harnesses: map[string]harness.HarnessConfig{"slow": {Command: slow}, "claude": {Disabled: true}, "codex": {Disabled: true}}}, log.New(io.Discard, "", 0))
+	d, _ := newConnection(Config{Server: f.URL, Key: "dk_ok", Harnesses: map[string]harness.HarnessConfig{"slow": {Command: fixtureCommand(t, slow)}, "claude": {Disabled: true}, "codex": {Disabled: true}}}, log.New(io.Discard, "", 0))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- d.Run(ctx) }()
 	f.next(t, protocol.TypeHello)
 	f.send <- protocol.Message{Type: protocol.TypeWelcome}
 	f.next(t, protocol.TypeReady)
-	f.send <- protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{RunID: "sr_test", AttemptID: "attempt_test", ID: 30, SessionID: "ss_1", Harness: "slow", Input: json.RawMessage(`{}`)}}
+	f.send <- protocol.Message{Type: protocol.TypeRun, Run: &protocol.Dispatch{RunID: "sr_test", AttemptID: "attempt_test", ID: 30, SessionID: "ss_1", Harness: "slow", Input: json.RawMessage(`{"prompt":"wait"}`)}}
 	f.next(t, protocol.TypeEvent)
 	cancel()
 	select {

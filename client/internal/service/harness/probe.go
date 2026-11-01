@@ -2,12 +2,12 @@ package harness
 
 import (
 	"fmt"
-	"github.com/memory-co/agentuse/internal/harness"
+	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 )
 
-// HarnessInfo 是 agentuse harnesses 列出的一行。
 type HarnessInfo struct {
 	Name     string `json:"name"`
 	Path     string `json:"path,omitempty"`
@@ -17,69 +17,113 @@ type HarnessInfo struct {
 	Revision string `json:"revision,omitempty"`
 }
 
-// ListHarnesses 按 daemon 的检测逻辑列出本机 harness,包括没装上的内置 harness 和配置里禁用的。
-func ListHarnesses(cfg Config) []HarnessInfo {
-	found := Detect(cfg)
-	names := map[string]bool{}
-	builtins, _ := harness.All()
-	for _, sp := range builtins {
-		names[sp.Name] = true
+func available(a Adapter) error {
+	if a.Disabled {
+		return fmt.Errorf("harness disabled")
 	}
-	packages, _ := (Service{Root: HarnessRoot(cfg)}).Packages()
-	for n := range packages {
-		names[n] = true
+	info, e := os.Stat(a.Path)
+	if e != nil {
+		return e
 	}
-	for n := range cfg.Harnesses {
-		names[n] = true
+	if info.IsDir() || info.Mode()&0111 == 0 {
+		return fmt.Errorf("harnessctl entry is not executable")
 	}
-	out := make([]HarnessInfo, 0, len(names))
-	for n := range names {
-		info := HarnessInfo{Name: n, Disabled: cfg.Harnesses[n].Disabled}
-		if la, ok := found[n]; ok {
-			info.Path, info.Version, info.Found = la.Path, la.Version, true
-			info.Revision = la.Revision
+	if len(a.Manifest.Platforms) > 0 {
+		ok := false
+		for _, platform := range a.Manifest.Platforms {
+			ok = ok || platform == runtime.GOOS
 		}
-		out = append(out, info)
+		if !ok {
+			return fmt.Errorf("adapter does not support %s", runtime.GOOS)
+		}
+	}
+	if a.Manifest.Requires.Python != "" {
+		if _, e := exec.LookPath("python3"); e != nil {
+			return e
+		}
+	}
+	for _, bin := range a.Manifest.Requires.Bin {
+		if _, e := exec.LookPath(bin); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+func Detect(cfg Config) map[string]Adapter {
+	packages, e := (Service{Root: HarnessRoot(cfg)}).Packages()
+	if e != nil {
+		return map[string]Adapter{}
+	}
+	for name, c := range cfg.Harnesses {
+		a := packages[name]
+		if c.Command != "" {
+			a.Name = name
+			a.Path = c.Command
+			a.Version = "local"
+			a.Manifest = Manifest{Requests: []string{"question", "permission"}}
+		}
+		a.Disabled = c.Disabled
+		packages[name] = a
+	}
+	out := map[string]Adapter{}
+	for name, a := range packages {
+		if available(a) == nil {
+			out[name] = a
+		}
+	}
+	return out
+}
+func ListHarnesses(cfg Config) []HarnessInfo {
+	packages, _ := (Service{Root: HarnessRoot(cfg)}).Packages()
+	found := Detect(cfg)
+	for name, c := range cfg.Harnesses {
+		a := packages[name]
+		a.Name = name
+		a.Disabled = c.Disabled
+		packages[name] = a
+	}
+	out := []HarnessInfo{}
+	for name, a := range packages {
+		v := HarnessInfo{Name: name, Disabled: a.Disabled}
+		if a, ok := found[name]; ok {
+			v.Path = a.Path
+			v.Version = a.Version
+			v.Revision = a.Revision
+			v.Found = true
+		}
+		out = append(out, v)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
-
 func (s Service) Probe() ([]HarnessInfo, error) {
 	packages, e := s.Packages()
 	if e != nil {
 		return nil, e
 	}
 	out := []HarnessInfo{}
-	for name, la := range packages {
-		item := HarnessInfo{Name: name, Revision: la.Revision, Disabled: la.Disabled}
-		if !la.Disabled {
-			if path, e := exec.LookPath(expandHome(la.Path)); e == nil {
-				item.Path = path
-				item.Found = true
-				if la.Spec != nil && len(la.Spec.Detect.Version) > 0 {
-					item.Version = probeVersion(path, la.Spec.Detect.Version)
-				}
-			}
+	for name, a := range packages {
+		v := HarnessInfo{Name: name, Version: a.Version, Revision: a.Revision, Disabled: a.Disabled}
+		if available(a) == nil {
+			v.Path = a.Path
+			v.Found = true
 		}
-		out = append(out, item)
+		out = append(out, v)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
-
 func (s Service) Resolve(name string) (Adapter, error) {
 	packages, e := s.Packages()
 	if e != nil {
 		return Adapter{}, e
 	}
-	la, ok := packages[name]
-	if !ok || la.Disabled {
-		return Adapter{}, fmt.Errorf("harness is not installed or enabled")
+	a, ok := packages[name]
+	if !ok {
+		return a, fmt.Errorf("harness is not installed")
 	}
-	la.Path, e = exec.LookPath(expandHome(la.Path))
-	if e != nil {
-		return Adapter{}, fmt.Errorf("harness program unavailable: %w", e)
+	if e = available(a); e != nil {
+		return a, e
 	}
-	return la, nil
+	return a, nil
 }

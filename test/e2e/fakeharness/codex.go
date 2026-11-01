@@ -31,7 +31,7 @@ func codexAppServer() int {
 		switch req.Method {
 		case "initialize":
 			ack(map[string]any{})
-		case "thread/start":
+		case "thread/start", "thread/resume":
 			ack(map[string]any{"thread": map[string]string{"id": thread}})
 		case "turn/start":
 			ack(map[string]any{"turn": map[string]string{"id": turn, "status": "inProgress"}})

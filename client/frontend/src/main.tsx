@@ -75,7 +75,6 @@ type Session = {
   agent_id: string;
   harness: string;
   harness_revision: string;
-  native_session_id: string;
   status: string;
   last_context_seq: number;
   created_at: number;

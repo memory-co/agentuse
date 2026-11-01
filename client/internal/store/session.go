@@ -22,7 +22,6 @@ type Session struct {
 	AgentID         string `json:"agent_id" yaml:"agent_id"`
 	Harness         string `json:"harness" yaml:"harness"`
 	HarnessRevision string `json:"harness_revision" yaml:"harness_revision"`
-	NativeSessionID string `json:"native_session_id" yaml:"native_session_id"`
 	Status          string `json:"status" yaml:"status"`
 	LastContextSeq  int64  `json:"last_context_seq" yaml:"last_context_seq"`
 	CreatedAt       int64  `json:"created_at" yaml:"created_at"`
@@ -172,12 +171,9 @@ func (l *Ledger) AcquireSession(ctx context.Context, endpoint, conversation, age
 	}
 	return out, workspace, nil
 }
-func (l *Ledger) ReleaseSession(s Session, native string, contextSeq int64, valid bool, run ...string) error {
+func (l *Ledger) ReleaseSession(s Session, contextSeq int64, valid bool, run ...string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if native != "" {
-		s.NativeSessionID = native
-	}
 	s.LastContextSeq = max(s.LastContextSeq, contextSeq)
 	s.Status = "idle"
 	if !valid {
@@ -221,6 +217,9 @@ func (l *Ledger) RecoverSessions(ctx context.Context) error {
 			for _, s := range ss {
 				if s.Status == "running" {
 					s.Status = "unavailable"
+					if _, e := os.Stat(filepath.Join(l.Root, s.EndpointID, s.ConversationID, "sessions", s.ID, "events.jsonl")); e == nil {
+						s.Status = "idle"
+					}
 					if e = l.SaveSession(s); e != nil {
 						return e
 					}
