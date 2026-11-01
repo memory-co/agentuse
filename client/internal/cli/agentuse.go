@@ -33,7 +33,7 @@ const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 age
 func Main(args []string) int {
 	return command.Dispatch("agentuse", agentuseUsage, args, []command.Command{
 		{Name: "register", Run: runRegister},
-		{Name: "start", Run: runDaemon},
+		{Name: "start", Run: runStart},
 		{Name: "daemon", Run: runDaemon},
 		{Name: "ui", Run: runUI},
 		{Name: "status", Run: runStatus},
@@ -71,13 +71,26 @@ func loadDaemonConfig(path string) (daemon.Config, error) {
 	return cfg, err
 }
 
-func runDaemon(args []string) error {
+func runStart(args []string) error  { return runClient(args, true) }
+func runDaemon(args []string) error { return runClient(args, false) }
+func runClient(args []string, allowLocal bool) error {
 	fs := command.NewFlags("agentuse daemon")
 	cfgPath := fs.String("config", daemon.DefaultConfigPath(), "配置文件")
 	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
 	cfg, err := loadDaemonConfig(*cfgPath)
+	if allowLocal {
+		all, loadErr := daemon.LoadConfigs(*cfgPath)
+		if errors.Is(loadErr, os.ErrNotExist) || (loadErr == nil && len(all) == 0) {
+			setting, se := daemon.NewSettingService(filepath.Join(filepath.Dir(*cfgPath), "setting.yaml"))
+			if se != nil {
+				return se
+			}
+			cfg = daemon.Config{ConfigPath: *cfgPath, Settings: setting.Get()}
+			err = nil
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -100,6 +113,7 @@ func runDaemon(args []string) error {
 	if err != nil {
 		return err
 	}
+	manager.FailOnEndpointError = !allowLocal
 	closeUI, err := startLocalUI(cfg, ledger.Reader(), manager)
 	if err != nil {
 		return err

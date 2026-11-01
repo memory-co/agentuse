@@ -183,7 +183,9 @@ agentuse attachment download at_xxx --output ./report.pdf
 
 ### Client 本机页面与文件配置
 
-运行 `agentuse start` 连接已注册的平台，`agentuse ui -open` 打开本机只读页面（默认 `127.0.0.1:7801`）。页面沿用 server 的布局：左侧切换 endpoint、浏览 conversation，右侧查看 session、run 和详情弹窗。查询只读取所选目录，不提供全局 runs 扫描。
+运行 `agentuse start` 连接已注册的平台，`agentuse ui -open` 打开本机页面（默认 `127.0.0.1:7801`）。页面沿用 server 的布局：左侧切换 endpoint、浏览 conversation，右侧查看 session、run 和详情弹窗。查询只读取所选目录，不提供全局 runs 扫描。
+
+Endpoint 下拉默认包含“本地调试”（`endpoint_id: local`），无需注册或声明。输入任意名称创建 conversation，选择已安装的 harness，输入文本或 JSON 即可实际执行；详情中可查看输出、错误、插话及取消，适合验证自定义适配器。本地记录与 workspace 都保存在 `<session.work_root>/local/` 下。
 
 平台注册信息保存在 `~/.agentuse/endpoints.yaml`，支持多个平台；endpoint_id 从地址推导，不用手动填写。重复运行 `agentuse register -server URL -token 安装令牌` 可注册其他平台。旧 `daemon.json` 不再读取，已有设备需重新注册。`agentuse daemon` 命令作为安装脚本的启动入口仍可使用。
 

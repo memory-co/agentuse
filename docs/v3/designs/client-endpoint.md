@@ -8,6 +8,10 @@ CLI 完成注册，取得该 server 的 device_id、device_key 后，交给 endp
 
 endpointService 提供新增、查询、修改、启用/停用和移除操作。一个 endpoint 对应一个规范化 server 地址及其当前注册身份，不保存尚未完成注册的临时状态。
 
+## 内置 local
+
+`endpoint_id: local` 默认存在，由 client 直接提供，不写入 endpoints.yaml。它不注册设备、不连接中心，供用户创建 conversation 并调试本机 Codex、Claude Code 或自定义 harness。local 执行复用 client 的 session/run/harness 流程。
+
 ## endpoints.yaml
 
 ```yaml

@@ -110,6 +110,7 @@ type Harness struct {
 
 // Dispatch 是派给 daemon 的一条用户消息，带上会话的信息。
 type Dispatch struct {
+	Local             bool              `json:"-"`
 	Sender            agentuse.Sender   `json:"sender"`
 	WorkID            string            `json:"work_id,omitempty"`
 	RunID             string            `json:"run_id,omitempty"`
@@ -184,6 +185,9 @@ type LocalAttachment struct {
 }
 
 type HarnessInput struct {
+	EndpointID      string            `json:"endpoint_id,omitempty"`
+	ConversationID  string            `json:"conversation_id,omitempty"`
+	Resume          string            `json:"resume,omitempty"`
 	RunID           string            `json:"run_id,omitempty"`
 	AgentID         string            `json:"agent_id,omitempty"`
 	TaskMessageIDs  []int64           `json:"task_message_ids,omitempty"`

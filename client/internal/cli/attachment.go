@@ -61,6 +61,9 @@ func runAttachment(args []string) error {
 	if *token == "" {
 		*token = os.Getenv("AGENTUSE_WORK")
 	}
+	if os.Getenv("AGENTUSE_ENDPOINT") == "local" && *server == "" {
+		return errors.New("本地模式没有 server；请在本地调试页面查看执行和 workspace")
+	}
 	if *server == "" || *token == "" {
 		var cfg daemon.Config
 		var err error

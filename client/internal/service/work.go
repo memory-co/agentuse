@@ -36,6 +36,9 @@ const coordinatorGuide = `# 你是这个工作的协调者：只派活，不干�
 
 // instructionsFor 是这条消息要写进说明文件的内容：协调者是 coordinatorGuide 在前，后面接工作的说明;线程只有工作的说明。
 func instructionsFor(m protocol.Dispatch) string {
+	if m.Local {
+		return "# 本地 Harness 调试\n\n当前 endpoint_id 为 local，不连接中心。所有任务在当前 workspace 中执行，后续输入可继续使用本机原生 session。不要使用需要 server 凭据的 agentuse work/session/attachment 命令。\n" + m.Instructions
+	}
 	text := strings.TrimSpace(m.Instructions)
 	if m.RunID != "" {
 		ids, _ := json.Marshal(m.TaskMessageIDs)

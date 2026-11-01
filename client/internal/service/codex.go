@@ -103,6 +103,7 @@ func runCodex(ctx context.Context, la localHarness, m protocol.Dispatch, dir str
 	procCtx, stop := context.WithCancel(context.Background())
 	defer stop()
 	cmd := exec.CommandContext(procCtx, la.Path, args...)
+	prepareProcess(cmd)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), la.Env...)
 	pipe, err := cmd.StdinPipe()

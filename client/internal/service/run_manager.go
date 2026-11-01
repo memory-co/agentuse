@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -23,15 +24,17 @@ type endpointWorker struct {
 // RunService owns all endpoint connections. Metadata and execution capacity are
 // shared across workers; one connection's failure does not stop other endpoints.
 type RunService struct {
-	Path     string
-	Store    *store.Ledger
-	Sessions *SessionService
-	Settings *SettingService
-	mu       sync.Mutex
-	workers  map[string]*endpointWorker
-	probes   []HarnessInfo
-	slots    chan struct{}
-	log      *log.Logger
+	FailOnEndpointError bool
+	Path                string
+	Store               *store.Ledger
+	Sessions            *SessionService
+	Settings            *SettingService
+	mu                  sync.Mutex
+	workers             map[string]*endpointWorker
+	probes              []HarnessInfo
+	slots               chan struct{}
+	Local               *LocalService
+	log                 *log.Logger
 }
 
 func NewRunService(path string, files *store.Ledger) (*RunService, error) {
@@ -39,13 +42,16 @@ func NewRunService(path string, files *store.Ledger) (*RunService, error) {
 	if e != nil {
 		return nil, e
 	}
-	return &RunService{Path: path, Store: files, Settings: settings, Sessions: &SessionService{Files: files, Settings: settings}, workers: map[string]*endpointWorker{}, slots: make(chan struct{}, min(8, max(2, runtime.NumCPU()))), log: log.Default()}, nil
+	m := &RunService{Path: path, Store: files, Settings: settings, Sessions: &SessionService{Files: files, Settings: settings}, workers: map[string]*endpointWorker{}, slots: make(chan struct{}, min(8, max(2, runtime.NumCPU()))), log: log.Default()}
+	m.Local = NewLocalService(files, m.Sessions, path, m.slots)
+	return m, nil
 }
 func (s *RunService) Snapshot() any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	eps := []map[string]any{}
-	running := 0
+	running := s.Local.ActiveCount()
+	eps = append(eps, map[string]any{"endpoint_id": "local", "state": "local", "active_runs": running})
 	for id, w := range s.workers {
 		w.run.mu.Lock()
 		n := len(w.run.running)
@@ -69,6 +75,7 @@ func (s *RunService) Harnesses() any {
 	return append([]HarnessInfo{}, s.probes...)
 }
 func (s *RunService) Run(ctx context.Context) error {
+	defer s.Local.Close()
 	defer func() {
 		s.mu.Lock()
 		all := []*endpointWorker{}
@@ -83,7 +90,7 @@ func (s *RunService) Run(ctx context.Context) error {
 	}()
 	syncWorkers := func() error {
 		endpoints, e := (EndpointService{Path: s.Path}).List()
-		if e != nil {
+		if e != nil && !errors.Is(e, os.ErrNotExist) {
 			return e
 		}
 		if e = s.Settings.Reload(); e != nil {
@@ -114,7 +121,7 @@ func (s *RunService) Run(ctx context.Context) error {
 				continue
 			}
 			if w := s.workers[id]; w != nil {
-				if w.err != nil && len(wanted) == 1 {
+				if s.FailOnEndpointError && w.err != nil && len(wanted) == 1 {
 					return w.err
 				}
 				continue

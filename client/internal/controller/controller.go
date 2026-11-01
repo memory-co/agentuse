@@ -1,8 +1,9 @@
-// Package controller serves the token-protected read-only UI.
+// Package controller serves authenticated queries and local harness debug actions.
 // It imports store.Reader, never the execution service or its Writer.
 package controller
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -10,6 +11,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -87,10 +90,14 @@ func Token(path string) (string, error) {
 type ReadFailure struct{ Err error }
 
 type PublicData struct {
-	Endpoints func() any
-	Settings  func() any
-	Harnesses func() any
-	Status    func() any
+	LocalCreate    func(context.Context, string) (store.Conversation, error)
+	LocalStart     func(context.Context, string, json.RawMessage) (store.Run, error)
+	LocalControl   func(context.Context, string, string, string, string, string, json.RawMessage) error
+	LocalHarnesses func() (any, error)
+	Endpoints      func() any
+	Settings       func() any
+	Harnesses      func() any
+	Status         func() any
 }
 
 func New(reader store.Reader, addr, token string, data ...PublicData) (*Controller, error) {
@@ -129,6 +136,10 @@ func New(reader store.Reader, addr, token string, data ...PublicData) (*Controll
 		})
 	}
 	c.mux.HandleFunc("GET /api/conversations", c.conversations)
+	c.mux.HandleFunc("GET /api/local/harnesses", c.localHarnesses)
+	c.mux.HandleFunc("POST /api/local/conversations", c.localCreate)
+	c.mux.HandleFunc("POST /api/local/conversations/{conversation}/runs", c.localStart)
+	c.mux.HandleFunc("POST /api/local/conversations/{conversation}/sessions/{session}/runs/{run}/attempts/{attempt}/{action}", c.localControl)
 	base := "/api/conversations/{endpoint}/{conversation}"
 	c.mux.HandleFunc("GET "+base, c.conversation)
 	c.mux.HandleFunc("GET "+base+"/sessions", c.sessions)
@@ -156,7 +167,8 @@ func (c *Controller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 403, "forbidden", "invalid Host")
 		return
 	}
-	if r.Method != http.MethodGet {
+	localWrite := r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/local/")
+	if r.Method != http.MethodGet && !localWrite {
 		w.Header().Set("Allow", "GET")
 		apiError(w, 405, "method_not_allowed", "read-only endpoint")
 		return
@@ -180,6 +192,23 @@ func (c *Controller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if authorization != "" {
 			http.SetCookie(w, &http.Cookie{Name: cookieName, Value: c.token, Path: "/api", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil, MaxAge: 30 * 24 * 60 * 60})
+		}
+	}
+	if localWrite {
+		content, _, e := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if e != nil || content != "application/json" {
+			apiError(w, 415, "unsupported_media_type", "需要 application/json")
+			return
+		}
+		if origin := r.Header.Get("Origin"); origin != "" {
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+			if origin != scheme+"://"+r.Host {
+				apiError(w, 403, "forbidden", "跨站请求不允许")
+				return
+			}
 		}
 	}
 	c.mux.ServeHTTP(w, r)
@@ -382,4 +411,83 @@ func decodeCursor(r *http.Request, s string) (string, error) {
 		return "", store.ErrInvalid
 	}
 	return values[1], nil
+}
+
+func localBody(w http.ResponseWriter, r *http.Request) (json.RawMessage, error) {
+	r.Body = http.MaxBytesReader(w, r.Body, 300<<10)
+	b, e := io.ReadAll(r.Body)
+	if e != nil || !json.Valid(b) {
+		return nil, store.ErrInvalid
+	}
+	return b, nil
+}
+func (c *Controller) localHarnesses(w http.ResponseWriter, r *http.Request) {
+	if c.data.LocalHarnesses == nil {
+		apiError(w, 503, "unavailable", "本地执行服务尚未就绪")
+		return
+	}
+	v, e := c.data.LocalHarnesses()
+	if e != nil {
+		apiError(w, 400, "harness_error", e.Error())
+		return
+	}
+	jsonResponse(w, map[string]any{"items": v})
+}
+func (c *Controller) localCreate(w http.ResponseWriter, r *http.Request) {
+	if c.data.LocalCreate == nil {
+		apiError(w, 503, "unavailable", "本地执行服务尚未就绪")
+		return
+	}
+	b, e := localBody(w, r)
+	var v struct {
+		Title string `json:"title"`
+	}
+	if e != nil || json.Unmarshal(b, &v) != nil {
+		failure(w, store.ErrInvalid)
+		return
+	}
+	result, e := c.data.LocalCreate(r.Context(), v.Title)
+	if e != nil {
+		apiError(w, 400, "local_error", e.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	jsonResponse(w, result)
+}
+func (c *Controller) localStart(w http.ResponseWriter, r *http.Request) {
+	if c.data.LocalStart == nil {
+		apiError(w, 503, "unavailable", "本地执行服务尚未就绪")
+		return
+	}
+	b, e := localBody(w, r)
+	if e != nil {
+		failure(w, e)
+		return
+	}
+	result, e := c.data.LocalStart(r.Context(), r.PathValue("conversation"), b)
+	if e != nil {
+		apiError(w, 400, "local_error", e.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	jsonResponse(w, result)
+}
+func (c *Controller) localControl(w http.ResponseWriter, r *http.Request) {
+	if c.data.LocalControl == nil {
+		apiError(w, 503, "unavailable", "本地执行服务尚未就绪")
+		return
+	}
+	b, e := localBody(w, r)
+	if e != nil {
+		failure(w, e)
+		return
+	}
+	e = c.data.LocalControl(r.Context(), r.PathValue("conversation"), r.PathValue("session"), r.PathValue("run"), r.PathValue("attempt"), r.PathValue("action"), b)
+	if e != nil {
+		apiError(w, 400, "local_error", e.Error())
+		return
+	}
+	jsonResponse(w, map[string]bool{"ok": true})
 }

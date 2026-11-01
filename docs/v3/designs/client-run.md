@@ -11,7 +11,7 @@
 - 将插话、答案、取消路由到对应本地执行，并上报标准事件。
 - 写本机 run.json 执行记录，维护本次耗时、用量和错误，结束后释放占用。
 
-Client 不创建独立的业务 run。run_id 和 attempt_id 来自中心；本机记录按 `(endpoint_id, run_id, attempt_id)` 区分。一个本地 session 可以连续执行多个从 server 领来的 run，同一个 session 同时只执行一个。
+平台任务的 run_id 和 attempt_id 来自中心；内置 local 调试入口可在本机生成 run/attempt UUID，并调用同一执行链路，不创建中心业务任务。本机记录按 `(endpoint_id, run_id, attempt_id)` 区分。一个本地 session 可以连续执行多个从 server 领来的 run，同一个 session 同时只执行一个。
 
 ## 与其他 Service 的关系
 

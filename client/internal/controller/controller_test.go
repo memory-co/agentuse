@@ -204,3 +204,49 @@ func TestBearerLoginPersistsInHTTPOnlyCookie(t *testing.T) {
 		t.Fatal("rotated token accepted stale cookie", w.Code)
 	}
 }
+
+func TestLocalMutationAuthenticationAndOrigin(t *testing.T) {
+	files, _ := store.Open(t.TempDir())
+	token := strings.Repeat("x", 64)
+	called := 0
+	ui, _ := New(files.Reader(), "0.0.0.0:8091", token, PublicData{LocalCreate: func(ctx context.Context, title string) (store.Conversation, error) {
+		called++
+		return files.CreateLocalConversation(ctx, title)
+	}})
+	call := func(path, origin, content, auth string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "http://public.example:8091"+path, strings.NewReader(`{"title":"自由输入 / ../ 中文"}`))
+		r.Header.Set("Content-Type", content)
+		if auth != "" {
+			r.Header.Set("Authorization", "Bearer "+auth)
+		}
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		w := httptest.NewRecorder()
+		ui.ServeHTTP(w, r)
+		return w
+	}
+	if w := call("/api/local/conversations", "http://public.example:8091", "application/json", ""); w.Code != 401 {
+		t.Fatal(w.Code)
+	}
+	if w := call("/api/local/conversations", "https://evil.example", "application/json", token); w.Code != 403 {
+		t.Fatal(w.Code)
+	}
+	if w := call("/api/local/conversations", "http://public.example:8091", "text/plain", token); w.Code != 415 {
+		t.Fatal(w.Code)
+	}
+	if w := call("/api/conversations", "http://public.example:8091", "application/json", token); w.Code != 405 {
+		t.Fatal(w.Code)
+	}
+	if called != 0 {
+		t.Fatal("unauthorized local mutation reached service")
+	}
+	w := call("/api/local/conversations", "http://public.example:8091", "application/json", token)
+	if w.Code != 201 || called != 1 {
+		t.Fatal(w.Code, w.Body.String(), called)
+	}
+	var c store.Conversation
+	if e := json.Unmarshal(w.Body.Bytes(), &c); e != nil || c.EndpointID != "local" || c.Title != "自由输入 / ../ 中文" {
+		t.Fatal(c, e)
+	}
+}

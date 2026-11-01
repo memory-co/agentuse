@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,6 +30,7 @@ type Session struct {
 	UpdatedAt       int64  `json:"updated_at" yaml:"updated_at"`
 }
 type Conversation struct {
+	Title      string `json:"title,omitempty"`
 	ID         string `json:"id"`
 	EndpointID string `json:"endpoint_id"`
 	Workspace  string `json:"workspace"`
@@ -54,7 +57,17 @@ func (r *readStore) Conversations(ctx context.Context, endpoint string) ([]Conve
 			if _, e = SafePath(root, d.Name()); e != nil {
 				return nil, e
 			}
-			out = append(out, Conversation{d.Name(), endpoint, filepath.Join(endpoint, d.Name(), "workspace")})
+			c := Conversation{ID: d.Name(), EndpointID: endpoint, Workspace: filepath.Join(endpoint, d.Name(), "workspace")}
+			if endpoint == "local" {
+				c, e = r.l.LocalConversation(ctx, d.Name())
+				if errors.Is(e, os.ErrNotExist) {
+					continue
+				}
+				if e != nil {
+					return nil, e
+				}
+			}
+			out = append(out, c)
 		}
 	}
 	return out, nil
@@ -264,7 +277,7 @@ func (l *Ledger) Reclaim(ctx context.Context, maxBytes int64) (int64, error) {
 			if e != nil {
 				return 0, e
 			}
-			busy := false
+			busy := l.reserved[ep.Name()+"/"+c.ID] > 0
 			var last, size int64
 			for _, s := range ss {
 				if s.Status == "running" || s.Status == "pending_report" {
@@ -330,3 +343,77 @@ func (l *Ledger) Reclaim(ctx context.Context, maxBytes int64) (int64, error) {
 	return total, nil
 }
 func stringsHasParent(s string) bool { return len(s) >= 3 && s[:3] == ".."+string(filepath.Separator) }
+
+// Local conversations have their own reserved namespace. Only their title needs
+// metadata; paths remain derived, with no endpoint registration or path registry.
+func (l *Ledger) CreateLocalConversation(ctx context.Context, title string) (Conversation, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if e := ctx.Err(); e != nil {
+		return Conversation{}, e
+	}
+	if strings.TrimSpace(title) == "" || len(title) > 4096 {
+		return Conversation{}, ErrInvalid
+	}
+	id := uuid.NewString()
+	root, e := SafePath(l.Root, "local", id)
+	if e != nil {
+		return Conversation{}, e
+	}
+	if e = os.MkdirAll(filepath.Join(root, "workspace"), 0700); e != nil {
+		return Conversation{}, e
+	}
+	if e = writeJSON(filepath.Join(root, ".agentuse-workspace.json"), map[string]string{"endpoint_id": "local", "conversation_id": id}); e != nil {
+		return Conversation{}, e
+	}
+	if e = WriteYAML(filepath.Join(root, "conversation.yaml"), struct {
+		Title string `yaml:"title"`
+	}{title}); e != nil {
+		return Conversation{}, e
+	}
+	return Conversation{ID: id, EndpointID: "local", Workspace: filepath.Join("local", id, "workspace"), Title: title}, nil
+}
+func (l *Ledger) LocalConversation(ctx context.Context, id string) (Conversation, error) {
+	if e := ctx.Err(); e != nil {
+		return Conversation{}, e
+	}
+	root, e := SafePath(l.Root, "local", id)
+	if e != nil {
+		return Conversation{}, e
+	}
+	var metadata struct {
+		Title string `yaml:"title"`
+	}
+	if e = ReadYAML(filepath.Join(root, "conversation.yaml"), &metadata); e != nil {
+		return Conversation{}, e
+	}
+	return Conversation{ID: id, EndpointID: "local", Workspace: filepath.Join("local", id, "workspace"), Title: metadata.Title}, nil
+}
+
+func (l *Ledger) HoldConversation(endpoint, conversation string) (func(), error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	path, e := SafePath(l.Root, endpoint, conversation)
+	if e != nil {
+		return nil, e
+	}
+	if _, e = os.Stat(path); e != nil {
+		return nil, e
+	}
+	if l.reserved == nil {
+		l.reserved = map[string]int{}
+	}
+	key := endpoint + "/" + conversation
+	l.reserved[key]++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			l.reserved[key]--
+			if l.reserved[key] == 0 {
+				delete(l.reserved, key)
+			}
+		})
+	}, nil
+}

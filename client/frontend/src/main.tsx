@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import {
   QueryClient,
   QueryClientProvider,
   useInfiniteQuery,
   useQuery,
+  useMutation,
 } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
@@ -16,6 +17,9 @@ import {
   FolderOpen,
   Loader2,
   Monitor,
+  Plus,
+  Send,
+  RefreshCw,
   Settings,
   Terminal,
   X,
@@ -50,6 +54,7 @@ import {
   SidebarTrigger,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import "./style.css";
 
@@ -59,7 +64,12 @@ type Endpoint = {
   name: string;
   enabled: boolean;
 };
-type Conversation = { id: string; endpoint_id: string; workspace: string };
+type Conversation = {
+  id: string;
+  endpoint_id: string;
+  workspace: string;
+  title?: string;
+};
 type Session = {
   id: string;
   agent_id: string;
@@ -120,6 +130,22 @@ async function api<T>(path: string, signal?: AbortSignal): Promise<T> {
   const data = await r.json();
   if (!r.ok) throw new ApiError(r.status, data.error?.message ?? "请求失败");
   token = ""; // The validated token is now held in an HttpOnly cookie.
+  return data;
+}
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json();
+  if (!response.ok)
+    throw new ApiError(response.status, data.error?.message ?? "请求失败");
+  token = "";
   return data;
 }
 const enc = encodeURIComponent;
@@ -195,6 +221,8 @@ function App() {
   const [selected, setSelected] = useState<Run | null>(null);
   const [switcher, setSwitcher] = useState(false);
   const [settings, setSettings] = useState(false);
+  const routeRef = useRef({ endpoint, conversation });
+  routeRef.current = { endpoint, conversation };
   const items = endpoints.data?.items ?? [];
   useEffect(() => {
     if (endpoints.data && !items.some((e) => e.endpoint_id === endpoint)) {
@@ -205,6 +233,20 @@ function App() {
     }
   }, [endpoints.data, endpoint]);
   const current = items.find((e) => e.endpoint_id === endpoint);
+  const local = endpoint === "local";
+  const [newTitle, setNewTitle] = useState("");
+  const createConversation = useMutation({
+    mutationFn: (title: string) =>
+      post<Conversation>("/api/local/conversations", { title }),
+    onSuccess: async (created) => {
+      await client.invalidateQueries({ queryKey: ["conversations", "local"] });
+      if (routeRef.current.endpoint !== "local") return;
+      setConversation(created.id);
+      setSession("");
+      setSelected(null);
+      setNewTitle("");
+    },
+  });
   const conversations = usePages<Conversation>(
     ["conversations", endpoint],
     `/api/conversations?endpoint_id=${enc(endpoint)}`,
@@ -241,6 +283,8 @@ function App() {
   }
   const conversationItems =
     conversations.data?.pages.flatMap((p) => p.items) ?? [];
+  const currentTitle =
+    conversationItems.find((c) => c.id === conversation)?.title || conversation;
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
@@ -264,7 +308,9 @@ function App() {
                     {current?.name || "选择 Endpoint"}
                   </div>
                   <div className="truncate text-xs font-normal text-muted-foreground">
-                    {current?.server_url || "尚未注册平台"}
+                    {local
+                      ? "无需注册 · 调试本机 Harness"
+                      : current?.server_url || "尚未注册平台"}
                   </div>
                 </div>
                 <ArrowLeftRight className="size-4 shrink-0" />
@@ -289,7 +335,9 @@ function App() {
                             {!e.enabled && " · 已停用"}
                           </div>
                           <div className="truncate text-xs text-muted-foreground">
-                            {e.server_url}
+                            {e.endpoint_id === "local"
+                              ? "无需注册 · 调试本机 Harness"
+                              : e.server_url}
                           </div>
                         </div>
                         {endpoint === e.endpoint_id && (
@@ -302,6 +350,32 @@ function App() {
               </Command>
             </PopoverContent>
           </Popover>
+          {local && (
+            <form
+              className="flex gap-1 group-data-[collapsible=icon]:hidden"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (newTitle.trim()) createConversation.mutate(newTitle);
+              }}
+            >
+              <Input
+                aria-label="新建本地 Conversation"
+                placeholder="输入名称，新建 Conversation"
+                value={newTitle}
+                maxLength={4096}
+                onChange={(e) => setNewTitle(e.target.value)}
+              />
+              <Button
+                size="icon"
+                variant="outline"
+                aria-label="创建本地 Conversation"
+                disabled={!newTitle.trim() || createConversation.isPending}
+              >
+                <Plus className="size-4" />
+              </Button>
+            </form>
+          )}
+          {local && <ErrorNotice error={createConversation.error} />}
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
@@ -319,10 +393,10 @@ function App() {
                       setSession("");
                       setSelected(null);
                     }}
-                    tooltip={c.id}
+                    tooltip={c.title || c.id}
                   >
                     <FolderOpen className="size-4" />
-                    <span className="truncate">{c.id}</span>
+                    <span className="truncate">{c.title || c.id}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -330,7 +404,9 @@ function App() {
                 current &&
                 !conversationItems.length && (
                   <li className="px-2 py-4 text-xs leading-relaxed text-muted-foreground">
-                    暂无本机会话。Client 从此平台领取任务后会在这里显示。
+                    {local
+                      ? "输入任意名称，创建一个本地 Conversation 开始调试。"
+                      : "暂无本机会话。Client 从此平台领取任务后会在这里显示。"}
                   </li>
                 )}
               {conversations.hasNextPage && (
@@ -360,7 +436,7 @@ function App() {
             </span>
           </Button>
           <div className="px-2 pb-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-            本机文件 · 只读
+            {local ? "本地执行 · 文件存储" : "本机文件 · 只读"}
           </div>
         </SidebarFooter>
         <SidebarRail />
@@ -375,11 +451,11 @@ function App() {
           {conversation && (
             <>
               <ChevronRight className="size-3 text-muted-foreground" />
-              <span className="truncate text-sm">{conversation}</span>
+              <span className="truncate text-sm">{currentTitle}</span>
             </>
           )}
           <Badge variant="outline" className="ml-auto shrink-0">
-            只读
+            {local ? "本地调试" : "只读"}
           </Badge>
         </header>
         <main
@@ -403,7 +479,11 @@ function App() {
           ) : !conversation ? (
             <Empty
               title="选择一个 Conversation"
-              text="从左侧选择会话，查看本机 Session 与执行记录。"
+              text={
+                local
+                  ? "在左侧输入任意名称创建 Conversation，再选择本机 Harness 执行任务。"
+                  : "从左侧选择会话，查看本机 Session 与执行记录。"
+              }
             />
           ) : (
             <>
@@ -412,12 +492,30 @@ function App() {
                   Conversation
                 </div>
                 <h1 className="break-all text-xl font-semibold tracking-tight">
-                  {conversation}
+                  {currentTitle}
                 </h1>
                 <p className="mt-2 text-sm text-muted-foreground">
                   原生 Session 各自保留上下文，共享此会话的 workspace。
                 </p>
               </div>
+              {local && (
+                <LocalTaskPanel
+                  conversation={conversation}
+                  onStarted={async (run) => {
+                    await client.invalidateQueries({
+                      queryKey: ["sessions", "local", conversation],
+                    });
+                    await client.invalidateQueries({
+                      queryKey: ["runs", "local", conversation],
+                    });
+                    if (
+                      routeRef.current.endpoint === "local" &&
+                      routeRef.current.conversation === conversation
+                    )
+                      setSession(run.session_id);
+                  }}
+                />
+              )}
               <section aria-label="Sessions" className="space-y-3">
                 <h2 className="text-sm font-medium">Sessions</h2>
                 <div className="grid gap-3 lg:grid-cols-2">
@@ -533,6 +631,7 @@ function App() {
       </SidebarInset>
       {selected && activeSession && (
         <RunDetail
+          local={local}
           base={base + `/sessions/${enc(session)}`}
           run={selected}
           close={() => setSelected(null)}
@@ -542,6 +641,234 @@ function App() {
     </SidebarProvider>
   );
 }
+function LocalTaskPanel({
+  conversation,
+  onStarted,
+}: {
+  conversation: string;
+  onStarted: (run: Run) => Promise<void>;
+}) {
+  const harnesses = useQuery({
+    queryKey: ["local-harnesses"],
+    queryFn: ({ signal }) =>
+      api<
+        Page<{
+          name: string;
+          found: boolean;
+          disabled: boolean;
+          revision?: string;
+          version?: string;
+        }>
+      >("/api/local/harnesses", signal),
+    refetchOnWindowFocus: false,
+  });
+  const [harness, setHarness] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [raw, setRaw] = useState(false);
+  const [inputError, setInputError] = useState("");
+  const available = harnesses.data?.items ?? [];
+  useEffect(() => {
+    if (!available.some((h) => h.name === harness && h.found && !h.disabled))
+      setHarness(available.find((h) => h.found && !h.disabled)?.name ?? "");
+  }, [harnesses.data, harness]);
+  const start = useMutation({
+    mutationFn: (body: unknown) =>
+      post<Run>(`/api/local/conversations/${enc(conversation)}/runs`, body),
+    onSuccess: async (run) => {
+      await onStarted(run);
+      setPrompt("");
+    },
+  });
+  return (
+    <section
+      className="space-y-3 rounded-xl border p-4"
+      aria-label="本地 Harness 调试"
+    >
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-medium">本地 Harness 调试</h2>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => void harnesses.refetch()}
+          disabled={harnesses.isFetching}
+        >
+          <RefreshCw className="mr-2 size-3" />
+          重新探测
+        </Button>
+      </div>
+      <ErrorNotice error={harnesses.error || start.error || inputError} />
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setInputError("");
+          let body: unknown = { harness, prompt };
+          if (raw) {
+            try {
+              body = { harness, input: JSON.parse(prompt) };
+            } catch {
+              setInputError("请输入合法 JSON");
+              return;
+            }
+          }
+          start.mutate(body);
+        }}
+      >
+        <label className="grid gap-2 text-xs text-muted-foreground">
+          Harness
+          <select
+            aria-label="选择本地 Harness"
+            className="h-9 rounded-md border bg-background px-3 text-sm text-foreground"
+            value={harness}
+            onChange={(e) => setHarness(e.target.value)}
+          >
+            <option value="" disabled>
+              选择已安装的 Harness
+            </option>
+            {available.map((h) => (
+              <option
+                key={h.name}
+                value={h.name}
+                disabled={!h.found || h.disabled}
+              >
+                {h.name}
+                {h.disabled ? " · 已禁用" : !h.found ? " · 程序未找到" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-2 text-xs text-muted-foreground">
+          任务输入
+          <textarea
+            aria-label="本地任务输入"
+            className="min-h-28 w-full resize-y rounded-md border bg-background p-3 font-mono text-sm text-foreground"
+            placeholder={
+              raw
+                ? '例如 {"prompt":"检查当前工作目录"}'
+                : "输入任务，直接在本机运行所选 Harness"
+            }
+            maxLength={250000}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+        </label>
+        <div className="flex items-center justify-between gap-3">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={raw}
+              onChange={(e) => setRaw(e.target.checked)}
+            />
+            JSON 输入
+          </label>
+          <Button disabled={!harness || !prompt.trim() || start.isPending}>
+            <Send className="mr-2 size-4" />
+            {start.isPending ? "正在启动…" : "运行 Harness"}
+          </Button>
+        </div>
+      </form>
+      <p className="text-xs text-muted-foreground">
+        从 ~/.agentuse/harness/
+        加载适配器。修改后重新探测，再次执行会使用新的适配器版本。
+      </p>
+    </section>
+  );
+}
+function LocalRunControls({
+  base,
+  run,
+  refresh,
+}: {
+  base: string;
+  run: Run;
+  refresh: () => void;
+}) {
+  const [prompt, setPrompt] = useState("");
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const mutation = useMutation({
+    mutationFn: ({ action, body }: { action: string; body: unknown }) =>
+      post(
+        `${base}/runs/${enc(run.run_id)}/attempts/${enc(run.attempt_id)}/${action}`,
+        body,
+      ),
+    onSuccess: () => {
+      setPrompt("");
+      refresh();
+    },
+  });
+  const active = run.status === "running" || run.status === "waiting";
+  if (!active) return null;
+  const latest = [...(run.events ?? [])]
+    .reverse()
+    .find((event) => event.kind === "question");
+  const question = latest?.payload as
+    | {
+        tool_use_id?: string;
+        questions?: { question: string; header?: string }[];
+      }
+    | undefined;
+  return (
+    <section className="my-5 space-y-3 rounded-lg border p-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium">本地执行控制</h3>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={mutation.isPending}
+          onClick={() => mutation.mutate({ action: "cancel", body: {} })}
+        >
+          取消执行
+        </Button>
+      </div>
+      <ErrorNotice error={mutation.error} />
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          mutation.mutate({ action: "steer", body: { prompt } });
+        }}
+      >
+        <Input
+          aria-label="本地插话"
+          placeholder="追加输入到当前执行"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+        />
+        <Button size="sm" disabled={!prompt.trim() || mutation.isPending}>
+          插话
+        </Button>
+      </form>
+      {run.status === "waiting" && question?.tool_use_id && (
+        <form
+          className="space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            mutation.mutate({
+              action: "answer",
+              body: { tool_use_id: question.tool_use_id, answers },
+            });
+          }}
+        >
+          {question.questions?.map((q) => (
+            <label key={q.question} className="grid gap-1 text-xs">
+              {q.question}
+              <Input
+                value={answers[q.question] ?? ""}
+                onChange={(e) =>
+                  setAnswers({ ...answers, [q.question]: e.target.value })
+                }
+              />
+            </label>
+          ))}
+          <Button size="sm" disabled={mutation.isPending}>
+            提交答案
+          </Button>
+        </form>
+      )}
+    </section>
+  );
+}
+
 function Empty({ title, text }: { title: string; text: string }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-4 py-24 text-center">
@@ -557,10 +884,12 @@ function RunDetail({
   base,
   run,
   close,
+  local,
 }: {
   base: string;
   run: Run;
   close: () => void;
+  local: boolean;
 }) {
   const q = useQuery({
     queryKey: ["run", base, run.run_id, run.attempt_id],
@@ -625,6 +954,16 @@ function RunDetail({
               </React.Fragment>
             ))}
           </dl>
+          {local && (
+            <LocalRunControls
+              base={base.replace(
+                "/api/conversations/local/",
+                "/api/local/conversations/",
+              )}
+              run={r}
+              refresh={() => void q.refetch()}
+            />
+          )}
           {r.error && (
             <pre className="mt-5 whitespace-pre-wrap break-words rounded-lg bg-destructive/5 p-3 text-xs text-destructive">
               {r.error}

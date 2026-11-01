@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -38,13 +39,31 @@ func startLocalUI(cfg daemon.Config, reader store.Reader, managers ...*daemon.Ru
 		ln.Close()
 		return nil, err
 	}
+	var local *daemon.LocalService
+	if len(managers) > 0 {
+		local = managers[0].Local
+	}
 	handler, err := controller.New(reader, ln.Addr().String(), token, controller.PublicData{
+		LocalCreate: func(ctx context.Context, title string) (store.Conversation, error) {
+			return local.CreateConversation(ctx, title)
+		},
+		LocalStart: func(ctx context.Context, conversation string, b json.RawMessage) (store.Run, error) {
+			var req daemon.LocalRunRequest
+			if err := json.Unmarshal(b, &req); err != nil {
+				return store.Run{}, store.ErrInvalid
+			}
+			return local.Start(ctx, conversation, req)
+		},
+		LocalControl: func(ctx context.Context, c, s, r, a, action string, b json.RawMessage) error {
+			return local.Control(ctx, c, s, r, a, action, b)
+		},
+		LocalHarnesses: func() (any, error) { return local.Harnesses() },
 		Endpoints: func() any {
 			items, e := (daemon.EndpointService{Path: cfg.ConfigPath}).List()
-			if e != nil {
+			if e != nil && !errors.Is(e, os.ErrNotExist) {
 				return controller.ReadFailure{Err: e}
 			}
-			out := []map[string]any{}
+			out := []map[string]any{{"endpoint_id": "local", "name": "本地调试", "server_url": "", "enabled": true, "mode": "local"}}
 			for _, ep := range items {
 				out = append(out, map[string]any{"endpoint_id": ep.ID(), "server_url": ep.ServerURL, "name": ep.Name, "enabled": ep.Enabled})
 			}
@@ -92,18 +111,14 @@ func startLocalUI(cfg daemon.Config, reader store.Reader, managers ...*daemon.Ru
 			log.Printf("本机页面: %v", e)
 		}
 	}()
-	log.Printf("本机只读页面: %s（agentuse ui 获取登录链接）", base)
+	log.Printf("本机页面: %s（agentuse ui 获取登录链接）", base)
 	return func() { _ = server.Close(); _ = os.Remove(localPath("ui.addr")) }, nil
 }
 func runUI(args []string) error {
 	fs := command.NewFlags("agentuse ui")
-	config := fs.String("config", daemon.DefaultConfigPath(), "daemon 配置")
+	fs.String("config", daemon.DefaultConfigPath(), "client 配置")
 	open := fs.Bool("open", false, "同时在浏览器打开")
 	if err := command.Parse(fs, args); err != nil {
-		return err
-	}
-	_, err := loadDaemonConfig(*config)
-	if err != nil {
 		return err
 	}
 	b, err := os.ReadFile(localPath("ui.addr"))

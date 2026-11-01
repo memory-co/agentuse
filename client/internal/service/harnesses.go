@@ -18,16 +18,17 @@ import (
 
 // localHarness 是本机一个可用的 harness。Spec 为 nil 的是自定义 harness。
 type localHarness struct {
-	HistoryPath string
-	PackageDir  string
-	Disabled    bool
-	Revision    string
-	ResumeID    string
-	Name        string
-	Path        string
-	Args        []string
-	Version     string
-	Spec        *harness.Spec
+	LocalSessionID string
+	HistoryPath    string
+	PackageDir     string
+	Disabled       bool
+	Revision       string
+	ResumeID       string
+	Name           string
+	Path           string
+	Args           []string
+	Version        string
+	Spec           *harness.Spec
 	// Env 是这一次起进程要多带的环境变量(协调者的工作令牌等),跟着消息变。
 	Env []string
 }
@@ -115,7 +116,14 @@ func runHarness(ctx context.Context, la localHarness, m protocol.Dispatch, dir s
 		if la.HistoryPath != "" {
 			instructions = strings.ReplaceAll(instructions, ".agentuse/session-history.json", la.HistoryPath)
 		}
-		in, _ := json.Marshal(protocol.HarnessInput{SessionID: m.SessionID, Instructions: instructions, Input: m.Input, Attachments: m.Attachments, RunID: m.RunID, AgentID: m.AgentID, TaskMessageIDs: m.TaskMessageIDs, SessionMessages: m.SessionMessages})
+		payload := protocol.HarnessInput{SessionID: m.SessionID, Instructions: instructions, Input: m.Input, Attachments: m.Attachments, RunID: m.RunID, AgentID: m.AgentID, TaskMessageIDs: m.TaskMessageIDs, SessionMessages: m.SessionMessages}
+		if m.Local {
+			payload.EndpointID = "local"
+			payload.ConversationID = m.SessionID
+			payload.SessionID = la.LocalSessionID
+			payload.Resume = la.ResumeID
+		}
+		in, _ := json.Marshal(payload)
 		cmd := exec.CommandContext(ctx, la.Path, la.Args...)
 		if len(la.Env) > 0 {
 			cmd.Env = append(os.Environ(), la.Env...)
@@ -177,6 +185,7 @@ func scanLines(r io.Reader, fn func(string)) {
 }
 
 func start(cmd *exec.Cmd, dir string, stdin io.Reader) (stdout, stderr io.ReadCloser, err error) {
+	prepareProcess(cmd)
 	cmd.Dir = dir
 	if stdin != nil {
 		cmd.Stdin = stdin

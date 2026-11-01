@@ -10,7 +10,7 @@
 | session | client / 原生 harness | 一个可继续使用的原生执行上下文 |
 | run | server 分配，client 领取 | 一次任务；绑定本机 session 后执行 |
 
-一个 session 包含若干个从 server 领取的 run。Client 不创建独立于 server 的业务 run，也不因调用了原生 API 就另造一个 run_id；本机 run.json 文件记录 server run 的执行尝试。
+一个 session 包含若干个从 server 领取或由 local 调试入口创建的 run。平台模式不创建独立于 server 的业务 run，也不因调用了原生 API 就另造一个 run_id；本机 run.json 文件记录 server run 的执行尝试。
 
 ```text
 中心 A / Conversation C / Agent coder

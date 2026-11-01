@@ -93,9 +93,10 @@ type Reader interface {
 	Detail(context.Context, string, string, string, string, string) (Run, error)
 }
 type Ledger struct {
-	Root  string
-	mu    sync.Mutex
-	paths map[string]string
+	reserved map[string]int
+	Root     string
+	mu       sync.Mutex
+	paths    map[string]string
 }
 type writeStore struct {
 	l        *Ledger

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 
 	"github.com/memory-co/agentuse/client/internal/store"
 	"github.com/memory-co/agentuse/internal/harness"
@@ -13,6 +14,8 @@ import (
 // HarnessService owns locally installed adapters, never server configuration.
 type HarnessService struct{ Root string }
 
+var harnessPackagesMu sync.Mutex
+
 func HarnessRoot(cfg Config) string {
 	if cfg.ConfigPath != "" {
 		return filepath.Join(filepath.Dir(cfg.ConfigPath), "harness")
@@ -21,6 +24,8 @@ func HarnessRoot(cfg Config) string {
 	return filepath.Join(home, ".agentuse", "harness")
 }
 func (s HarnessService) Packages() (map[string]localHarness, error) {
+	harnessPackagesMu.Lock()
+	defer harnessPackagesMu.Unlock()
 	if e := harness.InstallBuiltins(s.Root); e != nil {
 		return nil, e
 	}

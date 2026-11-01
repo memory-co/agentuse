@@ -95,7 +95,7 @@ func TestClientMultiEndpointFilesAndUI(t *testing.T) {
 			Key string `json:"device_key"`
 		}
 	}
-	if status := get("/api/endpoints", &eps); status != 200 || len(eps.Items) != 2 {
+	if status := get("/api/endpoints", &eps); status != 200 || len(eps.Items) != 3 {
 		t.Fatal(status, eps)
 	}
 	for _, e := range eps.Items {
@@ -260,4 +260,103 @@ func TestClientNativeSessionsShareWorkspaceAndRunConcurrently(t *testing.T) {
 			t.Fatal("parallel run failed", r)
 		}
 	}
+}
+
+func TestClientLocalHarnessWithoutRegistration(t *testing.T) {
+	e2eutil.Skip(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	home := t.TempDir()
+	cfg := filepath.Join(home, ".agentuse", "endpoints.yaml")
+	os.MkdirAll(filepath.Dir(cfg), 0700)
+	fake := e2eutil.Binary(t, "fakeharness")
+	cli := e2eutil.Binary(t, "agentuse")
+	writeAdapterConfig(t, cfg, map[string]any{"harnesses": map[string]any{"fake": map[string]any{"command": fake}, "claude": map[string]any{"disabled": true}, "codex": map[string]any{"disabled": true}}})
+	cmd := exec.Command(cli, "start")
+	cmd.Env = e2eutil.Env(home, "AGENTUSE_UI_ADDR=127.0.0.1:0")
+	process := e2eutil.Start(t, cmd)
+	var base, token string
+	e2eutil.WaitFor(t, 5*time.Second, "standalone local client", func() bool {
+		b, e := os.ReadFile(filepath.Join(home, ".agentuse", "ui.addr"))
+		if e != nil {
+			return false
+		}
+		base = strings.TrimSpace(string(b))
+		b, e = os.ReadFile(filepath.Join(home, ".agentuse", "ui.token"))
+		token = strings.TrimSpace(string(b))
+		return e == nil
+	})
+	request := func(method, path string, body any, out any) int {
+		t.Helper()
+		var data io.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			data = strings.NewReader(string(b))
+		}
+		r, _ := http.NewRequestWithContext(ctx, method, base+path, data)
+		r.Header.Set("Authorization", "Bearer "+token)
+		r.Header.Set("Content-Type", "application/json")
+		response, e := http.DefaultClient.Do(r)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer response.Body.Close()
+		if out != nil {
+			if e = json.NewDecoder(response.Body).Decode(out); e != nil {
+				t.Fatal(e)
+			}
+		}
+		return response.StatusCode
+	}
+	var endpoints struct {
+		Items []struct {
+			ID string `json:"endpoint_id"`
+		}
+	}
+	if status := request("GET", "/api/endpoints", nil, &endpoints); status != 200 || len(endpoints.Items) != 1 || endpoints.Items[0].ID != "local" {
+		t.Fatal(status, endpoints)
+	}
+	var c struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	if status := request("POST", "/api/local/conversations", map[string]any{"title": "本地调试 / 自定义字符串"}, &c); status != 201 || c.Title != "本地调试 / 自定义字符串" {
+		t.Fatal(status, c)
+	}
+	var run struct {
+		Session string `json:"session_id"`
+		Run     string `json:"run_id"`
+		Attempt string `json:"attempt_id"`
+	}
+	if status := request("POST", "/api/local/conversations/"+c.ID+"/runs", map[string]any{"harness": "fake", "prompt": "ledger"}, &run); status != 202 {
+		t.Fatal(status, run)
+	}
+	var result struct {
+		Status    string          `json:"status"`
+		Output    string          `json:"output"`
+		Confirmed bool            `json:"server_confirmed"`
+		Usage     *agentuse.Usage `json:"usage"`
+	}
+	path := "/api/conversations/local/" + c.ID + "/sessions/" + run.Session + "/runs/" + run.Run + "/attempts/" + run.Attempt
+	e2eutil.WaitFor(t, 5*time.Second, "standalone custom harness result", func() bool {
+		return request("GET", path, nil, &result) == 200 && result.Status == "succeeded" && result.Confirmed
+	})
+	if result.Output != "ledger result" || result.Usage == nil || result.Usage.InputTokens != 1234 {
+		t.Fatal(result)
+	}
+	if _, e := os.Stat(cfg); !os.IsNotExist(e) {
+		t.Fatal("local endpoint was written to endpoints.yaml", e)
+	}
+	process.Stop()
+	cmd = exec.Command(cli, "start")
+	cmd.Env = e2eutil.Env(home, "AGENTUSE_UI_ADDR=127.0.0.1:0")
+	e2eutil.Start(t, cmd)
+	e2eutil.WaitFor(t, 5*time.Second, "restarted local client", func() bool {
+		b, e := os.ReadFile(filepath.Join(home, ".agentuse", "ui.addr"))
+		if e != nil {
+			return false
+		}
+		base = strings.TrimSpace(string(b))
+		return request("GET", path, nil, &result) == 200 && result.Status == "succeeded"
+	})
 }
