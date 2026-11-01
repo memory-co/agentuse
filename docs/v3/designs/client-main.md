@@ -111,7 +111,7 @@ Server Conversation C
 
 ## 五、从启动到一个 Run 结束
 
-1. CLI 加载 setting.yaml 和 endpoints.yaml，装配五个 service，按设置启动可选的本机 HTTP。
+1. CLI 加载 setting.yaml 和 endpoints.yaml，装配五个 service，按设置尝试启动可选的本机 HTTP；关闭或启动失败均不阻断后续任务流程。
 2. CLI 注册流程将成功注册的信息存入 endpointService；runService 读取 endpoints，独立握手和对账。
 3. harnessService 本地探测程序与包版本；runService 向各 server 上报可用性和能力。
 4. runService 自行预留槽位并领取任务，校验 endpoint、attempt、版本和本机容量。
@@ -170,6 +170,12 @@ run 取消或进程退出不必删除 session；由本地适配确认是否可�
 平台查询 controller 只使用 session/run 文件的只读 Reader，不访问中心凭据；local 调试通过单独注入的本机执行入口调用 service。Reader 只暴露查询，不提供写文件或清理目录方法；不再依赖 SQLite 只读连接保证权限。
 
 页面的监听地址、端口和开关由 settingService 提供，默认 `127.0.0.1:7801`，平台查询使用 GET，local 使用已列出的 POST，使用本机令牌与 Host 校验，不开放 CORS。
+
+本机 Web 服务是可选入口，任务服务不依赖本机 HTTP。`local_http.enabled: false` 时不启动监听，runService 仍连接各 endpoint、握手对账、领取任务和回报结果；sessionService、harnessService 及本地文件持久化照常工作。原生 RPC/hook 若需要本机回调，由 harnessService 独立管理，不依赖页面端口。
+
+设计要求：配置开启 Web 但监听失败（例如端口被占用），或页面令牌、链接文件等 Web 初始化失败时，CLI 记录失败原因并释放本次初始化已取得的资源，继续启动后台任务服务；运行中 HTTP 服务意外退出也只记录错误，不取消任务执行。Web 不可用时，本机页面、HTTP API、API 文档及页面中的 local 调试入口不可用，`agentuse ui` 明确提示页面未启动，不返回失效的页面链接。修复后通过重启 client 恢复 Web；本版不要求自动重试监听。配置校验、任务状态恢复、工作目录等核心初始化失败仍按原有规则报错，不作为 Web 故障忽略。
+
+实现状态：显式关闭 Web 已支持；Web 启动失败后继续运行后台服务的容错逻辑尚待实现。
 
 CLI 负责配置管理和提供页面链接。页面展示执行、所属 session 和用量统计；local 可以调用本机执行入口，平台任务仍不从此页面控制。
 
