@@ -425,6 +425,14 @@ function App() {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter>
+          <a
+            href="/api/docs"
+            target="_blank"
+            rel="noreferrer"
+            className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground group-data-[collapsible=icon]:hidden"
+          >
+            API 文档
+          </a>
           <Button
             variant="ghost"
             className="justify-start"

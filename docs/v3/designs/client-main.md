@@ -194,6 +194,9 @@ CLI 负责配置管理和提供页面链接。页面展示执行、所属 sessio
 
 ### 9.2 本机 HTTP API
 
+本机 API 使用 Huma 统一注册路由和 OpenAPI 描述，保持原有 JSON 响应、错误码及游标规则。页面侧栏提供「API 文档」入口：`GET /api/docs` 为交互文档，`GET /api/openapi.json`、`GET /api/openapi.yaml` 为 OpenAPI 3.1 描述，`GET /api/schemas/{schema}` 为组件 schema。文档与描述也经过同一 token/cookie 鉴权；先用 `agentuse ui` 登录页面，再打开文档即可通过 cookie 调试，也支持手动填写 Bearer token。文档页面使用 Huma 默认的 Stoplight Elements，需要浏览器能够访问 unpkg.com 加载页面资源。接口及 schema 的定义维护在 client controller 的 API 注册处，不另存一份静态 OpenAPI 文件。
+
+
 默认监听 `127.0.0.1:7801`，API 前缀 `/api`，平台查询使用 GET；local 执行入口额外支持下文列出的 POST。请求使用 `Authorization: Bearer <ui.token>`；CLI 打开页面时使用一次性 URL fragment 引导，页面在内存中读取令牌并移除 fragment，首次通过请求头访问 API，校验成功后保存到按端口命名的 HttpOnly、SameSite=Strict cookie（30 天），刷新后使用 cookie；HTTPS 下设置 Secure。不把令牌放入 query、日志或 localStorage。静态页面可直接打开，读取任何本机数据都必须通过鉴权。默认回环监听时维持本机 Host 校验；显式监听 0.0.0.0 时允许外部 Host 访问所配置端口。所有 API 仍校验令牌，不开放 CORS；除已列出的 local POST 外，其他 HTTP 方法返回 405。
 
 查询 controller 依赖专用只读 Reader；local 写接口通过独立注入的本地执行入口调用 session/run/harness 流程，不允许指定远端 endpoint 或任意命令。Reader 可读取 setting.yaml 的公开配置、适配器清单和 session/run 文件，以及执行进程发布的只读内存快照；不读取 device_key 或提供任意文件下载。配置页面若将来需要写操作，需另行设计，不在本版范围内。

@@ -117,36 +117,7 @@ func New(reader store.Reader, addr, token string, data ...PublicData) (*Controll
 	if len(data) > 0 {
 		c.data = data[0]
 	}
-	for _, entry := range []struct {
-		path string
-		fn   func() any
-	}{{"/api/endpoints", c.data.Endpoints}, {"/api/settings", c.data.Settings}, {"/api/harnesses", c.data.Harnesses}, {"/api/status", c.data.Status}} {
-		fn := entry.fn
-		c.mux.HandleFunc("GET "+entry.path, func(w http.ResponseWriter, r *http.Request) {
-			if fn == nil {
-				jsonResponse(w, map[string]any{})
-				return
-			}
-			value := fn()
-			if failed, ok := value.(ReadFailure); ok {
-				failure(w, failed.Err)
-				return
-			}
-			jsonResponse(w, value)
-		})
-	}
-	c.mux.HandleFunc("GET /api/conversations", c.conversations)
-	c.mux.HandleFunc("GET /api/local/harnesses", c.localHarnesses)
-	c.mux.HandleFunc("POST /api/local/conversations", c.localCreate)
-	c.mux.HandleFunc("POST /api/local/conversations/{conversation}/runs", c.localStart)
-	c.mux.HandleFunc("POST /api/local/conversations/{conversation}/sessions/{session}/runs/{run}/attempts/{attempt}/{action}", c.localControl)
-	base := "/api/conversations/{endpoint}/{conversation}"
-	c.mux.HandleFunc("GET "+base, c.conversation)
-	c.mux.HandleFunc("GET "+base+"/sessions", c.sessions)
-	c.mux.HandleFunc("GET "+base+"/sessions/{session}", c.session)
-	c.mux.HandleFunc("GET "+base+"/sessions/{session}/runs", c.list)
-	c.mux.HandleFunc("GET "+base+"/sessions/{session}/runs/{run}/attempts/{attempt}", c.detail)
-	c.mux.HandleFunc("GET "+base+"/sessions/{session}/usage", c.stats)
+	c.registerAPI()
 	assets := http.FileServerFS(frontend.FS())
 	c.mux.Handle("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
@@ -439,9 +410,7 @@ func (c *Controller) localCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b, e := localBody(w, r)
-	var v struct {
-		Title string `json:"title"`
-	}
+	var v createConversationBody
 	if e != nil || json.Unmarshal(b, &v) != nil {
 		failure(w, store.ErrInvalid)
 		return
