@@ -1,4 +1,4 @@
-// Package controller serves the loopback-only, token-protected read-only UI.
+// Package controller serves the token-protected read-only UI.
 // It imports store.Reader, never the execution service or its Writer.
 package controller
 
@@ -25,6 +25,8 @@ type Controller struct {
 	reader store.Reader
 	token  string
 	hosts  map[string]bool
+	public bool
+	port   string
 	mux    *http.ServeMux
 	data   PublicData
 }
@@ -34,10 +36,18 @@ func Listen(addr string) (net.Listener, error) {
 	if err != nil {
 		return nil, err
 	}
-	if host != "127.0.0.1" && host != "localhost" {
-		return nil, fmt.Errorf("本机页面只能监听 127.0.0.1 或 localhost")
+	if host == "localhost" {
+		host = "127.0.0.1"
 	}
-	return net.Listen("tcp4", net.JoinHostPort("127.0.0.1", port))
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return nil, fmt.Errorf("监听地址必须是 IP 或 localhost")
+	}
+	network := "tcp4"
+	if ip.To4() == nil {
+		network = "tcp6"
+	}
+	return net.Listen(network, net.JoinHostPort(host, port))
 }
 func Token(path string) (string, error) {
 	if b, err := os.ReadFile(path); err == nil {
@@ -91,10 +101,12 @@ func New(reader store.Reader, addr, token string, data ...PublicData) (*Controll
 	if e != nil {
 		return nil, e
 	}
-	if host != "127.0.0.1" && host != "localhost" {
-		return nil, fmt.Errorf("loopback required")
+	ip := net.ParseIP(host)
+	if host != "localhost" && ip == nil {
+		return nil, fmt.Errorf("invalid listen address")
 	}
-	c := &Controller{reader: reader, token: token, hosts: map[string]bool{net.JoinHostPort("127.0.0.1", port): true, net.JoinHostPort("localhost", port): true}, mux: http.NewServeMux()}
+	c := &Controller{public: ip != nil && ip.IsUnspecified(), port: port, reader: reader, token: token, hosts: map[string]bool{net.JoinHostPort("127.0.0.1", port): true, net.JoinHostPort("localhost", port): true}, mux: http.NewServeMux()}
+	c.hosts[net.JoinHostPort(host, port)] = true
 	if len(data) > 0 {
 		c.data = data[0]
 	}
@@ -135,7 +147,12 @@ func New(reader store.Reader, addr, token string, data ...PublicData) (*Controll
 	return c, nil
 }
 func (c *Controller) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !c.hosts[strings.ToLower(r.Host)] {
+	allowed := c.hosts[strings.ToLower(r.Host)]
+	if c.public {
+		host, port, err := net.SplitHostPort(r.Host)
+		allowed = err == nil && host != "" && port == c.port
+	}
+	if !allowed {
 		apiError(w, 403, "forbidden", "invalid Host")
 		return
 	}

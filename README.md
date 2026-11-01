@@ -200,6 +200,8 @@ session:
     max_bytes: 21474836480
 ```
 
+需要从外网访问时将 local_http.host 显式设置为 `0.0.0.0`，重启后使用服务器地址和本机页面令牌访问。
+
 省略 quota 则不限容量；声明即自动清理空闲 conversation 目录，运行中、等待回答和未获中心确认的结果均受保护。端口或根目录修改后重启 client，根目录变更需要保留记录时先完整迁移目录。端口变更不会自动重启正在运行的进程。
 
 适配器位于 `~/.agentuse/harness/<harness>/<revision>/`。默认适配器首次自动写入本机目录，后续从文件加载。自定义命令适配器可在该目录的 `harness.yaml` 中声明 `name`、`command`、`custom: true` 及可选 `args`；设置 `disabled: true` 可禁用适配器。

@@ -44,8 +44,8 @@ func DefaultSettings() Settings {
 	return s
 }
 func (s Settings) Validate() error {
-	if s.LocalHTTP.Host != "127.0.0.1" && s.LocalHTTP.Host != "localhost" {
-		return fmt.Errorf("local_http.host must be loopback")
+	if s.LocalHTTP.Host != "localhost" && net.ParseIP(s.LocalHTTP.Host) == nil {
+		return fmt.Errorf("local_http.host must be an IP address or localhost")
 	}
 	if s.LocalHTTP.Port < 1 || s.LocalHTTP.Port > 65535 {
 		return fmt.Errorf("invalid local_http.port")

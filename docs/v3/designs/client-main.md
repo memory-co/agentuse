@@ -180,7 +180,7 @@ CLI 负责配置管理和提供页面链接。页面展示执行、所属 sessio
 
 ### 9.2 本机 HTTP API
 
-默认监听 `127.0.0.1:7801`，API 前缀 `/api`，仅支持 GET。请求使用 `Authorization: Bearer <ui.token>`；CLI 打开页面时使用一次性 URL fragment 引导，页面在内存中读取令牌并移除 fragment，再通过请求头访问 API，不把令牌放入 query、日志或持久化浏览器存储。静态页面可直接打开，读取任何本机数据都必须通过鉴权。维持 Host 校验、无 CORS；其他 HTTP 方法返回 405。
+默认监听 `127.0.0.1:7801`，API 前缀 `/api`，仅支持 GET。请求使用 `Authorization: Bearer <ui.token>`；CLI 打开页面时使用一次性 URL fragment 引导，页面在内存中读取令牌并移除 fragment，再通过请求头访问 API，不把令牌放入 query、日志或持久化浏览器存储。静态页面可直接打开，读取任何本机数据都必须通过鉴权。默认回环监听时维持本机 Host 校验；显式监听 0.0.0.0 时允许外部 Host 访问所配置端口。所有 API 仍校验令牌，不开放 CORS；其他 HTTP 方法返回 405。
 
 本机 controller 依赖专用只读 Reader，不调用执行 service。Reader 可读取 setting.yaml 的公开配置、适配器清单和 session/run 文件，以及执行进程发布的只读内存快照；不读取 device_key 或提供任意文件下载。配置页面若将来需要写操作，需另行设计，不在本版范围内。
 

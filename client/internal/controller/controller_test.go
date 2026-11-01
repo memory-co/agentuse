@@ -85,9 +85,11 @@ func TestScopedFileAPIAndAuthentication(t *testing.T) {
 	if w := call("GET", base, "localhost:7801", token); w.Code != 500 {
 		t.Fatal("damaged state hidden", w.Code)
 	}
-	if _, e = Listen("0.0.0.0:0"); e == nil {
-		t.Fatal("non-loopback bind accepted")
+	ln, e := Listen("0.0.0.0:0")
+	if e != nil {
+		t.Fatal(e)
 	}
+	ln.Close()
 }
 func TestTokenFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ui.token")
@@ -134,5 +136,26 @@ func TestPaginationCursorIsBoundToParent(t *testing.T) {
 	other := call("/api/conversations/ep/other/sessions?limit=1&cursor=" + page.Cursor)
 	if other.Code != 400 {
 		t.Fatal("cursor crossed conversation", other.Code)
+	}
+}
+
+func TestPublicListenerKeepsAPIAuthentication(t *testing.T) {
+	files, _ := store.Open(t.TempDir())
+	token := strings.Repeat("x", 64)
+	ui, e := New(files.Reader(), "0.0.0.0:8091", token)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, tc := range []struct {
+		host, credential string
+		status           int
+	}{{"public.example:8091", "", 401}, {"public.example:8091", token, 200}, {"203.0.113.5:8091", token, 200}, {"public.example:9999", token, 403}} {
+		r := httptest.NewRequest("GET", "http://"+tc.host+"/api/status", nil)
+		r.Header.Set("Authorization", "Bearer "+tc.credential)
+		w := httptest.NewRecorder()
+		ui.ServeHTTP(w, r)
+		if w.Code != tc.status {
+			t.Fatal(tc.host, w.Code, tc.status)
+		}
 	}
 }

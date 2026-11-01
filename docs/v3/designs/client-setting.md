@@ -24,7 +24,7 @@ session:
 
 | 设置 | 含义 |
 |---|---|
-| local_http | 本机只读页面的开关、监听地址和端口；仅允许回环地址 |
+| local_http | 本机只读页面的开关、监听地址和端口；默认回环地址，可显式设置 0.0.0.0 对外监听 |
 | session.work_root | 所有 conversation 目录的统一父目录，不按 harness 划分 |
 | session.quota.max_bytes | 所有受管 conversation 工作目录的总容量上限，正整数字节数 |
 
