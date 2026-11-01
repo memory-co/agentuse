@@ -2,7 +2,7 @@
 
 harnessctl 把不同编码 agent 的启动、持续会话、输入投递、取消和审批收敛为命令与 JSONL 事件文件。协议参考 [agentctl/0 设计](https://twwy.net/blog/agent-cli-protocol/)，本文是本目录实现的规范；与原草案的差异明确列在下文。
 
-本目录可以整体独立分发。运行只依赖 Linux、Python 3.9+ 标准库及用户安装并配置好的原生 `codex` 或 `claude`，不需要 Go、Node.js 包、AgentUse 二进制、SDK、服务或数据库。原生 CLI 自身的运行依赖仍须满足。当前仅声明 Linux 支持。
+`harness/<name>/` 下的每个适配器目录都是自包含、可独立分发的包。运行只依赖 Linux、Python 3.9+ 标准库及用户安装并配置好的原生 `codex` 或 `claude`，不需要 Go、Node.js 包、AgentUse 二进制、SDK、服务或数据库。原生 CLI 自身的运行依赖仍须满足。当前仅声明 Linux 支持。
 
 ## 1. 分发与调用边界
 
@@ -10,22 +10,30 @@ harnessctl 把不同编码 agent 的启动、持续会话、输入投递、取�
 harnessctl/
 ├── README.md                    协议规范
 ├── LICENSE                      Apache-2.0
-├── package.py                   独立打包工具
-├── lib/
-│   ├── runtime.py               CLI、会话进程、IPC、队列和事件写入
-│   ├── codex.py                 app-server JSON-RPC 适配
-│   └── claudecode.py            stream-json 控制协议适配
+├── package.py                   分别打包各适配器的仓库工具
 ├── harness/
-│   ├── codex/
+│   ├── codex/                   独立分发包
 │   │   ├── harnessctl           可执行入口
-│   │   └── manifest.json
-│   └── claudecode/
+│   │   ├── manifest.json
+│   │   ├── README.md
+│   │   ├── LICENSE
+│   │   └── lib/
+│   │       ├── runtime.py       包内运行时
+│   │       └── codex.py         app-server 适配
+│   └── claudecode/              独立分发包
 │       ├── harnessctl
-│       └── manifest.json
+│       ├── manifest.json
+│       ├── README.md
+│       ├── LICENSE
+│       └── lib/
+│           ├── runtime.py       包内运行时
+│           └── claudecode.py    stream-json 适配
 └── tests/                       仓库内测试，不进入发布包
 ```
 
-**分发单位是整个 `harnessctl/`，不能只复制某个适配器子目录**，两个入口复用本目录的 lib。每个入口都叫 harnessctl，调用方通过路径选择，不把两个适配器目录同时加入 PATH。包可位于任意路径，调用时 cwd 可以在包外；资源通过入口自身位置定位。包目录按只读资源使用，升级需先关闭使用旧包的会话。
+**分发单位是单个 `harness/<name>/` 目录**。例如只复制 `harness/claudecode/` 到任意机器，就可以调用其中的 harnessctl；不需要父目录、Codex 包或仓库级 lib。每个包携带自己的运行时实现，不使用跨包导入、指向包外的符号链接或运行时下载来补齐依赖。
+
+每个入口都叫 harnessctl，调用方通过路径选择，不把两个适配器目录同时加入 PATH。包可位于任意路径，调用时 cwd 可以在包外；入口只定位同目录的 lib。包目录按只读资源使用，升级需先关闭使用旧包的会话。仓库级 README、测试和打包工具不是运行依赖。
 
 manifest.json 包含 name、version、protocol、entrypoint、platforms、requires、delivery、requests、resume 和投递确认方式。tested_backend_version 是实测基线，不是对所有后续版本的兼容保证。doctor 检查平台、可执行程序与版本命令，不调用模型、不证明所有交互能力可用。安装时可先静态读取 manifest，解压不执行程序。
 
@@ -36,8 +44,8 @@ harnessctl 不认识 AgentUse endpoint、conversation、run、租约、工作令
 ## 2. 快速使用
 
 ```sh
-A=/path/to/harnessctl/harness/codex/harnessctl
-# 换为 harness/claudecode/harnessctl 后调用方式相同。
+A=/path/to/installed/codex/harnessctl
+# 换为独立安装的 claudecode/harnessctl 后调用方式相同。
 "$A" doctor
 "$A" start /tmp/review.jsonl --cwd /path/to/repo --id task-1 "检查当前改动，先给出建议"
 tail -f /tmp/review.jsonl
@@ -172,14 +180,16 @@ status 优先联系运行进程；联系失败时尝试获取独占运行锁，�
 
 ```sh
 python3 -m unittest discover -s harnessctl/tests -v
-python3 harnessctl/package.py
+python3 harnessctl/package.py                   # 分别生成两个适配器包
+python3 harnessctl/package.py --adapter claudecode  # 也可只打包一个
 cd harnessctl/dist
-sha256sum -c harnessctl-0.1.0-linux.tar.gz.sha256
+sha256sum -c harnessctl-codex-0.1.0-linux.tar.gz.sha256
+sha256sum -c harnessctl-claudecode-0.1.0-linux.tar.gz.sha256
 ```
 
-打包工具只读取本目录，产出完整 tar.gz 和 SHA-256 文件，不执行适配器。压缩包使用固定时间与属主元数据，未变更的内容可重复构建。解压后保留目录结构与入口的可执行权限即可调用，无需安装 Python 包。
+打包工具只读取所选适配器目录，为每个适配器分别产出 tar.gz 和 SHA-256 文件，不执行适配器。归档顶层是 codex/ 或 claudecode/，只包含该包自己的入口、manifest、说明、许可证和 lib，不携带其他适配器或仓库工具。压缩包使用固定时间与属主元数据，未变更的内容可重复构建。解压后保留目录结构与入口的可执行权限即可调用，无需安装 Python 包。
 
-测试复制完整目录到仓库外，以模拟原生后端验证持续会话、投递、竞态、并发事件写入、审批、取消与退出；不会使用模型或外网。真实 CLI 的模型认证、版本差异和原生工具行为需要另行端到端验证。
+测试仅复制单个适配器目录到仓库外，不复制仓库级文件；归档测试删除原安装目录，并在隐藏另一个适配器后启动解压出的独立包，以模拟原生后端验证持续会话、投递、竞态、并发事件写入、审批、取消与退出；不会使用模型或外网。真实 CLI 的模型认证、版本差异和原生工具行为需要另行端到端验证。
 
 本机端到端验证基线（2026-11-01）：
 

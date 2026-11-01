@@ -19,10 +19,12 @@ class ProtocolTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='harnessctl-test-')
         self.root = Path(self.temp.name)
-        # Copy the complete distribution outside the repository: no imports,
-        # executable paths, cwd, or resources may refer back to AgentUse.
+        # Copy only individual adapter directories, with no shared parent lib,
+        # protocol source tree, package builder, or AgentUse modules available.
         self.dist = self.root / 'distribution'
-        shutil.copytree(ROOT, self.dist, ignore=shutil.ignore_patterns('__pycache__', 'dist'))
+        for adapter in ('codex', 'claudecode'):
+            shutil.copytree(ROOT / 'harness' / adapter, self.dist / adapter,
+                            ignore=shutil.ignore_patterns('__pycache__'))
         self.bin = self.root / 'bin'
         self.bin.mkdir()
         for name in ('codex', 'claude'):
@@ -43,7 +45,7 @@ class ProtocolTests(unittest.TestCase):
         self.temp.cleanup()
 
     def call(self, adapter, verb, event=None, *args):
-        argv = [str(self.dist / 'harness' / adapter / 'harnessctl'), verb]
+        argv = [str(self.dist / adapter / 'harnessctl'), verb]
         if event is not None:
             argv.append(str(event))
         return subprocess.run(argv + list(args), cwd=self.root, env=self.env,
@@ -157,10 +159,17 @@ class ProtocolTests(unittest.TestCase):
 
     def test_cancel_while_codex_start_response_is_pending(self):
         event=self.root/'starting.jsonl'
+        gate=self.root/'native-start-gate'
+        self.env['HARNESSCTL_TEST_STARTING_GATE']=str(gate)
         p=self.call('codex','start',event,'starting_hold')
         self.assertEqual(p.returncode,0,p.stderr)
         self.sessions.append(('codex',event))
+        deadline=time.monotonic()+3
+        while not Path(str(gate)+'.started').exists() and time.monotonic()<deadline:
+            time.sleep(.01)
+        self.assertTrue(Path(str(gate)+'.started').exists())
         self.assertEqual(self.call('codex','cancel',event).returncode,0)
+        gate.touch()
         self.wait(event,'turn.finished',status='interrupted')
         self.wait(event,'control.response',operation='interrupt')
 
@@ -194,21 +203,32 @@ class ProtocolTests(unittest.TestCase):
         self.call('codex','status',event)
         self.assertEqual(len([e for e in self.events(event) if e['type']=='session.exited']),1)
 
-    def test_reproducible_archive_runs_without_repository(self):
-        spec=importlib.util.spec_from_file_location('package_tool', self.dist/'package.py')
+    def test_reproducible_archives_are_independent(self):
+        spec=importlib.util.spec_from_file_location('package_tool', ROOT/'package.py')
         package=importlib.util.module_from_spec(spec);spec.loader.exec_module(package)
-        archive=package.build(self.root/'build1')
-        other=package.build(self.root/'build2')
-        self.assertEqual(archive.read_bytes(),other.read_bytes())
         unpacked=self.root/'unpacked';unpacked.mkdir()
-        with tarfile.open(archive) as source:
-            self.assertTrue(all(p.name.startswith('harnessctl/') and '/tests/' not in p.name for p in source.getmembers()))
-            source.extractall(unpacked)
-        shutil.rmtree(self.dist)
-        self.dist=unpacked/'harnessctl'
         for adapter in ('codex','claudecode'):
-            event=self.start(adapter,'packaged')
-            self.wait(event,'turn.finished',status='completed')
+            archive=package.build(self.root/'build1', adapter)
+            other=package.build(self.root/'build2', adapter)
+            self.assertEqual(archive.read_bytes(),other.read_bytes())
+            with tarfile.open(archive) as source:
+                self.assertTrue(all(p.name.startswith(adapter+'/') for p in source.getmembers()))
+                self.assertNotIn(adapter+'/lib/'+('claudecode' if adapter=='codex' else 'codex')+'.py',source.getnames())
+                source.extractall(unpacked)
+        shutil.rmtree(self.dist)
+        self.dist=unpacked
+        for adapter in ('codex','claudecode'):
+            # Hide the other package: no sibling can supply runtime dependencies.
+            sibling=self.dist/('claudecode' if adapter=='codex' else 'codex')
+            hidden=self.root/'hidden-adapter'
+            sibling.rename(hidden)
+            try:
+                event=self.start(adapter,'packaged')
+                self.wait(event,'turn.finished',status='completed')
+                self.call(adapter,'close',event)
+                self.wait(event,'session.exited')
+            finally:
+                hidden.rename(sibling)
 
 
 if __name__=='__main__':

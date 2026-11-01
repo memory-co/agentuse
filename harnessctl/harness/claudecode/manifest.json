@@ -23,6 +23,5 @@
     "question"
   ],
   "resume": true,
-  "delivery_confirmation": "user_replay; steer turn attribution unknown",
-  "distribution_root": "../.."
+  "delivery_confirmation": "user_replay; steer turn attribution unknown"
 }

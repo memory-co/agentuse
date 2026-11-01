@@ -23,6 +23,5 @@
     "question"
   ],
   "resume": true,
-  "delivery_confirmation": "rpc_response",
-  "distribution_root": "../.."
+  "delivery_confirmation": "rpc_response"
 }

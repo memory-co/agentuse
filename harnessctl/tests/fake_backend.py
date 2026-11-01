@@ -2,6 +2,7 @@
 """Deterministic native protocol fixture, never calls a model."""
 import json
 import os
+from pathlib import Path
 import sys
 import time
 
@@ -59,7 +60,14 @@ for line in sys.stdin:
             emit(dict(id=f['id'], result=dict(thread=dict(id='native-session'))))
         elif method == 'turn/start':
             if f['params']['input'][0]['text'] == 'starting_hold':
-                time.sleep(.4)
+                gate = os.environ.get('HARNESSCTL_TEST_STARTING_GATE')
+                if gate:
+                    Path(gate + '.started').touch()
+                    deadline = time.monotonic() + 5
+                    while not Path(gate).exists() and time.monotonic() < deadline:
+                        time.sleep(.01)
+                else:
+                    time.sleep(.4)
             count += 1
             turn = 'turn-' + str(count)
             emit(dict(id=f['id'], result=dict(turn=dict(id=turn))))
