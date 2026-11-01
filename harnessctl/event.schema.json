@@ -1,76 +1,55 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "harnessctl/1 JSONL event",
-  "description": "Each complete JSONL line must match exactly one event variant. See EVENT.md.",
+  "title": "harnessctl/2 public event",
   "oneOf": [
     {
-      "$ref": "#/$defs/sessionReady"
-    },
-    {
-      "$ref": "#/$defs/turnStarted"
-    },
-    {
-      "$ref": "#/$defs/turnFinished"
-    },
-    {
-      "$ref": "#/$defs/inputAccepted"
-    },
-    {
-      "$ref": "#/$defs/inputObserved"
-    },
-    {
-      "$ref": "#/$defs/inputDelivered"
-    },
-    {
-      "$ref": "#/$defs/inputRejected"
-    },
-    {
-      "$ref": "#/$defs/inputDropped"
-    },
-    {
-      "$ref": "#/$defs/messageDelta"
+      "$ref": "#/$defs/accepted"
     },
     {
       "$ref": "#/$defs/message"
     },
     {
-      "$ref": "#/$defs/toolStarted"
+      "$ref": "#/$defs/permissionPending"
     },
     {
-      "$ref": "#/$defs/toolFinished"
+      "$ref": "#/$defs/permissionReplied"
     },
     {
-      "$ref": "#/$defs/plan"
+      "$ref": "#/$defs/permissionExpired"
     },
     {
-      "$ref": "#/$defs/usage"
+      "$ref": "#/$defs/questionPending"
     },
     {
-      "$ref": "#/$defs/permissionRequest"
+      "$ref": "#/$defs/questionReplied"
     },
     {
-      "$ref": "#/$defs/questionRequest"
+      "$ref": "#/$defs/questionExpired"
     },
     {
-      "$ref": "#/$defs/requestReplied"
+      "$ref": "#/$defs/result"
     },
     {
-      "$ref": "#/$defs/requestExpired"
-    },
-    {
-      "$ref": "#/$defs/cancelAccepted"
-    },
-    {
-      "$ref": "#/$defs/controlResponse"
-    },
-    {
-      "$ref": "#/$defs/runtimeStopped"
-    },
-    {
-      "$ref": "#/$defs/error"
+      "$ref": "#/$defs/log"
     }
   ],
   "$defs": {
+    "option": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "description"
+      ],
+      "additionalProperties": false
+    },
     "question": {
       "type": "object",
       "properties": {
@@ -103,374 +82,34 @@
       ],
       "additionalProperties": false
     },
-    "option": {
-      "type": "object",
-      "properties": {
-        "label": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "label",
-        "description"
-      ],
-      "additionalProperties": false
-    },
-    "step": {
-      "type": "object",
-      "properties": {
-        "text": {
-          "type": "string"
-        },
-        "status": {
-          "type": "string",
-          "enum": [
-            "pending",
-            "in_progress",
-            "completed",
-            "unknown"
-          ]
-        }
-      },
-      "required": [
-        "text",
-        "status"
-      ],
-      "additionalProperties": false
-    },
-    "sessionReady": {
+    "accepted": {
       "type": "object",
       "properties": {
         "type": {
-          "const": "session.ready"
+          "const": "accepted"
         },
         "ts": {
           "type": "string",
           "format": "date-time"
         },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "ts"
-      ],
-      "additionalProperties": false
-    },
-    "turnStarted": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "turn.started"
-        },
-        "ts": {
+        "run_id": {
           "type": "string",
-          "format": "date-time"
+          "format": "uuid"
         },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "evidence": {
-          "type": "string",
-          "enum": [
-            "adapter_submission",
-            "assistant_output",
-            "result",
-            "rpc_response"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "ts"
-      ],
-      "additionalProperties": false
-    },
-    "turnFinished": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "turn.finished"
-        },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "status": {
-          "type": "string",
-          "enum": [
-            "completed",
-            "interrupted",
-            "failed"
-          ]
-        },
-        "output": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "ts",
-        "status"
-      ],
-      "additionalProperties": false
-    },
-    "inputAccepted": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "input.accepted"
-        },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "input": {
+        "input_id": {
           "type": "string",
           "minLength": 1
-        }
-      },
-      "required": [
-        "type",
-        "ts",
-        "input"
-      ],
-      "additionalProperties": false
-    },
-    "inputObserved": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "input.observed"
-        },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "input": {
-          "type": "string",
-          "minLength": 1
-        },
-        "evidence": {
-          "type": "string",
-          "enum": [
-            "user_replay"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "ts"
-      ],
-      "additionalProperties": false
-    },
-    "inputDelivered": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "input.delivered"
-        },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "input": {
-          "type": "string",
-          "minLength": 1
-        },
-        "outcome": {
-          "type": "string",
-          "enum": [
-            "injected",
-            "started_turn",
-            "unknown"
-          ]
-        },
-        "evidence": {
-          "type": "string",
-          "enum": [
-            "rpc_response",
-            "user_replay",
-            "native_result"
-          ]
-        },
-        "reason": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "type",
-        "ts",
-        "input",
-        "outcome",
-        "evidence"
-      ],
-      "additionalProperties": false,
-      "oneOf": [
-        {
-          "properties": {
-            "outcome": {
-              "const": "injected"
-            },
-            "evidence": {
-              "enum": [
-                "rpc_response"
-              ]
-            }
-          }
-        },
-        {
-          "properties": {
-            "outcome": {
-              "const": "started_turn"
-            },
-            "evidence": {
-              "enum": [
-                "rpc_response",
-                "user_replay",
-                "native_result"
-              ]
-            }
-          }
-        },
-        {
-          "properties": {
-            "outcome": {
-              "const": "unknown"
-            },
-            "evidence": {
-              "enum": [
-                "user_replay"
-              ]
-            }
-          }
-        }
-      ]
-    },
-    "inputRejected": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "input.rejected"
-        },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "input": {
-          "type": "string",
-          "minLength": 1
-        },
-        "reason": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "type",
-        "ts",
-        "input",
-        "reason"
-      ],
-      "additionalProperties": false
-    },
-    "inputDropped": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "input.dropped"
-        },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "input": {
-          "type": "string",
-          "minLength": 1
-        },
-        "reason": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "type",
-        "ts",
-        "input",
-        "reason"
-      ],
-      "additionalProperties": false
-    },
-    "messageDelta": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "message.delta"
-        },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
         },
         "text": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
         "type",
         "ts",
+        "run_id",
+        "input_id",
         "text"
       ],
       "additionalProperties": false
@@ -485,11 +124,13 @@
           "type": "string",
           "format": "date-time"
         },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "message_id": {
+          "type": "string",
+          "minLength": 1
         },
         "text": {
           "type": "string"
@@ -498,150 +139,44 @@
       "required": [
         "type",
         "ts",
+        "run_id",
+        "message_id",
         "text"
       ],
       "additionalProperties": false
     },
-    "toolStarted": {
+    "result": {
       "type": "object",
       "properties": {
         "type": {
-          "const": "tool.started"
+          "const": "result"
         },
         "ts": {
           "type": "string",
           "format": "date-time"
         },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "tool": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "title": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "status": {
+        "run_id": {
           "type": "string",
-          "enum": [
-            "running",
-            "completed",
-            "failed",
-            "interrupted",
-            "unknown"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "ts",
-        "tool",
-        "title",
-        "status"
-      ],
-      "additionalProperties": false
-    },
-    "toolFinished": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "tool.finished"
+          "format": "uuid"
         },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "tool": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "title": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "status": {
-          "type": "string",
-          "enum": [
-            "running",
-            "completed",
-            "failed",
-            "interrupted",
-            "unknown"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "ts",
-        "tool",
-        "status"
-      ],
-      "additionalProperties": false
-    },
-    "plan": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "plan"
-        },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "steps": {
+        "input_ids": {
           "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
           "items": {
-            "$ref": "#/$defs/step"
+            "type": "string",
+            "minLength": 1
           }
-        }
-      },
-      "required": [
-        "type",
-        "ts",
-        "steps"
-      ],
-      "additionalProperties": false
-    },
-    "usage": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "usage"
         },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
+        "status": {
+          "enum": [
+            "completed",
+            "cancelled",
+            "failed"
           ]
+        },
+        "output": {
+          "type": "string"
         },
         "usage": {
           "type": [
@@ -655,30 +190,116 @@
             "null"
           ],
           "minimum": 0
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "type",
         "ts",
-        "usage"
+        "run_id",
+        "input_ids",
+        "status",
+        "output",
+        "usage",
+        "cost_usd",
+        "error"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "enum": [
+                "completed",
+                "cancelled"
+              ]
+            },
+            "error": {
+              "const": null
+            }
+          }
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "failed"
+            },
+            "error": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
     },
-    "permissionRequest": {
+    "log": {
       "type": "object",
       "properties": {
         "type": {
-          "const": "request.opened"
+          "const": "log"
         },
         "ts": {
           "type": "string",
           "format": "date-time"
         },
-        "native": {
+        "run_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "topic": {
+          "type": "string",
+          "minLength": 1
+        },
+        "level": {
+          "enum": [
+            "debug",
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
           "type": [
             "object",
             "null"
           ]
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "run_id",
+        "topic",
+        "level",
+        "message",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "permissionPending": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
         },
         "request_id": {
           "type": "string",
@@ -687,6 +308,9 @@
         "kind": {
           "const": "permission"
         },
+        "state": {
+          "const": "pending"
+        },
         "message": {
           "type": "string"
         }
@@ -694,27 +318,117 @@
       "required": [
         "type",
         "ts",
+        "run_id",
         "request_id",
         "kind",
+        "state",
         "message"
       ],
       "additionalProperties": false
     },
-    "questionRequest": {
+    "permissionReplied": {
       "type": "object",
       "properties": {
         "type": {
-          "const": "request.opened"
+          "const": "request"
         },
         "ts": {
           "type": "string",
           "format": "date-time"
         },
-        "native": {
-          "type": [
-            "object",
-            "null"
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "permission"
+        },
+        "state": {
+          "const": "replied"
+        },
+        "message": {
+          "type": "string"
+        },
+        "answer": {
+          "enum": [
+            "allow",
+            "deny"
           ]
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "run_id",
+        "request_id",
+        "kind",
+        "state",
+        "message",
+        "answer"
+      ],
+      "additionalProperties": false
+    },
+    "permissionExpired": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "permission"
+        },
+        "state": {
+          "const": "expired"
+        },
+        "message": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "run_id",
+        "request_id",
+        "kind",
+        "state",
+        "message",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "questionPending": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
         },
         "request_id": {
           "type": "string",
@@ -722,6 +436,9 @@
         },
         "kind": {
           "const": "question"
+        },
+        "state": {
+          "const": "pending"
         },
         "message": {
           "type": "string"
@@ -737,186 +454,132 @@
       "required": [
         "type",
         "ts",
+        "run_id",
         "request_id",
         "kind",
+        "state",
         "message",
         "questions"
       ],
       "additionalProperties": false
     },
-    "requestReplied": {
+    "questionReplied": {
       "type": "object",
       "properties": {
         "type": {
-          "const": "request.replied"
+          "const": "request"
         },
         "ts": {
           "type": "string",
           "format": "date-time"
         },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "request_id": {
+        "run_id": {
           "type": "string",
-          "minLength": 1
-        }
-      },
-      "required": [
-        "type",
-        "ts",
-        "request_id"
-      ],
-      "additionalProperties": false
-    },
-    "requestExpired": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "request.expired"
-        },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
+          "format": "uuid"
         },
         "request_id": {
           "type": "string",
           "minLength": 1
         },
-        "reason": {
-          "type": "string",
-          "enum": [
-            "turn_finished",
-            "cancelled",
-            "runtime_lost"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "ts",
-        "request_id",
-        "reason"
-      ],
-      "additionalProperties": false
-    },
-    "cancelAccepted": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "cancel.accepted"
+        "kind": {
+          "const": "question"
         },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "ts"
-      ],
-      "additionalProperties": false
-    },
-    "controlResponse": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "control.response"
-        },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "operation": {
-          "const": "interrupt"
-        }
-      },
-      "required": [
-        "type",
-        "ts",
-        "operation"
-      ],
-      "additionalProperties": false
-    },
-    "runtimeStopped": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "runtime.stopped"
-        },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "reason": {
-          "type": "string",
-          "enum": [
-            "idle",
-            "terminated",
-            "backend_exited",
-            "error",
-            "lost"
-          ]
-        }
-      },
-      "required": [
-        "type",
-        "ts",
-        "reason"
-      ],
-      "additionalProperties": false
-    },
-    "error": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "error"
-        },
-        "ts": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "native": {
-          "type": [
-            "object",
-            "null"
-          ]
+        "state": {
+          "const": "replied"
         },
         "message": {
           "type": "string"
+        },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/question"
+          }
+        },
+        "answer": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            ]
+          }
         }
       },
       "required": [
         "type",
         "ts",
-        "message"
+        "run_id",
+        "request_id",
+        "kind",
+        "state",
+        "message",
+        "questions",
+        "answer"
+      ],
+      "additionalProperties": false
+    },
+    "questionExpired": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "question"
+        },
+        "state": {
+          "const": "expired"
+        },
+        "message": {
+          "type": "string"
+        },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/question"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "run_id",
+        "request_id",
+        "kind",
+        "state",
+        "message",
+        "questions",
+        "reason"
       ],
       "additionalProperties": false
     }

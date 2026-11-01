@@ -7,6 +7,7 @@ import datetime
 import json
 from pathlib import Path
 import re
+import uuid
 
 SCHEMA = json.loads((Path(__file__).resolve().parent.parent/'event.schema.json').read_text())
 
@@ -47,21 +48,34 @@ def _validate(value, schema, path='$'):
         missing = set(schema.get('required',[]))-value.keys()
         if missing:
             raise ValueError(f'{path}: missing required fields {sorted(missing)}')
+        if len(value)<schema.get('minProperties',0):
+            raise ValueError(f'{path}: too few properties')
         properties = schema.get('properties',{})
         if schema.get('additionalProperties') is False and value.keys()-properties.keys():
             raise ValueError(f'{path}: undocumented fields {sorted(value.keys()-properties.keys())}')
+        if isinstance(schema.get('additionalProperties'),dict):
+            for key in value.keys()-properties.keys():
+                _validate(value[key],schema['additionalProperties'],path+'.'+key)
         for key,child in properties.items():
             if key in value:
                 _validate(value[key],child,path+'.'+key)
     if isinstance(value,list):
         if len(value)<schema.get('minItems',0):
             raise ValueError(f'{path}: too few items')
+        if schema.get('uniqueItems') and len({json.dumps(item,sort_keys=True) for item in value}) != len(value):
+            raise ValueError(f'{path}: duplicate items')
         for index,child in enumerate(value):
             if 'items' in schema:
                 _validate(child,schema['items'],f'{path}[{index}]')
     if isinstance(value,str):
         if len(value)<schema.get('minLength',0):
             raise ValueError(f'{path}: string is too short')
+        if schema.get('format') == 'uuid':
+            try:
+                if str(uuid.UUID(value)) != value:
+                    raise ValueError('not canonical')
+            except (ValueError, AttributeError) as error:
+                raise ValueError(f'{path}: expected canonical UUID') from error
         if schema.get('format') == 'date-time':
             if not re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|\+00:00)',value):
                 raise ValueError(f'{path}: expected UTC RFC 3339 timestamp')
@@ -77,7 +91,10 @@ def _validate(value, schema, path='$'):
 def validate_event(event):
     """Raise ValueError before any file write for malformed or unknown events."""
     # Also rejects non-JSON payloads and NaN/Infinity anywhere in native data.
-    json.dumps(event,ensure_ascii=False,allow_nan=False)
+    try:
+        json.dumps(event,ensure_ascii=False,allow_nan=False)
+    except (TypeError, ValueError) as error:
+        raise ValueError('event is not valid JSON: '+str(error)) from error
     _validate(event,SCHEMA)
 
 

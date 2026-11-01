@@ -1,8 +1,8 @@
-# harnessctl/1：本机 Harness CLI 协议
+# harnessctl/2：本机 Harness CLI 协议
 
 上层只需要向一个事件文件地址发送消息、取消执行、查询状态和回复请求。首次启动、运行中补充输入、排队、原生会话恢复以及后台进程回收，全部由适配器决定。
 
-协议参考 [agentctl 的设计](https://twwy.net/blog/agent-cli-protocol/)，但公开接口收敛为 **send、cancel、status、reply**。本版取代原 harnessctl/0，不保留 start、doctor、close、delivery、if-idle、resume、backend-arg 或调用方指定 input ID 等接口。
+协议参考 [agentctl 的设计](https://twwy.net/blog/agent-cli-protocol/)，但公开接口收敛为 **send、cancel、status、reply**。本版取代原 harnessctl/0 和 harnessctl/1，不保留 start、doctor、close、delivery、if-idle、resume、backend-arg 或调用方指定 input ID 等接口。
 
 ## 1. 独立分发包
 
@@ -77,11 +77,11 @@ printf '%s' '{"q1":"Go"}' | "$A" reply /tmp/review.jsonl req-2
 
 首次 send 自动启动所需进程并建立原生上下文。空闲时继续该上下文；忙碌时尽量向当前执行追加输入，不可直接追加时由适配器保留后续处理。调用方不选择 start、steer、queue 或 interrupt。
 
-Codex 适配器在内部使用 app-server 的 thread/turn RPC；已取得活动 turn 时尝试 turn/steer，遇到轮次刚结束的竞态则内部安排下一轮。Claude Code 适配器通过持续的 stream-json 通道写用户消息。原生协议不同，不保证两家在完全相同的时机消费补充输入。
+Codex 适配器在内部使用 app-server RPC，原生回执确认插入当前交互后才公开该输入的 run_id；遇到交互刚结束的竞态，则内部安排下一次交互并分配新 UUID。Claude Code 缺少可靠的插话轮次回执，当前在忙时内部排队，空闲后通过 stream-json 提交。原生协议不同，不保证两家在完全相同的时机消费补充输入。
 
 等待外部回复、取消过程中或原生初始化尚未完成时，新输入先由适配器保留；cancel 可以取消这些待处理输入。未获得确定证据时，适配器不能宣称输入已经进入某一轮或被模型消费。
 
-input.accepted 是统一的受理事件。投递回执可作为诊断记录，但上层无需理解或选择投递方式；收到 native 用户回显只能说明原生进程收到输入，尤其不能据此宣称 Claude 已消费插话。失败和不确定性须如实记录。
+accepted 是统一受理事件，包含完整输入、适配器生成的 input_id 和确认的 run_id。每次新交互分配 UUID，确认插入当前交互的补充输入沿用同一个 UUID；排到下一次交互的输入分配新 UUID。使用方不能通过参数指定 run_id。原生投递回执只作 log 诊断，终态通过 result 判断。
 
 ## 6. cancel：停止本次工作，保留对话
 
@@ -93,12 +93,12 @@ cancel 不删除对话历史，也不要求用户关闭进程；之后对同一�
 
 ## 7. reply：统一权限和问题回答
 
-需要外部决定时追加 request.opened；status 的 requests 中也能看到当前待回复请求。
+需要外部决定时追加 state=pending 的 request；status 的 requests 中也能看到当前待回复请求。该请求及后续状态快照都携带所属 run_id。
 
 权限请求：
 
 ```json
-{"type":"request.opened","ts":"...","request_id":"req-1","kind":"permission","message":"允许执行 npm test？"}
+{"type":"request","ts":"...","run_id":"550e8400-e29b-41d4-a716-446655440000","request_id":"req-1","state":"pending","kind":"permission","message":"允许执行 npm test？"}
 ```
 
 ```sh
@@ -109,7 +109,7 @@ cancel 不删除对话历史，也不要求用户关闭进程；之后对同一�
 问题请求包含统一的问题列表：
 
 ```json
-{"type":"request.opened","ts":"...","request_id":"req-2","kind":"question","message":"请回答问题","questions":[{"id":"q1","text":"选择语言","header":"语言","multiple":false,"options":[{"label":"Go","description":"Go 语言"}]}]}
+{"type":"request","ts":"...","run_id":"550e8400-e29b-41d4-a716-446655440000","request_id":"req-2","state":"pending","kind":"question","message":"请回答问题","questions":[{"id":"q1","text":"选择语言","header":"语言","multiple":false,"options":[{"label":"Go","description":"Go 语言"}]}]}
 ```
 
 问题答案是以公开 question id 为键的 JSON 对象，值为字符串或字符串数组；必须完整回答该请求的所有问题，不允许未知 ID。非多选问题只能给出一个答案，字符串必须非空：
@@ -120,12 +120,12 @@ printf '%s' '{"q1":"Go"}' | "$A" reply /tmp/review.jsonl req-2
 
 适配器负责把统一的答案转换为 Codex answers 或 Claude updatedInput/control_response，调用方不构造原生报文。未知、不支持的原生请求明确报错，不默认批准或暴露无法回答的原生 JSON 请求。
 
-request_id 只定位一项待回复请求，不是会话身份；由适配器分配，防止不同轮次复用原生 request ID 时串答。已回复、已取消、执行结束或运行进程失联后的请求返回 4；回复输入无效返回 2，且保留请求供修正后重试。成功写入回复记 request.replied，不在缺少原生确认时声称后端已完成该请求。
+request_id 只定位一项待回复请求，不是会话身份；由适配器分配，防止不同轮次复用原生 request ID 时串答。已回复、已取消、执行结束或运行进程失联后的请求返回 4；回复输入无效返回 2，且保留请求供修正后重试。成功写入回复后可靠记录 state=replied 的 request 完整快照及统一答案；过期时记录 state=expired。它们不在缺少原生确认时声称工具已经执行。
 
 ## 8. status：业务状态，不是进程状态
 
 ```json
-{"state":"awaiting_reply","queued":0,"requests":[{"request_id":"req-1","kind":"permission","message":"执行测试？"}],"cwd":"/path/to/repo","model":null}
+{"state":"awaiting_reply","run_id":"550e8400-e29b-41d4-a716-446655440000","queued":0,"requests":[{"run_id":"550e8400-e29b-41d4-a716-446655440000","request_id":"req-1","state":"pending","kind":"permission","message":"执行测试？"}],"cwd":"/path/to/repo","model":null}
 ```
 
 state 为 idle、running、awaiting_reply、cancelling 或 failed；queued 仅统计适配器可确认的待处理输入数，requests 是统一的待回复请求。公开结果不返回 PID、原生 session/thread ID 或要求上层关联的 turn ID。
@@ -142,13 +142,19 @@ state 为 idle、running、awaiting_reply、cancelling 或 failed；queued 仅�
 
 ## 10. 事件和私有文件
 
-全部 21 种事件的字段、类型、枚举与示例见 [EVENT.md](EVENT.md)，机器格式为 [event.schema.json](event.schema.json)。两家适配器在写入前统一校验，独立包携带相同契约和包内校验器。
+公共事件仅有五种，完整格式见 [EVENT.md](EVENT.md)，机器格式为 [event.schema.json](event.schema.json)。两个独立包自带相同契约和写前校验器。
 
-事件文件是 UTF-8 JSONL，只追加，每条至少有 type 和 UTC ISO 8601 的 ts。读取按完整行推进，半行等待后续数据。写入经过文件锁并 flush/fsync，不把 IPC、事件和工具副作用伪装成跨进程事务。
+| 类型 | 用途 | 可靠性 |
+|---|---|---|
+| accepted | 完整输入及确认的 run_id/input_id | 可靠落盘后 send 才返回成功 |
+| message | 完整正文快照，按 message_id 更新 | 不依赖流式日志恢复正文 |
+| request | 权限/问题请求的 pending/replied/expired 完整快照 | 不能丢，包含统一答案或失效原因 |
+| result | run 的终态、覆盖的 input_ids、完整输出与计量 | 不能丢，取消/失败也必须表达 |
+| log | 流式增量、工具进度、原生控制及进程诊断 | 可丢、可合并、可限流，不承担业务状态 |
 
-主要事件：input.accepted、input.observed、input.delivered、input.dropped、message.delta、message、tool.started/tool.finished、plan、usage、request.opened/request.replied/request.expired、cancel.accepted、turn.started/turn.finished、session.ready、runtime.stopped、error。内部投递失败及 native 帧可以作为诊断附加信息，允许扩展字段和未知事件类型。上层依赖统一状态、输出和请求即可，不需要解释原生协议。
+文件是 UTF-8 JSONL，只追加。关键事件校验后加锁并 flush/fsync；log 不要求 fsync，其校验或写入失败不改变工作结果。丢掉所有 log 后，仍能重建输入、完整正文、待回复请求及每个 run 的结果。失联恢复按关键事件确认哪些已受理输入仍没有结果，不根据可丢日志猜测，不自动重放。
 
-turn.finished 的 status 为 completed/interrupted/failed，但公开事件不需要另一个 turn ID。runtime.stopped 表示一个内部进程停止，**不表示事件地址对应的对话结束**。原生信息仅作为可选的 native 诊断记录，不作为公开寻址参数。Claude 回显不证明进入当前轮：input.delivered 可记录 outcome=unknown，不声称 injected。
+run_id 由适配器使用 UUID 分配，使用方不能指定。插话归属以原生确认结果为准，accepted 公布后不再改变；不同 run 的事件可以交错出现，按 run_id 关联，而不是按连续行号分段。内部进程回收只写 log，不等于对话结束。
 
 ```text
 review.jsonl
@@ -173,8 +179,8 @@ python3 -m unittest discover -s harnessctl/tests -v
 python3 harnessctl/package.py
 python3 harnessctl/package.py --adapter claudecode
 cd harnessctl/dist
-sha256sum -c harnessctl-codex-0.2.0-linux.tar.gz.sha256
-sha256sum -c harnessctl-claudecode-0.2.0-linux.tar.gz.sha256
+sha256sum -c harnessctl-codex-0.3.0-linux.tar.gz.sha256
+sha256sum -c harnessctl-claudecode-0.3.0-linux.tar.gz.sha256
 ```
 
 每个压缩包只包含对应的独立适配器目录，使用固定时间和属主元数据，可重复构建。安装/解压不自动执行代码。测试仅复制独立目录到仓库外，并隐藏其他适配器；覆盖 stdin、配置绑定、并发首次 send、忙时补充、取消与恢复、统一回复、失联与空闲回收、独立归档。

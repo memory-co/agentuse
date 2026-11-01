@@ -1,6 +1,7 @@
 """Codex app-server JSON-RPC adapter."""
 NAME = 'codex'
 BINARY = 'codex'
+STEER_WHILE_BUSY = True
 
 
 def argv(config):
@@ -12,7 +13,7 @@ def argv(config):
 
 
 def initialize(r):
-    r.request('initialize', dict(clientInfo=dict(name='harnessctl', version='0.2.0'),
+    r.request('initialize', dict(clientInfo=dict(name='harnessctl', version='0.3.0'),
                                  capabilities=dict(experimentalApi=True)))
 
 
@@ -71,7 +72,7 @@ def frame(r, f):
             r.open_request(f, 'question', 'Please answer the questions', question_specs(params.get('questions', []), True))
         else:
             r.write(dict(id=f['id'], error=dict(code=-32601, message='Unsupported native request')))
-            r.emit('error', message='Unsupported native request: ' + method, native=f)
+            r.log('native.error', level='error', message='Unsupported native request: ' + method, native=f)
         return
     if 'id' in f:
         pending = r.pending.pop(f['id'], None)
@@ -83,20 +84,18 @@ def frame(r, f):
         if f.get('error'):
             reason = f['error'].get('message', 'native request failed')
             if method == 'turn/steer':
-                r.emit('input.rejected', input=item['id'], reason=reason, native=f)
+                r.log('input.rejected', input_id=item['id'], reason=reason, native=f)
                 # Retry as a new turn only for the documented idle race, never
                 # for auth errors or arbitrary backend failures.
                 if 'no active turn' in reason.lower() or 'expected active turn' in reason.lower():
-                    r.queued.append(item)
-                    r.drain()
+                    r.requeue(item)
                 else:
                     r.dropped(item, reason)
             elif method == 'turn/start':
-                r.dropped(item, reason)
-                r.finished('failed', f)
+                r.finished('failed', f, error=reason)
             elif method == 'turn/interrupt':
                 r.cancelling = False
-                r.emit('error', message=reason, native=f)
+                r.log('native.error', level='error', message=reason, native=f)
             else:
                 raise RuntimeError(method + ': ' + reason)
             return
@@ -115,13 +114,13 @@ def frame(r, f):
         elif method == 'turn/start':
             r.turn = result['turn']['id']
             r.starting = False
-            r.emit('turn.started', turn=r.turn, evidence='rpc_response', native=f)
+            r.log('execution.started', evidence='rpc_response', native=f)
             r.delivered(item, 'started_turn', f, turn=r.turn, evidence='rpc_response')
             if getattr(r, 'cancel_starting', False):
                 r.cancel_starting = False
                 cancel(r)
         elif method == 'turn/interrupt':
-            r.emit('control.response', operation='interrupt', native=f)
+            r.log('control.response', operation='interrupt', native=f)
         elif method == 'turn/steer':
             turn = result.get('turnId')
             if not turn or turn != item.get('expected_turn'):
@@ -131,7 +130,7 @@ def frame(r, f):
         return
     p = f.get('params', {})
     if method == 'error':
-        r.emit('error', message=p.get('error', {}).get('message', 'backend error'), native=f)
+        r.log('native.error', level='error', message=p.get('error', {}).get('message', 'backend error'), native=f)
         return
     if p.get('threadId') and p['threadId'] != r.thread:
         return
@@ -142,22 +141,22 @@ def frame(r, f):
         status = turn.get('status', 'failed')
         if status not in ('completed', 'interrupted', 'failed'):
             status = 'failed'
-        r.finished(status, f)
+        r.finished(status, f, error=(turn.get('error') or {}).get('message'))
     elif method == 'item/agentMessage/delta':
-        r.emit('message.delta', turn=p.get('turnId'), text=p.get('delta', ''), native=f)
+        r.chunk(p.get('delta', ''), p.get('itemId'))
     elif method in ('item/started', 'item/completed'):
         item = p.get('item', {})
         if item.get('type') == 'agentMessage' and method == 'item/completed':
-            r.emit('message', turn=p.get('turnId'), text=item.get('text', ''), native=f)
+            r.message(item.get('text', ''), item.get('id'))
         elif item.get('type') in ('commandExecution','fileChange','mcpToolCall','webSearch'):
             from events import tool_status
-            r.emit('tool.started' if method == 'item/started' else 'tool.finished',
+            r.log('tool.started' if method == 'item/started' else 'tool.finished',
                    turn=p.get('turnId'), tool=item.get('id'), title=item.get('command',item.get('type')),
                    status=tool_status(item.get('status'), 'running' if method == 'item/started' else 'unknown'), native=f)
         elif item.get('type') == 'userMessage':
-            r.emit('input.observed', turn=p.get('turnId'), native=f)
+            r.log('input.observed', native=f)
     elif method == 'turn/plan/updated':
         from events import plan_steps
-        r.emit('plan', turn=p.get('turnId'), steps=plan_steps(p.get('plan', [])), native=f)
+        r.log('plan', steps=plan_steps(p.get('plan', [])), native=f)
     elif method == 'thread/tokenUsage/updated':
-        r.emit('usage', turn=p.get('turnId'), usage=p.get('tokenUsage'), native=f)
+        r.usage(p.get('tokenUsage'))

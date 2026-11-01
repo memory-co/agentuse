@@ -1,7 +1,7 @@
 {
   "name": "claudecode",
-  "version": "0.2.0",
-  "protocol": "harnessctl/1",
+  "version": "0.3.0",
+  "protocol": "harnessctl/2",
   "entrypoint": "harnessctl",
   "platforms": [
     "linux"
@@ -29,6 +29,13 @@
   ],
   "events": {
     "schema": "event.schema.json",
-    "documentation": "EVENT.md"
+    "documentation": "EVENT.md",
+    "types": [
+      "accepted",
+      "message",
+      "request",
+      "result",
+      "log"
+    ]
   }
 }

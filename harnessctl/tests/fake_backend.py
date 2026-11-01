@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sys
 import time
+import threading
 
 if '--version' in sys.argv:
     print('fake 1.0.0')
@@ -17,19 +18,25 @@ claude = os.path.basename(sys.argv[0]) == 'claude'
 turn = None
 count = 0
 initialized = False
+last_output = ""
 
 
 def emit(value):
+    global last_output
+    if value.get('type')=='assistant':
+        texts=[b.get('text') for b in value.get('message',{}).get('content',[]) if b.get('type')=='text' and isinstance(b.get('text'),str)]
+        if texts:last_output=''.join(texts)
     print(json.dumps(value), flush=True)
 
 
-def finish(status='completed'):
-    global turn
+def finish(status='completed',output=None):
+    global turn,last_output
     if claude:
-        emit(dict(type='result', subtype='success', is_error=False, result='OK', usage={'input_tokens': 2}))
+        emit(dict(type='result', subtype='success', is_error=False, result=output if output is not None else last_output or 'OK', usage={'input_tokens': 2}))
     else:
         emit(dict(method='turn/completed', params=dict(threadId='native-session', turn=dict(id=turn, status=status))))
     turn = None
+    last_output = ""
 
 
 for line in sys.stdin:
@@ -54,15 +61,30 @@ for line in sys.stdin:
             emit(f)  # replay confirms receipt, not consumption
             text = f['message']['content']
             turn = turn or 'active'
-            if text == 'ask':
+            if text == 'gated':
+                def gated():
+                    gate=Path(os.environ['HARNESSCTL_TEST_RELEASE'])
+                    while not gate.exists():time.sleep(.01)
+                    emit(dict(type='assistant',message=dict(id='gated-message',content=[dict(type='text',text='gated done')])))
+                    finish()
+                threading.Thread(target=gated,daemon=True).start()
+            elif text == 'ask':
                 emit(dict(type='control_request', request_id='question-1', request=dict(subtype='can_use_tool', tool_name='AskUserQuestion', input=dict(questions=[dict(header='Language',question='Which language?',options=[dict(label='Go',description='Go language')],multiSelect=False)]))))
             elif text == 'invalid-event':
                 emit(dict(type='assistant',message=dict(content=[dict(type='text',text=42)])))
+            elif text == 'multi-text':
+                emit(dict(type='assistant',message=dict(id='multi-1',content=[dict(type='text',text='first '),dict(type='text',text='second')])) )
+                emit(dict(type='result',subtype='success',is_error=False,usage={'input_tokens':1}))
+                turn=None
+            elif text == 'stream-only':
+                for part in ('stream',' complete'):
+                    emit(dict(type='stream_event',event=dict(type='content_block_delta',delta=dict(type='text_delta',text=part))))
+                finish(output='stream complete')
             elif text == 'events':
                 emit(dict(type='stream_event',event=dict(type='content_block_delta',delta=dict(type='text_delta',text='delta'))))
                 emit(dict(type='assistant',message=dict(content=[dict(type='tool_use',id='tool-1',name='Bash')])))
                 emit(dict(type='user',message=dict(content=[dict(type='tool_result',tool_use_id='tool-1',is_error=False)])))
-                finish()
+                finish(output='delta')
             elif text == 'question':
                 emit(dict(type='control_request', request_id='approval-1', request=dict(subtype='can_use_tool', tool_name='Bash', input=dict(command='echo OK'))))
             elif text not in ('hold', 'starting_hold'):
@@ -92,6 +114,10 @@ for line in sys.stdin:
                 emit(dict(id='question-1',method='item/tool/requestUserInput',params=dict(threadId='native-session',turnId=turn,questions=[dict(id='q1',header='Language',question='Which language?',options=[dict(label='Go',description='Go language')])])))
             elif text == 'invalid-event':
                 emit(dict(method='item/completed',params=dict(threadId='native-session',turnId=turn,item=dict(type='agentMessage',text=42))))
+            elif text == 'stream-only':
+                for part in ('stream',' complete'):
+                    emit(dict(method='item/agentMessage/delta',params=dict(threadId='native-session',itemId='stream-1',delta=part)))
+                finish()
             elif text == 'events':
                 emit(dict(method='item/agentMessage/delta',params=dict(threadId='native-session',delta='delta')))
                 emit(dict(method='item/started',params=dict(threadId='native-session',item=dict(type='commandExecution',id='tool-1',command='echo OK',status='inProgress'))))

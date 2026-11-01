@@ -9,6 +9,9 @@ import uuid
 
 NAME = 'claudecode'
 BINARY = 'claude'
+# Native next-priority inputs have no reliable turn receipt. Queue internally
+# so every accepted input has one unambiguous terminal result.
+STEER_WHILE_BUSY = False
 
 
 def argv(config):
@@ -43,7 +46,7 @@ def write_user(r, item, priority):
 def start_turn(r, item):
     r.turn = 'turn_' + str(uuid.uuid4())
     r.starting = False
-    r.emit('turn.started', turn=r.turn, evidence='adapter_submission')
+    r.log('execution.started', evidence='adapter_submission')
     write_user(r, item, 'next')
     item['started_turn'] = r.turn
 
@@ -108,13 +111,13 @@ def frame(r, f):
         response = f.get('response', {})
         pending = r.pending.pop(response.get('request_id'), None)
         if pending and pending[0] == 'interrupt':
-            r.emit('control.response', operation='interrupt', native=f)
+            r.log('control.response', operation='interrupt', native=f)
         if pending and pending[0] == 'initialize' and response.get('subtype') == 'error':
             raise RuntimeError('Claude control initialization failed: ' + str(response.get('error')))
         if pending and pending[0] == 'interrupt' and response.get('subtype') == 'error':
             r.claude_interrupt = False
             r.cancelling = False
-            r.emit('error', message=str(response.get('error')), native=f)
+            r.log('native.error', level='error', message=str(response.get('error')), native=f)
         return
     if typ == 'system' and f.get('subtype') == 'init':
         r.thread = f['session_id']
@@ -123,37 +126,43 @@ def frame(r, f):
         item = r.claude_writes.get(f.get('uuid'))
         if item:
             item['observed'] = True
-            r.emit('input.observed', input=item['id'], evidence='user_replay', native=f)
+            r.log('input.observed', input_id=item['id'], evidence='user_replay', native=f)
             if item.get('started_turn'):
                 r.delivered(item, 'started_turn', f, turn=item['started_turn'], evidence='user_replay')
         content = f.get('message', {}).get('content', [])
         if isinstance(content, list):
             for block in content:
                 if block.get('type') == 'tool_result':
-                    r.emit('tool.finished', turn=r.turn, tool=block.get('tool_use_id'),
+                    r.log('tool.finished', turn=r.turn, tool=block.get('tool_use_id'),
                            status='failed' if block.get('is_error') else 'completed', native=f)
     elif typ == 'assistant':
         # A next-priority input can create a further native turn after a result.
         if not r.turn:
             r.turn = 'turn_' + str(uuid.uuid4())
-            r.emit('turn.started', turn=r.turn, evidence='assistant_output', native=f)
-        for block in f.get('message', {}).get('content', []):
-            if block.get('type') == 'text':
-                r.emit('message', turn=r.turn, text=block.get('text', ''), native=f)
-            elif block.get('type') == 'tool_use':
-                r.emit('tool.started', turn=r.turn, tool=block.get('id'), title=block.get('name'), status='running', native=f)
+            r.log('execution.started', evidence='assistant_output', native=f)
+        blocks = f.get('message', {}).get('content', [])
+        texts = [block.get('text', '') for block in blocks if block.get('type') == 'text']
+        if not all(isinstance(text, str) for text in texts):
+            raise ValueError('native complete message must contain string text blocks')
+        if texts:
+            r.message(''.join(texts), f.get('message', {}).get('id') or f.get('uuid'))
+        for block in blocks:
+            if block.get('type') == 'tool_use':
+                r.log('tool.started', turn=r.turn, tool=block.get('id'), title=block.get('name'), status='running', native=f)
     elif typ == 'stream_event':
         event = f.get('event', {})
+        if event.get('type') == 'message_start':
+            r.claude_stream_key = event.get('message', {}).get('id')
         if event.get('type') == 'content_block_delta' and event.get('delta', {}).get('type') == 'text_delta':
-            r.emit('message.delta', turn=r.turn, text=event['delta']['text'], native=f)
+            r.chunk(event['delta']['text'], getattr(r, 'claude_stream_key', None))
     elif typ == 'result':
         if not r.turn:
             r.turn = 'turn_' + str(uuid.uuid4())
-            r.emit('turn.started', turn=r.turn, evidence='result', native=f)
-        r.emit('usage', turn=r.turn, usage=f.get('usage'), cost_usd=f.get('total_cost_usd'), native=f)
+            r.log('execution.started', evidence='result', native=f)
+        r.usage(f.get('usage'), f.get('total_cost_usd'))
         status = 'interrupted' if r.claude_interrupt else 'failed' if f.get('is_error') else 'completed'
         r.claude_interrupt = False
-        r.finished(status, f, output=f.get('result'))
+        r.finished(status, f, output=f.get('result'), error='; '.join(f.get('errors', [])) or None)
     elif typ == 'control_request':
         body = f.get('request', {})
         if body.get('subtype') == 'can_use_tool':
@@ -167,7 +176,7 @@ def frame(r, f):
         else:
             r.write(dict(type='control_response', response=dict(subtype='error',
                          request_id=f['request_id'], error='Unsupported native request')))
-            r.emit('error', message='Unsupported native request', native=f)
+            r.log('native.error', level='error', message='Unsupported native request', native=f)
     elif typ == 'user_message_rejected':
         item = r.claude_writes.get(f.get('uuid'))
         if item:

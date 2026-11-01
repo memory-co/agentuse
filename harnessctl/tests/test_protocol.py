@@ -60,6 +60,14 @@ class ProtocolTests(unittest.TestCase):
             time.sleep(.02)
         self.fail(f'missing {event_type} {fields}: {self.events(event)}')
 
+    def wait_log(self,event,topic,**fields):
+        deadline=time.monotonic()+8
+        while time.monotonic()<deadline:
+            for item in self.events(event):
+                if item['type']=='log' and item['topic']==topic and all((item['data'] or {}).get(k)==v for k,v in fields.items()):return item
+            time.sleep(.02)
+        self.fail(f'missing log {topic} {fields}: {self.events(event)}')
+
     def send(self, adapter, prompt='hold', *args, event=None, stdin=None):
         event = event or self.root/(adapter+'.jsonl')
         self.sessions[event] = adapter
@@ -113,7 +121,7 @@ class ProtocolTests(unittest.TestCase):
             self.assertIn('{send,cancel,status,reply}',result.stdout)
             for verb in ('start','doctor','close'):
                 self.assertEqual(self.call(adapter,verb,self.root/'absent').returncode,2)
-            for flag in ('--delivery','--if-idle','--resume','--id','--backend-arg'):
+            for flag in ('--delivery','--if-idle','--resume','--id','--backend-arg','--run-id'):
                 self.assertEqual(self.call(adapter,'send',self.root/'absent',flag,'x','prompt').returncode,2)
 
     def test_first_send_stdin_continuation_and_binding(self):
@@ -121,7 +129,7 @@ class ProtocolTests(unittest.TestCase):
             text='literal $HOME `whoami` \\ "quote"\n中文\n'
             event=self.send(adapter,None,'--cwd',str(self.root),'--model','test-model',stdin=text)
             self.wait(event,'message',text=text)
-            self.wait(event,'turn.finished',status='completed')
+            self.wait(event,'result',status='completed')
             state=self.status(adapter,event)
             self.assertEqual(state['state'],'idle')
             self.assertEqual(state['cwd'],str(self.root))
@@ -137,61 +145,64 @@ class ProtocolTests(unittest.TestCase):
 
     def test_automatic_busy_delivery_and_race(self):
         event=self.send('codex')
-        self.wait(event,'input.delivered',outcome='started_turn')
+        self.wait_log(event,'input.delivered',outcome='started_turn')
         self.send('codex','supplement',event=event)
-        self.wait(event,'input.delivered',outcome='injected')
+        self.wait_log(event,'input.delivered',outcome='injected')
         self.send('codex','race',event=event)
         self.wait(event,'message',text='race')
-        other=self.send('claudecode')
-        self.wait(other,'input.observed')
+        self.release_claude_gate=self.root/'claude-gate'
+        self.env['HARNESSCTL_TEST_RELEASE']=str(self.release_claude_gate)
+        other=self.send('claudecode','gated')
+        self.wait_log(other,'input.observed')
         self.send('claudecode','more',event=other)
+        self.assertEqual(self.status('claudecode',other)['queued'],1)
+        self.release_claude_gate.touch()
         self.wait(other,'message',text='more')
-        self.wait(other,'input.delivered',outcome='unknown')
         self.assertFalse(any(x.get('outcome')=='injected' for x in self.events(other)))
 
     def test_cancel_drops_waiting_input_and_can_send_again(self):
         for adapter in ADAPTERS:
             event=self.send(adapter,'question')
-            self.wait(event,'request.opened')
+            self.wait(event,'request',state='pending')
             self.send(adapter,'must-not-run',event=event)
             result=self.call(adapter,'cancel',event)
             self.assertEqual((result.returncode,result.stdout),(0,''))
-            self.wait(event,'turn.finished',status='interrupted')
-            self.wait(event,'input.dropped',reason='cancelled')
-            self.assertFalse(any(x.get('text')=='must-not-run' for x in self.events(event)))
+            self.wait(event,'result',status='cancelled')
+            self.wait(event,'result',status='cancelled')
+            self.assertFalse(any(x['type']=='message' and x.get('text')=='must-not-run' for x in self.events(event)))
             self.send(adapter,'after-cancel',event=event)
             self.wait(event,'message',text='after-cancel')
 
     def test_replies_normalize_permissions_and_questions(self):
         for adapter in ADAPTERS:
             event=self.send(adapter,'question')
-            request=self.wait(event,'request.opened',kind='permission')
+            request=self.wait(event,'request',state='pending',kind='permission')
             key=request['request_id']
             self.assertEqual(self.status(adapter,event)['requests'][0]['request_id'],key)
             self.assertEqual(self.call(adapter,'reply',event,key,'bad').returncode,2)
             result=self.call(adapter,'reply',event,key,stdin='deny\n')
             self.assertEqual(result.returncode,0,result.stderr)
-            self.wait(event,'request.replied',request_id=key)
-            self.wait(event,'turn.finished',status='completed')
+            self.wait(event,'request',state='replied',request_id=key)
+            self.wait(event,'result',status='completed')
             self.assertEqual(self.call(adapter,'reply',event,key,'allow').returncode,4)
             self.send(adapter,'ask',event=event)
-            question=self.wait(event,'request.opened',kind='question')
+            question=self.wait(event,'request',state='pending',kind='question')
             self.assertEqual(question['questions'][0]['id'],'q1')
             self.assertEqual(question['questions'][0]['text'],'Which language?')
             key=question['request_id']
             self.assertEqual(self.call(adapter,'reply',event,key,'{"wrong":"Go"}').returncode,2)
             result=self.call(adapter,'reply',event,key,stdin='{"q1":"Go"}\n')
             self.assertEqual(result.returncode,0,result.stderr)
-            self.wait(event,'request.replied',request_id=key)
+            self.wait(event,'request',state='replied',request_id=key)
             # Fixture asserts the exact, different native answer formats.
-            self.wait(event,'message',text='answered') if adapter=='claudecode' else self.wait(event,'request.replied',request_id=key)
+            self.wait(event,'message',text='answered') if adapter=='claudecode' else self.wait(event,'request',state='replied',request_id=key)
 
     def test_cancel_expires_reply(self):
         for adapter in ADAPTERS:
             event=self.send(adapter,'ask')
-            key=self.wait(event,'request.opened')['request_id']
+            key=self.wait(event,'request',state='pending')['request_id']
             self.assertEqual(self.call(adapter,'cancel',event).returncode,0)
-            self.wait(event,'request.expired',request_id=key)
+            self.wait(event,'request',state='expired',request_id=key)
             self.assertEqual(self.call(adapter,'reply',event,key,'{"q1":"Go"}').returncode,4)
 
     def test_concurrent_first_sends_have_one_runtime(self):
@@ -202,15 +213,15 @@ class ProtocolTests(unittest.TestCase):
         self.assertTrue(all(x.returncode==0 for x in results),[x.stderr for x in results])
         deadline=time.monotonic()+5
         while time.monotonic()<deadline:
-            if len([x for x in self.events(event) if x['type']=='input.accepted'])==8:break
+            if len([x for x in self.events(event) if x['type']=='accepted'])==8:break
             time.sleep(.02)
-        self.assertEqual(len([x for x in self.events(event) if x['type']=='input.accepted']),8)
-        self.assertEqual(len([x for x in self.events(event) if x['type']=='session.ready']),1)
+        self.assertEqual(len([x for x in self.events(event) if x['type']=='accepted']),8)
+        self.assertEqual(len([x for x in self.events(event) if x['type']=='log' and x['topic']=='session.ready']),1)
 
     def test_restart_resumes_without_public_native_ids(self):
         for adapter in ADAPTERS:
             event=self.send(adapter,'first')
-            self.wait(event,'turn.finished',status='completed')
+            self.wait(event,'result',status='completed')
             self.stop(event)
             self.assertEqual(self.status(adapter,event)['state'],'idle')
             self.send(adapter,'resumed',event=event)
@@ -221,17 +232,17 @@ class ProtocolTests(unittest.TestCase):
 
     def test_loss_is_reported_once_and_next_send_resumes(self):
         event=self.send('codex')
-        self.wait(event,'session.ready')
+        self.wait_log(event,'session.ready')
         self.stop(event,abrupt=True)
         for _ in range(2):self.assertEqual(self.status('codex',event)['state'],'failed')
-        self.assertEqual(len([x for x in self.events(event) if x['type']=='runtime.stopped' and x['reason']=='lost']),1)
+        self.assertEqual(len([x for x in self.events(event) if x['type']=='log' and x['topic']=='runtime.stopped' and x['data']['reason']=='lost']),1)
         self.send('codex','recovered',event=event)
         self.wait(event,'message',text='recovered')
 
     def test_orphan_backend_is_not_resumed_concurrently(self):
         self.env['HARNESSCTL_TEST_KEEP_ORPHAN']='1'
         event=self.send('codex')
-        self.wait(event,'session.ready')
+        self.wait_log(event,'session.ready')
         process=json.loads(Path(str(event)+'.d/process.json').read_text())
         os.kill(process['pid'],signal.SIGKILL)
         try:
@@ -247,7 +258,7 @@ class ProtocolTests(unittest.TestCase):
     def test_missing_recovery_data_never_silently_starts_new_context(self):
         for adapter in ADAPTERS:
             event=self.send(adapter,'original')
-            self.wait(event,'turn.finished',status='completed')
+            self.wait(event,'result',status='completed')
             self.stop(event)
             Path(str(event)+'.d/native.json').unlink()
             before=len(self.events(event))
@@ -283,7 +294,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertTrue(Path(str(gate)+'.started').exists())
         self.assertEqual(self.call('codex','cancel',event).returncode,0)
         gate.touch()
-        self.wait(event,'turn.finished',status='interrupted')
+        self.wait(event,'result',status='cancelled')
 
     def test_idle_runtime_is_reclaimed_and_resumed(self):
         # Speed up the private policy in the isolated test copy, not a user knob.
@@ -291,7 +302,7 @@ class ProtocolTests(unittest.TestCase):
             source=self.dist/adapter/'lib/runtime.py'
             source.write_text(source.read_text().replace('IDLE_SECONDS = 60','IDLE_SECONDS = 0.3'))
             event=self.send(adapter,'idle-test')
-            self.wait(event,'runtime.stopped',reason='idle')
+            self.wait_log(event,'runtime.stopped',reason='idle')
             self.assertEqual(self.status(adapter,event)['state'],'idle')
             self.send(adapter,'again',event=event)
             self.wait(event,'message',text='again')
@@ -299,20 +310,92 @@ class ProtocolTests(unittest.TestCase):
     def test_normalized_native_events_follow_the_contract(self):
         for adapter in ADAPTERS:
             event=self.send(adapter,'events')
-            self.wait(event,'turn.finished',status='completed')
-            self.wait(event,'tool.started',status='running')
-            self.wait(event,'tool.finished',status='completed')
-            self.wait(event,'message.delta',text='delta')
-            self.wait(event,'usage')
+            self.wait(event,'result',status='completed')
+            self.wait_log(event,'tool.started',status='running')
+            self.wait_log(event,'tool.finished',status='completed')
+            self.wait_log(event,'text.delta',data_text='delta')
+            self.wait_log(event,'usage')
             if adapter=='codex':
-                self.wait(event,'plan',steps=[{'text':'Check','status':'in_progress'}])
+                self.wait_log(event,'plan',steps=[{'text':'Check','status':'in_progress'}])
 
     def test_bad_native_event_becomes_valid_error_not_invalid_jsonl(self):
         for adapter in ADAPTERS:
             event=self.send(adapter,'invalid-event')
-            self.wait(event,'runtime.stopped',reason='error')
-            self.wait(event,'error')
+            self.wait_log(event,'runtime.stopped',reason='error')
+            self.wait(event,'result',status='failed')
             self.assertFalse(any(x['type']=='message' for x in self.events(event)))
+
+    def test_run_ids_are_adapter_owned_and_race_safe(self):
+        event=self.send('codex')
+        self.wait_log(event,'input.delivered',outcome='started_turn')
+        self.send('codex','supplement',event=event)
+        self.send('codex','race',event=event)
+        self.wait(event,'message',text='race')
+        deadline=time.monotonic()+3
+        while time.monotonic()<deadline and len([e for e in self.events(event) if e['type']=='result'])<2:time.sleep(.02)
+        items=self.events(event);accepted=[e for e in items if e['type']=='accepted']
+        self.assertEqual(len(accepted),3)
+        self.assertEqual(accepted[0]['run_id'],accepted[1]['run_id'])
+        self.assertNotEqual(accepted[0]['run_id'],accepted[2]['run_id'])
+        outcomes=[e for e in items if e['type']=='result']
+        self.assertEqual(len(outcomes),2)
+        self.assertEqual(outcomes[0]['input_ids'],[accepted[0]['input_id'],accepted[1]['input_id']])
+        self.assertEqual(outcomes[1]['input_ids'],[accepted[2]['input_id']])
+        self.assertEqual(outcomes[0]['run_id'],accepted[0]['run_id'])
+        self.assertEqual(outcomes[1]['run_id'],accepted[2]['run_id'])
+
+    def test_no_logs_needed_for_conversation_requests_and_usage(self):
+        for adapter in ADAPTERS:
+            source=self.dist/adapter/'lib/runtime.py';text=source.read_text()
+            a=text.index('def append_log(');b=text.index('def replay_critical(',a)
+            source.write_text(text[:a]+'def append_log(*args, **kwargs):\n    pass\n\n\n'+text[b:])
+            event=self.send(adapter,'events')
+            result=self.wait(event,'result',status='completed')
+            self.assertEqual(result['output'],'delta')
+            self.assertIsNotNone(result['usage'])
+            self.wait(event,'message',text='delta')
+            self.assertFalse(any(e['type']=='log' for e in self.events(event)))
+            self.send(adapter,'ask',event=event)
+            request=self.wait(event,'request',state='pending')
+            p=self.call(adapter,'reply',event,request['request_id'],stdin='{"q1":"Go"}')
+            self.assertEqual(p.returncode,0,p.stderr)
+            self.wait(event,'request',state='replied',request_id=request['request_id'])
+            self.assertTrue(any(e['type']=='accepted' and e['text']=='ask' for e in self.events(event)))
+
+    def test_stream_only_output_has_durable_full_message(self):
+        for adapter in ADAPTERS:
+            event=self.send(adapter,'stream-only')
+            result=self.wait(event,'result',status='completed')
+            self.assertEqual(result['output'],'stream complete')
+            self.wait(event,'message',text='stream complete')
+
+    def test_critical_recovery_without_logs_or_status_snapshot(self):
+        event=self.send('codex','question')
+        request=self.wait(event,'request',state='pending')
+        self.send('codex','queued',event=event)
+        self.stop(event,abrupt=True)
+        # Keep only business events; corrupt the disposable private status cache.
+        critical=[e for e in self.events(event) if e['type']!='log']
+        event.write_text(''.join(json.dumps(e)+'\n' for e in critical)+'{"type":"log"')
+        Path(str(event)+'.d/status.json').write_text('not-json')
+        self.assertEqual(self.status('codex',event)['state'],'failed')
+        recovered=self.events(event)
+        expired=[e for e in recovered if e['type']=='request' and e['state']=='expired']
+        self.assertEqual(expired[0]['request_id'],request['request_id'])
+        accepted=[e for e in recovered if e['type']=='accepted']
+        results=[e for e in recovered if e['type']=='result']
+        self.assertEqual(len(results),2)
+        self.assertEqual({e['run_id'] for e in results},{e['run_id'] for e in accepted})
+        self.assertEqual({i for e in results for i in e['input_ids']},{e['input_id'] for e in accepted})
+        self.status('codex',event)
+        self.assertEqual(len([e for e in self.events(event) if e['type']=='result']),2)
+
+    def test_claude_preserves_all_text_blocks_without_final_output(self):
+        event=self.send('claudecode','multi-text')
+        result=self.wait(event,'result',status='completed')
+        self.assertEqual(result['output'],'first second')
+        messages=[e for e in self.events(event) if e['type']=='message']
+        self.assertEqual([e['text'] for e in messages],['first second'])
 
     def test_independent_reproducible_archives(self):
         spec=importlib.util.spec_from_file_location('package_tool',ROOT/'package.py')

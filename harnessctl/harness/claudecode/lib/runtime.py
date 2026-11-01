@@ -19,7 +19,7 @@ import uuid
 
 from events import validate_event
 
-PROTOCOL = 'harnessctl/1'
+PROTOCOL = 'harnessctl/2'
 IDLE_SECONDS = 60
 MAX_TEXT = 256 * 1024
 MAX_COMMAND = 2 * 1024 * 1024
@@ -45,7 +45,18 @@ def write_json(path, value):
     with os.fdopen(fd, 'w') as out:
         json.dump(value, out, ensure_ascii=False)
         out.write('\n')
+        out.flush()
+        os.fsync(out.fileno())
     os.replace(temp, path)
+    sync_directory(path.parent)
+
+
+def sync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def address(events):
@@ -61,10 +72,58 @@ def append_event(events, event_type, **fields):
     line = json.dumps(event, ensure_ascii=False, allow_nan=False) + '\n'
     with open(str(events) + '.d/events.lock', 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        with open(events, 'a', encoding='utf8') as out:
-            out.write(line)
-            out.flush()
-            os.fsync(out.fileno())
+        with open(events, 'a+b') as out:
+            out.seek(0, os.SEEK_END)
+            offset = out.tell()
+            if offset:
+                out.seek(-1, os.SEEK_END)
+                if out.read(1) != b'\n':
+                    raise OSError('incomplete event tail; refusing to append until recovered')
+            try:
+                out.write(line.encode('utf8'))
+                out.flush()
+                if event_type != 'log':
+                    os.fsync(out.fileno())
+            except OSError:
+                out.truncate(offset)
+                raise
+
+
+def append_log(events, topic, message='', level='debug', data=None, run_id=None):
+    try:
+        append_event(events, 'log', topic=topic, message=message, level=level, data=data, run_id=run_id)
+    except (OSError, ValueError, TypeError):
+        pass
+
+
+def replay_critical(events):
+    pending = {}
+    requests = {}
+    if events.exists():
+        # Only called after taking the control and dead-runtime locks. An
+        # unfinished final line was never a committed/acknowledged event.
+        with open(str(events)+'.d/events.lock', 'a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            raw = events.read_bytes()
+            if raw and not raw.endswith(b'\n'):
+                raw = raw[:raw.rfind(b'\n')+1]
+                with open(events, 'r+b') as output:
+                    output.truncate(len(raw))
+                    output.flush()
+                    os.fsync(output.fileno())
+        for line in raw.decode('utf8').splitlines():
+            event = json.loads(line)
+            if event['type'] == 'accepted':
+                pending[event['input_id']] = event
+            elif event['type'] == 'result':
+                for key in event['input_ids']:
+                    pending.pop(key, None)
+            elif event['type'] == 'request':
+                if event['state'] == 'pending':
+                    requests[event['request_id']] = event
+                else:
+                    requests.pop(event['request_id'], None)
+    return pending, requests
 
 
 def rpc(events, command):
@@ -105,10 +164,76 @@ class Runtime:
         self.failed = False
         self.last_activity = time.monotonic()
         self.shutdown_lock = None
+        self.work_inputs = []
+        self.active_run_id = None
+        self.waiters = {}
+        self.messages = {}
+        self.message_order = []
+        self.work_usage = None
+        self.work_cost = None
+        self.last_error = None
+        self.finishing = None
 
     def emit(self, event_type, **fields):
-        fields.pop('turn', None)  # Native turn identity is adapter-private.
+        fields.setdefault('run_id', self.active_run_id)
         append_event(self.events, event_type, **fields)
+
+    def log(self, topic, message='', level='debug', **data):
+        if level == 'error':
+            self.last_error = str(message)
+        append_log(self.events, topic, str(message), level, data or None, self.active_run_id)
+
+    def chunk(self, text, key=None):
+        if not isinstance(text, str):
+            raise ValueError('native text delta must be a string')
+        slot = self.message_slot(key or '_stream')
+        slot['buffer'] += text
+        slot['dirty'] = True
+        self.log('text.delta', data_text=text, message_id=slot['id'])
+
+    def message_slot(self, key):
+        if key not in self.messages:
+            self.messages[key] = dict(id=identity(), text=None, buffer='', dirty=False)
+            self.message_order.append(key)
+        return self.messages[key]
+
+    def message(self, text, key=None):
+        if not isinstance(text, str):
+            raise ValueError('native complete message must be a string')
+        key = key or ('_stream' if '_stream' in self.messages and self.messages['_stream']['dirty'] else identity())
+        slot = self.message_slot(key)
+        if slot['text'] != text:
+            self.emit('message', message_id=slot['id'], text=text)
+        slot.update(text=text, buffer=text, dirty=False)
+
+    def flush_messages(self, output=None):
+        for key in list(self.message_order):
+            slot = self.messages[key]
+            if slot['dirty']:
+                self.message(slot['buffer'], key)
+        if output is not None:
+            key = self.message_order[-1] if self.message_order else None
+            self.message(output, key)
+
+    def usage(self, usage, cost=None):
+        self.work_usage = usage
+        if cost is not None:
+            self.work_cost = cost
+        self.log('usage', usage=usage, cost_usd=cost)
+
+    def result(self, items, status, output='', usage=None, cost=None, error=None):
+        unresolved = [item for item in items if not item.get('resolved')]
+        if not unresolved:
+            return
+        self.emit('result', run_id=unresolved[0]['run_id'], input_ids=[item['id'] for item in unresolved], status=status,
+                  output=output, usage=usage, cost_usd=cost, error=error)
+        for item in unresolved:
+            item['resolved'] = True
+
+    def expire_requests(self, reason):
+        for request in self.requests.values():
+            self.emit('request', **dict(request['public'], state='expired', reason=reason))
+        self.requests.clear()
 
     def snapshot(self):
         state = ('cancelling' if self.cancelling else 'awaiting_reply' if self.requests
@@ -116,7 +241,8 @@ class Runtime:
                  else 'failed' if self.failed else 'idle')
         return dict(state=state, queued=len(self.queued), requests=[v['public'] for v in self.requests.values()],
                     native_session=self.thread if self.thread != 'pending' else None,
-                    adapter=self.backend.NAME, pid=os.getpid(), live=True)
+                    adapter=self.backend.NAME, pid=os.getpid(), live=True, run_id=self.active_run_id,
+                    unresolved_inputs=[item['id'] for item in self.inputs.values() if not item.get('resolved')])
 
     def public_status(self):
         return public_status(self.snapshot(), self.config)
@@ -131,7 +257,7 @@ class Runtime:
         if not isinstance(self.thread, str) or not self.thread or self.thread == 'pending':
             raise RuntimeError('backend did not provide a resumable context')
         write_json(self.directory / 'native.json', dict(resume=self.thread))
-        self.emit('session.ready', native=native)
+        self.log('session.ready', native=native)
 
     def open_request(self, native, kind, message, questions=None):
         if self.cancelling:
@@ -142,11 +268,11 @@ class Runtime:
             raise RuntimeError('native question has no supported question schema')
         if not isinstance(message, str):
             message = json.dumps(message, ensure_ascii=False)
-        public = dict(request_id=key, kind=kind, message=message)
+        public = dict(run_id=self.active_run_id, request_id=key, state='pending', kind=kind, message=message)
         if questions is not None:
             public['questions'] = questions
+        self.emit('request', **public)
         self.requests[key] = dict(native=native, kind=kind, public=public)
-        self.emit('request.opened', native=native, **public)
 
     def write(self, frame):
         self.proc.stdin.write(json.dumps(frame, ensure_ascii=False) + '\n')
@@ -162,48 +288,103 @@ class Runtime:
     def delivered(self, item, outcome, native=None, **fields):
         if item.get('delivered'):
             return
+        if not item.get('accepted'):
+            self.confirm_input(item, self.active_run_id)
+            self.work_inputs.append(item)
         item['delivered'] = True
-        self.emit('input.delivered', input=item['id'], outcome=outcome, native=native, **fields)
+        self.log('input.delivered', input_id=item['id'], outcome=outcome, native=native, **fields)
 
     def dropped(self, item, reason):
-        if item.get('delivered'):
+        if item.get('resolved'):
+            return
+        if not item.get('accepted'):
+            self.respond_waiter(item, reason or 'Input was not accepted')
+            item['resolved'] = True
             return
         item['delivered'] = True
-        self.emit('input.dropped', input=item['id'], reason=reason)
+        if item in self.work_inputs:
+            self.work_inputs.remove(item)
+        status = 'cancelled' if reason in ('cancelled', 'terminated') else 'failed'
+        self.result([item], status, error=None if status == 'cancelled' else reason or 'Input failed')
+        self.log('input.dropped', input_id=item['id'], reason=reason)
+
+    def requeue(self, item):
+        if item in self.work_inputs:
+            self.work_inputs.remove(item)
+        self.confirm_input(item, identity())
+        self.queued.append(item)
+        self.drain()
+
+    def respond_waiter(self, item, error=None):
+        conn = self.waiters.pop(item['id'], None)
+        if conn:
+            try:
+                payload = dict(ok=False, code=1, error=error) if error else dict(ok=True, value=None)
+                conn.sendall(json.dumps(payload).encode()+b'\n')
+            except (OSError, ValueError):
+                pass
+            finally:
+                conn.close()
+
+    def confirm_input(self, item, run_id):
+        item['run_id'] = run_id
+        self.emit('accepted', run_id=run_id, input_id=item['id'], text=item['text'])
+        item['accepted'] = True
+        self.respond_waiter(item)
 
     def accept(self, command):
         item = dict(id=identity(), text=command['prompt'])
-        # This flag prevents silent context resets after a runtime dies before
-        # the native backend has supplied its persistent resume identity.
         self.config['history_started'] = True
         persisted = {k: v for k, v in self.config.items() if k != 'resume'}
         write_json(self.directory / 'config.json', persisted)
-        self.inputs[item['id']] = item
         self.failed = False
         self.last_activity = time.monotonic()
-        self.emit('input.accepted', input=item['id'])
-        if self.turn and not self.cancelling and not self.requests:
+        self.inputs[item['id']] = item
+        if self.turn and not self.finishing and not self.cancelling and not self.requests and self.backend.STEER_WHILE_BUSY:
+            # A native receipt decides the run. Do not publish a provisional
+            # assignment which a completion/steer race could make incorrect.
             self.backend.steer(self, item)
-        else:
-            self.queued.append(item)
-            self.drain()
+            return item
+        self.confirm_input(item, identity())
+        self.queued.append(item)
+        self.drain()
 
     def drain(self):
-        if self.stopping or not self.thread or self.turn or self.starting or not self.queued:
+        if self.stopping or self.finishing or not self.thread or self.turn or self.starting or not self.queued:
             return
         item = self.queued.popleft()
         self.starting = True
+        self.work_inputs = [item]
+        self.active_run_id = item['run_id']
+        self.messages = {}
+        self.message_order = []
+        self.work_usage = None
+        self.work_cost = None
+        self.last_error = None
         self.backend.start_turn(self, item)
 
     def finished(self, status, native, **fields):
-        turn = self.turn
-        if turn is None and not self.starting:
+        if self.turn is None and not self.starting:
             return
+        self.finishing = (status, native, fields)
+        self.complete_finished()
+
+    def complete_finished(self):
+        if not self.finishing:
+            return
+        if not self.stopping and any(method == 'turn/steer' for method, _, _ in self.pending.values()):
+            return  # Wait for the in-flight input's receipt before resolving it.
+        status, native, fields = self.finishing
         self.backend.before_finished(self, native)
-        self.emit('turn.finished', turn=turn, status=status, native=native, **fields)
-        for key in list(self.requests):
-            self.emit('request.expired', request_id=key, reason='turn_finished')
-        self.requests.clear()
+        self.flush_messages(fields.get('output'))
+        self.expire_requests('turn_finished')
+        status = 'cancelled' if status == 'interrupted' else status
+        output = '\n\n'.join(self.messages[key]['text'] or '' for key in self.message_order)
+        error = (fields.get('error') or self.last_error or 'Execution failed') if status == 'failed' else None
+        self.result(self.work_inputs, status, output, self.work_usage, self.work_cost, error)
+        self.finishing = None
+        self.work_inputs = []
+        self.active_run_id = None
         self.turn = None
         self.starting = False
         self.cancelling = False
@@ -216,28 +397,30 @@ class Runtime:
         if verb == 'status':
             return self.public_status()
         if verb == 'send':
-            self.accept(cmd)
+            return self.accept(cmd)
         elif verb == 'cancel':
             while self.queued:
                 self.dropped(self.queued.popleft(), 'cancelled')
             for item in self.inputs.values():
-                if not item.get('delivered'):
+                if not item.get('accepted') and not item.get('resolved'):
                     item['cancelled'] = True
                     self.dropped(item, 'cancelled')
-            for key in self.requests:
-                self.emit('request.expired', request_id=key, reason='cancelled')
-            self.requests.clear()
+            for item in self.work_inputs:
+                item['cancelled'] = True
+            self.expire_requests('cancelled')
             self.cancelling = bool(self.turn or self.starting)
             self.backend.cancel(self, drop_queued=True)
-            self.emit('cancel.accepted')
+            self.log('cancel.accepted')
             self.last_activity = time.monotonic()
         elif verb == 'reply':
             key = cmd['request_id']
             if key not in self.requests:
                 raise Rejected('unknown, replied or expired request', 4)
             self.backend.reply(self, self.requests[key], cmd['answer'])
+            request = self.requests[key]
+            answer = cmd['answer'].strip() if request['kind'] == 'permission' else json.loads(cmd['answer'])
+            self.emit('request', **dict(request['public'], state='replied', answer=answer))
             del self.requests[key]
-            self.emit('request.replied', request_id=key)
             self.last_activity = time.monotonic()
         else:
             raise Rejected('unknown command', 2)
@@ -245,7 +428,8 @@ class Runtime:
 
     def serve_connection(self, listener):
         conn, _ = listener.accept()
-        with conn:
+        deferred = False
+        try:
             conn.settimeout(1)
             _, uid, _ = struct.unpack('3i', conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
             if uid != os.getuid():
@@ -255,7 +439,12 @@ class Runtime:
                 if len(raw) > MAX_COMMAND:
                     raise Rejected('command too large', 2)
                 cmd = json.loads(raw)
-                result = dict(ok=True, value=self.command(cmd))
+                value = self.command(cmd)
+                if cmd['verb'] == 'send' and value is not None:
+                    self.waiters[value['id']] = conn
+                    deferred = True
+                    return
+                result = dict(ok=True, value=value)
             except Rejected as exc:
                 result = dict(ok=False, error=str(exc), code=exc.code)
             except (ValueError, KeyError, TypeError) as exc:
@@ -263,7 +452,10 @@ class Runtime:
             try:
                 conn.sendall(json.dumps(result).encode() + b'\n')
             except (BrokenPipeError, ConnectionResetError):
-                pass  # Accepted commands survive the caller disconnecting.
+                pass
+        finally:
+            if not deferred:
+                conn.close()
 
     def read_frames(self):
         try:
@@ -308,9 +500,10 @@ class Runtime:
                                     self.stopping = True
                                     break
                                 if '_invalid' in frame:
-                                    self.emit('error', message='invalid backend JSON', native=frame)
+                                    self.log('native.error', message='invalid backend JSON', level='error', native=frame)
                                 else:
                                     self.backend.frame(self, frame)
+                                    self.complete_finished()
                             if self.stopping:
                                 break
                             self.save()
@@ -333,13 +526,25 @@ class Runtime:
                                 raise RuntimeError('native control response timed out')
                 except Exception as exc:
                     self.exit_reason = 'error'
-                    self.emit('error', message=str(exc))
+                    self.log('runtime.error', message=str(exc) or type(exc).__name__, level='error')
+                    for slot in self.messages.values():
+                        if not isinstance(slot['buffer'], str):
+                            slot.update(buffer='', dirty=False)
+                    self.finishing = None
+                    self.work_usage = None
+                    self.work_cost = None
                 finally:
                     self.stopping = True
-                    if self.turn or self.starting:
-                        self.finished('interrupted' if self.exit_reason == 'terminated' else 'failed', None)
-                    for item in self.inputs.values():
-                        self.dropped(item, self.exit_reason)
+                    try:
+                        if self.turn or self.starting:
+                            self.finished('interrupted' if self.exit_reason == 'terminated' else 'failed', None)
+                        for item in self.inputs.values():
+                            self.dropped(item, self.exit_reason)
+                    except (OSError, ValueError, TypeError) as error:
+                        self.failed = True
+                        self.log('storage.error', message=str(error), level='error')
+                        for item in self.inputs.values():
+                            self.respond_waiter(item, 'Critical event could not be saved')
                     if self.proc:
                         # Backend and its tools share a process group owned by this runtime.
                         try:
@@ -355,7 +560,7 @@ class Runtime:
                             pass
                         self.proc.wait()
                     failed = self.exit_reason not in ('idle', 'terminated') or self.failed
-                    self.emit('runtime.stopped', reason=self.exit_reason)
+                    self.log('runtime.stopped', reason=self.exit_reason)
                     write_json(self.directory / 'status.json', dict(self.snapshot(), state='failed' if failed else 'idle', live=False))
         if self.shutdown_lock:
             self.shutdown_lock.close()
@@ -391,12 +596,12 @@ def question_answers(request, answer):
 
 
 def public_status(state, config):
-    return dict(state=state['state'], queued=state.get('queued', 0),
+    return dict(state=state['state'], run_id=state.get('run_id'), queued=state.get('queued', 0),
                 requests=state.get('requests', []), cwd=config['cwd'], model=config.get('model'))
 
 
 def parser():
-    p = argparse.ArgumentParser(description='harnessctl/1: send, cancel, status, reply')
+    p = argparse.ArgumentParser(description='harnessctl/2: send, cancel, status, reply')
     sub = p.add_subparsers(dest='verb', required=True)
     for verb in ('send', 'cancel', 'status', 'reply'):
         sp = sub.add_parser(verb)
@@ -438,14 +643,27 @@ def inspect_state(events, config):
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise Rejected('runtime alive but unresponsive; command was not retried')
-            state = json.loads(state_path.read_text()) if state_path.exists() else dict(state='idle')
-            if state.pop('live', False):
+            try:
+                state = json.loads(state_path.read_text()) if state_path.exists() else dict(state='idle')
+            except ValueError:
+                state = dict(state='idle')
+            pending, requests = replay_critical(events)
+            if state.pop('live', False) or pending or requests:
                 # The runtime never completed its own cleanup. Do not replay
                 # uncertain inputs; the next send resumes only native history.
-                for request in state.get('requests', []):
-                    append_event(events, 'request.expired', request_id=request['request_id'], reason='runtime_lost')
-                state.update(state='failed', queued=0, requests=[])
-                append_event(events, 'runtime.stopped', reason='lost')
+                for request in requests.values():
+                    fields = {key:value for key,value in request.items() if key not in ('type','ts')}
+                    append_event(events, 'request', **dict(fields, state='expired', reason='runtime_lost'))
+                if pending:
+                    runs = {}
+                    for item in pending.values():
+                        runs.setdefault(item['run_id'], []).append(item['input_id'])
+                    for run_id, input_ids in runs.items():
+                        append_event(events, 'result', run_id=run_id, input_ids=input_ids, status='failed', output='',
+                                     usage=None, cost_usd=None, error='Runtime lost; input outcome is uncertain')
+                recovered = 'failed' if pending or requests or state.get('state')=='failed' else 'idle'
+                state.update(state=recovered, queued=0, requests=[], unresolved_inputs=[], run_id=None)
+                append_log(events, 'runtime.stopped', data=dict(reason='lost'))
                 write_json(state_path, state)
             return public_status(state, config), False
 
@@ -522,6 +740,8 @@ def main(backend):
                 config = json.loads(path.read_text())
                 if not events.is_file():
                     raise Rejected('event file is missing; refusing to silently recreate conversation history')
+                if config.get('protocol') != PROTOCOL:
+                    raise Rejected('event address uses an incompatible protocol; use a new event file', 2)
                 if config.get('adapter') != backend.NAME:
                     raise Rejected('event file belongs to another adapter', 2)
                 if args.verb == 'send':
@@ -538,9 +758,10 @@ def main(backend):
                 try:
                     fd = os.open(events, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
                     os.close(fd)
+                    sync_directory(events.parent)
                 except FileExistsError as exc:
                     raise Rejected('existing event file has no adapter state; refusing to overwrite it', 2) from exc
-                config = dict(adapter=backend.NAME, cwd=cwd, model=args.model, history_started=False)
+                config = dict(protocol=PROTOCOL, adapter=backend.NAME, cwd=cwd, model=args.model, history_started=False)
                 write_json(path, config)
             state, live = inspect_state(events, config)
             if args.verb == 'status':
@@ -556,7 +777,7 @@ def main(backend):
                 else:
                     if backend_alive(directory):
                         raise Rejected('runtime lost but native process still running; cancellation cannot be confirmed')
-                    append_event(events, 'cancel.accepted')
+                    append_log(events, 'cancel.accepted')
             else:
                 if not live:
                     raise Rejected('request has expired', 4)
