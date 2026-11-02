@@ -29,6 +29,31 @@ func TestScopedFileAPIAndAuthentication(t *testing.T) {
 		t.Fatal(e)
 	}
 
+	// The list feeds the inline conversation; only logs belong in details.
+	f, err := os.OpenFile(source, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []map[string]any{
+		{"type": "message", "text": "first response", "message_id": "m1"},
+		{"type": "accepted", "text": "interruption", "input_id": "i2"},
+		{"type": "message", "text": "final response", "message_id": "m2"},
+		{"type": "log", "message": "private diagnostic"},
+		{"type": "result", "status": "completed", "output": "final response"},
+	} {
+		event["run_id"] = "550e8400-e29b-41d4-a716-446655440000"
+		data, err := json.Marshal(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = f.Write(append(data, '\n')); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
 	token, e := Token(filepath.Join(t.TempDir(), "ui.token"))
 	if e != nil {
 		t.Fatal(e)
@@ -71,6 +96,26 @@ func TestScopedFileAPIAndAuthentication(t *testing.T) {
 	}
 	if w := call("GET", base+"/runs/550e8400-e29b-41d4-a716-446655440000", "localhost:7801", token); !strings.Contains(w.Body.String(), "visible summary") {
 		t.Fatal(w.Body.String())
+	}
+	list := call("GET", base+"/runs?cursor=", "localhost:7801", token)
+	var page store.Page
+	if err := json.Unmarshal(list.Body.Bytes(), &page); err != nil || len(page.Runs) != 1 {
+		t.Fatal(list.Body.String(), err)
+	}
+	if page.Runs[0].Output != "final response" || len(page.Runs[0].Events) != 5 {
+		t.Fatal("missing inline conversation", list.Body.String())
+	}
+	for _, text := range []string{"visible summary", "first response", "interruption", "final response"} {
+		if !strings.Contains(list.Body.String(), text) {
+			t.Fatal("missing inline text", text)
+		}
+	}
+	if strings.Contains(list.Body.String(), "private diagnostic") {
+		t.Fatal("log leaked into list")
+	}
+	detail := call("GET", base+"/runs/550e8400-e29b-41d4-a716-446655440000", "localhost:7801", token)
+	if !strings.Contains(detail.Body.String(), "private diagnostic") {
+		t.Fatal("detail lost diagnostic")
 	}
 	for _, path := range []string{"/api/runs", "/api/usage", "/api/stats"} {
 		if w := call("GET", path, "localhost:7801", token); w.Code != 404 {

@@ -97,7 +97,7 @@ func (c *Controller) registerAPI() {
 	filters := func() []*huma.Param {
 		return append(pagination(), query("status", "run 状态"), &huma.Param{Name: "since", In: "query", Description: "开始时间，Unix 毫秒", Schema: &huma.Schema{Type: "integer", Format: "int64"}}, &huma.Param{Name: "until", In: "query", Description: "结束时间，Unix 毫秒", Schema: &huma.Schema{Type: "integer", Format: "int64"}})
 	}
-	bind("GET", base+"/sessions/{session}/runs", "list-session-runs", "分页读取 session runs（不含 output / events）", "run", store.Page{}, 200, nil, c.list, filters()...)
+	bind("GET", base+"/sessions/{session}/runs", "list-session-runs", "分页读取 session runs（含输入、正文、插话和结果，不含日志）", "run", store.Page{}, 200, nil, c.list, filters()...)
 	bind("GET", base+"/sessions/{session}/runs/{run}", "get-native-run", "读取 harnessctl run 的详情、输出和事件", "run", store.Run{}, 200, nil, c.detail)
 	bind("GET", base+"/sessions/{session}/usage", "get-session-usage", "统计仍保留在本机的 session runs 用量", "session", usageResponse{}, 200, nil, c.stats, filters()...)
 }

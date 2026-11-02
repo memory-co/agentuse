@@ -304,8 +304,14 @@ func (c *Controller) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i := range v.Runs {
-		v.Runs[i].Events = nil
-		v.Runs[i].Output = ""
+		// Keep reliable conversation events inline; diagnostics are detail-only.
+		events := v.Runs[i].Events[:0]
+		for _, event := range v.Runs[i].Events {
+			if event.Kind != "log" {
+				events = append(events, event)
+			}
+		}
+		v.Runs[i].Events = events
 	}
 	if v.NextCursor != "" {
 		v.NextCursor = encodeCursor(r, v.NextCursor)

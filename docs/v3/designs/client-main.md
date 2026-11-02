@@ -92,7 +92,7 @@ runs 文件名必须来自 accepted.run_id。文件内 reference 记录 session�
 | GET | 同上 /sessions | session 列表 |
 | GET | 同上 /sessions/{session} | session 元数据 |
 | GET | 同上 /sessions/{session}/status | harnessctl 公开的 state、run_id、queued、requests、cwd、model |
-| GET | 同上 /sessions/{session}/runs | 实际 adapter run 列表，支持 limit/cursor/status/since/until |
+| GET | 同上 /sessions/{session}/runs | 实际 adapter run 列表，含完整输入、正文、插话和结果；日志仅详情返回。支持 limit/cursor/status/since/until |
 | GET | 同上 /sessions/{session}/runs/{run} | 该 UUID 对应的完整公共事件及结果 |
 | GET | 同上 /sessions/{session}/usage | 汇总保留的实际 run 计量 |
 | POST | /api/local/conversations | 创建命名空间，body 为 title |
