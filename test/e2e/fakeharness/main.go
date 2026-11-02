@@ -76,6 +76,7 @@ func claudeTurns(args []string, resume string, stdin *bufio.Reader) int {
 		}
 		var in struct {
 			Type    string `json:"type"`
+			UUID    string `json:"uuid"`
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
@@ -84,6 +85,8 @@ func claudeTurns(args []string, resume string, stdin *bufio.Reader) int {
 			fmt.Fprintln(os.Stderr, "bad stdin:", string(line))
 			return 2
 		}
+		emit(map[string]any{"type": "command_lifecycle", "command_uuid": in.UUID, "state": "queued"})
+		emit(map[string]any{"type": "command_lifecycle", "command_uuid": in.UUID, "state": "started"})
 		// Adapter instructions are now passed with the input, without mutating cwd.
 		instructionText := in.Message.Content
 		if parts := strings.SplitN(in.Message.Content, "\n\n# 本次任务\n", 2); len(parts) == 2 {
@@ -133,7 +136,7 @@ func claudeTurns(args []string, resume string, stdin *bufio.Reader) int {
 			out += " " + askUser(stdin)
 		}
 		emit(map[string]any{"type": "result", "subtype": "success", "is_error": false, "session_id": sid,
-			"result": out, "total_cost_usd": 0.01})
+			"result": out, "total_cost_usd": 0.01, "user_message_uuids": []string{in.UUID}})
 		resume = sid
 	}
 }

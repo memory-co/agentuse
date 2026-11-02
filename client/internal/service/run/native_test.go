@@ -121,7 +121,7 @@ func TestNativeCodexSendCanKeepTheSameRun(t *testing.T) {
 	assertNativeIdentity(t, service, run)
 	awaitLocal(t, service, run)
 }
-func TestNativeClaudeQueueGetsItsOwnRun(t *testing.T) {
+func TestNativeClaudeSteerSharesCurrentRun(t *testing.T) {
 	service, home := nativeFixture(t)
 	gate := filepath.Join(home, "finish")
 	t.Setenv("HARNESSCTL_TEST_RELEASE", gate)
@@ -136,8 +136,8 @@ func TestNativeClaudeQueueGetsItsOwnRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := second.(store.Run)
-	if run.RunID == first.RunID || run.SessionID != first.SessionID {
-		t.Fatal("queued interaction lost its adapter identity", run)
+	if run.RunID != first.RunID || run.SessionID != first.SessionID {
+		t.Fatal("supplement was not injected into the current interaction", run)
 	}
 	assertNativeIdentity(t, service, first)
 	assertNativeIdentity(t, service, run)
@@ -145,7 +145,7 @@ func TestNativeClaudeQueueGetsItsOwnRun(t *testing.T) {
 	awaitLocal(t, service, first)
 	awaitLocal(t, service, run)
 	rows, err := service.Store.Reader().List(ctx, store.Filter{Endpoint: "local", Conversation: conversation.ID, Session: first.SessionID})
-	if err != nil || len(rows.Runs) != 2 {
+	if err != nil || len(rows.Runs) != 1 {
 		t.Fatal(rows, err)
 	}
 }
@@ -188,4 +188,63 @@ func TestNativeReplyUsesRequestIDAndInvalidReplyDoesNotCancel(t *testing.T) {
 	if result.Status != "completed" {
 		t.Fatal(result)
 	}
+}
+
+func TestNativeClaudeReplyWhileSendAwaitsConsumption(t *testing.T) {
+	service, _ := nativeFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conversation, err := service.CreateConversation(ctx, "local", "pending consumption")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.Start(ctx, "local", conversation.ID, Request{Harness: "claude", Prompt: "hold"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	type answer struct {
+		run any
+		err error
+	}
+	sent := make(chan answer, 1)
+	go func() {
+		run, err := service.Control(ctx, "local", conversation.ID, first.SessionID, "send", json.RawMessage(`{"prompt":"deferred-question"}`))
+		sent <- answer{run, err}
+	}()
+	requestID := ""
+	waitNative(t, func() bool {
+		view, err := service.Store.Reader().Detail(ctx, "local", conversation.ID, first.SessionID, first.RunID)
+		if err != nil {
+			return false
+		}
+		for _, row := range view.Events {
+			var event harness.Event
+			json.Unmarshal(row.Payload, &event)
+			if event.Type == "request" && event.State == "pending" {
+				requestID = event.RequestID
+			}
+		}
+		return requestID != ""
+	})
+	select {
+	case result := <-sent:
+		t.Fatal("send acknowledged before consumption", result)
+	default:
+	}
+	payload, _ := json.Marshal(map[string]any{"request_id": requestID, "answer": "deny"})
+	if _, err = service.Control(ctx, "local", conversation.ID, first.SessionID, "reply", payload); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-sent:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if result.run.(store.Run).RunID != first.RunID {
+			t.Fatal("reply split the pending supplement")
+		}
+	case <-ctx.Done():
+		t.Fatal("reply was blocked behind pending send")
+	}
+	awaitLocal(t, service, first)
 }

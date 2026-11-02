@@ -42,7 +42,7 @@ Client 的 session API 使用 send/reply/cancel，status API 返回公开状态�
 
 前四种可靠保存。所有字段和状态约束以仓库 harnessctl/EVENT.md、event.schema.json 为准。Client 只解析这些公共记录，不解释原生 Codex RPC、Claude control_request、hook 或 .d/ 私有文件。
 
-run_id、input_id、request_id 都属于适配器。Codex 确认的补充输入可以进入同一 run；完成竞态可能转成新 run。Claude 忙时可内部排队产生新 UUID。client 只观察结果，不预言或要求某一种归属。
+run_id、input_id、request_id 都属于适配器。Codex 确认的补充输入可以进入同一 run；完成竞态可能转成新 run。Claude 忙时通过 priority=next 向原生提交，按消费回执将补充输入归入同一 run；在上一轮结束后才消费时产生新 UUID。send 等待消费边界期间，client 继续读取事件并处理 reply/cancel。client 只观察结果，不预言或要求某一种归属。
 
 ## 驱动与失败处理
 

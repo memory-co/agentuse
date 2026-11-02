@@ -20,3 +20,7 @@ JSONL 完整事件契约见 [EVENT.md](EVENT.md)，机器格式见 [event.schema
 公共事件仅 accepted、message、request、result、log 五种。前四种可靠落盘；日志可丢，不承担正文、审批或终态。run_id 由本适配器分配 UUID，确认的插话共享当前 run，使用方不能指定。
 
 默认执行权限为自动放行：启动时显式设置 --permission-mode bypassPermissions，并保留 stdio 控制通道用于真正需要用户输入的问题。普通工具执行不进入 reply 链路；用户问题仍以 request(kind=question) 等待 reply。若原生仍发出显式权限请求，作为例外保留 permission 请求，不擅自吞掉或伪造批准。组织策略拒绝、认证错误和执行失败不会通过自动 reply 绕过。
+
+运行中 send 直接写入原生 stream-json（priority=next），由 Claude 在工具轮次之间消费。适配器根据 command_lifecycle.started 或 user_message_uuids 确认输入归属，再写 accepted；仅 user replay 不算插话成功。当前轮消费的输入共享 run_id，当前轮结束后消费的输入分配新 UUID。send 等待消费回执期间 status/reply/cancel 仍可调用。已验证 Claude Code 2.1.316；旧版本若不提供消费回执，不虚报插话已注入。
+
+仓库内可运行 `HARNESSCTL_REAL_CLAUDE=1 python3 -m unittest discover -s harnessctl/tests -p test_real_claude.py -v`：真实 Claude CLI 连接本地模拟 Messages API，验证工具运行期间的补充输入在同一轮被消费、result 覆盖两条输入，以及等待消费期间仍能取消。不调用外部模型或使用真实 API 凭据。

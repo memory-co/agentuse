@@ -1,7 +1,7 @@
 """Claude Code stream-json control adapter.
 
-Queues are owned here; native `next` steering has no turn-correlated ack.
-User replay is reported as observed, never falsely labelled injected.
+Busy input is sent to the native queue and bound only on consumption receipts.
+User replay alone is receipt, never proof of consumption.
 """
 import json
 import time
@@ -9,9 +9,9 @@ import uuid
 
 NAME = 'claudecode'
 BINARY = 'claude'
-# Native next-priority inputs have no reliable turn receipt. Queue internally
-# so every accepted input has one unambiguous terminal result.
-STEER_WHILE_BUSY = False
+# Claude Code 2.1.316 exposes command_lifecycle and user_message_uuids.
+# These identify consumed inputs, including those folded between tool rounds.
+STEER_WHILE_BUSY = True
 
 
 def argv(config):
@@ -58,6 +58,13 @@ def steer(r, item):
 
 
 def cancel(r, drop_queued=False):
+    if drop_queued:
+        for native_id, item in r.claude_writes.items():
+            if not item.get('delivered'):
+                key = 'ctl:withdraw:' + native_id
+                r.pending[key] = ('cancel_async_message', item, time.monotonic())
+                r.write(dict(type='control_request', request_id=key,
+                             request=dict(subtype='cancel_async_message', message_uuid=native_id)))
     if not r.turn:
         return
     r.claude_interrupt = True
@@ -95,19 +102,55 @@ def decline(r, native):
                  request_id=native['request_id'], error='Execution cancelled')))
 
 
+def consumed(r, item, native):
+    if item.get('resolved') or item.get('cancelled') or item.get('delivered'):
+        return
+    item['native_queued'] = False
+    if not r.turn:
+        # The previous result won the race: native now starts a new interaction.
+        from runtime import identity
+        r.turn = 'turn_' + identity()
+        r.active_run_id = identity()
+        r.work_inputs = []
+        r.messages = {}
+        r.message_order = []
+        r.work_usage = None
+        r.work_cost = None
+        r.last_error = None
+        r.log('execution.started', evidence='native_consumption', native=native)
+    outcome = 'started_turn' if item.get('started_turn') or not r.work_inputs else 'injected'
+    r.delivered(item, outcome, native, turn=r.turn, evidence='native_consumption')
+
+
 def before_finished(r, native):
-    # Retain honest uncertainty for native `next` messages: replay is receipt,
-    # and result/echo ordering alone does not prove model consumption or turn.
+    # Initial inputs are already bound when submitted. Supplemental inputs must
+    # have a consumption receipt; neither stdin writes nor replay prove it.
     for item in r.claude_writes.values():
         if native is not None and item.get('started_turn') == r.turn and not item.get('delivered'):
-            r.delivered(item, 'started_turn', native, turn=r.turn, evidence='native_result')
-        if not item.get('delivered') and item.get('observed'):
-            r.delivered(item, 'unknown', native, evidence='user_replay',
-                        reason='native protocol has no turn-correlated steer receipt')
+            consumed(r, item, native)
 
 
 def frame(r, f):
     typ = f.get('type')
+    # Results list all inputs consumed in this native interaction; assistant /
+    # stream frames may carry the same correlation before the final result.
+    ids = f.get('user_message_uuids')
+    if not isinstance(ids, list):
+        ids = [f.get('user_message_uuid')]
+    for key in ids:
+        item = r.claude_writes.get(key) if isinstance(key, str) else None
+        if item:
+            consumed(r, item, f)
+    if typ == 'command_lifecycle':
+        item = r.claude_writes.get(f.get('command_uuid'))
+        if item:
+            item['native_queued'] = f.get('state') == 'queued' and not item.get('resolved')
+            r.log('input.lifecycle', state=f.get('state'), input_id=item['id'], native=f)
+            if f.get('state') == 'started':
+                consumed(r, item, f)
+            elif f.get('state') in ('cancelled', 'discarded', 'refused') and not item.get('delivered'):
+                r.dropped(item, 'cancelled' if f['state'] == 'cancelled' else f['state'])
+        return
     if typ == 'control_response':
         response = f.get('response', {})
         pending = r.pending.pop(response.get('request_id'), None)

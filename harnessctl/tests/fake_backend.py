@@ -19,6 +19,10 @@ turn = None
 count = 0
 initialized = False
 last_output = ""
+claude_inputs = []
+claude_gated = False
+claude_extra = []
+claude_deferred = None
 
 
 def emit(value):
@@ -30,12 +34,14 @@ def emit(value):
 
 
 def finish(status='completed',output=None):
-    global turn,last_output
+    global turn,last_output,claude_inputs,claude_gated
     if claude:
-        emit(dict(type='result', subtype='success', is_error=False, result=output if output is not None else last_output or 'OK', usage={'input_tokens': 2}))
+        emit(dict(type='result', subtype='success', is_error=False, result=output if output is not None else last_output or 'OK', usage={'input_tokens': 2},user_message_uuids=list(claude_inputs)))
     else:
         emit(dict(method='turn/completed', params=dict(threadId='native-session', turn=dict(id=turn, status=status))))
     turn = None
+    claude_inputs = []
+    claude_gated = False
     last_output = ""
 
 
@@ -50,6 +56,10 @@ for line in sys.stdin:
             if f['request']['subtype'] == 'interrupt' and turn:
                 finish('interrupted')
         elif f.get('type') == 'control_response':
+            if claude_deferred:
+                claude_inputs.append(claude_deferred['uuid'])
+                emit(dict(type='command_lifecycle',command_uuid=claude_deferred['uuid'],state='started'))
+                claude_deferred = None
             if f.get('response',{}).get('response',{}).get('updatedInput',{}).get('answers') is not None:
                 assert f['response']['response']['updatedInput']['answers'] == {'Which language?': 'Go'}
             emit(dict(type='assistant', message=dict(content=[dict(type='text', text='answered')])))
@@ -58,15 +68,32 @@ for line in sys.stdin:
             if not initialized:
                 emit(dict(type='system', subtype='init', session_id='native-session'))
                 initialized = True
-            emit(f)  # replay confirms receipt, not consumption
             text = f['message']['content']
             if '\n\n# 本次任务\n' in text:text=text.split('\n\n# 本次任务\n',1)[1]
+            emit(dict(type='command_lifecycle',command_uuid=f['uuid'],state='queued'))
+            emit(f)  # replay alone is not proof of consumption
+            if text == 'deferred-question' and turn:
+                claude_deferred = f
+                emit(dict(type='control_request', request_id='deferred-permission', request=dict(subtype='can_use_tool', tool_name='Bash', input=dict(command='echo continue'))))
+                continue
+            if text == 'reject-steer':
+                emit(dict(type='command_lifecycle',command_uuid=f['uuid'],state='refused'))
+                continue
+            if text == 'race' and turn:
+                finish()
             turn = turn or 'active'
+            claude_inputs.append(f['uuid'])
+            emit(dict(type='command_lifecycle',command_uuid=f['uuid'],state='started'))
+            if claude_gated:
+                claude_extra.append(text)
+                continue
             if text == 'gated':
+                claude_gated = True
+                claude_extra.clear()
                 def gated():
                     gate=Path(os.environ['HARNESSCTL_TEST_RELEASE'])
                     while not gate.exists():time.sleep(.01)
-                    emit(dict(type='assistant',message=dict(id='gated-message',content=[dict(type='text',text='gated done')])))
+                    emit(dict(type='assistant',message=dict(id='gated-message',content=[dict(type='text',text='gated done' + ''.join(' '+x for x in claude_extra))])))
                     finish()
                 threading.Thread(target=gated,daemon=True).start()
             elif text == 'environment':

@@ -1,6 +1,6 @@
 {
   "name": "claudecode",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "protocol": "harnessctl/2",
   "entrypoint": "harnessctl",
   "platforms": [

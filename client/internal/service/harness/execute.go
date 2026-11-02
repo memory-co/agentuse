@@ -69,7 +69,11 @@ type pendingRequest struct {
 }
 
 func command(ctx context.Context, a Adapter, events, verb, body string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	timeout := 15 * time.Second
+	if verb == "send" {
+		timeout = 5 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	argv := append([]string{verb, events}, args...)
 	cmd := exec.CommandContext(ctx, a.Path, argv...)
@@ -233,6 +237,13 @@ func (s Service) DriveSession(ctx context.Context, a Adapter, prompt string, dir
 	if _, e = command(ctx, a, events, "send", prompt, "--cwd", dir); e != nil {
 		return fail(e)
 	}
+	// Native consumption can wait for a tool boundary. Keep observing events and
+	// servicing replies while a supplemental send awaits its accepted receipt.
+	sendCtx, cancelSends := context.WithCancel(ctx)
+	defer cancelSends()
+	sendDone := make(chan error, 1)
+	var pendingSends []*submission
+	sendBusy := false
 	tick := time.NewTicker(40 * time.Millisecond)
 	defer tick.Stop()
 	lastPoll := time.Now()
@@ -245,9 +256,7 @@ func (s Service) DriveSession(ctx context.Context, a Adapter, prompt string, dir
 			if control.send != nil {
 				step := &submission{prompt: control.send.Text, accepted: control.send.Accepted}
 				submitted = append(submitted, step)
-				if _, e = command(ctx, a, events, "send", step.prompt, "--cwd", dir); e != nil {
-					return fail(e)
-				}
+				pendingSends = append(pendingSends, step)
 			} else if control.reply != nil {
 				_, err := command(ctx, a, events, "reply", control.reply.Body, control.reply.RequestID)
 				if control.reply.Done != nil {
@@ -255,6 +264,25 @@ func (s Service) DriveSession(ctx context.Context, a Adapter, prompt string, dir
 				}
 
 			}
+		}
+		if sendBusy {
+			select {
+			case err := <-sendDone:
+				sendBusy = false
+				if err != nil {
+					return fail(err)
+				}
+			default:
+			}
+		}
+		if !sendBusy && len(pendingSends) > 0 {
+			step := pendingSends[0]
+			pendingSends = pendingSends[1:]
+			sendBusy = true
+			go func() {
+				_, err := command(sendCtx, a, events, "send", step.prompt, "--cwd", dir)
+				sendDone <- err
+			}()
 		}
 		batch, e := readEvents(events, &offset)
 		if e != nil {
@@ -334,7 +362,7 @@ func (s Service) DriveSession(ctx context.Context, a Adapter, prompt string, dir
 				return fail(fmt.Errorf("harnessctl request timed out"))
 			}
 		}
-		done := true
+		done := !sendBusy && len(pendingSends) == 0
 		for _, step := range submitted {
 			done = done && step.done
 		}

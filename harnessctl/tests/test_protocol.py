@@ -155,10 +155,15 @@ class ProtocolTests(unittest.TestCase):
         other=self.send('claudecode','gated')
         self.wait_log(other,'input.observed')
         self.send('claudecode','more',event=other)
-        self.assertEqual(self.status('claudecode',other)['queued'],1)
+        self.assertEqual(self.status('claudecode',other)['queued'],0)
+        self.wait_log(other,'input.delivered',outcome='injected')
         self.release_claude_gate.touch()
-        self.wait(other,'message',text='more')
-        self.assertFalse(any(x.get('outcome')=='injected' for x in self.events(other)))
+        self.wait(other,'message',text='gated done more')
+        result=self.wait(other,'result')
+        accepted=[x for x in self.events(other) if x['type']=='accepted']
+        self.assertEqual(len(accepted),2)
+        self.assertEqual({x['run_id'] for x in accepted},{result['run_id']})
+        self.assertEqual(set(result['input_ids']),{x['input_id'] for x in accepted})
 
     def test_cancel_drops_waiting_input_and_can_send_again(self):
         for adapter in ADAPTERS:

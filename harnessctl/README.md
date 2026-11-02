@@ -77,7 +77,7 @@ printf '%s' '{"q1":"Go"}' | "$A" reply /tmp/review.jsonl req-2
 
 首次 send 自动启动所需进程并建立原生上下文。空闲时继续该上下文；忙碌时尽量向当前执行追加输入，不可直接追加时由适配器保留后续处理。调用方不选择 start、steer、queue 或 interrupt。
 
-Codex 适配器在内部使用 app-server RPC，原生回执确认插入当前交互后才公开该输入的 run_id；遇到交互刚结束的竞态，则内部安排下一次交互并分配新 UUID。Claude Code 缺少可靠的插话轮次回执，当前在忙时内部排队，空闲后通过 stream-json 提交。原生协议不同，不保证两家在完全相同的时机消费补充输入。
+Codex 适配器在内部使用 app-server RPC，原生回执确认插入当前交互后才公开该输入的 run_id；遇到交互刚结束的竞态，则内部安排下一次交互并分配新 UUID。Claude Code 忙时通过 stream-json 的 priority=next 直接提交输入，在工具轮次之间消费；适配器以 command_lifecycle.started 或 user_message_uuids 确认当前交互归属，而不是用 stdin 写成功或 user replay 猜测。已验证 Claude Code 2.1.316。原生协议不同，不保证两家在完全相同的时机消费补充输入。Claude send 的受理确认可能等待工具边界，期间不会锁住 status/reply/cancel；若消费发生在上一轮 result 之后，仍生成新 run_id。
 
 等待外部回复、取消过程中或原生初始化尚未完成时，新输入先由适配器保留；cancel 可以取消这些待处理输入。未获得确定证据时，适配器不能宣称输入已经进入某一轮或被模型消费。
 

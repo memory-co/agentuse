@@ -129,7 +129,7 @@ def replay_critical(events):
 def rpc(events, command):
     try:
         with socket.socket(socket.AF_UNIX) as sock:
-            sock.settimeout(5)
+            sock.settimeout(300 if command.get("verb") == "send" else 5)
             sock.connect(address(events))
             sock.sendall(json.dumps(command).encode() + b'\n')
             reply = sock.makefile('rb').readline(MAX_COMMAND + 1)
@@ -237,9 +237,9 @@ class Runtime:
 
     def snapshot(self):
         state = ('cancelling' if self.cancelling else 'awaiting_reply' if self.requests
-                 else 'running' if self.turn or self.starting or self.queued
+                 else 'running' if self.turn or self.starting or self.queued or any(not i.get('resolved') for i in self.inputs.values())
                  else 'failed' if self.failed else 'idle')
-        return dict(state=state, queued=len(self.queued), requests=[v['public'] for v in self.requests.values()],
+        return dict(state=state, queued=len(self.queued) + sum(bool(i.get('native_queued')) and not i.get('resolved') for i in self.inputs.values()), requests=[v['public'] for v in self.requests.values()],
                     native_session=self.thread if self.thread != 'pending' else None,
                     adapter=self.backend.NAME, pid=os.getpid(), live=True, run_id=self.active_run_id,
                     unresolved_inputs=[item['id'] for item in self.inputs.values() if not item.get('resolved')])
@@ -518,7 +518,8 @@ class Runtime:
                             except socket.timeout:
                                 pass
                             if (not self.turn and not self.starting and not self.queued and not self.requests
-                                    and not self.pending and time.monotonic()-self.last_activity > IDLE_SECONDS):
+                                    and not self.pending and not any(not i.get('resolved') for i in self.inputs.values())
+                                    and time.monotonic()-self.last_activity > IDLE_SECONDS):
                                 shutdown = open(self.directory / 'control.lock', 'a')
                                 try:
                                     fcntl.flock(shutdown, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -804,6 +805,9 @@ def main(backend):
                     write_json(path, config)
                 if not live:
                     launch(events, backend, config)
+                # Receipt may wait for a native tool boundary. Keep cancel,
+                # reply and status usable while this send awaits consumption.
+                fcntl.flock(control, fcntl.LOCK_UN)
                 rpc(events, dict(verb='send', prompt=content))
             elif args.verb == 'cancel':
                 if live:

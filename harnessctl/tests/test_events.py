@@ -108,5 +108,59 @@ assert result['status']=='cancelled' and result['input_ids']==[first['id']]
             p=subprocess.run([sys.executable,'-c',script,str(ROOT/'harness/codex/lib'),str(Path(temp)/'events.jsonl')],capture_output=True,text=True,timeout=5)
             self.assertEqual(p.returncode,0,p.stderr)
 
+    def test_claude_consumption_receipts_and_completion_races(self):
+        script = """
+import io,json,pathlib,sys
+sys.path.insert(0,sys.argv[1])
+import claudecode
+from runtime import Runtime,identity
+root=pathlib.Path(sys.argv[2])
+for scenario in ('same','race','cancel','reject'):
+    p=root/(scenario+'.jsonl');pathlib.Path(str(p)+'.d').mkdir();p.touch()
+    r=Runtime(p,claudecode,{'cwd':str(root),'model':None})
+    r.thread='native';r.turn='turn1';r.active_run_id=identity()
+    r.claude_writes={};r.claude_interrupt=False
+    r.proc=type('Process',(),{'stdin':io.StringIO()})()
+    first={'id':identity(),'text':'initial','started_turn':r.turn}
+    r.inputs[first['id']]=first;r.confirm_input(first,r.active_run_id);r.work_inputs=[first]
+    r.claude_writes['first']=first;r.delivered(first,'started_turn')
+    late=r.accept({'prompt':'supplement'})
+    native=next(k for k,v in r.claude_writes.items() if v is late)
+    claudecode.frame(r,{'type':'user','uuid':native,'message':{'content':'supplement'}})
+    assert not late.get('accepted'), 'replay is not consumption'
+    if scenario=='cancel':
+        r.command({'verb':'cancel'})
+        claudecode.frame(r,{'type':'command_lifecycle','command_uuid':native,'state':'started'})
+        claudecode.frame(r,{'type':'result','user_message_uuids':['first',native],'result':'stopped'})
+    elif scenario=='reject':
+        claudecode.frame(r,{'type':'command_lifecycle','command_uuid':native,'state':'refused'})
+        claudecode.frame(r,{'type':'result','user_message_uuids':['first'],'result':'initial only'})
+    elif scenario=='race':
+        claudecode.frame(r,{'type':'result','user_message_uuids':['first'],'result':'initial only'})
+        assert not late.get('accepted')
+        claudecode.frame(r,{'type':'command_lifecycle','command_uuid':native,'state':'started'})
+        claudecode.frame(r,{'type':'result','user_message_uuids':[native],'result':'next interaction'})
+    else:
+        # A result's UUID list alone also proves consumption without replay or lifecycle.
+        claudecode.frame(r,{'type':'result','user_message_uuids':['first',native],'result':'combined'})
+    rows=[json.loads(line) for line in p.read_text().splitlines()]
+    accepted=[e for e in rows if e['type']=='accepted'];results=[e for e in rows if e['type']=='result']
+    if scenario=='same':
+        assert len(accepted)==2 and len(results)==1
+        assert accepted[0]['run_id']==accepted[1]['run_id']==results[0]['run_id']
+        assert set(results[0]['input_ids'])=={first['id'],late['id']}
+    elif scenario=='race':
+        assert len(accepted)==2 and len(results)==2
+        assert accepted[0]['run_id']!=accepted[1]['run_id']
+        assert results[1]['input_ids']==[late['id']]
+    else:
+        assert len(accepted)==1 and len(results)==1
+        assert results[0]['input_ids']==[first['id']]
+        assert late['resolved']
+"""
+        with tempfile.TemporaryDirectory() as temp:
+            p=subprocess.run([sys.executable,'-c',script,str(ROOT/'harness/claudecode/lib'),temp],capture_output=True,text=True,timeout=5)
+            self.assertEqual(p.returncode,0,p.stderr)
+
 
 if __name__=='__main__':unittest.main()

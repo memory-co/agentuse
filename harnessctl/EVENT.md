@@ -25,11 +25,11 @@
 - 一次新的交互分配新 run_id；确认插入当前交互的补充输入沿用当前 run_id。
 - 适配器内部排到下一次交互的输入使用新的 run_id。多个已受理的交互可以在文件中交错出现，不能按物理连续行切分 run。
 - Codex 的运行中输入先等待原生插话回执，确认后才公开 accepted 的归属；若原生报告当前轮刚结束，则内部改为下一次交互并分配新 run_id。公布后不再修改该 input_id 的 run_id。
-- Claude 没有可靠的原生插话轮次回执；当前适配器忙时在内部排队，避免对归属作未经确认的承诺。调用方仍只使用 send，不选择插话/排队。
+- Claude Code 忙时直接通过 stream-json 提交 priority=next 输入，在工具轮次之间消费。以 command_lifecycle.started 或 assistant/result 的 user_message_uuids 确认归属后才写 accepted；user replay 本身不算消费证据。当前轮结束后才被消费的输入使用新 UUID。已验证后端 2.1.316。
 - input_id 标识一条已受理输入，由适配器分配。一个 run 可以包含初始输入和多条补充输入。result.input_ids 明确列出本次结果覆盖的输入。
 - 每条 accepted 输入最终由一个 result 覆盖；同一 run 的输入归并到同一个结果。取消尚未开始的交互也产生 cancelled 结果。run 可能在原生启动前失败，不虚报执行过模型。
 
-send 只等待本机受理和必要的原生控制回执，不等待模型完成。控制回执或 IPC 超时时，结果可能不确定，调用方应读取文件；不能根据一次超时盲目重发。
+send 等待本机受理和必要的原生消费回执；Claude 插话可能等待当前工具结束，到消费边界才确认 run_id，不主动等待模型完成。等待期间 status、reply、cancel 仍可用。控制回执或 IPC 超时时，结果可能不确定，调用方应读取文件；不能根据一次超时盲目重发。
 
 ## 3. accepted：已受理输入，关键
 
