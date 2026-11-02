@@ -24,9 +24,10 @@ func TestNew(t *testing.T) {
 	if _, err := newConnection(Config{Server: "http://x"}, nil); err == nil {
 		t.Fatal("没注册应该报错")
 	}
-	t.Setenv("HOME", "/home/x")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	d, err := newConnection(Config{Server: "http://x", Key: "dk"}, nil)
-	if err != nil || d.workdir != "/home/x/.agentuse/tmp" {
+	if err != nil || d.workdir != filepath.Join(home, ".agentuse", "tmp") {
 		t.Fatalf("workdir: %v %q", err, d.workdir)
 	}
 }

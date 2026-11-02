@@ -31,7 +31,6 @@ type endpointConnection struct {
 	workdir string // configured conversation parent root
 
 	mu        sync.Mutex
-	paused    bool
 	claimMode bool
 	claimID   string
 	claimAt   time.Time
@@ -74,6 +73,10 @@ func newConnection(cfg Config, logger *log.Logger, writers ...store.Writer) (*en
 	if cfg.Harness == nil {
 		cfg.Harness = &harness.Service{Root: harness.HarnessRoot(cfg.HarnessConfig())}
 	}
+	if err := cfg.Harness.Freeze(cfg.Harnesses); err != nil {
+		return nil, err
+	}
+
 	if cfg.Slots == nil {
 		cfg.Slots = make(chan struct{}, 2)
 	}
@@ -184,7 +187,7 @@ func (d *endpointConnection) session(ctx context.Context) error {
 	}
 
 	d.mu.Lock()
-	d.harnesses = harness.Detect(d.cfg.HarnessConfig())
+	d.harnesses = d.cfg.Harness.Available()
 	hello := protocol.Message{Type: protocol.TypeHello, Version: version.Version, Capabilities: []string{attachment.Capability, "session-runs-v1", "codex-steer-v1"}}
 	for _, a := range d.harnesses {
 		hello.Harnesses = append(hello.Harnesses, protocol.Harness{Name: a.Name, Version: a.Version})
@@ -219,7 +222,7 @@ func (d *endpointConnection) session(ctx context.Context) error {
 				return
 			case <-tick.C:
 				d.mu.Lock()
-				if !d.claimMode || d.conn == nil || d.paused {
+				if !d.claimMode || d.conn == nil {
 					d.mu.Unlock()
 					continue
 				}
@@ -552,7 +555,7 @@ func (d *endpointConnection) sessionDir(m protocol.Dispatch) (string, error) {
 func (d *endpointConnection) isPaused() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.paused || d.claimMode
+	return d.claimMode
 }
 
 func executionKey(message int64, run, attempt string) string {

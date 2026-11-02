@@ -22,7 +22,7 @@ func TestSessionServiceRootChangeRequiresRestart(t *testing.T) {
 	if e = setting.Save(cfg); e != nil {
 		t.Fatal(e)
 	}
-	if _, _, e = sessions.Acquire(context.Background(), "ep", "c", "a", "codex", "v"); e == nil {
-		t.Fatal("mixed roots allowed without restart")
+	if _, _, e = sessions.Acquire(context.Background(), "ep", "c", "a", "codex", "v"); e != nil {
+		t.Fatal("running session configuration changed before restart", e)
 	}
 }

@@ -40,7 +40,7 @@ client Go 代码不再实现 Codex JSON-RPC、Claude control_request、hook 或�
   lib/                 # 包自己的运行时与原生适配代码
 ```
 
-内置的 Codex、Claude Code 包随 client 二进制嵌入，首次探测时释放到本地目录。`<harness>/local/` 可安装自定义包，优先于内置包；`local/disabled` 可禁用。旧的 harness.yaml 不再作为执行描述加载，不删除已有文件。内容摘要作为 harness_revision，版本变化后新任务选择新 session。
+内置的 Codex、Claude Code 包随 client 二进制嵌入，首次探测时释放到本地目录。`<harness>/local/` 可安装自定义包，优先于内置包；`local/disabled` 可禁用。旧的 harness.yaml 不再作为执行描述加载，不删除已有文件。启动时探测并固定包目录和可用性。local 自定义包按内容摘要复制到版本目录，避免后续任务读取被修改的本地源码。内容摘要作为 harness_revision；修改包后重启才能选择新版本和新 session。
 
 AgentUse 注册名沿用 `codex`、`claude`；独立包名分别是 `codex`、`claudecode`。自定义适配器只要提供相同命令与事件，无须修改 client 的原生协议代码。
 
@@ -92,3 +92,5 @@ client 重启时先通过对应版本的适配器取消遗留的前台执行，�
 ## 验证边界
 
 独立 Python 协议测试验证各包的原生差异、关键事件格式与恢复。Go 桥接测试验证输入归属、聚合完成、问答、取消和环境更新；完整 client/server 测试验证多中心、本地调试、共享目录、工作线程和附件。真实模型测试需显式启用，模拟测试不代表模型一定遵循任务指令。
+
+配置生命周期统一为：启动时加载 setting.yaml、endpoints.yaml 和 harness 包，运行期间固定使用快照。修改、增删、启停和凭据变更一律重启生效；没有热更新、周期重读、重新探测或 active_work_root / restart_required 双态字段。自动重连、任务控制和 quota 检查属于运行行为，不重新加载配置。

@@ -26,7 +26,7 @@ func TestSettingsFilesValidateAndRetainLastValidSnapshot(t *testing.T) {
 		t.Fatal("invalid setting applied")
 	}
 	os.WriteFile(path, []byte("execution:\n  max_running_runs: 1\n"), 0600)
-	if e = s.Reload(); e == nil {
+	if _, e = New(path); e == nil {
 		t.Fatal("obsolete setting accepted")
 	}
 	if s.Get().LocalHTTP.Port != 7801 {

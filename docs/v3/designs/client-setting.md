@@ -30,7 +30,7 @@ session:
 
 默认本机端口 7801；默认工作根目录为 `~/.agentuse/tmp`。声明 session.quota 就启用容量限制与自动清理，不再配置 enabled 或 cleanup。省略 quota 表示不限容量、不因容量回收；声明时 max_bytes 必须为正整数。所有 harness 共用这一目录分配规则。
 
-缺少配置文件时首次生成默认文件再使用，不另存隐藏配置表。端口须合法，路径扩展 `~` 后规范化；非法配置在启动时明确报错。运行时修改无效则拒绝应用，保留当前有效内存快照并报告错误，不能静默写回另一份“权威配置”。
+缺少配置文件时首次生成默认文件再使用，不另存隐藏配置表。端口须合法，路径扩展 `~` 后规范化；非法配置在启动时明确报错。运行期间不读取或监视配置文件。修改文件后重启生效；非法配置在下一次启动时明确报错，不回写或维护另一份“权威配置”。
 
 `local_http.enabled: false` 表示关闭本机 Web 入口，不关闭 client 的中心连接、任务领取和执行。设计上，启用 Web 后发生端口占用等初始化故障，也只记录错误并停用该入口，后台任务服务继续运行；此容错行为尚待实现。恢复 Web 需修复问题后重启 client。配置本身非法仍按上述校验规则报错。具体故障边界见 [Client 总览](client-main.md#八断线重启和只读页面)。
 
@@ -42,10 +42,12 @@ session:
 |---|---|
 | 端口/监听设置变化 | 当前实现提示重启 client 后生效，不在运行中强制切换端口 |
 | 工作根目录变化 | 先停止任务，再修改配置并重启 client；需要保留会话时由用户完整迁移旧目录。Client 按新配置推导路径，不维护旧根目录映射或自动搬迁 |
-| 容量策略变化 | 后续检查按新策略执行，仍保护在用目录 |
+| 容量策略变化 | 重启 client 后使用新策略，仍保护在用目录 |
 
-文件变更通知只用于提醒重读；CLI 或用户编辑后的 setting.yaml 才是持久化事实。sessionService 执行目录选择/回收，harnessService 负责在选定目录内运行，settingService 仅管理配置。
+不发送文件变更通知、不热重读；所有修改统一重启生效。CLI 或用户编辑后的 setting.yaml 是持久化事实。sessionService 执行目录选择/回收，harnessService 负责在选定目录内运行，settingService 仅管理配置。
 
 ## 相关设计
 
 [Client 总览](client-main.md) · [endpointService](client-endpoint.md) · [sessionService](client-session.md) · [runService](client-run.md) · [harnessService](client-harness.md)
+
+配置生命周期统一为：启动时加载 setting.yaml、endpoints.yaml 和 harness 包，运行期间固定使用快照。修改、增删、启停和凭据变更一律重启生效；没有热更新、周期重读、重新探测或 active_work_root / restart_required 双态字段。自动重连、任务控制和 quota 检查属于运行行为，不重新加载配置。

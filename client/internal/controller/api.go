@@ -78,7 +78,7 @@ func (c *Controller) registerAPI() {
 	ep := query("endpoint_id", "endpoint 的目录标识；本地模式为 local")
 	ep.Required = true
 	bind("GET", "/api/conversations", "list-conversations", "列出指定 endpoint 的 conversations", "conversation", apiPage[store.Conversation]{}, 200, nil, c.conversations, append(pagination(), ep)...)
-	bind("GET", "/api/local/harnesses", "probe-local-harnesses", "重新探测可用于本地执行的 harness", "harness", harnessList{}, 200, nil, c.localHarnesses)
+	bind("GET", "/api/local/harnesses", "probe-local-harnesses", "读取启动时可用于本地执行的 harness", "harness", harnessList{}, 200, nil, c.localHarnesses)
 	bind("POST", "/api/local/conversations", "create-local-conversation", "创建本地 conversation", "conversation", store.Conversation{}, 201, createConversationBody{}, c.localCreate)
 	bind("POST", "/api/local/conversations/{conversation}/runs", "start-local-run", "启动本地 harness run", "run", store.Run{}, 202, startRunBody{}, c.localStart)
 	bind("POST", "/api/local/conversations/{conversation}/sessions/{session}/runs/{run}/attempts/{attempt}/{action}", "control-local-run", "控制本地 run：cancel / steer / answer", "run", okResponse{}, 200, controlRunBody{}, c.localControl)
@@ -153,22 +153,19 @@ type harnessList struct {
 	Items []harnessView `json:"items"`
 }
 type settingsResponse struct {
-	Config struct {
-		LocalHTTP struct {
-			Enabled bool   `json:"enabled"`
-			Host    string `json:"host"`
-			Port    int    `json:"port"`
-		} `json:"local_http"`
-		Session struct {
-			WorkRoot string `json:"work_root"`
-			Quota    *struct {
-				MaxBytes int64 `json:"max_bytes"`
-			} `json:"quota,omitempty"`
-		} `json:"session"`
-	} `json:"config"`
-	ActiveWorkRoot  string   `json:"active_work_root"`
-	RestartRequired []string `json:"restart_required"`
+	LocalHTTP struct {
+		Enabled bool   `json:"enabled"`
+		Host    string `json:"host"`
+		Port    int    `json:"port"`
+	} `json:"local_http"`
+	Session struct {
+		WorkRoot string `json:"work_root"`
+		Quota    *struct {
+			MaxBytes int64 `json:"max_bytes"`
+		} `json:"quota,omitempty"`
+	} `json:"session"`
 }
+
 type statusResponse struct {
 	Endpoints []struct {
 		EndpointID string `json:"endpoint_id"`

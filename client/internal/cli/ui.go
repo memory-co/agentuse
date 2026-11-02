@@ -41,9 +41,17 @@ func startLocalUI(cfg runservice.Config, reader store.Reader, managers ...*runse
 		ln.Close()
 		return nil, err
 	}
+	providers := &endpointservice.Service{Path: cfg.ConfigPath}
 	var manager *runservice.Service
 	if len(managers) > 0 {
 		manager = managers[0]
+		providers = manager.Endpoints
+	} else {
+		providers, err = providers.Snapshot()
+		if err != nil {
+			ln.Close()
+			return nil, err
+		}
 	}
 	handler, err := controller.New(reader, ln.Addr().String(), token, controller.PublicData{
 		LocalCreate: func(ctx context.Context, title string) (store.Conversation, error) {
@@ -61,30 +69,13 @@ func startLocalUI(cfg runservice.Config, reader store.Reader, managers ...*runse
 		},
 		LocalHarnesses: func() (any, error) { return manager.ProbeHarnesses() },
 		Endpoints: func() any {
-			providers := &endpointservice.Service{Path: cfg.ConfigPath}
-			if manager != nil {
-				providers = manager.Endpoints
-			}
 			items, e := providers.Views()
 			if e != nil {
 				return controller.ReadFailure{Err: e}
 			}
 			return map[string]any{"items": items}
 		},
-		Settings: func() any {
-			if len(managers) > 0 {
-				value := managers[0].Settings.Get()
-				restart := []string{}
-				if value.Session.WorkRoot != cfg.Settings.Session.WorkRoot {
-					restart = append(restart, "session.work_root")
-				}
-				if value.LocalHTTP != cfg.Settings.LocalHTTP {
-					restart = append(restart, "local_http")
-				}
-				return map[string]any{"config": value, "active_work_root": cfg.Settings.Session.WorkRoot, "restart_required": restart}
-			}
-			return cfg.Settings
-		},
+		Settings: func() any { return cfg.Settings },
 		Harnesses: func() any {
 			if len(managers) > 0 {
 				return managers[0].Harnesses()

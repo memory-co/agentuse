@@ -693,15 +693,7 @@ function LocalTaskPanel({
     >
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium">本地 Harness 调试</h2>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => void harnesses.refetch()}
-          disabled={harnesses.isFetching}
-        >
-          <RefreshCw className="mr-2 size-3" />
-          重新探测
-        </Button>
+
       </div>
       <ErrorNotice error={harnesses.error || start.error || inputError} />
       <form
@@ -776,7 +768,7 @@ function LocalTaskPanel({
       </form>
       <p className="text-xs text-muted-foreground">
         从 ~/.agentuse/harness/
-        加载适配器。修改后重新探测，再次执行会使用新的适配器版本。
+        在启动时加载适配器。新增、修改或禁用适配器后需重启 client 生效。
       </p>
     </section>
   );
@@ -1023,7 +1015,7 @@ function SettingsDialog({ open, close }: { open: boolean; close: () => void }) {
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-background p-6 shadow-lg">
           <Dialog.Title className="font-semibold">本机设置</Dialog.Title>
           <Dialog.Description className="mt-2 text-sm text-muted-foreground">
-            配置保存在 ~/.agentuse/setting.yaml。此页面只读。
+            当前进程启动时加载的配置。修改配置文件后需重启 client 生效。
           </Dialog.Description>
           <ErrorNotice error={q.error} />
           <pre className="my-5 overflow-auto rounded-lg bg-muted p-4 text-xs">

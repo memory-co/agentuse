@@ -51,14 +51,16 @@ endpoints.yaml 不声明 id 或 endpoint_id，只保存 server_url 等注册信�
 
 ## 与 runService 的边界
 
-endpointService 不保存在线状态、连接实例、重连、领取授权或执行槽位。runService 读取文件后维护运行时连接，配置提交后的通知只表示“注册信息改变”。启动和定期核对同样以 YAML 为准。
+endpointService 不保存在线状态、连接实例、重连、领取授权或执行槽位。runService 读取文件后维护运行时连接，只在启动时加载 YAML 快照。运行期间不监听、重读或按文件差异重建连接。
 
 本机端口与临时目录容量策略归 [settingService](client-setting.md) 的 setting.yaml，不放到 endpoints.yaml。
 
-停用 endpoint 后，runService 停止新领取并保留已有任务的续租和结果回报。正常移除先由 runService 停领收尾，再删除 YAML 项；endpointService 不直接取消执行或关闭原生 session。
+新增、停用、移除 endpoint 或修改凭据均在重启 client 后生效。运行中的连接始终使用启动快照；先正常停止 client，再编辑配置并重新启动。endpointService 不根据文件变化取消执行或关闭 session。
 
 删除注册不删除 session/run 状态文件或原生历史。同一规范化地址重新注册仍使用相同 endpoint_id 和目录；旧文件不代表新凭据拥有执行授权，runService 必须先向 server 对账再决定能否继续，不自动执行旧 run。所有业务请求仍使用该次执行绑定的 endpoint 上下文，不能切换成当前选中的平台。
 
 ## 相关设计
 
 [Client 总览](client-main.md) · [settingService](client-setting.md) · [runService](client-run.md) · [sessionService](client-session.md) · [Server deviceService](server-device.md)
+
+配置生命周期统一为：启动时加载 setting.yaml、endpoints.yaml 和 harness 包，运行期间固定使用快照。修改、增删、启停和凭据变更一律重启生效；没有热更新、周期重读、重新探测或 active_work_root / restart_required 双态字段。自动重连、任务控制和 quota 检查属于运行行为，不重新加载配置。

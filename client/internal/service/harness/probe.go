@@ -49,52 +49,15 @@ func available(a Adapter) error {
 	}
 	return nil
 }
-func Detect(cfg Config) map[string]Adapter {
-	packages, e := (Service{Root: HarnessRoot(cfg)}).Packages()
-	if e != nil {
-		return map[string]Adapter{}
-	}
-	for name, c := range cfg.Harnesses {
-		a := packages[name]
-		if c.Command != "" {
-			a.Name = name
-			a.Path = c.Command
-			a.Version = "local"
-			a.Manifest = Manifest{Requests: []string{"question", "permission"}}
-		}
-		a.Disabled = c.Disabled
-		packages[name] = a
-	}
-	out := map[string]Adapter{}
-	for name, a := range packages {
-		if available(a) == nil {
-			out[name] = a
-		}
-	}
-	return out
-}
+
+// ListHarnesses is used by a new CLI process, loading its startup snapshot.
 func ListHarnesses(cfg Config) []HarnessInfo {
-	packages, _ := (Service{Root: HarnessRoot(cfg)}).Packages()
-	found := Detect(cfg)
-	for name, c := range cfg.Harnesses {
-		a := packages[name]
-		a.Name = name
-		a.Disabled = c.Disabled
-		packages[name] = a
+	s := Service{Root: HarnessRoot(cfg)}
+	if err := s.Freeze(cfg.Harnesses); err != nil {
+		return []HarnessInfo{}
 	}
-	out := []HarnessInfo{}
-	for name, a := range packages {
-		v := HarnessInfo{Name: name, Disabled: a.Disabled}
-		if a, ok := found[name]; ok {
-			v.Path = a.Path
-			v.Version = a.Version
-			v.Revision = a.Revision
-			v.Found = true
-		}
-		out = append(out, v)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	items, _ := s.Probe()
+	return items
 }
 func (s Service) Probe() ([]HarnessInfo, error) {
 	packages, e := s.Packages()
@@ -102,9 +65,10 @@ func (s Service) Probe() ([]HarnessInfo, error) {
 		return nil, e
 	}
 	out := []HarnessInfo{}
+	found := s.Available()
 	for name, a := range packages {
 		v := HarnessInfo{Name: name, Version: a.Version, Revision: a.Revision, Disabled: a.Disabled}
-		if available(a) == nil {
+		if _, ok := found[name]; ok {
 			v.Path = a.Path
 			v.Found = true
 		}
@@ -114,6 +78,12 @@ func (s Service) Probe() ([]HarnessInfo, error) {
 	return out, nil
 }
 func (s Service) Resolve(name string) (Adapter, error) {
+	if s.snapshot != nil {
+		if a, ok := s.snapshot.available[name]; ok {
+			return a, nil
+		}
+		return Adapter{}, fmt.Errorf("harness is unavailable in startup snapshot")
+	}
 	packages, e := s.Packages()
 	if e != nil {
 		return Adapter{}, e

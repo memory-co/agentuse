@@ -62,7 +62,7 @@ func runRegister(args []string) error {
 	if err != nil {
 		return fmt.Errorf("注册失败: %w", err)
 	}
-	fmt.Printf("注册成功: device %s,配置已写入 %s\n", cfg.DaemonID, *cfgPath)
+	fmt.Printf("注册成功: device %s,配置已写入 %s；重启 client 后生效\n", cfg.DaemonID, *cfgPath)
 	return nil
 }
 

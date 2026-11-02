@@ -81,8 +81,14 @@ func New(path string, files *store.Ledger) (*run.Service, error) {
 	if e != nil {
 		return nil, e
 	}
-	endpoints := &endpoint.Service{Path: path}
+	endpoints, e := (endpoint.Service{Path: path}).Snapshot()
+	if e != nil {
+		return nil, e
+	}
 	sessions := &session.Service{Files: files, Settings: settings}
 	harnesses := &harness.Service{Root: harness.HarnessRoot(harness.Config{ConfigPath: path})}
+	if e = harnesses.Freeze(nil); e != nil {
+		return nil, e
+	}
 	return run.New(run.Dependencies{Endpoints: endpoints, Settings: settings, Sessions: sessions, Harness: harnesses, Store: files}), nil
 }

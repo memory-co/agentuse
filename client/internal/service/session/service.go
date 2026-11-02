@@ -17,9 +17,7 @@ type Service struct {
 
 func (s *Service) Acquire(ctx context.Context, endpoint, conversation, agent, harness, revision string) (store.Session, string, error) {
 	cfg := s.Settings.Get()
-	if cfg.Session.WorkRoot != s.Files.Root {
-		return store.Session{}, "", fmt.Errorf("session.work_root changed; restart client after migrating existing directories")
-	}
+
 	if q := cfg.Session.Quota; q != nil {
 		if _, e := s.Files.Reclaim(ctx, q.MaxBytes); e != nil {
 			return store.Session{}, "", e

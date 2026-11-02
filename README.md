@@ -229,3 +229,5 @@ Client 不再使用 SQLite，文件结构为：
 工作说明与 skill 内容随本次输入加载，不覆盖共享 workspace 中的 AGENTS.md / CLAUDE.md。Codex 恢复指定 thread，Claude Code 恢复指定 session；不同 session 可并行执行。终态结果先写文件，中心确认后解除目录保护；配套 server 增加单次领取和终态确认协议，升级时应使用同一版本的 client/server。
 
 详见 [Client 设计与 API](docs/v3/designs/client-main.md)。
+
+配置生命周期统一为：启动时加载 setting.yaml、endpoints.yaml 和 harness 包，运行期间固定使用快照。修改、增删、启停和凭据变更一律重启生效；没有热更新、周期重读、重新探测或 active_work_root / restart_required 双态字段。自动重连、任务控制和 quota 检查属于运行行为，不重新加载配置。

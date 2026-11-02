@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 type Settings struct {
@@ -29,7 +28,6 @@ type Quota struct {
 }
 type Service struct {
 	Path  string
-	mu    sync.RWMutex
 	value Settings
 }
 
@@ -79,12 +77,12 @@ func New(path string) (*Service, error) {
 			return nil, e
 		}
 	}
-	if e := s.Reload(); e != nil {
+	if e := s.load(); e != nil {
 		return nil, e
 	}
 	return s, nil
 }
-func (s *Service) Reload() error {
+func (s *Service) load() error {
 	b, e := os.ReadFile(s.Path)
 	if e != nil {
 		return e
@@ -99,14 +97,10 @@ func (s *Service) Reload() error {
 		return e
 	}
 	v.Session.WorkRoot = filepath.Clean(expandHome(v.Session.WorkRoot))
-	s.mu.Lock()
 	s.value = v
-	s.mu.Unlock()
 	return nil
 }
 func (s *Service) Get() Settings {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	v := s.value
 	if v.Session.Quota != nil {
 		q := *v.Session.Quota
@@ -126,7 +120,7 @@ func (s *Service) Save(v Settings) error {
 	if e := store.WriteYAML(s.Path, v); e != nil {
 		return e
 	}
-	return s.Reload()
+	return nil
 }
 func (s Settings) UIAddress() string {
 	if !s.LocalHTTP.Enabled {

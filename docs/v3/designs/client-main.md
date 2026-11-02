@@ -24,7 +24,7 @@ client/internal/service/
 ├── setting/                 setting.yaml 的读取、校验和保存
 ├── session/                 会话选择、conversation 目录与容量策略
 ├── run/                     任务编排、平台连接、本地提交、记录与控制
-└── harness/                 适配器加载、探测、执行、进程、RPC/hook 和输入交互
+└── harness/                 启动时加载适配器，通过 harnessctl 命令与公共事件桥接执行
 ```
 
 local 是 endpointService 返回的一种 endpoint 模式，不是额外的 LocalService。CLI 读取 endpointService 的公开列表，不拼装 local 选项。runService 查询 endpoint 的模式后，负责本地任务或平台领取；会话和目录交给 sessionService，原生能力由 harnessService 判断及执行。新增 endpoint 模式沿用这个调用关系，不在顶层堆放独立的功能文件。
@@ -45,7 +45,7 @@ Client 共五个 service，全部以各自文件作为唯一持久化事实，�
 
 endpointService 统一提供内置 local 和 endpoints.yaml 中的注册记录，记录 client 已向哪些 server 注册，以及对应地址、device_id、device_key 和启用状态。CLI 完成注册后保存记录，runService 读取这些记录。
 
-`endpoint_id: local` 是 client 内置入口，不写入 endpoints.yaml、不注册设备、不连接 server；即使没有任何已注册平台，`agentuse start` 也能打开本地模式。endpointService 不创建中心连接，不领取任务，不管理槽位，也不向 runService 派活。配置变更通知只提示消费者重读数据。
+`endpoint_id: local` 是 client 内置入口，不写入 endpoints.yaml、不注册设备、不连接 server；即使没有任何已注册平台，`agentuse start` 也能打开本地模式。endpointService 不创建中心连接，不领取任务，不管理槽位，也不向 runService 派活。配置仅在启动时加载，所有修改重启后生效，不发送配置变更通知。
 
 ### 2.2 settingService：本地运行配置
 
@@ -71,7 +71,7 @@ runService 取得 run_prompts、共享历史和文件，调用 sessionService �
 
 harnessService 加载本地 harnessctl 包，通过 send/cancel/status/reply 和 accepted/message/request/result/log 五种事件桥接执行。原生 RPC、排队、插话、会话恢复和后台进程由独立适配器管理。一个业务 run 可以对应多个适配器交互，全部完成后才结束业务任务。
 
-YAML、hook、桥接程序、skill 与指令资源本地管理；server 不下发执行命令、脚本、执行描述或原生协议帧。接入包升级先探测再上报，旧任务不静默换用新版本。
+YAML、hook、桥接程序、skill 与指令资源本地管理；server 不下发执行命令、脚本、执行描述或原生协议帧。接入包升级先探测再上报，旧任务不静默换用新版本。所有配置和适配器修改均需重启 client 生效。
 
 ## 三、Conversation、Session 和 Run
 
@@ -213,7 +213,7 @@ CLI 负责配置管理和提供页面链接。页面展示执行、所属 sessio
 |---|---|---|
 | GET /api/endpoints | 无 | endpoints.yaml 中的平台展示信息及推导的 endpoint_id，不返回 device_key |
 | GET /api/status | 无 | client 版本、启动时间、运行中/等待回答的数量、各 endpoint 连接状态、当前资源不足原因 |
-| GET /api/settings | 无 | 当前生效的 local_http、session.work_root、quota，以及配置是否需要重启才能生效；不暴露 ui.token |
+| GET /api/settings | 无 | 启动时加载的 local_http、session.work_root、quota；不返回重复生效值或重启差异字段，不暴露 ui.token |
 | GET /api/harnesses | harness（可选） | 已安装 harness/revision、最近探测的程序版本、可用性和能力；无探测结果时为 unknown，不因查询启动程序 |
 | GET /api/conversations | endpoint_id（必填）、limit、cursor | 仅列出指定 endpoint 下的 conversation 目录标识，不读取下属 session/run 文件 |
 | GET /api/conversations/{endpoint_id}/{conversation_id} | 无 | conversation 标识、workspace 相对位置、session 数、最近一次容量扫描的字节数及扫描时间 |
@@ -253,7 +253,7 @@ Endpoint 下拉始终内置 `local`，无需用户声明，也没有 device 凭�
 
 | 方法与路径 | 输入 / 返回 | 行为 |
 |---|---|---|
-| GET /api/local/harnesses | items：名称、内容版本、可用性、禁用状态、程序版本 | 重新加载并探测本机适配器，展示错误帮助调试 |
+| GET /api/local/harnesses | items：名称、内容版本、可用性、禁用状态、程序版本 | 读取启动时固定的适配器及探测结果，不重读文件或重新探测 |
 | POST /api/local/conversations | `{title}` → Conversation，201 | 创建 local conversation、workspace 与标题文件 |
 | POST /api/local/conversations/{conversation_id}/runs | `{harness, prompt}` 或 `{harness, input}` → Run，202 | 选择已安装 harness，复用/创建 session，执行文本或任意 JSON 输入 |
 | POST /api/local/conversations/{conversation_id}/sessions/{session_id}/runs/{run_id}/attempts/{attempt_id}/cancel | `{}` → `{ok}` | 取消匹配的本地执行及其子进程 |
@@ -262,7 +262,7 @@ Endpoint 下拉始终内置 `local`，无需用户声明，也没有 device 凭�
 
 这些写接口仍需 Bearer/cookie 鉴权，要求 application/json，并校验浏览器 Origin。只操作强制的 local 命名空间，不接受 server_url、命令、argv 或远端 endpoint；选择的程序和参数来自本机适配器文件。请求体有大小上限，非法输入返回 400，未启动本地执行组件时返回 503。
 
-执行状态、输出、错误和用量仍用现有的分级 GET 接口读取。local 与平台任务共享内部执行容量、session 复用和 quota 保护；local 结果不等待 server 确认，重启时未完成的执行标为中断，不自行重跑。本地执行不继承平台凭据，未设置 server 的 CLI 业务命令不能回退到某个平台。修改适配器后重新探测，再执行即可验证新版本；版本改变时创建新的原生 session。
+执行状态、输出、错误和用量仍用现有的分级 GET 接口读取。local 与平台任务共享内部执行容量、session 复用和 quota 保护；local 结果不等待 server 确认，重启时未完成的执行标为中断，不自行重跑。本地执行不继承平台凭据，未设置 server 的 CLI 业务命令不能回退到某个平台。修改适配器后重启 client，启动时探测并固定新的包版本；版本改变时创建新的原生 session。
 
 ### 9.3 endpointService：注册文件接口
 
@@ -277,8 +277,7 @@ Endpoint 下拉始终内置 `local`，无需用户声明，也没有 device 凭�
 | Get | server_url → Endpoint | 规范化地址后查询，返回对应注册 |
 | SaveRegistration | name、server_url、enabled、device_id、device_key → EndpointRef | 保存成功注册身份；不接受 id，不发起注册网络请求 |
 | Update | server_url、name/ enabled → EndpointRef | 仅更新名称、启停；更换地址需新增注册 |
-| Remove | server_url → 空 | 删除 YAML 项；CLI 先等待 runService 停领和收尾 |
-| Reload | 无 → Endpoint[] | 校验文件并刷新快照，不创建连接 |
+| Remove | server_url → 空 | 删除 YAML 项，正常停止并重启 client 后生效 |
 
 注册网络请求属于 CLI 注册流程，通过 server device API 取得凭据后调用 SaveRegistration。凭据只能交给该 endpoint 的连接使用，不出现在 HTTP DTO、日志和配置变更通知中。
 
@@ -288,10 +287,9 @@ Endpoint 下拉始终内置 `local`，无需用户声明，也没有 device 凭�
 |---|---|---|
 | Get | 无 → 生效配置 | 从已校验的快照读取端口、目录、quota |
 | Validate | 完整配置 → 校验结果 | 校验地址、端口、路径及 quota，不修改文件 |
-| Save | 完整配置 → 应用结果 | CLI 调用，校验后原子替换 setting.yaml，返回已应用/需重启的字段 |
-| Reload | 无 → 应用结果 | 用户直接编辑 YAML 后重读；非法内容返回错误，保留当前有效内存配置 |
+| Save | 完整配置 → 保存结果 | 校验后原子替换 setting.yaml，不修改运行中快照；重启后生效 |
 
-省略 quota 表示不限容量；声明 quota 即自动清理。没有 cleanup、quota.enabled 或执行并发配置。当前实现中，端口改变标记为需要重启 client，重启后监听新端口；根目录改变按 settingService 的配置变更规则停任务并重启 client；根目录切换期间不允许把新旧路径混用于执行。
+省略 quota 表示不限容量；声明 quota 即自动清理。没有 cleanup、quota.enabled 或执行并发配置。端口、目录、quota 及其他设置统一在重启 client 后生效。进程不比较配置差异、不维护待应用字段，也不切换运行中的配置。
 
 ### 9.5 sessionService：会话与工作目录接口
 
@@ -360,3 +358,5 @@ runService 负责中心传输与租约，harnessService 不自行连接中心。
 ## 相关设计
 
 [settingService](client-setting.md) · [endpointService](client-endpoint.md) · [sessionService](client-session.md) · [runService](client-run.md) · [harnessService](client-harness.md) · [Server 总览](server-main.md)
+
+配置生命周期统一为：启动时加载 setting.yaml、endpoints.yaml 和 harness 包，运行期间固定使用快照。修改、增删、启停和凭据变更一律重启生效；没有热更新、周期重读、重新探测或 active_work_root / restart_required 双态字段。自动重连、任务控制和 quota 检查属于运行行为，不重新加载配置。

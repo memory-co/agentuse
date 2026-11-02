@@ -16,7 +16,11 @@ import (
 	bundled "github.com/memory-co/agentuse/harnessctl"
 )
 
-type Service struct{ Root string }
+type Service struct {
+	Root     string
+	snapshot *catalog
+}
+type catalog struct{ packages, available map[string]Adapter }
 type Manifest struct {
 	Name       string   `json:"name"`
 	Version    string   `json:"version"`
@@ -136,6 +140,9 @@ func (s Service) installBuiltins() (map[string]string, error) {
 	return installed, nil
 }
 func (s Service) Packages() (map[string]Adapter, error) {
+	if s.snapshot != nil {
+		return copyAdapters(s.snapshot.packages), nil
+	}
 	packagesMu.Lock()
 	defer packagesMu.Unlock()
 	builtins, e := s.installBuiltins()
@@ -162,7 +169,7 @@ func (s Service) Packages() (map[string]Adapter, error) {
 		}
 		names := []string{}
 		for _, v := range versions {
-			if v.IsDir() {
+			if v.IsDir() && !strings.HasPrefix(v.Name(), ".") {
 				names = append(names, v.Name())
 			}
 		}
@@ -253,4 +260,106 @@ func SaveCommandAdapters(root string, commands map[string]HarnessConfig) error {
 		}
 	}
 	return nil
+}
+
+func copyAdapters(in map[string]Adapter) map[string]Adapter {
+	out := make(map[string]Adapter, len(in))
+	for name, a := range in {
+		out[name] = a
+	}
+	return out
+}
+
+// Freeze captures the package catalog, dependencies and executable paths once.
+// Local packages are copied to content-addressed directories so edits apply only
+// after restart, including when a later task starts another harnessctl process.
+func (s *Service) Freeze(overrides map[string]HarnessConfig) error {
+	if s.snapshot != nil {
+		return nil
+	}
+	packages, err := s.Packages()
+	if err != nil {
+		return err
+	}
+	for name, a := range packages {
+		if filepath.Base(a.PackageDir) != "local" {
+			continue
+		}
+		target, err := store.SafePath(s.Root, name, a.Revision)
+		if err != nil {
+			return err
+		}
+		if _, err = os.Stat(filepath.Join(target, "manifest.json")); os.IsNotExist(err) {
+			staging, err := os.MkdirTemp(filepath.Dir(target), ".install-")
+			if err != nil {
+				return err
+			}
+			err = filepath.WalkDir(a.PackageDir, func(path string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if d.IsDir() && d.Name() == "__pycache__" {
+					return filepath.SkipDir
+				}
+				rel, _ := filepath.Rel(a.PackageDir, path)
+				out := filepath.Join(staging, rel)
+				if d.IsDir() {
+					return os.MkdirAll(out, 0700)
+				}
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				info, err := d.Info()
+				if err != nil {
+					return err
+				}
+				return os.WriteFile(out, data, info.Mode().Perm())
+			})
+			if err == nil {
+				err = os.Rename(staging, target)
+			}
+			if err != nil {
+				os.RemoveAll(staging)
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+		a.PackageDir = target
+		a.Path = filepath.Join(target, a.Manifest.Entrypoint)
+		packages[name] = a
+	}
+	for name, c := range overrides {
+		a := packages[name]
+		if c.Command != "" {
+			a.Name = name
+			a.Path = c.Command
+			a.Version = "local"
+			a.Manifest = Manifest{Requests: []string{"question", "permission"}}
+		}
+		a.Disabled = c.Disabled
+		packages[name] = a
+	}
+	found := map[string]Adapter{}
+	for name, a := range packages {
+		if available(a) == nil {
+			found[name] = a
+		}
+	}
+	s.snapshot = &catalog{packages: packages, available: found}
+	return nil
+}
+func (s Service) Available() map[string]Adapter {
+	if s.snapshot != nil {
+		return copyAdapters(s.snapshot.available)
+	}
+	packages, _ := s.Packages()
+	out := map[string]Adapter{}
+	for name, a := range packages {
+		if available(a) == nil {
+			out[name] = a
+		}
+	}
+	return out
 }

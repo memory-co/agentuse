@@ -77,11 +77,27 @@ func (s Service) GetByID(id string) (Endpoint, error) {
 	return Endpoint{}, os.ErrNotExist
 }
 
-type Service struct{ Path string }
+type Service struct {
+	Path     string
+	snapshot *[]Endpoint
+}
+
+// Snapshot loads registrations once for a running client. File writes apply next startup.
+func (s Service) Snapshot() (*Service, error) {
+	items, err := s.Registrations()
+	if err != nil {
+		return nil, err
+	}
+	s.snapshot = &items
+	return &s, nil
+}
 
 var endpointMu sync.Mutex
 
 func (s Service) Registrations() ([]Endpoint, error) {
+	if s.snapshot != nil {
+		return append([]Endpoint{}, (*s.snapshot)...), nil
+	}
 	b, e := os.ReadFile(s.Path)
 	if errors.Is(e, os.ErrNotExist) {
 		return []Endpoint{}, nil
