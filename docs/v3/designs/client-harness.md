@@ -79,7 +79,7 @@ send 的正文和 reply 的答案通过 UTF-8 stdin 传递，避免 shell 字符
 
 适配器 run_id 为适配器生成的 UUID，与 server run_id 不同。一个 server run/attempt 可包含多个适配器 run：例如 Claude 正在执行时收到补充输入，适配器内部排队后再执行。Codex 确认的插话可与当前输入共享适配器 run_id，完成竞态也可能进入下一次交互。
 
-client 跟踪本次提交的所有 accepted.input_id，并等待 result.input_ids 全部覆盖后才结束业务任务；不能看到第一个 result 就释放 session。最终 run.json 的 harness_run_ids 保存这次任务包含的适配器交互 UUID，不允许调用方指定这些 UUID。
+client 跟踪本次提交的所有 accepted.input_id，并等待 result.input_ids 全部覆盖后才结束业务任务；不能看到第一个 result 就释放 session。最终 runs/<run_id>.jsonl 的 harness_run_ids 保存这次任务包含的适配器交互 UUID，不允许调用方指定这些 UUID。
 
 ## 控制、环境与恢复
 

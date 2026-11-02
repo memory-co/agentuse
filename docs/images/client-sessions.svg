@@ -40,7 +40,7 @@
 <text x="1043" y="539" font-size="15" fill="#475569">进程结束不等于 Session 删除</text>
 <path d="M375 510 H520" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
 <path d="M880 510 H1025" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="30" y="700" font-size="18" fill="#475569">session.yaml 保存原生映射；run.json 通过 session_id 归属某个 Session。</text>
+<text x="30" y="700" font-size="18" fill="#475569">session.yaml 标识本机会话；runs/&lt;run_id&gt;.jsonl 保存任务关联，events.jsonl 保存执行事实。</text>
 <text x="30" y="745" font-size="17" fill="#475569">会话复用：同步共享历史增量；不重复灌完整历史，也不重复累计旧用量。</text>
 <text x="30" y="790" font-size="17" fill="#475569">中心 / 对话 / Agent / Harness 不同，不共用原生会话；版本或历史不可恢复时另建 Session。</text>
 </svg>

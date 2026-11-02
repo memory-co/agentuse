@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 func TestFileLedgerHierarchyAndRestart(t *testing.T) {
@@ -33,7 +31,12 @@ func TestFileLedgerHierarchyAndRestart(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	if e = w.Complete(ctx, "run", "attempt", Finish{Status: "succeeded", Output: "answer", Usage: &agentuse.Usage{InputTokens: 100, OutputTokens: 20}}); e != nil {
+	native := filepath.Join(filepath.Dir(workspace), "sessions", s.ID, "events.jsonl")
+	body := `{"type":"result","run_id":"native-1","status":"completed","output":"answer","usage":{"input_tokens":100,"output_tokens":20}}` + "\n"
+	if e = os.WriteFile(native, []byte(body), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e = w.Complete(ctx, "run", "attempt", Finish{HarnessRunIDs: []string{"native-1"}, Status: "succeeded"}); e != nil {
 		t.Fatal(e)
 	}
 	if e = l.Confirm(ctx, s.EndpointID, "run", "attempt"); e != nil {
@@ -42,7 +45,7 @@ func TestFileLedgerHierarchyAndRestart(t *testing.T) {
 	if e = l.ReleaseSession(s, 9, true, "run", "attempt"); e != nil {
 		t.Fatal(e)
 	}
-	path := filepath.Join(filepath.Dir(workspace), "sessions", s.ID, "runs", "run", "attempt", "run.json")
+	path := filepath.Join(filepath.Dir(workspace), "sessions", s.ID, "runs", "run.jsonl")
 	if st, e := os.Stat(path); e != nil || st.Mode().Perm() != 0600 {
 		t.Fatal(st, e)
 	}
@@ -86,7 +89,7 @@ func TestEndpointIsolationAndQuota(t *testing.T) {
 		if e = w.Receive(ctx, Run{EndpointID: ep, ConversationID: "same", SessionID: s.ID, RunID: "same", AttemptID: "same"}); e != nil {
 			t.Fatal(e)
 		}
-		if e = w.Complete(ctx, "same", "same", Finish{Status: "succeeded", Output: ep}); e != nil {
+		if e = w.Complete(ctx, "same", "same", Finish{Status: "succeeded"}); e != nil {
 			t.Fatal(e)
 		}
 		if e = l.Confirm(ctx, ep, "same", "same"); e != nil {

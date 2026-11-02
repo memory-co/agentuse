@@ -10,7 +10,6 @@ import (
 	"github.com/memory-co/agentuse/client/internal/service/harness"
 	"github.com/memory-co/agentuse/client/internal/store"
 	"github.com/memory-co/agentuse/internal/protocol"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -98,21 +97,8 @@ func (s *Service) Start(ctx context.Context, endpointID, conversation string, re
 		_ = s.Store.ReleaseSession(session, 0, true)
 		return store.Run{}, e
 	}
-	resource, e := store.SafePath(s.Store.Root, endpoint.LocalID, conversation, "sessions", session.ID, "runs", run.RunID, run.AttemptID, "input.json")
-	if e == nil {
-		e = store.Atomic(resource, input)
-	}
-	if e == nil {
-		la.HistoryPath = filepath.Join(filepath.Dir(resource), "history.json")
-		e = store.Atomic(la.HistoryPath, []byte("[]"))
-	}
-	if e != nil {
-		_ = writer.Complete(context.Background(), run.RunID, run.AttemptID, store.Finish{Status: "failed", Error: e.Error()})
-		_ = s.Store.ReleaseSession(session, 0, true)
-		return store.Run{}, e
-	}
 	la.EventsPath = harness.EventsPath(cwd, session.ID)
-	la.Env = []string{"AGENTUSE_SERVER=", "AGENTUSE_TOKEN=", "AGENTUSE_WORK=", "AGENTUSE_CONFIG=", "AGENTUSE_ENDPOINT=local", "AGENTUSE_CONVERSATION=" + conversation, "AGENTUSE_SESSION=" + conversation, "AGENTUSE_RUN=" + run.RunID, "AGENTUSE_ATTEMPT=" + run.AttemptID, "AGENTUSE_AGENT=" + session.AgentID, "AGENTUSE_RESOURCES=" + filepath.Dir(resource)}
+	la.Env = []string{"AGENTUSE_SERVER=", "AGENTUSE_TOKEN=", "AGENTUSE_WORK=", "AGENTUSE_CONFIG=", "AGENTUSE_ENDPOINT=local", "AGENTUSE_CONVERSATION=" + conversation, "AGENTUSE_SESSION=" + conversation, "AGENTUSE_RUN=" + run.RunID, "AGENTUSE_ATTEMPT=" + run.AttemptID, "AGENTUSE_AGENT=" + session.AgentID, "AGENTUSE_RESOURCES="}
 	execCtx, cancel := context.WithCancel(s.localCtx)
 	canSteer := la.CanSteer()
 	canAsk := la.CanAsk()
@@ -135,7 +121,7 @@ func (s *Service) Start(ctx context.Context, endpointID, conversation string, re
 				status = "cancelled"
 			}
 			c := context.Background()
-			_ = writer.Complete(c, run.RunID, run.AttemptID, store.Finish{Status: status, Error: result.Error, Output: result.Output, Usage: result.Usage, CostUSD: result.CostUSD, HarnessRunIDs: result.HarnessRunIDs})
+			_ = writer.Complete(c, run.RunID, run.AttemptID, store.Finish{Status: status, Error: result.Error, HarnessRunIDs: result.HarnessRunIDs})
 			_ = s.Store.Confirm(c, endpoint.LocalID, run.RunID, run.AttemptID)
 			if !result.CleanupPending {
 				_ = s.Sessions.Release(session, 0, result.OK || execCtx.Err() == context.Canceled, run.RunID, run.AttemptID)

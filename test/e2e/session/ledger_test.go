@@ -147,7 +147,7 @@ func TestClientMultiEndpointFilesAndUI(t *testing.T) {
 		if st, e := os.Stat(filepath.Join(dir, "workspace")); e != nil || !st.IsDir() {
 			t.Fatal("workspace missing", e)
 		}
-		runs, e := filepath.Glob(filepath.Join(dir, "sessions", "*", "runs", "*", "*", "run.json"))
+		runs, e := filepath.Glob(filepath.Join(dir, "sessions", "*", "runs", "*.jsonl"))
 		if e != nil || len(runs) != 1 {
 			t.Fatal(runs, e)
 		}

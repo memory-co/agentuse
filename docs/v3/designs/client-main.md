@@ -36,7 +36,7 @@ local 是 endpointService 返回的一种 endpoint 模式，不是额外的 Loca
 | [endpointService](client-endpoint.md) | 管已注册 server 的地址、device 身份和凭据 | `~/.agentuse/endpoints.yaml` |
 | [settingService](client-setting.md) | 管端口、session 共享工作根目录和容量回收策略 | `~/.agentuse/setting.yaml` |
 | [sessionService](client-session.md) | 管理原生会话复用、执行锁、历史位置及空闲工作目录回收 | conversation 下每个原生会话的 `session.yaml` |
-| [runService](client-run.md) | 读取 endpoints 和设置，自行领取/执行、上报事件并触发清理 | 每个执行尝试的 `run.json` |
+| [runService](client-run.md) | 读取 endpoints 和设置，自行领取/执行、上报事件并触发清理 | 每个任务的 `runs/<run_id>.jsonl`，attempt 在文件内区分 |
 | [harnessService](client-harness.md) | harnessctl 包探测、命令执行、公共事件和业务任务关联 | `~/.agentuse/harness/` 下的适配器与资源文件 |
 
 Client 共五个 service，全部以各自文件作为唯一持久化事实，不设本机数据库。Server 仍使用自己的业务数据库，不受本次调整影响。
@@ -65,7 +65,7 @@ runService 从 endpointService 读取启用的注册信息，自行连接各 ser
 
 对于平台任务，run_id/attempt_id 来自 server；对于 local 调试，runService 的本地执行入口生成 run/attempt UUID，本地用 `(endpoint_id, run_id, attempt_id)` 区分执行，将它绑定到本机 session.yaml 的 id 后执行。
 
-runService 取得 run_prompts、共享历史和文件，调用 sessionService 与 harnessService 完成执行，记录进度、问题、插话确认、用量和终态到 run.json。结果返回原中心，本机状态不代替 server 提交成功。
+runService 取得 run_prompts、共享历史和文件，调用 sessionService 与 harnessService 完成执行，追加调度状态、交互关联和回报确认到 runs/<run_id>.jsonl；进度、问题、正文和用量从 events.jsonl 读取。结果返回原中心，本机状态不代替 server 提交成功。
 
 ### 2.5 harnessService：本地原生接入
 
@@ -117,7 +117,7 @@ Server Conversation C
 4. runService 自行预留槽位并领取任务，校验 endpoint、attempt、版本和本机容量。
 5. runService 取得输入与文件，sessionService 选择或创建原生 session，并建立本地运行关联。
 6. harnessService 在该 session 中执行；后续 run 恢复同一会话或在既有会话继续，不默认新建。
-7. 标准事件原子更新本机 run.json，再回报原中心。文件产物经 fileService 上传，相对路径进入消息 attachments。
+7. 先追加本机调度和交付记录，再回报原中心；执行事实仅保存在 events.jsonl。文件产物经 fileService 上传，相对路径进入消息 attachments。
 8. run 完成后释放会话锁和槽位，按配置检查临时目录容量；session 状态文件保留，未被回收的原生上下文供后续 run 使用。
 
 ## 六、文件是唯一持久化事实
@@ -133,18 +133,18 @@ Server Conversation C
 │       ├── session.yaml
 │       ├── events.jsonl
 │       ├── events.jsonl.d/
-│       └── runs/<run_id>/<attempt_id>/run.json
+│       └── runs/<run_id>.jsonl
 └── ui.token
 ```
 
-tmp 是默认父目录，可通过 setting.yaml 的 session.work_root 配置。sessionService 按 endpoint/conversation 推导唯一目录，同一 conversation 的 Codex、Claude Code 等原生 session 都从该目录下的 workspace/ 启动，并允许并行运行；sessions/ 与 workspace/ 同级保存元数据，session.yaml 不保存 work_root。配置和适配器不放入可回收目录；session.yaml、run.json 和执行资源按 conversation/session 层级放入工作目录，随目录一起回收；server fileService 负责上传下载和交付。
+tmp 是默认父目录，可通过 setting.yaml 的 session.work_root 配置。sessionService 按 endpoint/conversation 推导唯一目录，同一 conversation 的 Codex、Claude Code 等原生 session 都从该目录下的 workspace/ 启动，并允许并行运行；sessions/ 与 workspace/ 同级保存元数据，session.yaml 不保存 work_root。配置和适配器不放入可回收目录；session.yaml、runs/<run_id>.jsonl 和执行资源按 conversation/session 层级放入工作目录，随目录一起回收；server fileService 负责上传下载和交付。
 
 | 文件 | 唯一负责写入的 Service |
 |---|---|
 | endpoints.yaml | endpointService |
 | setting.yaml | settingService（CLI 通过它修改） |
 | session.yaml | sessionService |
-| run.json | runService |
+| runs/<run_id>.jsonl | runService |
 | 接入包和原生资源 | harnessService 与本地包安装流程 |
 
 单个文件采用同目录临时文件、完整写入后原子替换；CLI 修改配置使用文件锁，执行实例和会话选用使用排他保护，避免并发覆盖。同一业务记录不再同时维护 YAML、JSON 和数据库三份状态。
@@ -159,7 +159,7 @@ tmp 是默认父目录，可通过 setting.yaml 的 session.work_root 配置。s
 
 settingService 提供 session 的默认父目录及统一容量策略；sessionService 按 conversation 回收带受管标记的空闲共享目录，每个目录只计量一次，按其所有 session 的最近使用时间清理至不超过 quota。任一关联 session 正在运行、等待问题或已被任务锁定时，整个目录不能删。
 
-目录回收会删除其中的 session.yaml、run.json 和执行资源，但保留 server 文件和原生工具的全局历史。后续不得直接恢复旧工作区；有任务时从共享历史和文件重建新会话。没有可清理空间时暂停新启动，不强杀在用任务。
+目录回收会删除其中的 session.yaml、runs/<run_id>.jsonl 和执行资源，但保留 server 文件和原生工具的全局历史。后续不得直接恢复旧工作区；有任务时从共享历史和文件重建新会话。没有可清理空间时暂停新启动，不强杀在用任务。
 
 本机执行记录随工作目录保留与回收，不另设固定保留期或归档目录。仍在执行、等待答案或结果尚未获 server 确认的记录保护整个目录。正文默认保留前 200 字，用量未知留空。
 
@@ -192,7 +192,7 @@ CLI 负责配置管理和提供页面链接。页面展示执行、所属 sessio
 | EndpointRef | endpoint_id，由规范化 server_url 推导；不作为 endpoints.yaml 的输入字段 |
 | ConversationRef | endpoint_id、conversation_id；确定 conversation 目录及 workspace/ |
 | SessionRef | ConversationRef、session_id；确定 session.yaml |
-| RunRef | SessionRef、run_id、attempt_id；确定 run.json；中心执行身份仍是 endpoint/run/attempt |
+| RunRef | SessionRef、run_id、attempt_id；确定 runs/<run_id>.jsonl；中心执行身份仍是 endpoint/run/attempt |
 | HarnessRef | harness、harness_revision；确定本地适配器版本 |
 | ExecutionHandle | 当前原生执行的内存句柄，用于插话、回答、取消；不持久化、不跨重启复用 |
 
@@ -225,7 +225,7 @@ CLI 负责配置管理和提供页面链接。页面展示执行、所属 sessio
 
 查询按 endpoint → conversation → session → run 逐级限定目录，不提供跨 conversation 的 run 列表或全局 usage 汇总。缺少必填 endpoint_id 返回 400。conversation 列表仅枚举指定 endpoint 的直接子目录；session 列表只读指定 conversation 的 sessions/；run 列表和用量只读指定 session 的 runs/。详情直接定位文件，不递归搜索。
 
-run 列表筛选及用量汇总可能读取该 session 内的多个 run.json；分页不是磁盘扫描量的保证，不把 limit 描述为扫描上限。用量时间范围按 received_at 筛选，since 包含、until 不包含。列表以标识字典序稳定排序，cursor 携带父级路径及筛选条件，不能挪作另一查询。
+run 列表筛选及用量汇总可能读取该 session 内的多个 runs/<run_id>.jsonl；分页不是磁盘扫描量的保证，不把 limit 描述为扫描上限。用量时间范围按 received_at 筛选，since 包含、until 不包含。列表以标识字典序稳定排序，cursor 携带父级路径及筛选条件，不能挪作另一查询。
 
 HTTP 路径中的 endpoint_id 是逻辑 ID，按标准 URL 路径段编码一次；例如逻辑 ID `http---localhost%3A8090` 在请求路径中表示为 `http---localhost%253A8090`，服务端解码一次后作为 ID 校验，不能再次 URL 解码成路径。查询参数同样只解码一次。
 
@@ -245,10 +245,8 @@ Endpoint 下拉始终内置 `local`，无需用户声明，也没有 device 凭�
   workspace/                  # 所有本地 harness 共用 cwd
   sessions/<session_id>/
     session.yaml
-    runs/<run_id>/<attempt_id>/
-      run.json
-      input.json              # 本地调试的原始输入
-      history.json
+    runs/<run_id>.jsonl
+    resources/<run_id>.<attempt_id>.history.json
 ```
 
 | 方法与路径 | 输入 / 返回 | 行为 |
@@ -313,12 +311,12 @@ Acquire 不领取 server 任务、不生成 run_id，且只允许对有效的已
 | Start / Stop | 调用上下文 / 停止原因 → 空 | 启停中心连接与领取循环；Stop 停领、结束或交还执行，释放占用 |
 | ApplyEndpoints | 已校验 Endpoint[] → 空 | 更新内部连接集合，停用项停止新领取，已有执行继续按原身份收尾 |
 | DrainEndpoint | EndpointRef → 收尾结果 | 停领并等已有执行完成；未完成时不允许 CLI 删除其凭据 |
-| Accept | EndpointRef、server RunAssignment → 执行接收结果 | 校验授权与版本，检查容量，Acquire session 后写 run.json 并启动 |
+| Accept | EndpointRef、server RunAssignment → 执行接收结果 | 校验授权与版本，检查容量，Acquire session 后写 runs/<run_id>.jsonl 并启动 |
 | Steer | endpoint/run/attempt、run_prompts → 交付结果 | 仅路由到匹配的活跃执行；不能从本机创建新业务消息 |
 | Answer | endpoint/run/attempt、question_id、答案 → 处理结果 | 路由到对应原生提问，不以 session 最近问题猜测 |
 | Cancel | endpoint/run/attempt、原因 → 处理结果 | 调用 harnessService 取消，等待终态后回报 |
 | Reconcile | EndpointRef、server 有效租约 → 对账结果 | 启动/重连核对；无效旧执行结束，不盲目重放 |
-| HandleEvent | ExecutionHandle、标准事件 → 空 | 串行更新 run.json、回报原中心；终态确认后释放占用 |
+| HandleEvent | ExecutionHandle、标准事件 → 空 | 串行追加调度与交付元数据到 runs/<run_id>.jsonl，执行内容读取 events.jsonl，再回报原中心；终态确认后释放占用 |
 
 这些执行方法由所属中心连接及本地回调调用，不暴露为本机 HTTP 控制入口。Accept 前的拒绝直接回 server，不创建无归属 run 文件。文件持久化成功不等于 server 接受成功；终态尚未确认时保留目录占用，断线后先对账。
 
@@ -334,7 +332,7 @@ Acquire 不领取 server 任务、不生成 run_id，且只允许对有效的已
 | Cancel | Adapter、events.jsonl → 确认结果 | cancel 后轮询 status，确认后释放执行占用 |
 | Recover | 本机文件目录 → 恢复结果 | 用对应版本适配器取消遗留任务，不读取原生状态 |
 
-每个 session 的 events.jsonl 地址不变。session.yaml 不保存原生会话 ID，run.json 保存 harness_run_ids。client 不实现原生 RPC/hook；包安装由本地完成，不通过 server 或页面下发执行资源。事件协议及完整关联规则见 client-harness.md。
+每个 session 的 events.jsonl 地址不变。session.yaml 不保存原生会话 ID，runs/<run_id>.jsonl 保存 harness_run_ids。client 不实现原生 RPC/hook；包安装由本地完成，不通过 server 或页面下发执行资源。事件协议及完整关联规则见 client-harness.md。
 
 ### 9.8 中心通信与原生回调
 

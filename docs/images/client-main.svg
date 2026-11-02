@@ -47,7 +47,7 @@
     <text x="65" y="724" font-size="23">~/.agentuse/：配置与状态文件</text>
     <text x="65" y="757" font-size="17">endpoints.yaml → endpointService      setting.yaml → settingService</text>
     <text x="65" y="784" font-size="17">session.yaml → sessionService；路径由配置及 ID 推导</text>
-    <text x="65" y="811" font-size="17">工作区内 sessions/&lt;session&gt;/runs/&lt;run&gt;/&lt;attempt&gt;/run.json</text>
+    <text x="65" y="811" font-size="17">conversation 下 sessions/&lt;session&gt;/runs/&lt;run&gt;.jsonl；执行事实读取 events.jsonl</text>
     <rect x="1035" y="690" width="420" height="170" rx="14" fill="#ecfdf5" stroke="#94a3b8"/>
     <text x="1055" y="724" font-size="23">Conversation：workspace/ 与 sessions/</text>
     <text x="1055" y="757" font-size="17">所有 Codex、Claude Code 从 workspace/ 启动</text>

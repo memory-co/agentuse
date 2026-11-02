@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -87,9 +88,10 @@ func (d *endpointConnection) loadRunHistory(ctx context.Context, m *protocol.Dis
 
 func (d *endpointConnection) prepareHistory(m *protocol.Dispatch, s store.Session, la *harness.Adapter, dir string) error {
 	if s.ID == "" {
+		la.HistoryPath = filepath.Join(dir, ".agentuse", "session-history.json")
 		return writeSessionHistory(*m, dir)
 	}
-	path, err := store.SafePath(d.workdir, d.cfg.EndpointID, m.SessionID, "sessions", s.ID, "runs", m.RunID, m.AttemptID, "history.json")
+	path, err := store.SafePath(d.workdir, d.cfg.EndpointID, m.SessionID, "sessions", s.ID, "resources", m.RunID+"."+m.AttemptID+".history.json")
 	if err != nil {
 		return err
 	}
@@ -119,6 +121,9 @@ func (d *endpointConnection) prepareHistory(m *protocol.Dispatch, s store.Sessio
 			continue
 		}
 		filtered = append(filtered, msg)
+	}
+	if len(filtered) == 0 {
+		return nil
 	}
 	b, err := json.Marshal(filtered)
 	if err != nil {

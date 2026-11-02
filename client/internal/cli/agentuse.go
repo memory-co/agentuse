@@ -119,15 +119,15 @@ func runClient(args []string, allowLocal bool) error {
 	if err = ledger.RecoverSessions(ctx); err != nil {
 		return err
 	}
+	if err = ledger.Writer().Reconcile(ctx); err != nil {
+		return err
+	}
 	manager.FailOnEndpointError = !allowLocal
 	closeUI, err := startLocalUI(cfg, ledger.Reader(), manager)
 	if err != nil {
 		return err
 	}
 	defer closeUI()
-	if err = ledger.Writer().Reconcile(ctx); err != nil {
-		return err
-	}
 	if err = manager.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}

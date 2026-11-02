@@ -181,7 +181,7 @@ func (l *Ledger) ReleaseSession(s Session, contextSeq int64, valid bool, run ...
 	}
 	if len(run) == 2 {
 		p := l.paths[key(s.EndpointID, run[0], run[1])]
-		var record Run
+		record := Run{AttemptID: run[1]}
 		if readRun(p, &record) == nil {
 			if record.Status == "interrupted" {
 				s.Status = "unavailable"
@@ -301,13 +301,16 @@ func (l *Ledger) Reclaim(ctx context.Context, maxBytes int64) (int64, error) {
 					}
 					size += info.Size()
 					if isRunRecord(l.Root, path) {
-						var record Run
-						if err = readRun(path, &record); err != nil {
+						records, err := readRunJournal(path)
+						if err != nil {
 							return err
 						}
-						if len(record.PendingReport) > 0 && !record.ServerConfirmed {
-							busy = true
+						for _, record := range records {
+							if len(record.PendingReport) > 0 && !record.ServerConfirmed {
+								busy = true
+							}
 						}
+
 					}
 				}
 				return nil

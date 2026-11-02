@@ -125,6 +125,9 @@ func promptFor(m protocol.Dispatch, history string) (string, error) {
 		return "", fmt.Errorf("input.prompt must not be empty")
 	}
 	instructions := instructionsFor(m)
+	if history == "" {
+		instructions = strings.ReplaceAll(instructions, "先读取 .agentuse/session-history.json。", "本次没有新增共享历史。")
+	}
 	if history != "" {
 		instructions = strings.ReplaceAll(instructions, ".agentuse/session-history.json", history)
 	}
@@ -216,6 +219,7 @@ func (s Service) Execute(ctx context.Context, a Adapter, m protocol.Dispatch, di
 			}
 			step.input = event.InputID
 			step.run = event.RunID
+			report("accepted", map[string]string{"harness_run_id": event.RunID})
 			if !seenRuns[event.RunID] {
 				seenRuns[event.RunID] = true
 				result.HarnessRunIDs = append(result.HarnessRunIDs, event.RunID)

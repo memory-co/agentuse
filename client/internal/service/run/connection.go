@@ -432,6 +432,15 @@ func (d *endpointConnection) startMessage(m protocol.Dispatch, reservations ...b
 	var reportMu sync.Mutex
 	var eventSeq int64
 	report := func(kind string, p any) {
+		if kind == "accepted" {
+			if d.cfg.LocalStore != nil && r.local.ID != "" {
+				b, _ := json.Marshal(p)
+				if err := d.cfg.LocalStore.Event(tctx, d.cfg.EndpointID, m.RunID, m.AttemptID, kind, b); err != nil {
+					d.log.Printf("record binding: %v", err)
+				}
+			}
+			return
+		}
 		reportMu.Lock()
 		defer reportMu.Unlock()
 		eventSeq++

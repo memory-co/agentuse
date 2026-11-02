@@ -18,6 +18,8 @@ import (
 )
 
 type Run struct {
+	EventsOffset    *int64 `json:"events_offset,omitempty"`
+	legacy          bool
 	HarnessRunIDs   []string        `json:"harness_run_ids,omitempty"`
 	ServerConfirmed bool            `json:"server_confirmed"`
 	PendingReport   json.RawMessage `json:"pending_report,omitempty"`
@@ -54,11 +56,9 @@ type Event struct {
 	Payload json.RawMessage `json:"payload"`
 }
 type Finish struct {
-	HarnessRunIDs         []string
-	Status, Error, Output string
-	AttachmentCount       int
-	Usage                 *agentuse.Usage
-	CostUSD               float64
+	HarnessRunIDs   []string
+	Status, Error   string
+	AttachmentCount int
 }
 type Filter struct {
 	Endpoint, Conversation, Session string
@@ -122,6 +122,9 @@ func (l *Ledger) Reader() Reader               { return &readStore{l} }
 func (l *Ledger) Close() error                 { return nil }
 func key(endpoint, run, attempt string) string { return endpoint + "/" + run + "/" + attempt }
 func (w *writeStore) Receive(ctx context.Context, r Run) error {
+	if !Segment(r.RunID) || !Segment(r.AttemptID) {
+		return ErrInvalid
+	}
 	if e := ctx.Err(); e != nil {
 		return e
 	}
@@ -133,7 +136,7 @@ func (w *writeStore) Receive(ctx context.Context, r Run) error {
 	if r.EndpointID == "" {
 		_, r.EndpointID, _ = NormalizeEndpoint(r.Server)
 	}
-	p, e := SafePath(w.l.Root, r.EndpointID, r.ConversationID, "sessions", r.SessionID, "runs", r.RunID, r.AttemptID, "run.json")
+	p, e := SafePath(w.l.Root, r.EndpointID, r.ConversationID, "sessions", r.SessionID, "runs", r.RunID+".jsonl")
 	if e != nil {
 		return e
 	}
@@ -145,14 +148,24 @@ func (w *writeStore) Receive(ctx context.Context, r Run) error {
 		r.Summary = string(rs[:200])
 	}
 	r.Status = "running"
-	if _, err := os.Stat(p); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		if e = writeJSON(p, r); e != nil {
+	offset := int64(0)
+	source := filepath.Join(filepath.Dir(filepath.Dir(p)), "events.jsonl")
+	if info, err := os.Stat(source); err == nil {
+		offset = info.Size()
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	r.EventsOffset = &offset
+	var existing Run
+	existing.AttemptID = r.AttemptID
+	if err := readRunMetadata(p, &existing); errors.Is(err, os.ErrNotExist) {
+		if e = appendRun(p, "received", r.AttemptID, metadata(r)); e != nil {
 			return e
 		}
+	} else if err != nil {
+		return err
 	}
+
 	w.l.paths[key(r.EndpointID, r.RunID, r.AttemptID)] = p
 	return nil
 }
@@ -176,29 +189,29 @@ func (w *writeStore) update(ctx context.Context, run, attempt string, fn func(*R
 	if p == "" {
 		return os.ErrNotExist
 	}
-	var r Run
-	if e := readRun(p, &r); e != nil {
+	r := Run{AttemptID: attempt}
+	if e := readRunMetadata(p, &r); e != nil {
 		return e
 	}
+	before := metadata(r)
 	fn(&r)
-	return writeJSON(p, r)
+	changes := metadataDiff(before, metadata(r))
+	if len(changes) == 0 {
+		return nil
+	}
+	return appendRun(p, "updated", attempt, changes)
 }
 func (w *writeStore) Complete(ctx context.Context, run, attempt string, f Finish) error {
 	return w.update(ctx, run, attempt, func(r *Run) {
 		now := time.Now().UnixMilli()
 		r.Status = f.Status
 		r.Error = f.Error
-		r.Output = f.Output
-		r.HarnessRunIDs = f.HarnessRunIDs
+		if len(f.HarnessRunIDs) > 0 {
+			r.HarnessRunIDs = f.HarnessRunIDs
+		}
 		r.FinishedAt = &now
 		r.DurationMS = max(0, now-r.ReceivedAt)
-		r.Usage = f.Usage
-		if f.CostUSD > 0 {
-			cost := f.CostUSD
-			r.CostUSD = &cost
-		} else {
-			r.CostUSD = nil
-		}
+
 		r.AttachmentCount = f.AttachmentCount
 	})
 }
@@ -214,20 +227,31 @@ func (w *writeStore) Steer(ctx context.Context, run, attempt string, id int64) e
 	})
 }
 func (l *Ledger) Event(ctx context.Context, endpoint, run, attempt, kind string, payload json.RawMessage) error {
+	if kind != "accepted" {
+		return nil
+	}
+	var accepted struct {
+		RunID string `json:"harness_run_id"`
+	}
+	if err := json.Unmarshal(payload, &accepted); err != nil {
+		return err
+	}
+	if accepted.RunID == "" {
+		return ErrInvalid
+	}
 	return (&writeStore{l: l, endpoint: endpoint}).update(ctx, run, attempt, func(r *Run) {
-		if len(r.Events) >= 200 {
-			r.Events = r.Events[1:]
+		for _, id := range r.HarnessRunIDs {
+			if id == accepted.RunID {
+				return
+			}
 		}
-		r.Events = append(r.Events, Event{kind, time.Now().UnixMilli(), payload})
-		if kind == "question" {
-			r.Status = "waiting"
-		}
-		if kind == "answered" {
-			r.Status = "running"
-		}
+		r.HarnessRunIDs = append(r.HarnessRunIDs, accepted.RunID)
 	})
 }
 func (w *writeStore) Reconcile(ctx context.Context) error {
+	if err := w.l.migrateRuns(ctx); err != nil {
+		return err
+	}
 	return filepath.WalkDir(w.l.Root, func(path string, d os.DirEntry, e error) error {
 		if e != nil {
 			return e
@@ -238,7 +262,7 @@ func (w *writeStore) Reconcile(ctx context.Context) error {
 		if d.IsDir() {
 			rel, _ := filepath.Rel(w.l.Root, path)
 			parts := strings.Split(rel, string(filepath.Separator))
-			if len(parts) == 3 && parts[2] == "workspace" {
+			if (len(parts) == 3 && parts[2] == "workspace") || (len(parts) == 5 && parts[4] == "events.jsonl.d") {
 				return filepath.SkipDir
 			}
 		}
@@ -248,44 +272,45 @@ func (w *writeStore) Reconcile(ctx context.Context) error {
 		if !isRunRecord(w.l.Root, path) {
 			return nil
 		}
-		var r Run
-		if e = readRun(path, &r); e != nil {
+		runs, e := readRunJournal(path)
+		if e != nil {
 			return e
-		}
-		if w.endpoint != "" && r.EndpointID != w.endpoint {
-			return nil
 		}
 		w.l.mu.Lock()
 		defer w.l.mu.Unlock()
-		w.l.paths[key(r.EndpointID, r.RunID, r.AttemptID)] = path
-		if r.Status == "running" || r.Status == "waiting" {
-			now := time.Now().UnixMilli()
-			r.Status = "interrupted"
-			r.Error = "client restarted before execution completed"
-			r.FinishedAt = &now
-			r.DurationMS = max(0, now-r.ReceivedAt)
-			return writeJSON(path, r)
+		for _, r := range runs {
+			if w.endpoint != "" && r.EndpointID != w.endpoint {
+				continue
+			}
+			w.l.paths[key(r.EndpointID, r.RunID, r.AttemptID)] = path
+			if r.Status == "running" || r.Status == "waiting" {
+				if len(r.HarnessRunIDs) == 0 && r.EventsOffset != nil {
+					source := filepath.Join(filepath.Dir(filepath.Dir(path)), "events.jsonl")
+					r.HarnessRunIDs, e = recoverBindings(source, *r.EventsOffset)
+					if e != nil {
+						return e
+					}
+				}
+				now := time.Now().UnixMilli()
+				r.Status = "interrupted"
+				r.Error = "client restarted before execution completed"
+				r.FinishedAt = &now
+				r.DurationMS = max(0, now-r.ReceivedAt)
+				if e = appendRun(path, "updated", r.AttemptID, map[string]json.RawMessage{"status": raw(r.Status), "error": raw(r.Error), "finished_at": raw(now), "duration_ms": raw(r.DurationMS), "harness_run_ids": raw(r.HarnessRunIDs)}); e != nil {
+					return e
+				}
+			}
 		}
 		return nil
 	})
 }
 
-func readRun(p string, r *Run) error {
-	if _, e := SafePath(filepath.Dir(p), filepath.Base(p)); e != nil {
-		return e
-	}
-	b, e := os.ReadFile(p)
-	if e != nil {
-		return e
-	}
-	return json.Unmarshal(b, r)
-}
 func (r *readStore) Detail(ctx context.Context, endpoint, conversation, session, run, attempt string) (Run, error) {
-	var v Run
+	v := Run{AttemptID: attempt}
 	if e := ctx.Err(); e != nil {
 		return v, e
 	}
-	p, e := SafePath(r.l.Root, endpoint, conversation, "sessions", session, "runs", run, attempt, "run.json")
+	p, e := SafePath(r.l.Root, endpoint, conversation, "sessions", session, "runs", run+".jsonl")
 	if e != nil {
 		return v, e
 	}
@@ -311,26 +336,24 @@ func (r *readStore) List(ctx context.Context, f Filter) (Page, error) {
 	if e != nil {
 		return p, e
 	}
-	for _, run := range entries {
-		if !run.IsDir() || !Segment(run.Name()) {
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
 			continue
 		}
-		path, e := SafePath(root, run.Name())
+		runID := strings.TrimSuffix(entry.Name(), ".jsonl")
+		if !Segment(runID) {
+			return p, ErrInvalid
+		}
+		path, e := SafePath(root, entry.Name())
 		if e != nil {
 			return p, e
 		}
-		attempts, e := os.ReadDir(path)
+		runs, e := readRunJournal(path)
 		if e != nil {
 			return p, e
 		}
-		for _, attempt := range attempts {
-			if !attempt.IsDir() {
-				continue
-			}
-			v, e := r.Detail(ctx, f.Endpoint, f.Conversation, f.Session, run.Name(), attempt.Name())
-			if errors.Is(e, os.ErrNotExist) {
-				continue
-			}
+		for _, item := range runs {
+			v, e := r.Detail(ctx, f.Endpoint, f.Conversation, f.Session, runID, item.AttemptID)
 			if e != nil {
 				return p, e
 			}
@@ -403,6 +426,12 @@ func (r *readStore) Stats(ctx context.Context, group string, f Filter) ([]Statis
 }
 
 func (l *Ledger) PrepareReport(ctx context.Context, endpoint, run, attempt string, b json.RawMessage) error {
+	var message map[string]json.RawMessage
+	if e := json.Unmarshal(b, &message); e != nil {
+		return e
+	}
+	delete(message, "payload")
+	b, _ = json.Marshal(message)
 	return (&writeStore{l: l, endpoint: endpoint}).update(ctx, run, attempt, func(r *Run) { r.PendingReport = b; r.ServerConfirmed = false })
 }
 func (l *Ledger) Confirm(ctx context.Context, endpoint, run, attempt string) error {
@@ -427,10 +456,15 @@ func (l *Ledger) Pending(endpoint string) []json.RawMessage {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	out := []json.RawMessage{}
-	for _, p := range l.paths {
-		var r Run
+	for k, p := range l.paths {
+		parts := strings.Split(k, "/")
+		r := Run{AttemptID: parts[len(parts)-1]}
 		if readRun(p, &r) == nil && r.EndpointID == endpoint && len(r.PendingReport) > 0 && !r.ServerConfirmed {
-			out = append(out, r.PendingReport)
+			var message map[string]json.RawMessage
+			json.Unmarshal(r.PendingReport, &message)
+			message["payload"] = resultPayload(r)
+			data, _ := json.Marshal(message)
+			out = append(out, data)
 		}
 	}
 	return out
@@ -442,7 +476,7 @@ func isRunRecord(root, path string) bool {
 		return false
 	}
 	p := strings.Split(rel, string(filepath.Separator))
-	return len(p) == 8 && p[2] == "sessions" && p[4] == "runs" && p[7] == "run.json"
+	return len(p) == 6 && p[2] == "sessions" && p[4] == "runs" && strings.HasSuffix(p[5], ".jsonl") && Segment(strings.TrimSuffix(p[5], ".jsonl"))
 }
 
 func (l *Ledger) RejectReport(ctx context.Context, endpoint, run, attempt, reason string) error {

@@ -221,9 +221,8 @@ Client 不再使用 SQLite，文件结构为：
     events.jsonl                # 固定的 harnessctl 会话地址
     events.jsonl.d/              # 适配器私有状态
     session.yaml
-    runs/<run_id>/<attempt_id>/
-      run.json
-      history.json
+    runs/<run_id>.jsonl
+    resources/<run_id>.<attempt_id>.history.json
 ```
 
 工作说明与 skill 内容随本次输入加载，不覆盖共享 workspace 中的 AGENTS.md / CLAUDE.md。Codex 恢复指定 thread，Claude Code 恢复指定 session；不同 session 可并行执行。终态结果先写文件，中心确认后解除目录保护；配套 server 增加单次领取和终态确认协议，升级时应使用同一版本的 client/server。

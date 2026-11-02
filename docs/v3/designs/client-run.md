@@ -1,104 +1,74 @@
-# Client runService：执行从中心领取的 Run
+# Client runService：任务执行与 JSONL 账本
 
-> v3 目标设计。这里的 runService 属于 client，负责本机执行；server runService 负责任务分配和业务状态。两者通过标准 run 协议协作，不共享存储实现；client 只使用文件，不使用 SQLite。
+runService 负责连接各 endpoint、领取任务、控制执行及回报结果。配置与适配器在 client 启动时固定；运行中重连使用同一份启动配置，不热加载。
 
-## 职责
+local 与远端使用相同的任务记录、执行、查询、恢复和清理机制。区别仅是任务来源：local 生成任务及 attempt UUID，远端使用 server 分配的标识。一个本机 session 串行执行多个任务，不同 session 可以并行，共享 conversation 的 workspace。
 
-- 读取 endpointService 中已启用的 endpoints，自己建立连接、上报能力、心跳、重连、对账与领取任务。
-- 统一管理本机容量与多 endpoint 的领取机会，检查 run/attempt 和包版本。
-- 请求 sessionService 选择/恢复原生 session，将领来的 run 绑定到本机 session。
-- 获取当前 run_prompts、共享 conversation 增量和文件，组织本次执行输入。
-- 将插话、答案、取消路由到对应本地执行，并上报标准事件。
-- 写本机 run.json 执行记录，维护本次耗时、用量和错误，结束后释放占用。
+## 服务关系
 
-平台任务的 run_id 和 attempt_id 来自中心；内置 local 调试入口可在本机生成 run/attempt UUID，并调用同一执行链路，不创建中心业务任务。本机记录按 `(endpoint_id, run_id, attempt_id)` 区分。一个本地 session 可以连续执行多个从 server 领来的 run，同一个 session 同时只执行一个。
-
-## 与其他 Service 的关系
-
-| Service | 协作 |
+| 服务 | 职责 |
 |---|---|
-| endpointService | 提供 endpoints.yaml 中的注册身份，连接与领取由 runService 管理 |
-| settingService | 提供工作目录及磁盘容量策略；runService 消费这些设置，不另存 run_settings |
-| sessionService | 选择/恢复原生会话、执行锁、历史增量位置；run 结束后保留 session |
-| harnessService | 在已选 session 中执行任务，调用 harnessctl，将公共事件转换成业务状态 |
-
-每个 endpoint 的连接循环属于 runService，不在 endpointService 或 harnessService 中维护；原生 harness 连接由独立 harnessctl 适配器处理。session 的跨 run 生命周期与当前 run 的进程/回调清理分开处理。
-
-## 多个 Server 的连接与领取
-
-runService 启动时读取启用的 endpoints，为每个已注册 server 建立独立连接。一次连接失败只对该 endpoint 退避重连，不阻塞其他 endpoint。探测由本地 harnessService 完成，由 runService 向各 server 上报标准能力。
-
-所有 endpoint 共用 runService 内部的领取与并发调度，不在 setting.yaml 暴露执行数量或槽位配置。不同 session 可以并行，同一 session 保持串行。runService 先在内部原子预留本次执行机会，再按轮询顺序对某个 endpoint 发起一次有界领取，明确得到 run 或 no_task。无任务立即尝试下一 endpoint；通过带 claim_id 的 claim 请求单次领取，server 回 run/no_task；所有 endpoint 共享内部执行容量。不能向多个 server 广播长期有效的 ready，避免重复派活超过本机容量。
-
-领取超时的晚到任务需重新核对授权，失效则拒绝/交原 server 租约恢复，不能绕过槽位检查直接启动。等待用户答案的 run 仍占容量，长任务不因轮询被抢占。结束后由 runService 自己释放槽位并继续领取。
-
-## Endpoint 隔离
-
-本机用 `(endpoint_id, run_id, attempt_id)` 定位执行，session 和目录也包含 endpoint_id。答案、插话和取消从连接所属 endpoint 关联到任务；结果、心跳、文件与工作 API 始终使用该执行绑定的 server 和凭据。
-
-两个 server 即使返回相同远端 ID，也不共享目录或结果。凭据按本次执行传入，不通过修改整个 client 进程的全局环境切换 server。
-
-## 执行流程
-
-1. 校验中心和领取授权；尚未绑定 session 的领取请求只在内存中处理，无效或不支持则直接向原 server 回报拒绝，不创建无归属的 run.json。
-2. 按 settingService 的配置触发 sessionService 检查工作目录容量；领取前检查统一工作空间容量，已领取却不能启动时明确回报资源不足，不无限占位或伪报 started；有空间才选择/创建空闲且版本匹配的 session，绑定后写 received 记录；没有可回收空间则暂不启动新任务。
-3. 准备当前输入与共享历史增量，交 harnessService 执行。配置和 hook 资源按 endpoint/run/attempt 隔离。
-4. 标准进度、问题、消费确认、结果和用量更新本地记录，并经 runService 为该 endpoint 维护的连接回报原 server。
-5. 执行结束后清理本次回调/进程占用，session 回到可复用状态，释放全局槽位。原生历史仍保留。
-
-业务状态仍以 server 为权威，本机终态不等于结果已被 server 提交。重启时先对账，不因为账本里有旧任务就自行执行。只有确认有效的 attempt 或重新领来的任务才能工作。
+| endpointService | 提供启动时固定的 endpoint 身份和凭据 |
+| settingService | 提供启动时固定的工作根目录及 quota |
+| sessionService | 选择 session、管理占用、历史位置和目录回收 |
+| harnessService | 四个 harnessctl 命令、公共事件及执行关联 |
+| runService | 领取、调度、任务控制、账本和向所属 server 回报 |
 
 ## 文件结构
 
 ```text
-<session.work_root>/<endpoint_id>/<conversation_id>/sessions/<local_session_id>/
-  runs/<run_id>/<attempt_id>/run.json
+<session.work_root>/<endpoint_id>/<conversation_id>/
+  workspace/
+  sessions/<session_id>/
+    session.yaml
+    events.jsonl
+    events.jsonl.d/                       # 适配器私有状态，client 不解析
+    runs/
+      <run_id>.jsonl
+    resources/
+      <run_id>.<attempt_id>.history.json  # 仅有非空共享历史时生成
 ```
 
-每个已绑定 session 的执行尝试一个文件，conversation 根目录由 session.work_root、endpoint_id 和 conversation_id 直接推导，所有实际执行统一以其下的 workspace/ 为 cwd；run.json 在同级 sessions/ 树内。目录层级为 conversation → session → run → attempt，唯一执行身份仍为 endpoint/run/attempt，不再有本机 runs 表或 run_settings 表。磁盘容量策略读取 setting.yaml；领取预留、连接状态和执行槽位由 runService 内部管理，只存在运行时内存中。
+每个业务任务一个 JSONL 文件。同一任务在该 session 中的多个 attempt 都追加到同一文件，不建立 run 或 attempt 子目录。任务在另一个 session 重试时，其记录归属于实际执行的 session。执行身份仍是 endpoint/run/attempt；这组身份不要求对应三层磁盘目录。
+
+不再创建 run.json、input.json 或空的 history.json。实际需要交给 agent 读取的共享历史属于执行资源，保存在 resources/，与账本分开。工作目录从 conversation 路径推导，不在账本中重复保存绝对路径。
+
+## 两种 run_id
+
+- 文件名中的 run_id 是业务任务 ID，远端来自 server，local 在本机产生。
+- events.jsonl 中的 run_id 是适配器生成的交互 UUID，client 不指定。
+
+一次业务执行可能覆盖多个适配器交互，尤其是补充输入被内部排队时。账本在接收任务时记录 events_offset，harnessService 根据 accepted 立即追加 harness_run_ids 关联，等待本次所有 input_id 都由 result 覆盖后才结束任务。不能把文件名直接当成适配器 run_id，也不能只读取第一个 result。
+
+## runs/<run_id>.jsonl 的格式
+
+每行包含 type、at（Unix 毫秒）、attempt_id 和 data：
 
 ```json
-{
-  "endpoint_id": "https---company.example.com",
-  "run_id": "run-1",
-  "attempt_id": "attempt-1",
-  "session_id": "7877d33b-788f-4f6c-9ff0-987c2128064e",
-  "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
-  "agent_id": "coder",
-  "harness": "codex",
-  "harness_revision": "package-revision",
-  "native_run_id": "turn-1",
-  "context_seq": 12,
-  "summary": "修复登录问题",
-  "status": "succeeded",
-  "error": "",
-  "received_at": 1793443200000,
-  "started_at": 1793443200100,
-  "finished_at": 1793443205100,
-  "duration_ms": 5000,
-  "steer_count": 0,
-  "attachment_count": 0,
-  "usage": {"input_tokens": 100, "output_tokens": 20},
-  "cost_usd": null
-}
+{"type":"received","at":1793443200000,"attempt_id":"attempt-1","data":{"endpoint_id":"local","conversation_id":"conversation-1","session_id":"session-1","run_id":"task-1","attempt_id":"attempt-1","status":"running"}}
+{"type":"updated","at":1793443200100,"attempt_id":"attempt-1","data":{"harness_run_ids":["550e8400-e29b-41d4-a716-446655440000"]}}
+{"type":"updated","at":1793443205100,"attempt_id":"attempt-1","data":{"status":"succeeded","finished_at":1793443205100,"duration_ms":5100}}
+{"type":"updated","at":1793443205200,"attempt_id":"attempt-1","data":{"server_confirmed":true}}
 ```
 
-session_id 必须是所在目录的本机 session UUID，不是 server conversation ID，不能留空。每个本机执行尝试只归属一个 session；同一 server run 重试时可能使用另一个 session，通过 attempt_id 区分。尚未绑定 session 的请求不创建该文件；拒绝结果直接回报 server。native_run_id 可保存 Codex turn ID，没有独立执行 ID 时为空。时间用 Unix 毫秒，用量或费用未知时为空。
+received 保存任务归属、输入摘要、接入包版本等调度元数据；updated 仅追加发生变化的字段。字段值为 null 表示清除该字段，例如已确认后清除 pending_report。相同 attempt 的重复接收不重置记录；另一个 attempt 追加新的 received。
 
-run.json 是该执行记录的持久化事实。状态、耗时和计量由 runService 通过临时文件写完后原子替换；同一执行串行写入。Reader 读取文件的完整版本，不使用数据库索引，也不把内存缓存当成唯一记录。
+**正文、结果、用量、费用和执行事件不再复制进账本。** 列表、详情及统计读取账本关联后，从 session 的 events.jsonl 按 harness_run_ids 得到这些内容。问题 pending/replied/expired 和运行中的 waiting 状态同样由公共事件还原，不依赖可丢的 log。账本中的终态和 client 错误用于区分执行结果与调度中断。
 
-状态包括 received/running/waiting/succeeded/failed/cancelled/rejected/interrupted。本机终态不代表 server 已接受结果。终态回报先保存为 run.json 的 pending_report，收到 server 的 event_ack 后清除并记录 server_confirmed；重启或重连时可重发同一回报，中心按原 event_seq 核对。日志可以单独保存，但不是另一份决定业务状态的账本。
+input 摘要仅用于尚未受理时的任务列表，限制长度；完整执行输入由 accepted 保存。接口仍可返回聚合后的 output、usage、cost_usd 和 events，但这些是读取结果，不是另一份持久化执行事实。
 
-删除 endpoint 不主动删除 run 文件。回收 conversation 工作目录时，其中 session.yaml、run.json 和执行资源一起删除；本机页面不再展示这些已清理记录，历史业务状态由原 server 保存。不另设独立 run 归档目录或固定保留期。尚未结束、等待答案或结果尚未被 server 确认的执行都保护整个工作目录，不能作为清理候选。
+## 结果交付、恢复与回收
 
-## 目录清理与恢复
+向 server 回报前，账本保存 pending_report 的业务协议头（包括 event_seq 和 attempt），不重复保存结果正文。重启或重连时按原关联从 events.jsonl 重建 payload，使用原身份补报；收到 event_ack 后追加确认记录。local 经过相同的确认和目录保护操作。
 
-声明 quota 后，runService 在启动、执行前后和内置周期检查中自动触发 sessionService 清理空闲受管工作目录；不直接递归删除任意路径。同一 conversation 任一 run 仍占用的共享目录都不能成为候选，不能因当前 session 空闲就删除其他 session 正在使用的文件。
+写入由单个 client 进程串行进行，JSONL 每行追加并 fsync。读取忽略尚未写完的最后一行；后续追加前截去不完整尾部。完整记录损坏则明确报错，不猜测恢复。多文件之间没有数据库事务，不能把磁盘快照视为 server 已确认任务的证明。
 
-创建 run.json、绑定 session、更新同步位置涉及多个文件，没有跨文件数据库事务。进程中串行管理，崩溃后读取状态文件并与 server/原生状态核对；无法确认的任务标中断，不因一个旧 running 字段自行重跑。
+启动恢复逐个还原每个文件中的所有 attempt，建立可重建的内存索引；未正常完成的任务标记 interrupted，不自动重放。若适配器已写 accepted 而 client 来不及保存关联，恢复时只扫描该任务 events_offset 之后的公共事件补齐关联，不能误认此前的交互。任何 attempt 仍待确认时，都保护整个 conversation 目录，不能只检查最后一次 attempt。
 
-## 相关设计
+声明 quota 后，回收整个空闲 conversation，包含 workspace、session、账本和资源；运行、等待答案、待确认或即将启动的任务均保护目录。不删除 server 历史或文件。
 
-[Client 总览](client-main.md) · [settingService](client-setting.md) · [endpointService](client-endpoint.md) · [sessionService](client-session.md) · [harnessService](client-harness.md) · [Server runService](server-run.md)
+## 已有记录迁移
 
-本机 run.json 额外保存 harness_run_ids：这些 UUID 由适配器分配，一个 server run/attempt 可以对应多个适配器交互。harnessService 等待本次所有输入都被 result 覆盖后才结束任务，详见 client-harness.md。
+启动时将旧的 runs/<run_id>/<attempt_id>/run.json 转换为单文件账本，核对并复用已有适配器事件；只移除已转换的已知旧文件和空目录，不递归删除未知文件。非空共享历史迁入 resources/。events.jsonl 和 events.jsonl.d/ 均不修改。
+
+适配器接入前的旧记录没有可引用的事件源，或唯一事件源已丢失时，以一次 legacy_import 保存唯一的历史输入和结果，避免丢数据。这仅是已有数据转换；新执行始终使用元数据账本加适配器事件，不继续写旧格式。
