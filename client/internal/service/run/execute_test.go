@@ -33,11 +33,11 @@ func awaitLocal(t *testing.T, s *Service, run store.Run) store.Run {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		record, e := s.Store.Reader().Detail(context.Background(), "local", run.ConversationID, run.SessionID, run.RunID, run.AttemptID)
+		record, e := s.Store.Reader().Detail(context.Background(), "local", run.ConversationID, run.SessionID, run.RunID)
 		if e != nil {
 			t.Fatal(e)
 		}
-		if record.FinishedAt != nil && record.ServerConfirmed {
+		if record.FinishedAt != nil {
 			return record
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -66,7 +66,7 @@ printf '{"type":"result","ok":true,"output":"local result","session_id":"native-
 		t.Fatal(e)
 	}
 	got := awaitLocal(t, local, first)
-	if got.Status != "succeeded" || got.Output != "local result" || len(got.Events) < 2 {
+	if got.Status != "completed" || got.Output != "local result" || len(got.Events) < 2 {
 		t.Fatal(got)
 	}
 	second, e := local.Start(ctx, endpoint.LocalID, conversation.ID, Request{Harness: "debug", Input: json.RawMessage(`{"arbitrary":"JSON input"}`)})
@@ -74,10 +74,10 @@ printf '{"type":"result","ok":true,"output":"local result","session_id":"native-
 		t.Fatal(e)
 	}
 	got = awaitLocal(t, local, second)
-	if got.Status != "succeeded" || second.SessionID != first.SessionID || len(got.HarnessRunIDs) != 1 {
+	if got.Status != "completed" || second.SessionID != first.SessionID {
 		t.Fatal(got)
 	}
-	b, e := os.ReadFile(filepath.Join(got.Directory, "received.json"))
+	b, e := os.ReadFile(filepath.Join(localWorkspace(local, got), "received.json"))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -93,7 +93,7 @@ printf '{"type":"result","ok":true,"output":"local result","session_id":"native-
 	if input.Endpoint != "local" || input.Conversation != conversation.ID || input.Resume != "" || strings.Contains(input.Instructions, "remote-secret") {
 		t.Fatal(input)
 	}
-	if b, e := os.ReadFile(filepath.Join(got.Directory, "environment.txt")); e != nil || string(b) != "||" {
+	if b, e := os.ReadFile(filepath.Join(localWorkspace(local, got), "environment.txt")); e != nil || string(b) != "||" {
 		t.Fatal("local harness inherited platform credentials", string(b), e)
 	}
 	rows, e := local.Store.Reader().Conversations(ctx, "local")
@@ -118,7 +118,7 @@ func TestLocalCancelAndRejectRemoteConversation(t *testing.T) {
 	}
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, e = os.Stat(filepath.Join(run.Directory, "ready")); e == nil {
+		if _, e = os.Stat(filepath.Join(localWorkspace(local, run), "ready")); e == nil {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -126,7 +126,7 @@ func TestLocalCancelAndRejectRemoteConversation(t *testing.T) {
 	if e != nil {
 		t.Fatal("custom process did not start", e)
 	}
-	if e = local.Control(ctx, endpoint.LocalID, c.ID, run.SessionID, run.RunID, run.AttemptID, "cancel", json.RawMessage(`{}`)); e != nil {
+	if _, e = local.Control(ctx, endpoint.LocalID, c.ID, run.SessionID, "cancel", json.RawMessage(`{}`)); e != nil {
 		t.Fatal(e)
 	}
 	got := awaitLocal(t, local, run)
@@ -162,4 +162,8 @@ func TestEndpointModeControlsRunSubmission(t *testing.T) {
 	if runs.localActiveCount() != 0 {
 		t.Fatal("rejected endpoint submission started execution")
 	}
+}
+
+func localWorkspace(s *Service, r store.Run) string {
+	return filepath.Join(s.Store.Root, r.EndpointID, r.ConversationID, "workspace")
 }

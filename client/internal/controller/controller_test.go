@@ -21,9 +21,14 @@ func TestScopedFileAPIAndAuthentication(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = l.ForEndpoint(s.EndpointID).Receive(ctx, store.Run{EndpointID: s.EndpointID, ConversationID: "c", SessionID: s.ID, RunID: "r", AttemptID: "a", Summary: "visible summary"}); e != nil {
+	if e = l.AcceptNative(ctx, s, "550e8400-e29b-41d4-a716-446655440000"); e != nil {
 		t.Fatal(e)
 	}
+	source := filepath.Join(root, s.EndpointID, "c", "sessions", s.ID, "events.jsonl")
+	if e = os.WriteFile(source, []byte(`{"type":"accepted","run_id":"550e8400-e29b-41d4-a716-446655440000","text":"visible summary"}`+"\n"), 0600); e != nil {
+		t.Fatal(e)
+	}
+
 	token, e := Token(filepath.Join(t.TempDir(), "ui.token"))
 	if e != nil {
 		t.Fatal(e)
@@ -58,13 +63,13 @@ func TestScopedFileAPIAndAuthentication(t *testing.T) {
 	if w := call("GET", base, "localhost:7801", "bad"); w.Code != 401 {
 		t.Fatal(w.Code)
 	}
-	for _, path := range []string{base, base + "/runs", base + "/runs/r/attempts/a", base + "/usage", "/api/conversations?endpoint_id=http---localhost%253A8090"} {
+	for _, path := range []string{base, base + "/runs", base + "/runs/550e8400-e29b-41d4-a716-446655440000", base + "/usage", "/api/conversations?endpoint_id=http---localhost%253A8090"} {
 		w := call("GET", path, "localhost:7801", token)
 		if w.Code != 200 || !json.Valid(w.Body.Bytes()) {
 			t.Fatal(path, w.Code, w.Body.String())
 		}
 	}
-	if w := call("GET", base+"/runs/r/attempts/a", "localhost:7801", token); !strings.Contains(w.Body.String(), "visible summary") {
+	if w := call("GET", base+"/runs/550e8400-e29b-41d4-a716-446655440000", "localhost:7801", token); !strings.Contains(w.Body.String(), "visible summary") {
 		t.Fatal(w.Body.String())
 	}
 	for _, path := range []string{"/api/runs", "/api/usage", "/api/stats"} {

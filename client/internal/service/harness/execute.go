@@ -14,26 +14,29 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
-type Result struct {
+type DriveResult struct {
 	OK             bool            `json:"ok"`
 	Output         string          `json:"output,omitempty"`
 	Error          string          `json:"error,omitempty"`
 	Usage          *agentuse.Usage `json:"usage,omitempty"`
 	CostUSD        float64         `json:"cost_usd,omitempty"`
-	HarnessRunIDs  []string        `json:"harness_run_ids,omitempty"`
+	RunIDs         []string        `json:"run_ids,omitempty"`
 	CleanupPending bool            `json:"cleanup_pending,omitempty"`
 }
-type Reporter func(string, any)
+type Reporter func(Event)
+type Option struct {
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}
 type Question struct {
-	ID       string            `json:"id"`
-	Text     string            `json:"text"`
-	Header   string            `json:"header"`
-	Multiple bool              `json:"multiple"`
-	Options  []protocol.Option `json:"options"`
+	ID       string   `json:"id"`
+	Text     string   `json:"text"`
+	Header   string   `json:"header"`
+	Multiple bool     `json:"multiple"`
+	Options  []Option `json:"options"`
 }
 type Event struct {
 	Type      string                     `json:"type"`
@@ -57,12 +60,11 @@ type Event struct {
 }
 type submission struct {
 	prompt     string
-	steerID    int64
+	accepted   func(Acceptance)
 	input, run string
 	done       bool
 }
 type pendingRequest struct {
-	event   Event
 	expires time.Time
 }
 
@@ -116,26 +118,6 @@ func Cancel(a Adapter, events string) error {
 func EventsPath(workspace, sessionID string) string {
 	return filepath.Join(filepath.Dir(workspace), "sessions", sessionID, "events.jsonl")
 }
-func promptFor(m protocol.Dispatch, history string) (string, error) {
-	var pi protocol.PromptInput
-	if json.Unmarshal(m.Input, &pi) != nil || strings.TrimSpace(pi.Prompt) == "" {
-		if m.Local && json.Valid(m.Input) {
-			return string(m.Input), nil
-		}
-		return "", fmt.Errorf("input.prompt must not be empty")
-	}
-	instructions := instructionsFor(m)
-	if history == "" {
-		instructions = strings.ReplaceAll(instructions, "先读取 .agentuse/session-history.json。", "本次没有新增共享历史。")
-	}
-	if history != "" {
-		instructions = strings.ReplaceAll(instructions, ".agentuse/session-history.json", history)
-	}
-	if instructions != "" {
-		return instructions + "\n\n# 本次任务\n" + pi.Prompt, nil
-	}
-	return pi.Prompt, nil
-}
 func readEvents(path string, offset *int64) ([]Event, error) {
 	file, e := os.Open(path)
 	if os.IsNotExist(e) {
@@ -178,27 +160,27 @@ func readEvents(path string, offset *int64) ([]Event, error) {
 		out = append(out, event)
 	}
 }
-func (s Service) Execute(ctx context.Context, a Adapter, m protocol.Dispatch, dir string, in *Input, report Reporter) (result Result) {
+func (s Service) DriveSession(ctx context.Context, a Adapter, prompt string, dir string, in *Input, report Reporter) (result DriveResult) {
 	result.OK = true
 	if report == nil {
-		report = func(string, any) {}
+		report = func(Event) {}
 	}
 	events := a.EventsPath
 	if events == "" {
-		events = filepath.Join(filepath.Dir(dir), "harnessctl", a.Name+"-"+m.AgentID, "events.jsonl")
+		return DriveResult{Error: "session events path is required"}
 	}
-	if e := os.MkdirAll(filepath.Dir(events), 0700); e != nil {
-		return Result{Error: e.Error()}
+	if err := os.MkdirAll(filepath.Dir(events), 0700); err != nil {
+		return DriveResult{Error: err.Error()}
 	}
-	prompt, e := promptFor(m, a.HistoryPath)
-	if e != nil {
-		return Result{Error: e.Error()}
+	if strings.TrimSpace(prompt) == "" {
+		return DriveResult{Error: "prompt must not be empty"}
 	}
+	var e error
 	var offset int64
 	if info, e := os.Stat(events); e == nil {
 		offset = info.Size()
 	} else if !os.IsNotExist(e) {
-		return Result{Error: e.Error()}
+		return DriveResult{Error: e.Error()}
 	}
 	submitted := []*submission{{prompt: prompt}}
 	requests := map[string]pendingRequest{}
@@ -219,18 +201,18 @@ func (s Service) Execute(ctx context.Context, a Adapter, m protocol.Dispatch, di
 			}
 			step.input = event.InputID
 			step.run = event.RunID
-			report("accepted", map[string]string{"harness_run_id": event.RunID})
+			report(event)
 			if !seenRuns[event.RunID] {
 				seenRuns[event.RunID] = true
-				result.HarnessRunIDs = append(result.HarnessRunIDs, event.RunID)
+				result.RunIDs = append(result.RunIDs, event.RunID)
 			}
-			if step.steerID > 0 {
-				report("steered", protocol.SteeredPayload{SteerID: step.steerID})
+			if step.accepted != nil {
+				step.accepted(Acceptance{RunID: event.RunID, InputID: event.InputID})
 			}
 			return
 		}
 	}
-	fail := func(e error) Result {
+	fail := func(e error) DriveResult {
 		result.OK = false
 		result.Error = e.Error()
 		if cleanup := Cancel(a, events); cleanup != nil {
@@ -260,42 +242,18 @@ func (s Service) Execute(ctx context.Context, a Adapter, m protocol.Dispatch, di
 			return fail(ctx.Err())
 		}
 		for _, control := range in.take() {
-			if control.steer != nil {
-				step := &submission{prompt: control.steer.Prompt, steerID: control.steer.ID}
+			if control.send != nil {
+				step := &submission{prompt: control.send.Text, accepted: control.send.Accepted}
 				submitted = append(submitted, step)
 				if _, e = command(ctx, a, events, "send", step.prompt, "--cwd", dir); e != nil {
 					return fail(e)
 				}
-			} else if control.answer != nil {
-				pending, ok := requests[control.answer.ToolUseID]
-				if !ok {
-					continue
+			} else if control.reply != nil {
+				_, err := command(ctx, a, events, "reply", control.reply.Body, control.reply.RequestID)
+				if control.reply.Done != nil {
+					control.reply.Done(err)
 				}
-				event := pending.event
-				answer := ""
-				if event.Kind == "permission" {
-					answer = control.answer.Answers[event.Message]
-					if answer == "" {
-						for _, value := range control.answer.Answers {
-							answer = value
-							break
-						}
-					}
-				} else {
-					answers := map[string]string{}
-					for _, q := range event.Questions {
-						v := control.answer.Answers[q.Text]
-						if v == "" {
-							v = control.answer.Answers[q.ID]
-						}
-						answers[q.ID] = v
-					}
-					data, _ := json.Marshal(answers)
-					answer = string(data)
-				}
-				if _, e = command(ctx, a, events, "reply", answer, event.RequestID); e != nil {
-					return fail(e)
-				}
+
 			}
 		}
 		batch, e := readEvents(events, &offset)
@@ -312,21 +270,10 @@ func (s Service) Execute(ctx context.Context, a Adapter, m protocol.Dispatch, di
 			}
 			switch event.Type {
 			case "message":
-				if messageText[event.MessageID] != event.Text {
-					messageText[event.MessageID] = event.Text
-					report("progress", map[string]string{"text": event.Text, "harness_run_id": event.RunID})
+				if messageText[event.MessageID] == event.Text {
+					continue
 				}
-			case "log":
-				if event.Topic == "tool.started" {
-					var title string
-					_ = json.Unmarshal(event.Data["title"], &title)
-					if title != "" {
-						report("progress", map[string]string{"text": "🔧 " + title})
-					}
-				}
-				if event.Topic == "plan" {
-					report("plan", map[string]any{"steps": json.RawMessage(event.Data["steps"])})
-				}
+				messageText[event.MessageID] = event.Text
 			case "request":
 				switch event.State {
 				case "pending":
@@ -337,23 +284,9 @@ func (s Service) Execute(ctx context.Context, a Adapter, m protocol.Dispatch, di
 					if in != nil {
 						timeout = in.timeout
 					}
-					requests[event.RequestID] = pendingRequest{event: event, expires: time.Now().Add(timeout)}
-					questions := []protocol.Question{}
-					if event.Kind == "permission" {
-						questions = append(questions, protocol.Question{Question: event.Message, Options: []protocol.Option{{Label: "allow", Description: "允许一次"}, {Label: "deny", Description: "拒绝"}}})
-					} else {
-						for _, q := range event.Questions {
-							questions = append(questions, protocol.Question{Question: q.Text, Header: q.Header, MultiSelect: q.Multiple, Options: q.Options})
-						}
-					}
-					report("question", protocol.QuestionPayload{ToolUseID: event.RequestID, Questions: questions})
+					requests[event.RequestID] = pendingRequest{expires: time.Now().Add(timeout)}
 				case "replied", "expired":
 					delete(requests, event.RequestID)
-					kind := "answered"
-					if event.State == "expired" {
-						kind = "question_expired"
-					}
-					report(kind, protocol.QuestionPayload{ToolUseID: event.RequestID})
 				default:
 					return fail(fmt.Errorf("invalid harnessctl request state %q", event.State))
 				}
@@ -394,6 +327,7 @@ func (s Service) Execute(ctx context.Context, a Adapter, m protocol.Dispatch, di
 					result.CostUSD += *event.CostUSD
 				}
 			}
+			report(event)
 		}
 		for _, pending := range requests {
 			if time.Now().After(pending.expires) {
@@ -437,4 +371,24 @@ func (s Service) Execute(ctx context.Context, a Adapter, m protocol.Dispatch, di
 			}
 		}
 	}
+}
+
+// State is the public harnessctl status response, with no private process IDs.
+type State struct {
+	State    string            `json:"state"`
+	RunID    *string           `json:"run_id"`
+	Queued   int               `json:"queued"`
+	Requests []json.RawMessage `json:"requests"`
+	Cwd      string            `json:"cwd"`
+	Model    *string           `json:"model"`
+}
+
+func (s Service) Status(ctx context.Context, a Adapter, events string) (State, error) {
+	var state State
+	data, err := command(ctx, a, events, "status", "")
+	if err != nil {
+		return state, err
+	}
+	err = json.Unmarshal(data, &state)
+	return state, err
 }

@@ -25,8 +25,8 @@ func (s *Service) Acquire(ctx context.Context, endpoint, conversation, agent, ha
 	}
 	return s.Files.AcquireSession(ctx, endpoint, conversation, agent, harness, revision)
 }
-func (s *Service) Release(session store.Session, seq int64, valid bool, run, attempt string) error {
-	return s.Files.ReleaseSession(session, seq, valid, run, attempt)
+func (s *Service) Release(session store.Session, valid bool) error {
+	return s.Files.ReleaseSession(session, valid)
 }
 func (s *Service) Reclaim(ctx context.Context) (int64, error) {
 	cfg := s.Settings.Get()

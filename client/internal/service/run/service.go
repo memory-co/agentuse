@@ -11,7 +11,6 @@ import (
 	"log"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -39,7 +38,6 @@ type Service struct {
 	localRuns           map[string]*localExecution
 	localCtx            context.Context
 	localCancel         context.CancelFunc
-	sequence            atomic.Int64
 	localWG             sync.WaitGroup
 	log                 *log.Logger
 }
@@ -63,7 +61,7 @@ func (s *Service) Snapshot() any {
 	defer s.mu.Unlock()
 	eps := []map[string]any{}
 	running := s.localActiveCount()
-	eps = append(eps, map[string]any{"endpoint_id": endpoint.LocalID, "state": endpoint.LocalID, "active_runs": running})
+	eps = append(eps, map[string]any{"endpoint_id": endpoint.LocalID, "state": endpoint.LocalID, "active_sessions": running})
 	for id, w := range s.workers {
 		w.run.mu.Lock()
 		n := len(w.run.running)
@@ -77,9 +75,9 @@ func (s *Service) Snapshot() any {
 		if w.err != nil {
 			state = "error"
 		}
-		eps = append(eps, map[string]any{"endpoint_id": id, "state": state, "active_runs": n})
+		eps = append(eps, map[string]any{"endpoint_id": id, "state": state, "active_sessions": n})
 	}
-	return map[string]any{"endpoints": eps, "running_runs": running}
+	return map[string]any{"endpoints": eps, "active_sessions": running}
 }
 func (s *Service) Harnesses() any { items, _ := s.Harness.Probe(); return items }
 
@@ -111,7 +109,7 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 		id := ep.ID()
 		cfg := Config{ConfigPath: s.Path, Server: ep.ServerURL, DaemonID: ep.DeviceID, Key: ep.DeviceKey, EndpointID: id, Enabled: true, Settings: settings, LocalStore: s.Store, Slots: s.slots, Sessions: s.Sessions, Harness: s.Harness}
-		connection, err := newConnection(cfg, nil, s.Store.ForEndpoint(id))
+		connection, err := newConnection(cfg, nil, s.Store.ServerForEndpoint(id))
 		if err != nil {
 			s.mu.Unlock()
 			return err

@@ -88,7 +88,6 @@ type Usage = {
 };
 type Run = {
   run_id: string;
-  attempt_id: string;
   conversation_id: string;
   session_id: string;
   agent_id: string;
@@ -102,8 +101,6 @@ type Run = {
   duration_ms: number;
   usage: Usage | null;
   cost_usd?: number;
-  steer_count: number;
-  attachment_count: number;
   events?: { kind: string; at: number; payload: unknown }[];
 };
 type Page<T> = { items: T[]; next_cursor?: string };
@@ -155,7 +152,7 @@ const labels: Record<string, string> = {
   running: "执行中",
   waiting: "等待回答",
   pending_report: "待回报",
-  succeeded: "已完成",
+  completed: "已完成",
   done: "已完成",
   failed: "失败",
   unavailable: "不可恢复",
@@ -583,7 +580,7 @@ function App() {
                   </div>
                   {(runs.data?.pages.flatMap((p) => p.items) ?? []).map((r) => (
                     <button
-                      key={r.run_id + "/" + r.attempt_id}
+                      key={r.run_id}
                       onClick={() => setSelected(r)}
                       className="block w-full rounded-xl border bg-background p-4 text-left transition-colors hover:bg-accent/40"
                     >
@@ -607,9 +604,7 @@ function App() {
                             ? `${(r.usage.input_tokens + r.usage.output_tokens).toLocaleString()} tokens`
                             : "用量未知"}
                         </span>
-                        {r.steer_count > 0 && (
-                          <span>{r.steer_count} 次插话</span>
-                        )}
+
                       </div>
                     </button>
                   ))}
@@ -773,7 +768,7 @@ function LocalTaskPanel({
     </section>
   );
 }
-function LocalRunControls({
+function SessionControls({
   base,
   run,
   refresh,
@@ -787,7 +782,7 @@ function LocalRunControls({
   const mutation = useMutation({
     mutationFn: ({ action, body }: { action: string; body: unknown }) =>
       post(
-        `${base}/runs/${enc(run.run_id)}/attempts/${enc(run.attempt_id)}/${action}`,
+        `${base}/${action}`,
         body,
       ),
     onSuccess: () => {
@@ -797,26 +792,20 @@ function LocalRunControls({
   });
   const active = run.status === "running" || run.status === "waiting";
   if (!active) return null;
-  const latest = [...(run.events ?? [])]
-    .reverse()
-    .find((event) => event.kind === "question");
-  const question = latest?.payload as
-    | {
-        tool_use_id?: string;
-        questions?: { question: string; header?: string }[];
-      }
-    | undefined;
+  const latest=[...(run.events??[])].reverse().find(event=>event.kind==="request");
+  const question=latest?.payload as {request_id?:string;kind?:string;message?:string;questions?:{id:string;text:string;header?:string}[]}|undefined;
+  const questions=question?.kind==="permission"?[{id:"permission",text:question.message??"权限请求"}]:(question?.questions??[]);
   return (
     <section className="my-5 space-y-3 rounded-lg border p-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">本地执行控制</h3>
+        <h3 className="text-sm font-medium">本地会话控制</h3>
         <Button
           variant="outline"
           size="sm"
           disabled={mutation.isPending}
           onClick={() => mutation.mutate({ action: "cancel", body: {} })}
         >
-          取消执行
+          取消会话执行
         </Button>
       </div>
       <ErrorNotice error={mutation.error} />
@@ -824,37 +813,37 @@ function LocalRunControls({
         className="flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          mutation.mutate({ action: "steer", body: { prompt } });
+          mutation.mutate({ action: "send", body: { prompt } });
         }}
       >
         <Input
-          aria-label="本地插话"
+          aria-label="追加输入"
           placeholder="追加输入到当前执行"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
         />
         <Button size="sm" disabled={!prompt.trim() || mutation.isPending}>
-          插话
+          发送
         </Button>
       </form>
-      {run.status === "waiting" && question?.tool_use_id && (
+      {run.status === "waiting" && question?.request_id && (
         <form
           className="space-y-2"
           onSubmit={(e) => {
             e.preventDefault();
             mutation.mutate({
-              action: "answer",
-              body: { tool_use_id: question.tool_use_id, answers },
+              action: "reply",
+              body: { request_id: question.request_id, answer:question.kind==="permission"?answers.permission:answers },
             });
           }}
         >
-          {question.questions?.map((q) => (
-            <label key={q.question} className="grid gap-1 text-xs">
-              {q.question}
+          {questions.map((q) => (
+            <label key={q.id} className="grid gap-1 text-xs">
+              {q.text}
               <Input
-                value={answers[q.question] ?? ""}
+                value={answers[q.id] ?? ""}
                 onChange={(e) =>
-                  setAnswers({ ...answers, [q.question]: e.target.value })
+                  setAnswers({ ...answers, [q.id]: e.target.value })
                 }
               />
             </label>
@@ -891,10 +880,10 @@ function RunDetail({
   local: boolean;
 }) {
   const q = useQuery({
-    queryKey: ["run", base, run.run_id, run.attempt_id],
+    queryKey: ["run", base, run.run_id],
     queryFn: ({ signal }) =>
       api<Run>(
-        `${base}/runs/${enc(run.run_id)}/attempts/${enc(run.attempt_id)}`,
+        `${base}/runs/${enc(run.run_id)}`,
         signal,
       ),
     refetchInterval: 2000,
@@ -934,7 +923,6 @@ function RunDetail({
           <dl className="grid grid-cols-[90px_minmax(0,1fr)] gap-x-4 gap-y-3 text-xs">
             {[
               ["Run", r.run_id],
-              ["Attempt", r.attempt_id],
               ["Session", r.session_id],
               ["收到时间", date(r.received_at)],
               ["结束时间", date(r.finished_at)],
@@ -945,7 +933,6 @@ function RunDetail({
                   ? `${r.usage.input_tokens} / ${r.usage.output_tokens}`
                   : "未知",
               ],
-              ["插话 / 文件", `${r.steer_count} / ${r.attachment_count}`],
             ].map(([k, v]) => (
               <React.Fragment key={k}>
                 <dt className="text-muted-foreground">{k}</dt>
@@ -954,7 +941,7 @@ function RunDetail({
             ))}
           </dl>
           {local && (
-            <LocalRunControls
+            <SessionControls
               base={base.replace(
                 "/api/conversations/local/",
                 "/api/local/conversations/",

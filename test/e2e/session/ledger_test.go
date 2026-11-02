@@ -136,7 +136,7 @@ func TestClientMultiEndpointFilesAndUI(t *testing.T) {
 				Confirmed bool            `json:"server_confirmed"`
 			}
 		}
-		if status := get(path+"/runs", &rows); status != 200 || len(rows.Items) != 1 || rows.Items[0].Status != "succeeded" || !rows.Items[0].Confirmed || rows.Items[0].Usage == nil || rows.Items[0].Usage.InputTokens != 1234 {
+		if status := get(path+"/runs", &rows); status != 200 || len(rows.Items) != 1 || rows.Items[0].Status != "completed" || rows.Items[0].Usage == nil || rows.Items[0].Usage.InputTokens != 1234 {
 			t.Fatal(status, rows)
 		}
 		var usage any
@@ -326,7 +326,6 @@ func TestClientLocalHarnessWithoutRegistration(t *testing.T) {
 	var run struct {
 		Session string `json:"session_id"`
 		Run     string `json:"run_id"`
-		Attempt string `json:"attempt_id"`
 	}
 	if status := request("POST", "/api/local/conversations/"+c.ID+"/runs", map[string]any{"harness": "fake", "prompt": "ledger"}, &run); status != 202 {
 		t.Fatal(status, run)
@@ -337,9 +336,9 @@ func TestClientLocalHarnessWithoutRegistration(t *testing.T) {
 		Confirmed bool            `json:"server_confirmed"`
 		Usage     *agentuse.Usage `json:"usage"`
 	}
-	path := "/api/conversations/local/" + c.ID + "/sessions/" + run.Session + "/runs/" + run.Run + "/attempts/" + run.Attempt
+	path := "/api/conversations/local/" + c.ID + "/sessions/" + run.Session + "/runs/" + run.Run
 	e2eutil.WaitFor(t, 5*time.Second, "standalone custom harness result", func() bool {
-		return request("GET", path, nil, &result) == 200 && result.Status == "succeeded" && result.Confirmed
+		return request("GET", path, nil, &result) == 200 && result.Status == "completed"
 	})
 	if result.Output != "ledger result" || result.Usage == nil || result.Usage.InputTokens != 1234 {
 		t.Fatal(result)
@@ -357,6 +356,6 @@ func TestClientLocalHarnessWithoutRegistration(t *testing.T) {
 			return false
 		}
 		base = strings.TrimSpace(string(b))
-		return request("GET", path, nil, &result) == 200 && result.Status == "succeeded"
+		return request("GET", path, nil, &result) == 200 && result.Status == "completed"
 	})
 }

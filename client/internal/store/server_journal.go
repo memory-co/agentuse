@@ -18,7 +18,7 @@ type runRecord struct {
 }
 
 func raw(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
-func metadata(r Run) map[string]json.RawMessage {
+func deliveryMetadata(r Delivery) map[string]json.RawMessage {
 	var m map[string]json.RawMessage
 	json.Unmarshal(raw(r), &m)
 	for _, key := range []string{"output", "usage", "cost_usd", "events", "directory"} {
@@ -26,7 +26,7 @@ func metadata(r Run) map[string]json.RawMessage {
 	}
 	return m
 }
-func metadataDiff(before, after map[string]json.RawMessage) map[string]json.RawMessage {
+func deliveryDiff(before, after map[string]json.RawMessage) map[string]json.RawMessage {
 	out := map[string]json.RawMessage{}
 	for key, value := range after {
 		if !bytes.Equal(before[key], value) {
@@ -40,7 +40,7 @@ func metadataDiff(before, after map[string]json.RawMessage) map[string]json.RawM
 	}
 	return out
 }
-func appendRun(path, kind, attempt string, data map[string]json.RawMessage) error {
+func appendDelivery(path, kind, attempt string, data map[string]json.RawMessage) error {
 	if _, err := SafePath(filepath.Dir(path), filepath.Base(path)); err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func appendRun(path, kind, attempt string, data map[string]json.RawMessage) erro
 	}
 	return f.Sync()
 }
-func readRunJournal(path string) ([]Run, error) {
+func readDeliveryJournal(path string) ([]Delivery, error) {
 	if _, err := SafePath(filepath.Dir(path), filepath.Base(path)); err != nil {
 		return nil, err
 	}
@@ -134,9 +134,9 @@ func readRunJournal(path string) ([]Run, error) {
 			}
 		}
 	}
-	out := []Run{}
+	out := []Delivery{}
 	for _, attempt := range order {
-		var r Run
+		var r Delivery
 		if err = json.Unmarshal(raw(states[attempt]), &r); err != nil {
 			return nil, err
 		}
@@ -148,8 +148,8 @@ func readRunJournal(path string) ([]Run, error) {
 	}
 	return out, nil
 }
-func readRunMetadata(path string, r *Run) error {
-	runs, err := readRunJournal(path)
+func readDeliveryMetadata(path string, r *Delivery) error {
+	runs, err := readDeliveryJournal(path)
 	if err != nil {
 		return err
 	}
@@ -162,16 +162,16 @@ func readRunMetadata(path string, r *Run) error {
 	}
 	return os.ErrNotExist
 }
-func readRun(path string, r *Run) error {
-	if err := readRunMetadata(path, r); err != nil {
+func readDelivery(path string, r *Delivery) error {
+	if err := readDeliveryMetadata(path, r); err != nil {
 		return err
 	}
 	if r.legacy {
 		return nil
 	}
-	return projectHarness(filepath.Join(filepath.Dir(filepath.Dir(path)), "events.jsonl"), r)
+	return projectDelivery(filepath.Join(filepath.Dir(filepath.Dir(path)), "events.jsonl"), r)
 }
-func resultPayload(r Run) json.RawMessage {
+func resultPayload(r Delivery) json.RawMessage {
 	return raw(struct {
 		OK            bool     `json:"ok"`
 		Output        string   `json:"output,omitempty"`

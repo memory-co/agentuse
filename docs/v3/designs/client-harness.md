@@ -1,96 +1,61 @@
-# Client harnessService：harnessctl 接入
+# Client harnessService：harnessctl 命令与事件桥接
 
-harnessService 是 client 的执行桥接服务。它管理 `~/.agentuse/harness/` 中的适配器包，把 runService 的任务、补充输入、答案和取消转换为 harnessctl 命令，读取事件文件后回报业务状态。原生协议、原生会话恢复和后台进程生命周期全部由独立适配器处理。
+harnessService 只接收准备好的 UTF-8 文本、工作目录、适配器和固定事件地址。它不接收 caller run/attempt 身份，不生成执行 UUID，不根据 token 选择协调者或其他业务角色。
 
-Server 只调度 run、维护共享 conversation 和业务结果，不发送执行命令或原生协议帧。client 的本机 HTTP 页面也是可选入口；执行桥接不依赖页面端口。
-
-## 服务关系
-
-```mermaid
-flowchart LR
-  server[Server run 调度] --> run[client runService]
-  run --> session[sessionService：选择与锁定 session]
-  run --> bridge[harnessService：命令与事件桥接]
-  session --> file[固定的 events.jsonl 地址]
-  bridge --> ctl[独立 harnessctl 适配器]
-  ctl --> native[Codex app-server / Claude stream-json]
-  ctl --> file
-  file --> bridge
-  bridge --> run
-  run --> server
-```
-
-| 组件 | 负责的内容 |
-|---|---|
-| runService | 领取任务、准备业务输入和附件、传递控制、保存 run/attempt、回报 server |
-| sessionService | 按 endpoint/conversation/agent/harness/revision 选择会话、串行占用、保护共享工作目录 |
-| harnessService | 安装和探测包、四个命令、五种事件、业务 run 与适配器交互的关联 |
-| harnessctl 适配器 | 创建/恢复原生会话、原生插话或排队、问答与权限、取消、进程回收和故障恢复 |
-
-client Go 代码不再实现 Codex JSON-RPC、Claude control_request、hook 或原生输出解析。复杂差异放在适配器代码中；manifest 只声明入口、依赖和能力，不能仅靠 YAML 抹平两种原生协议。
-
-## 本地包
+## 适配器包与启动快照
 
 ```text
-~/.agentuse/harness/<harness>/<revision>/
+~/.agentuse/harness/<name>/<revision>/
   manifest.json
   harnessctl
   EVENT.md
   event.schema.json
-  lib/                 # 包自己的运行时与原生适配代码
+  lib/...
 ```
 
-内置的 Codex、Claude Code 包随 client 二进制嵌入，首次探测时释放到本地目录。`<harness>/local/` 可安装自定义包，优先于内置包；`local/disabled` 可禁用。旧的 harness.yaml 不再作为执行描述加载，不删除已有文件。启动时探测并固定包目录和可用性。local 自定义包按内容摘要复制到版本目录，避免后续任务读取被修改的本地源码。内容摘要作为 harness_revision；修改包后重启才能选择新版本和新 session。
+内置包从 client 二进制释放；自定义 <name>/local/ 优先，local/disabled 可禁用。启动时校验协议、入口、平台及声明的依赖，固定可用性和内容版本；local 包复制到内容版本目录，防止运行中编辑改变随后执行的代码。修改包或依赖配置后重启 client，不提供重新探测或热切换。
 
-AgentUse 注册名沿用 `codex`、`claude`；独立包名分别是 `codex`、`claudecode`。自定义适配器只要提供相同命令与事件，无须修改 client 的原生协议代码。
+AgentUse 来源注册名沿用 codex、claude，独立包分别为 codex、claudecode。每个独立包可单独分发，不依赖 AgentUse Go 模块。当前内置包需要 Linux、Python 3.9+ 和已配置的原生 CLI。
 
-## 命令与会话地址
+## 四个命令
 
 ```text
 harnessctl send <events.jsonl> [--cwd DIR] [--model MODEL]
+harnessctl reply <events.jsonl> <request_id>
 harnessctl cancel <events.jsonl>
 harnessctl status <events.jsonl>
-harnessctl reply <events.jsonl> <request_id>
 ```
 
-send 的正文和 reply 的答案通过 UTF-8 stdin 传递，避免 shell 字符转义。client 使用 argv 直接执行入口。命令细节见仓库顶层 harnessctl/README.md。
+send 的正文和 reply 的答案通过 stdin 传递，不通过 shell 拼接。首次 send 自动建立原生上下文；后续 send 自动复用。client 不调用 start、resume、steer 或 queue。
 
-每个 client session 的地址固定为：
+Client 的 session API 使用 send/reply/cancel，status API 返回公开状态。旧 server 中叫 steer/answer 的消息，只在输入边界转换为这些操作；该名字不进入 client 的控制 API。
 
-```text
-<session.work_root>/<endpoint_id>/<conversation_id>/sessions/<session_id>/events.jsonl
-```
+## 五种公共事件
 
-所有适配器仍从同一 conversation 的 `workspace/` 启动。session.yaml 不保存原生 thread/session ID；原生身份及恢复信息由适配器保存在事件文件相邻的私有目录中，client 不解析它。首次 send 自动创建，后续 send 自动复用。
-
-业务指令（包括协调者职责和工作规则）由 server 生成，client 不根据工作凭据推断角色。runService 准备本机共享历史和附件，harnessService 将 server 指令与本机资源说明组织为输入文本。历史按 session 已同步的位置传增量，不覆盖 workspace 内其他 agent 的说明文件。
-
-## 五种事件
-
-| 类型 | client 的处理 |
+| 类型 | 含义 |
 |---|---|
-| accepted | 关联输入与适配器生成的 run_id；补充输入到此才回报已接收 |
-| message | 按 message_id 处理完整正文快照，转为进度 |
-| request | pending 转业务问题或权限问题；replied/expired 更新问题终态 |
-| result | 汇总输出、标准化用量、费用和执行状态 |
-| log | 可选工具进度与计划；不依赖日志判断输入受理、完成或问题状态 |
+| accepted | 完整输入、input_id 和适配器确认的 run_id；据此登记执行 |
+| message | 以 message_id 标识的完整正文快照 |
+| request | question/permission 的 pending/replied/expired 完整状态 |
+| result | 一个 run 的终态、input_ids、正文和计量 |
+| log | 可丢的进度与诊断，不参与关键业务判断 |
 
-前四种事件可靠保存；log 可丢。完整字段及生命周期见 harnessctl/EVENT.md。client 按文件偏移读取完整 JSONL 行，忽略末尾尚未写完的一行。每次任务从当前文件末尾开始读取，不把旧结果算到新任务上。
+前四种可靠保存。所有字段和状态约束以仓库 harnessctl/EVENT.md、event.schema.json 为准。Client 只解析这些公共记录，不解释原生 Codex RPC、Claude control_request、hook 或 .d/ 私有文件。
 
-适配器 run_id 为适配器生成的 UUID，与 server run_id 不同。一个 server run/attempt 可包含多个适配器 run：例如 Claude 正在执行时收到补充输入，适配器内部排队后再执行。Codex 确认的插话可与当前输入共享适配器 run_id，完成竞态也可能进入下一次交互。
+run_id、input_id、request_id 都属于适配器。Codex 确认的补充输入可以进入同一 run；完成竞态可能转成新 run。Claude 忙时可内部排队产生新 UUID。client 只观察结果，不预言或要求某一种归属。
 
-client 跟踪本次提交的所有 accepted.input_id，并等待 result.input_ids 全部覆盖后才结束业务任务；不能看到第一个 result 就释放 session。最终 runs/<run_id>.jsonl 的 harness_run_ids 保存这次任务包含的适配器交互 UUID，不允许调用方指定这些 UUID。
+## 驱动与失败处理
 
-## 控制、环境与恢复
+驱动在内存中串行处理 session 的输入、回复和取消，读取完整 JSONL 行；末尾半行留待下次读取。每个 accepted 都交给相同的 run 索引机制。驱动窗口结束可以包含多个 run，它不是额外的执行身份，也没有自己的 UUID。
 
-补充输入仍调用 send，不向上暴露 steer/queue 选择。问题通过 request_id 精确回复；权限使用 allow/deny，问答转换为 question id 到答案的 JSON 对象。取消调用 cancel，并轮询 status 确认前台执行已结束，再释放 session 和工作目录占用。
+回复使用 request_id。权限答案是 allow/deny；问题答案是 question id 到文本或文本数组的 JSON 对象。无效 reply 返回错误，不能因此悄悄终止仍在等待回答的交互。
 
-每个任务可能有不同的业务身份和令牌。适配器只保存环境摘要；send 发现环境改变且原执行空闲时，在内部回收旧进程并恢复原生上下文，继承新的环境。忙时拒绝更换环境，避免同一交互混用凭据。local 模式明确清空平台地址、令牌和工作身份。
+取消后使用公开 status 确认没有前台工作，确认失败则保留目录占用。启动恢复也使用公开命令，不通过私有 PID 或原生 ID 猜测状态。后台运行进程的启动、空闲退出和恢复完全由适配器决定。
 
-client 重启时先通过对应版本的适配器取消遗留的前台执行，再恢复本机状态与结果补报；不盲目重发输入。若无法确认清理，保留 session 的占用并报告错误，禁止 quota 回收仍在使用的目录。适配器自行决定空闲退出时间，client 不管理它的私有 PID 或原生控制连接。
+## 权限与输入来源
 
-## 验证边界
+内置 Codex 创建和恢复时使用 approvalPolicy=never、sandbox=danger-full-access；Claude 使用 bypassPermissions。普通操作不经过额外确认，真实问题及原生例外权限请求才经 reply。认证、组织策略或执行失败不靠伪造批准绕过。
 
-独立 Python 协议测试验证各包的原生差异、关键事件格式与恢复。Go 桥接测试验证输入归属、聚合完成、问答、取消和环境更新；完整 client/server 测试验证多中心、本地调试、共享目录、工作线程和附件。真实模型测试需显式启用，模拟测试不代表模型一定遵循任务指令。
+本地输入按用户给出的文本或 JSON 文本发送，不额外注入协调者 prompt。远端业务指令由来源边界准备，server 的协调者规则由 server 下发。来源凭据不作为角色判断依据。
 
-配置生命周期统一为：启动时加载 setting.yaml、endpoints.yaml 和 harness 包，运行期间固定使用快照。修改、增删、启停和凭据变更一律重启生效；没有热更新、周期重读、重新探测或 active_work_root / restart_required 双态字段。自动重连、任务控制和 quota 检查属于运行行为，不重新加载配置。
+每次输入来源的环境可能不同，适配器只存环境摘要；空闲时可内部重建进程并恢复上下文，让新凭据生效，忙时拒绝更换环境。这是每次调用的执行上下文，不是配置热加载。

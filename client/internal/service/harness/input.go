@@ -1,23 +1,33 @@
 package harness
 
 import (
-	"github.com/memory-co/agentuse/internal/protocol"
 	"sync"
 	"time"
 )
 
 const DefaultAskTimeout = 30 * time.Minute
 
+type Acceptance struct {
+	RunID   string `json:"run_id"`
+	InputID string `json:"input_id"`
+}
+type queuedSend struct {
+	Text     string
+	Accepted func(Acceptance)
+}
+type queuedReply struct {
+	RequestID, Body string
+	Done            func(error)
+}
 type control struct {
-	steer  *protocol.Steer
-	answer *protocol.Answer
+	send  *queuedSend
+	reply *queuedReply
 }
 
-// Input contains only AgentUse business controls; native queues and RPC live in harnessctl.
+// Input queues session operations. Only the adapter assigns run/input IDs.
 type Input struct {
 	mu      sync.Mutex
 	items   []control
-	seen    map[int64]bool
 	closed  bool
 	timeout time.Duration
 }
@@ -26,24 +36,9 @@ func NewInput(timeout time.Duration) *Input {
 	if timeout <= 0 {
 		timeout = DefaultAskTimeout
 	}
-	return &Input{seen: map[int64]bool{}, timeout: timeout}
+	return &Input{timeout: timeout}
 }
-func (in *Input) Steer(v protocol.Steer) bool {
-	if in == nil {
-		return false
-	}
-	in.mu.Lock()
-	defer in.mu.Unlock()
-	if in.closed || in.seen[v.ID] && v.ID > 0 {
-		return false
-	}
-	if v.ID > 0 {
-		in.seen[v.ID] = true
-	}
-	in.items = append(in.items, control{steer: &v})
-	return true
-}
-func (in *Input) Answer(v protocol.Answer) bool {
+func (in *Input) enqueue(v control) bool {
 	if in == nil {
 		return false
 	}
@@ -52,9 +47,16 @@ func (in *Input) Answer(v protocol.Answer) bool {
 	if in.closed {
 		return false
 	}
-	in.items = append(in.items, control{answer: &v})
+	in.items = append(in.items, v)
 	return true
 }
+func (in *Input) Send(text string, accepted func(Acceptance)) bool {
+	return in.enqueue(control{send: &queuedSend{Text: text, Accepted: accepted}})
+}
+func (in *Input) Reply(id, body string, done func(error)) bool {
+	return in.enqueue(control{reply: &queuedReply{RequestID: id, Body: body, Done: done}})
+}
+
 func (in *Input) take() []control {
 	if in == nil {
 		return nil

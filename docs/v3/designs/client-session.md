@@ -1,179 +1,56 @@
-# Client sessionService：原生 Session 与领来的 Run
+# Client sessionService：固定事件地址与工作目录
 
-> v3 Client 会话设计。Session 是 client 本地的原生执行会话记录，直接对应 Codex thread 或 Claude Code session。Conversation 是 server 的共享对话，二者不再混用。Client 不使用 SQLite；本地会话状态由 session.yaml 保存，时间字段使用 Unix 毫秒。
+一个 client session 对应一个固定的 events.jsonl 地址。原生 Codex thread 或 Claude session 的身份及恢复状态封装在 harnessctl 内，client 不保存也不选择原生 ID。
 
-## 一、三个对象的关系
-
-| 对象 | 属于哪里 | 含义 |
-|---|---|---|
-| conversation | server | 多 agent 共享的消息和文件空间 |
-| session | client / 原生 harness | 一个可继续使用的原生执行上下文 |
-| run | server 分配，client 领取 | 一次任务；绑定本机 session 后执行 |
-
-一个 session 包含若干个从 server 领取或由 local 调试入口创建的 run。平台模式不创建独立于 server 的业务 run，也不因调用了原生 API 就另造一个 run_id；本机 runs/<run_id>.jsonl 文件记录 server run 的执行尝试。
+## 关系
 
 ```text
-中心 A / Conversation C / Agent coder
-  └─ Client Session S1 ↔ Codex Thread T1
-       ├─ server Run R1 / Attempt A1 → Turn U1
-       └─ server Run R2 / Attempt A2 → Turn U2（沿用 T1）
-
-中心 A / Conversation C / Agent reviewer
-  └─ Client Session S2 ↔ Claude Code Session H1
-       ├─ server Run R3 / Attempt A3 → 首次执行
-       └─ server Run R4 / Attempt A4 → 恢复 H1 执行
+endpoint / conversation
+  workspace/                       所有本机 session 共用的 cwd
+  sessions/<client_session_uuid>/
+    session.yaml
+    events.jsonl                   传给 harnessctl 的唯一会话地址
+    events.jsonl.d/                适配器拥有
+    runs/<adapter_run_uuid>.jsonl  一个实际交互的引用
 ```
 
-C 是共享对话，S1/S2 是各自原生上下文。一台设备上的不同 agent 不共用同一个原生 session，但它们仍从 server 读取同一个 conversation 的共享消息，并使用同一工作目录。Codex 与 Claude Code 可以在该目录同时运行；原生历史独立不意味着工作文件隔离。
+一个 conversation 可以有多个 Codex、Claude Code 或自定义 harness session，并可以同时在同一 workspace 中工作。工作文件共享，原生上下文各自独立，不自动获得并发文件事务。
 
-Session 对应原生历史，不等于操作系统进程。一次 Claude print 进程结束不代表 session 被删除；Codex app-server 连接也可以重新建立后恢复原 thread。
+一个 session 可以包含多个实际 run；run UUID 必须来自 accepted。同一次交互中的追加输入可能沿用该 UUID。Session 与进程不是同一实体：适配器空闲退出后仍可根据同一事件地址恢复上下文。
 
-![领来的 Run 与原生 Session](../../images/client-sessions.svg)
-
-## 二、sessionService 做什么
-
-- 为领取的 run 选择可复用的本地 session，或请求 harnessService 创建新的原生 session。
-- 推导每个本地 session 的固定 events.jsonl 地址。
-- 按 endpoint/conversation 管理唯一共享工作目录，保证不同 agent/harness 的 session 使用相同的 workspace/ 启动目录。
-- 串行管理同一个 session 的执行，维护上下文同步位置。
-- 在 run 结束后保留 session，供后续领来的 run 继续使用。
-- 处理 session 恢复、失效、关闭及本地历史查询。
-
-settingService 提供端口、目录和 quota 配置；endpointService 只管已注册 server 的信息；client runService 管连接、领取、本机容量和 run/attempt 生命周期；sessionService 管跨 run 的原生上下文；harnessService 管四命令和公共事件桥接；独立适配器管理原生创建、恢复和交互。
-
-## 三、收到 Run 后怎样选 Session
-
-默认按 `(endpoint_id, conversation_id, agent_id, harness)` 查找当前 session，并检查 harness_revision 与本地可恢复条件。
-
-1. client runService 从 endpointService 读取注册信息，预留本机槽位并向对应 server 领取 run。
-2. client runService登记 `(endpoint_id, run_id, attempt_id)`，交 sessionService 选择会话。
-3. 有可恢复、空闲且版本匹配的当前 session，则复用；没有则建立新的本地记录，推导固定 events.jsonl 地址，由首次 send 创建原生会话。
-4. 获得 session 执行锁后绑定本机 run 记录，准备当前输入和上下文，交 harnessService 开始本次执行。
-5. 结束 run 后更新账本，释放 session 锁与全局槽位；session 恢复 idle，保留历史，不随 run 完成关闭。
-
-同一个 session 同时最多执行一个 run。已忙碌的 session 不能被另一个任务强行复用，插话则进入当前 run 的输入，不因此创建另一个 session。
-
-中心、conversation、agent 或 harness 不同不能复用；接入包版本变化、原生历史丢失或不可恢复时，将旧 session 标为关闭或不可恢复，再创建新的 session。同一个 session 不更换 events.jsonl 地址。
-
-## 四、Codex 与 Claude Code 怎样对应
-
-| 本地操作 | Codex | Claude Code |
-|---|---|---|
-| 首次建立 session | 建立 thread，保存 thread.id | 首次执行，保存原生返回的 session ID |
-| 在 session 中执行 run | 对同一 thread 发起本次 turn | 对同一原生 session 执行本次输入 |
-| 进程/连接已退出后继续 | 初始化连接后恢复指定 thread，再开始新 turn | 按保存的 ID 恢复指定 session，继续 print 执行 |
-| run 执行中补充输入 | 适配器确认当前 turn，竞态时内部排队 | 适配器内部排队，不承诺原生插话 |
-| run 结束 | 当前 turn 结束，thread 历史保留 | 本次执行/进程结束，session 历史保留 |
-
-Codex 的恢复句柄使用 `thread.id`，不把 `turn.id` 或可能出现的 thread.sessionId 聚合标识当成另一个可互换的恢复 ID。Claude 恢复时使用指定 session ID，不用“当前目录最近一个 session”猜测，也不默认 fork 新 session。
-
-原生接口依据 [Codex App Server](https://learn.chatgpt.com/docs/app-server) 的 thread/start、thread/resume、turn/start，以及 [Claude Code CLI](https://code.claude.com/docs/en/cli-reference) 的指定 session 恢复能力。具体调用与插话/提问细节由独立 harnessctl 适配器实现，接入见 [harnessService](client-harness.md)，不交给 server 解释。
-
-## 五、共享历史和原生历史
-
-Server conversation 仍是共享对话的权威来源，本地原生 session 保留自己的执行历史。复用 session 时，不再把整个 conversation 原样重复塞进已有原生上下文。
-
-sessionService 依据 last_context_seq 读取共享历史增量，结合当前 run_prompts 组织本次输入。需跳过原生会话中已存在的任务输入和本机回复：可结合本地执行记录、run_prompts 及 server runs.result_message_id 核对。确认输入交付后更新同步位置，不能在读取或排队时提前推进。
-
-首次创建或原生历史不可恢复时，用共享历史重新准备上下文；复用时追加新的共享消息和本次任务。一个会话的同步位置不更新另一个会话的同步位置。
-
-同一个 session 执行多个 run 时，用量按本次 turn/执行的新增量记录。若原生通知提供累积值，需要按本次基线计算，不能每个 run 都重复累计整个 session 的历史用量。
-
-## 六、会话状态文件
-
-### session.yaml
-
-```text
-<session.work_root>/<endpoint_id>/<conversation_id>/sessions/<local_session_id>/session.yaml
-```
-
-每个 session 必须属于一个 endpoint/conversation，状态文件放在 conversation 目录的 sessions/ 下，与 workspace/ 同级。这里 session.work_root 是 setting.yaml 中配置的统一父目录，路径直接由配置和 endpoint/conversation 标识推导。每个文件对应一个本机会话。id 是本机 UUID；events.jsonl 与 session.yaml 同目录，地址直接推导，不冗余保存原生会话 ID。
+## 元数据
 
 ```yaml
 id: 7877d33b-788f-4f6c-9ff0-987c2128064e
-endpoint_id: https---company.example.com
+endpoint_id: local
 conversation_id: 550e8400-e29b-41d4-a716-446655440000
-agent_id: coder
+agent_id: local-codex
 harness: codex
 harness_revision: package-revision
-# 原生 ID 由 harnessctl 私有状态管理；不写 session.yaml
 status: idle
-last_context_seq: 12
 created_at: 1793443200000
 last_used_at: 1793443205100
 updated_at: 1793443205100
 ```
 
-status 为 creating/idle/running/unavailable/closed，等待问题期间仍是 running。工作目录被回收时 session.yaml、runs/<run_id>.jsonl 和执行资源随目录删除，该原生上下文不再作为可恢复候选。
+id 只是目录定位用的 client UUID，不传给原生 CLI 充当其 session ID。路径来自启动配置和 endpoint/conversation，不冗余保存 work_root、目录映射、原生 ID 或 server 历史游标。时间为 Unix 毫秒。
 
-不再保存 sessions 表、原生 ID 唯一索引或单独的 current 指针。sessionService 扫描配置根目录下各 endpoint/conversation 的 sessions/ 内的 session.yaml，构建可重建的内存索引：按 endpoint/conversation/agent/harness 筛选空闲、版本匹配、目录存在的会话，再取最近使用的有效记录。同一 session 的选择、执行与清理共用排他保护。
+## 选择、占用与控制
 
-单 session 串行执行由 sessionService 校验；原生身份与恢复归适配器所有。新建会话使用新目录；替换/关闭写回对应状态文件。不要靠删除一条数据库记录来表示原生历史已被销毁。
+默认按 endpoint/conversation/agent/harness/revision 选择最近的有效空闲 session。显式向指定 session send 时使用该地址；不能因其忙碌就换成另一个 session 或自行决定新 run ID。
 
-本机 runs/<run_id>.jsonl 由 [client runService](client-run.md) 管理，其中 session_id 指向本文件的 id。多个从 server 领来的 run 可以引用同一个会话文件。每个任务保存在该 session 的 runs/<run_id>.jsonl，同一文件内记录多个 attempt，已落盘执行记录必须归属一个确定的 session；未绑定时的领取/拒绝处理由 runService 与 server 协议完成。
+同一个受管 session 由一个驱动处理 send/reply/cancel，追加输入交给适配器裁定插话或排队。全部输入有结果并确认前台工作停止后，session 才恢复 idle。活动阶段为 running，问题是否等待回答从公共事件或 status 获取，不维护重复的问题账本。
 
-### conversation 路径推导
+包版本不同或历史不可恢复时，不静默更换既有 session 的适配器和事件地址。新会话创建新目录；旧引用仍可读取，显式恢复不可用版本时返回错误。原生全局历史由原生工具管理，不擅自删除 ~/.codex 或 ~/.claude。
 
-conversation 根目录固定为 `<session.work_root>/<endpoint_id>/<conversation_id>/`；实际 cwd 固定为其下的 `workspace/`，session 和 run 记录位于同级的 `sessions/`。不保存目录映射文件、workspace_id 或重复的路径字段。
+cancel 取消 session 当前和排队工作，保留原生上下文；reply 使用公开 request_id。Native status 返回 state、当前 run_id、queued 和公开 requests。Client 不读取 .d/ 的 PID、锁或 native.json 来替代这些命令。
 
-以目录和状态文件的实际存在情况判断可恢复性，不另存 present/missing 状态。目录回收会删除其中所有 session.yaml 并移除对应内存索引；重建目录时创建新 session 和新 UUID，不能因为同一路径重新出现就恢复旧上下文。
+## 生命周期和回收
 
-session 的执行锁只保证单个原生 session 串行，不独占整个工作目录。多个 session 在同一目录并发时登记使用占用；清理须确认所有占用均已释放。业务文件直接共享，并发修改同一文件或 Git 状态仍需 agent 协调；不会自动获得文件事务。必要的共享历史放在 sessions/<session_id>/resources/ 下，适配器内部控制资源归 events.jsonl.d/ 所有，与 workspace/ 分开，通过绝对路径启动参数加载，不能相互覆盖。服务端 fileService 用于文件传输与交付，同机共享工作区不需要通过上传下载模拟同步。
+工作根目录是 setting.yaml 的 session.work_root，默认 ~/.agentuse/tmp。目录固定为 <root>/<endpoint_id>/<conversation_id>/，实际 cwd 是其 workspace/，session 元数据在同级 sessions/。修改根目录须停止并重启，需要保留历史时完整迁移目录。
 
-## 七、工作目录怎样组织
+启动时清理遗留前台工作并重建 run 引用；不自动重放旧输入。Session 生命周期状态不承担 server 派发或确认状态。旧版 server 的上下文游标和待回报数据隔离在 .server/。
 
-conversation 目录包含 workspace/ 与 sessions/ 两个同级目录：前者是所有 agent 的共享 cwd，后者保存会话和执行记录。所有 harness 均从 workspace/ 启动，不从 conversation 根目录或某个 session 目录启动。quota 仍统计整个 conversation 目录，回收时一起删除 workspace/ 与 sessions/，避免留下可被误恢复的旧记录。
+声明 quota 后自动检查受管目录总量，按整个 conversation 最近使用时间从旧到新清理空闲目录。运行、等待回答、清理未确认、预留启动和旧协议待交付均保护目录。没有可回收空间时暂停新启动，不能杀任务来满足容量目标。
 
-```text
-<session.work_root>/
-  <endpoint_id>/
-    <conversation_id>/
-      .agentuse-workspace.json
-      workspace/
-        ...同一 conversation 的所有 agent / harness 共享的业务文件...
-      sessions/<local_session_id>/
-        session.yaml
-        events.jsonl
-        events.jsonl.d/
-        runs/<run_id>.jsonl
-        resources/<run_id>.<attempt_id>.history.json
-```
-
-sessionService 按 `(endpoint_id, conversation_id)` 分配唯一 conversation 目录。其中 workspace/ 是实际工作目录，所有 Codex、Claude Code 都以该目录作为 cwd 启动或恢复，可以同时运行；不同 endpoint/conversation 分开。原生上下文仍各自独立，工作文件则直接共享。
-
-setting.yaml 的 session.work_root 是所有 conversation 目录的统一父目录；同一 endpoint/conversation 的路径确定，不因新增 session 或更换 harness 而改变。修改根目录需先停止任务并重启 client；需要保留会话时由用户将原目录内容完整迁移到新根目录。Client 不记录旧目录映射、不自动扫描或搬迁旧路径。
-
-`.agentuse-workspace.json` 标识 client 创建的受管目录，仅记录 endpoint/conversation 以校验目录归属，不生成独立 workspace ID 或保存目录状态。没有标识的用户目录不作为清理对象。不得把 home、磁盘根目录、原生工具全局用户目录或设置/状态/适配器目录作为可回收工作根目录。
-
-容量只统计这些受管工作目录，包括目录中的 session.yaml、runs/<run_id>.jsonl 和执行资源；不统计目录之外的 endpoint 密钥、接入包，也不擅自扫描删除 `~/.codex`、`~/.claude` 等原生全局历史。
-
-## 八、恢复和清理
-
-- 网络重连保持仍受控的 session/run；server 确认的 valid_runs 只用于恢复对应中心的执行身份。
-- client 重启先对账，不因本地存在 session 就自动恢复执行旧 run；只有领到或确认有效的任务才能开始工作。
-- 原生历史缺失或恢复失败则标记不可用；重新建立 session 时保留旧执行关联和失败原因。
-- 取消 run 结束当前执行，不必删除原生 session；本地适配确认历史仍可恢复时，后续 run 可以继续使用。
-- 本机执行记录随 conversation 工作目录管理。容量超限按 settingService 配置回收整个空闲 conversation 目录；任一关联 session 在用时都受保护，回收后不另存目录缺失记录，session.yaml、runs/<run_id>.jsonl 和执行资源随目录删除。崩溃恢复时以目录及状态文件实际存在情况核对，不能恢复旧工作区；不删除 server conversation 或文件。
-
-## 九、超过容量后怎样自动清理
-
-
-1. 声明 quota 后，runService 在启动、领取执行前后及内置周期检查时触发 sessionService 检查。周期由实现内部管理，不暴露 cleanup 配置。
-2. sessionService 统计所有受管 conversation 目录，每个共享目录只计算一次；未声明 quota 或未超限则不因容量删除文件。
-3. 超限后取 conversation 内所有 session 最近使用时间的最大值，按该时间从旧到新回收**整个空闲 conversation 工作目录**，直到总用量不超过 session.quota.max_bytes。
-4. 任一关联 session 正在执行、等待用户答案、结果尚未获 server 确认、持有执行锁，或已分配给即将启动任务时，整个目录都不能删除。目录使用登记允许多个 session 并发，清理必须取得 conversation 工作目录的独占权限，不能边执行边清理。
-5. 回收时持有目录独占权限，删除整个目录及其中所有 session.yaml、runs/<run_id>.jsonl 和执行资源，并移除相关内存索引。若操作中途崩溃，重启以实际目录及标记核对，不能只凭旧内存索引恢复。后续有效任务建立新原生 session，从 server 历史和文件准备输入，不假装旧工作区仍在。
-
-文件应先通过 fileService 上传再作为产物交付；清理只处理本机临时工作副本，不删除 server 文件。未上传的空闲工作目录内容会随回收删除，这就是启用临时目录回收的语义。
-
-如果超限但只有在用目录，暂不再启动需要该工作空间容量的新任务，等待资源释放并重试清理。正在运行的任务可继续，不能为达容量目标杀掉任务或删除其目录。因此这是清理/准入策略，不是文件系统硬配额，执行中的瞬时用量可能超过上限。
-
-## 相关设计
-
-[settingService](client-setting.md) · [client runService](client-run.md) · [Client 总览](client-main.md) · [endpointService](client-endpoint.md) · [harnessService](client-harness.md) · [Server conversation](server-conversation.md) · [Server run](server-run.md)
-
-## harnessctl 会话地址
-
-每个 session 使用 `sessions/<session_id>/events.jsonl` 作为固定地址。首次 send 创建原生上下文，后续自动恢复；sessionService 不保存也不传递 Codex thread ID 或 Claude session ID。它只管理本机会话选择、占用和历史同步位置。
-
-一个 server run/attempt 可能对应多个 harnessctl 交互 UUID，终态中的 harness_run_ids 记录关联。只有本次所有输入都有结果、前台执行已确认结束后，才能释放 session；异常清理未确认时保留 running 保护工作目录。重启先由 harnessService 使用原适配器版本取消遗留执行，再恢复文件状态，绝不自动重放任务。
+回收删除该 conversation 的 workspace、session、引用和输入资源，不删除 server 文件或原生工具的全局历史。旧路径重新出现不代表旧上下文可恢复；必须用新的 session 记录。目录标记只校验受管归属，不是另一张 workspace 映射表。

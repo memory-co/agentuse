@@ -54,6 +54,7 @@ func startLocalUI(cfg runservice.Config, reader store.Reader, managers ...*runse
 		}
 	}
 	handler, err := controller.New(reader, ln.Addr().String(), token, controller.PublicData{
+		SessionStatus: func(ctx context.Context, ep, c, s string) (any, error) { return manager.SessionStatus(ctx, ep, c, s) },
 		LocalCreate: func(ctx context.Context, title string) (store.Conversation, error) {
 			return manager.CreateConversation(ctx, endpointservice.LocalID, title)
 		},
@@ -64,8 +65,8 @@ func startLocalUI(cfg runservice.Config, reader store.Reader, managers ...*runse
 			}
 			return manager.Start(ctx, endpointservice.LocalID, conversation, req)
 		},
-		LocalControl: func(ctx context.Context, c, s, r, a, action string, b json.RawMessage) error {
-			return manager.Control(ctx, endpointservice.LocalID, c, s, r, a, action, b)
+		LocalControl: func(ctx context.Context, c, s, action string, b json.RawMessage) (any, error) {
+			return manager.Control(ctx, endpointservice.LocalID, c, s, action, b)
 		},
 		LocalHarnesses: func() (any, error) { return manager.ProbeHarnesses() },
 		Endpoints: func() any {

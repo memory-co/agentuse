@@ -21,13 +21,13 @@ func TestRunJournalAttemptsUseOneFileAndProjectExecution(t *testing.T) {
 	if err = os.WriteFile(events, []byte(native), 0600); err != nil {
 		t.Fatal(err)
 	}
-	writer := ledger.ForEndpoint("ep")
+	writer := ledger.ServerForEndpoint("ep")
 	for _, attempt := range []string{"one", "two"} {
-		run := Run{EndpointID: "ep", ConversationID: "c", SessionID: session.ID, RunID: "task", AttemptID: attempt}
+		run := Delivery{EndpointID: "ep", ConversationID: "c", SessionID: session.ID, RunID: "task", AttemptID: attempt}
 		if err = writer.Receive(ctx, run); err != nil {
 			t.Fatal(err)
 		}
-		if err = writer.Complete(ctx, "task", attempt, Finish{Status: "succeeded", HarnessRunIDs: []string{"native-" + attempt}}); err != nil {
+		if err = writer.Complete(ctx, "task", attempt, DeliveryFinish{Status: "succeeded", HarnessRunIDs: []string{"native-" + attempt}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -37,7 +37,7 @@ func TestRunJournalAttemptsUseOneFileAndProjectExecution(t *testing.T) {
 	if err = ledger.Confirm(ctx, "ep", "task", "two"); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(filepath.Dir(events), "runs", "task.jsonl")
+	path := filepath.Join(filepath.Dir(events), ".server", "task.jsonl")
 	files, _ := os.ReadDir(filepath.Dir(path))
 	if len(files) != 1 || files[0].IsDir() {
 		t.Fatal("attempts created extra directories", files)
@@ -48,23 +48,23 @@ func TestRunJournalAttemptsUseOneFileAndProjectExecution(t *testing.T) {
 			t.Fatal("execution content duplicated in journal", forbidden)
 		}
 	}
-	record, err := ledger.Reader().Detail(ctx, "ep", "c", session.ID, "task", "one")
+	record, err := ledger.DeliveryReader().DeliveryDetail(ctx, "ep", "c", session.ID, "task", "one")
 	if err != nil || record.Output != "UNIQUE_EXECUTION_BODY" || record.Usage == nil || record.Usage.InputTokens != 42 || record.CostUSD == nil || *record.CostUSD != 0 {
 		t.Fatal(record, err)
 	}
 	reopened, _ := Open(ledger.Root)
-	if err = reopened.Writer().Reconcile(ctx); err != nil {
+	if err = reopened.ServerWriter().Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
 	pending := reopened.Pending("ep")
 	if len(pending) != 1 || !strings.Contains(string(pending[0]), "UNIQUE_EXECUTION_BODY") {
 		t.Fatal("pending attempt lost its original source", pending)
 	}
-	page, err := reopened.Reader().List(ctx, Filter{Endpoint: "ep", Conversation: "c", Session: session.ID})
+	page, err := reopened.DeliveryReader().DeliveryList(ctx, Filter{Endpoint: "ep", Conversation: "c", Session: session.ID})
 	if err != nil || len(page.Runs) != 2 {
 		t.Fatal(page, err)
 	}
-	if err = reopened.ReleaseSession(session, 0, true, "task", "two"); err != nil {
+	if err = reopened.ReleaseSession(session, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = reopened.Reclaim(ctx, 1); err == nil {
@@ -74,7 +74,7 @@ func TestRunJournalAttemptsUseOneFileAndProjectExecution(t *testing.T) {
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
 	f.WriteString(`{"type":`)
 	f.Close()
-	if _, err = reopened.Reader().Detail(ctx, "ep", "c", session.ID, "task", "one"); err != nil {
+	if _, err = reopened.DeliveryReader().DeliveryDetail(ctx, "ep", "c", session.ID, "task", "one"); err != nil {
 		t.Fatal(err)
 	}
 	if err = reopened.Confirm(ctx, "ep", "task", "one"); err != nil {
@@ -100,20 +100,20 @@ func TestLegacyRunMigrationPreservesAdapterState(t *testing.T) {
 	os.WriteFile(filepath.Join(root, "events.jsonl"), native, 0600)
 	private := filepath.Join(root, "events.jsonl.d", "native.json")
 	Atomic(private, []byte("untouched private state"))
-	old := Run{EndpointID: "ep", ConversationID: "c", SessionID: session.ID, RunID: "r", AttemptID: "a", Status: "succeeded", Output: "original", HarnessRunIDs: []string{"native"}, ServerConfirmed: true}
+	old := Delivery{EndpointID: "ep", ConversationID: "c", SessionID: session.ID, RunID: "r", AttemptID: "a", Status: "succeeded", Output: "original", HarnessRunIDs: []string{"native"}, ServerConfirmed: true}
 	legacy := filepath.Join(root, "runs", "r", "a")
 	if err := writeJSON(filepath.Join(legacy, "run.json"), old); err != nil {
 		t.Fatal(err)
 	}
 	Atomic(filepath.Join(legacy, "input.json"), []byte(`{"prompt":"input"}`))
 	Atomic(filepath.Join(legacy, "history.json"), []byte(`[{"id":1}]`))
-	if err := ledger.Writer().Reconcile(ctx); err != nil {
+	if err := ledger.ServerWriter().Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
 		t.Fatal("legacy hierarchy retained", err)
 	}
-	got, err := ledger.Reader().Detail(ctx, "ep", "c", session.ID, "r", "a")
+	got, err := ledger.DeliveryReader().DeliveryDetail(ctx, "ep", "c", session.ID, "r", "a")
 	if err != nil || got.Output != "original" {
 		t.Fatal(got, err)
 	}
@@ -128,7 +128,7 @@ func TestLegacyRunMigrationPreservesAdapterState(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(root, "resources", "r.a.history.json")); err != nil {
 		t.Fatal(err)
 	}
-	if err = ledger.Writer().Reconcile(ctx); err != nil {
+	if err = ledger.ServerWriter().Reconcile(ctx); err != nil {
 		t.Fatal("migration was not restart safe", err)
 	}
 }
@@ -139,19 +139,19 @@ func TestPreHarnessctlMigrationKeepsTheOnlyHistoricalResult(t *testing.T) {
 	session, cwd, _ := ledger.AcquireSession(ctx, "ep", "c", "agent", "custom", "v")
 	root := filepath.Join(filepath.Dir(cwd), "sessions", session.ID)
 	legacy := filepath.Join(root, "runs", "task", "attempt")
-	old := Run{EndpointID: "ep", ConversationID: "c", SessionID: session.ID, RunID: "task", AttemptID: "attempt", Status: "succeeded", Output: "old result with no adapter source", Events: []Event{{Kind: "progress", Payload: json.RawMessage(`{"text":"old progress"}`)}}, ServerConfirmed: true}
+	old := Delivery{EndpointID: "ep", ConversationID: "c", SessionID: session.ID, RunID: "task", AttemptID: "attempt", Status: "succeeded", Output: "old result with no adapter source", Events: []Event{{Kind: "progress", Payload: json.RawMessage(`{"text":"old progress"}`)}}, ServerConfirmed: true}
 	if err := writeJSON(filepath.Join(legacy, "run.json"), old); err != nil {
 		t.Fatal(err)
 	}
 	Atomic(filepath.Join(legacy, "input.json"), []byte(`{"prompt":"full old input"}`))
-	if err := ledger.Writer().Reconcile(ctx); err != nil {
+	if err := ledger.ServerWriter().Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
-	got, err := ledger.Reader().Detail(ctx, "ep", "c", session.ID, "task", "attempt")
+	got, err := ledger.DeliveryReader().DeliveryDetail(ctx, "ep", "c", session.ID, "task", "attempt")
 	if err != nil || got.Output != old.Output || len(got.Events) != 1 {
 		t.Fatal(got, err)
 	}
-	data, _ := os.ReadFile(filepath.Join(root, "runs", "task.jsonl"))
+	data, _ := os.ReadFile(filepath.Join(root, ".server", "task.jsonl"))
 	if !strings.Contains(string(data), `"type":"legacy_import"`) || !strings.Contains(string(data), "full old input") {
 		t.Fatal("historical facts were lost")
 	}
@@ -167,8 +167,8 @@ func TestRestartRecoversAcceptedBeforeClientBinding(t *testing.T) {
 	source := filepath.Join(filepath.Dir(cwd), "sessions", session.ID, "events.jsonl")
 	old := `{"type":"accepted","run_id":"older-interaction"}` + "\n"
 	os.WriteFile(source, []byte(old), 0600)
-	writer := ledger.ForEndpoint("ep")
-	if err := writer.Receive(ctx, Run{EndpointID: "ep", ConversationID: "c", SessionID: session.ID, RunID: "task", AttemptID: "attempt"}); err != nil {
+	writer := ledger.ServerForEndpoint("ep")
+	if err := writer.Receive(ctx, Delivery{EndpointID: "ep", ConversationID: "c", SessionID: session.ID, RunID: "task", AttemptID: "attempt"}); err != nil {
 		t.Fatal(err)
 	}
 	accepted := `{"type":"accepted","run_id":"new-interaction"}` + "\n" + `{"type":"result","run_id":"new-interaction","status":"completed","output":"accepted before crash"}` + "\n"
@@ -176,10 +176,10 @@ func TestRestartRecoversAcceptedBeforeClientBinding(t *testing.T) {
 	f.WriteString(accepted)
 	f.Close()
 	reopened, _ := Open(ledger.Root)
-	if err := reopened.Writer().Reconcile(ctx); err != nil {
+	if err := reopened.ServerWriter().Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
-	got, err := reopened.Reader().Detail(ctx, "ep", "c", session.ID, "task", "attempt")
+	got, err := reopened.DeliveryReader().DeliveryDetail(ctx, "ep", "c", session.ID, "task", "attempt")
 	if err != nil || got.Status != "interrupted" || len(got.HarnessRunIDs) != 1 || got.HarnessRunIDs[0] != "new-interaction" || got.Output != "accepted before crash" {
 		t.Fatal(got, err)
 	}

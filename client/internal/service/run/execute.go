@@ -5,16 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
-	"github.com/memory-co/agentuse/client/internal/service/endpoint"
+	"path/filepath"
+	"strings"
+
 	"github.com/memory-co/agentuse/client/internal/service/harness"
 	"github.com/memory-co/agentuse/client/internal/store"
 	"github.com/memory-co/agentuse/internal/protocol"
-	"strings"
-	"time"
 )
 
-var ErrLocalBusy = errors.New("local harness is busy")
+var ErrLocalBusy = errors.New("session execution is busy or no longer active")
 
 type Request struct {
 	Harness string          `json:"harness"`
@@ -22,28 +21,33 @@ type Request struct {
 	Input   json.RawMessage `json:"input,omitempty"`
 }
 type localExecution struct {
-	canSteer bool
-	canAsk   bool
-	cancel   context.CancelFunc
-	in       *harness.Input
-	done     chan struct{}
-	session  string
+	cancel  context.CancelFunc
+	in      *harness.Input
+	done    chan struct{}
+	session store.Session
+	result  harness.DriveResult
 }
 
 func (s *Service) Close() { s.localMu.Lock(); s.localCancel(); s.localMu.Unlock(); s.localWG.Wait() }
-func (s *Service) CreateConversation(ctx context.Context, endpointID, title string) (store.Conversation, error) {
-	ep, e := s.Endpoints.GetByID(endpointID)
-	if e != nil {
-		return store.Conversation{}, e
+func (s *Service) CreateConversation(ctx context.Context, id, title string) (store.Conversation, error) {
+	ep, err := s.Endpoints.GetByID(id)
+	if err != nil {
+		return store.Conversation{}, err
 	}
 	return s.Sessions.CreateConversation(ctx, ep, title)
 }
-func (s *Service) Start(ctx context.Context, endpointID, conversation string, request Request) (store.Run, error) {
-	if e := s.requireLocalEndpoint(endpointID); e != nil {
-		return store.Run{}, e
+
+// Start returns only after the adapter publishes accepted, using its actual
+// run_id. There is no provisional task UUID and no client execution attempt.
+func (s *Service) Start(ctx context.Context, id, conversation string, request Request) (store.Run, error) {
+	return s.startSession(ctx, id, conversation, request, "")
+}
+func (s *Service) startSession(ctx context.Context, id, conversation string, request Request, target string) (store.Run, error) {
+	if err := s.requireLocalEndpoint(id); err != nil {
+		return store.Run{}, err
 	}
-	if _, e := s.Store.LocalConversation(ctx, conversation); e != nil {
-		return store.Run{}, e
+	if _, err := s.Store.LocalConversation(ctx, conversation); err != nil {
+		return store.Run{}, err
 	}
 	if !store.Segment(request.Harness) {
 		return store.Run{}, store.ErrInvalid
@@ -58,156 +62,239 @@ func (s *Service) Start(ctx context.Context, endpointID, conversation string, re
 	if !json.Valid(input) || len(input) > 256<<10 {
 		return store.Run{}, store.ErrInvalid
 	}
-	la, e := s.Harness.Resolve(request.Harness)
-	if e != nil {
-		return store.Run{}, e
+	adapter, err := s.Harness.Resolve(request.Harness)
+	if err != nil {
+		return store.Run{}, err
 	}
-
 	s.localMu.Lock()
-	defer s.localMu.Unlock()
 	if s.localCtx.Err() != nil {
+		s.localMu.Unlock()
 		return store.Run{}, fmt.Errorf("client is stopping")
+	}
+	// A further send to the same active session is automatically steered/queued
+	// by the adapter. Neither the UI nor this service chooses that policy.
+	for _, active := range s.localRuns {
+		if active.session.EndpointID == id && active.session.ConversationID == conversation && active.session.Harness == request.Harness && (target == "" || active.session.ID == target) {
+			var pi protocol.PromptInput
+			text := string(input)
+			if json.Unmarshal(input, &pi) == nil && pi.Prompt != "" {
+				text = pi.Prompt
+			}
+			accepted := make(chan harness.Acceptance, 1)
+			ok := active.in.Send(text, func(a harness.Acceptance) { accepted <- a })
+			s.localMu.Unlock()
+			if !ok {
+				select {
+				case <-active.done:
+					return s.startSession(ctx, id, conversation, request, target)
+				case <-ctx.Done():
+					return store.Run{}, ctx.Err()
+				}
+			}
+			return s.awaitAccepted(ctx, active, accepted, nil)
+		}
 	}
 	select {
 	case s.slots <- struct{}{}:
 	default:
+		s.localMu.Unlock()
 		return store.Run{}, ErrLocalBusy
 	}
-	releaseSlot := true
-	defer func() {
-		if releaseSlot {
-			<-s.slots
-		}
-	}()
-	releaseDirectory, e := s.Store.HoldConversation(endpoint.LocalID, conversation)
-	if e != nil {
-		return store.Run{}, e
+	var session store.Session
+	var cwd string
+	if target == "" {
+		session, cwd, err = s.Sessions.Acquire(ctx, id, conversation, "local-"+adapter.Name, adapter.Name, adapter.Revision)
+	} else {
+		session, cwd, err = s.Store.AcquireExistingSession(ctx, id, conversation, target, adapter.Revision)
 	}
-	defer releaseDirectory()
-	session, cwd, e := s.Sessions.Acquire(ctx, endpoint.LocalID, conversation, "local-"+la.Name, la.Name, la.Revision)
-	if e != nil {
-		return store.Run{}, e
+	if err != nil {
+		<-s.slots
+		s.localMu.Unlock()
+		return store.Run{}, err
 	}
-	run := store.Run{EndpointID: endpoint.LocalID, ConversationID: conversation, SessionID: session.ID, RunID: uuid.NewString(), AttemptID: uuid.NewString(), AgentID: session.AgentID, Harness: la.Name, HarnessRevision: la.Revision, Directory: cwd, Summary: request.Prompt, ReceivedAt: time.Now().UnixMilli(), Status: "running"}
-	if run.Summary == "" {
-		run.Summary = string(input)
-	}
-	writer := s.Store.ForEndpoint(endpoint.LocalID)
-	if e = writer.Receive(ctx, run); e != nil {
-		_ = s.Store.ReleaseSession(session, 0, true)
-		return store.Run{}, e
-	}
-	la.EventsPath = harness.EventsPath(cwd, session.ID)
-	la.Env = []string{"AGENTUSE_SERVER=", "AGENTUSE_TOKEN=", "AGENTUSE_WORK=", "AGENTUSE_CONFIG=", "AGENTUSE_ENDPOINT=local", "AGENTUSE_CONVERSATION=" + conversation, "AGENTUSE_SESSION=" + conversation, "AGENTUSE_RUN=" + run.RunID, "AGENTUSE_ATTEMPT=" + run.AttemptID, "AGENTUSE_AGENT=" + session.AgentID, "AGENTUSE_RESOURCES="}
+	adapter.EventsPath = harness.EventsPath(cwd, session.ID)
+	adapter.Env = []string{"AGENTUSE_SERVER=", "AGENTUSE_TOKEN=", "AGENTUSE_WORK=", "AGENTUSE_CONFIG=", "AGENTUSE_RUN=", "AGENTUSE_ATTEMPT=", "AGENTUSE_ENDPOINT=" + id, "AGENTUSE_CONVERSATION=" + conversation, "AGENTUSE_SESSION=" + session.ID, "AGENTUSE_AGENT=" + session.AgentID, "AGENTUSE_RESOURCES="}
 	execCtx, cancel := context.WithCancel(s.localCtx)
-	canSteer := la.CanSteer()
-	canAsk := la.CanAsk()
-	execution := &localExecution{canSteer: canSteer, canAsk: canAsk, cancel: cancel, in: harness.NewInput(harness.DefaultAskTimeout), done: make(chan struct{}), session: session.ID}
-	s.localRuns[run.RunID] = execution
+	execution := &localExecution{cancel: cancel, in: harness.NewInput(harness.DefaultAskTimeout), done: make(chan struct{}), session: session}
+	s.localRuns[session.ID] = execution
 	s.localWG.Add(1)
-	releaseSlot = false
+	s.localMu.Unlock()
+	accepted := make(chan harness.Acceptance, 1)
+	finished := make(chan harness.DriveResult, 1)
 	go func() {
 		defer s.localWG.Done()
 		defer close(execution.done)
 		defer cancel()
-		defer func() { <-s.slots; s.localMu.Lock(); delete(s.localRuns, run.RunID); s.localMu.Unlock() }()
-		result := harness.Result{}
-		defer func() {
-			status := "succeeded"
-			if !result.OK {
-				status = "failed"
+		defer func() { <-s.slots; s.localMu.Lock(); delete(s.localRuns, session.ID); s.localMu.Unlock() }()
+		first := true
+		report := func(event harness.Event) {
+			if event.Type != "accepted" {
+				return
 			}
-			if execCtx.Err() != nil {
-				status = "cancelled"
+			if err := s.Store.AcceptNative(context.Background(), session, event.RunID); err != nil {
+				s.log.Printf("native run index: %v", err)
+				cancel()
+				return
 			}
-			c := context.Background()
-			_ = writer.Complete(c, run.RunID, run.AttemptID, store.Finish{Status: status, Error: result.Error, HarnessRunIDs: result.HarnessRunIDs})
-			_ = s.Store.Confirm(c, endpoint.LocalID, run.RunID, run.AttemptID)
-			if !result.CleanupPending {
-				_ = s.Sessions.Release(session, 0, result.OK || execCtx.Err() == context.Canceled, run.RunID, run.AttemptID)
+			if first {
+				first = false
+				accepted <- harness.Acceptance{RunID: event.RunID, InputID: event.InputID}
 			}
-		}()
-		report := func(kind string, payload any) {
-			data, _ := json.Marshal(payload)
-			_ = s.Store.Event(context.Background(), endpoint.LocalID, run.RunID, run.AttemptID, kind, data)
 		}
-		report("started", map[string]any{"mode": endpoint.LocalID, "harness_revision": la.Revision})
-		dispatch := protocol.Dispatch{EndpointID: endpointID, Local: true, ID: s.sequence.Add(1), RunID: run.RunID, AttemptID: run.AttemptID, SessionID: conversation, AgentID: session.AgentID, Harness: la.Name, Input: input, SessionMessages: json.RawMessage("[]")}
-		result = s.Harness.Execute(execCtx, la, dispatch, cwd, execution.in, report)
-
-		kind := "done"
-		if !result.OK {
-			kind = "failed"
+		result := s.Harness.DriveSession(execCtx, adapter, requestText(input), cwd, execution.in, report)
+		if !result.CleanupPending {
+			_ = s.Store.ReleaseSession(session, result.OK || execCtx.Err() == context.Canceled)
 		}
-		report(kind, result)
+		execution.result = result
+		finished <- result
 	}()
-	return run, nil
+	return s.awaitAccepted(ctx, execution, accepted, finished)
 }
-func (s *Service) Control(ctx context.Context, endpointID, conversation, session, run, attempt, action string, payload json.RawMessage) error {
-	if e := s.requireLocalEndpoint(endpointID); e != nil {
-		return e
+func (s *Service) awaitAccepted(ctx context.Context, execution *localExecution, accepted <-chan harness.Acceptance, finished <-chan harness.DriveResult) (store.Run, error) {
+	select {
+	case a := <-accepted:
+		return s.Store.Reader().Detail(ctx, execution.session.EndpointID, execution.session.ConversationID, execution.session.ID, a.RunID)
+	case result := <-finished:
+		select {
+		case a := <-accepted:
+			return s.Store.Reader().Detail(ctx, execution.session.EndpointID, execution.session.ConversationID, execution.session.ID, a.RunID)
+		default:
+		}
+		return store.Run{}, fmt.Errorf("harnessctl send failed before acceptance: %s", result.Error)
+	case <-execution.done:
+		select {
+		case a := <-accepted:
+			return s.Store.Reader().Detail(ctx, execution.session.EndpointID, execution.session.ConversationID, execution.session.ID, a.RunID)
+		default:
+			return store.Run{}, ErrLocalBusy
+		}
+	case <-ctx.Done():
+		return store.Run{}, ctx.Err()
 	}
-	if _, e := s.Store.Reader().Detail(ctx, endpoint.LocalID, conversation, session, run, attempt); e != nil {
-		return e
+}
+
+// Control mirrors the public harnessctl session commands, not run attempts.
+func (s *Service) Control(ctx context.Context, id, conversation, session, action string, payload json.RawMessage) (any, error) {
+	if err := s.requireLocalEndpoint(id); err != nil {
+		return nil, err
+	}
+	metadata, err := s.Store.Reader().Session(ctx, id, conversation, session)
+	if err != nil {
+		return nil, err
+	}
+	if action == "send" {
+		var request Request
+		if json.Unmarshal(payload, &request) != nil || strings.TrimSpace(request.Prompt) == "" {
+			return nil, store.ErrInvalid
+		}
+		request.Harness = metadata.Harness
+		return s.startSession(ctx, id, conversation, request, session)
 	}
 	s.localMu.Lock()
-	defer s.localMu.Unlock()
-	execution := s.localRuns[run]
-	if execution == nil || execution.session != session {
-		return ErrLocalBusy
+	execution := s.localRuns[session]
+	s.localMu.Unlock()
+	if execution == nil {
+		if action == "cancel" {
+			adapter, e := s.Harness.Resolve(metadata.Harness)
+			if e != nil {
+				return nil, e
+			}
+			if metadata.HarnessRevision != adapter.Revision {
+				return nil, fmt.Errorf("session adapter revision is not active")
+			}
+			events := harness.EventsPath(sessionWorkspace(s.Store.Root, id, conversation), session)
+			if e = harness.Cancel(adapter, events); e != nil {
+				return nil, e
+			}
+			return map[string]bool{"ok": true}, nil
+		}
+		return nil, ErrLocalBusy
 	}
 	switch action {
 	case "cancel":
 		execution.cancel()
-	case "steer":
-		if !execution.canSteer {
-			return fmt.Errorf("该适配器不支持运行中插话")
+		select {
+		case <-execution.done:
+			if execution.result.CleanupPending {
+				return nil, fmt.Errorf("cancellation not confirmed: %s", execution.result.Error)
+			}
+			return map[string]bool{"ok": true}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
-		var v struct {
-			Prompt string `json:"prompt"`
+	case "reply":
+		var request struct {
+			RequestID string          `json:"request_id"`
+			Answer    json.RawMessage `json:"answer"`
 		}
-		if json.Unmarshal(payload, &v) != nil || strings.TrimSpace(v.Prompt) == "" {
-			return store.ErrInvalid
+		if json.Unmarshal(payload, &request) != nil || request.RequestID == "" || len(request.Answer) == 0 {
+			return nil, store.ErrInvalid
 		}
-		id := s.sequence.Add(1)
-		if !execution.in.Steer(protocol.Steer{ID: id, RunID: run, AttemptID: attempt, Prompt: v.Prompt}) {
-			return ErrLocalBusy
+		body := string(request.Answer)
+		var text string
+		if json.Unmarshal(request.Answer, &text) == nil {
+			body = text
 		}
-		return s.Store.ForEndpoint(endpoint.LocalID).Steer(ctx, run, attempt, id)
-	case "answer":
-		if !execution.canAsk {
-			return fmt.Errorf("该适配器不支持提问回调")
+		done := make(chan error, 1)
+		if !execution.in.Reply(request.RequestID, body, func(err error) { done <- err }) {
+			return nil, ErrLocalBusy
 		}
-		var v struct {
-			ToolUseID string            `json:"tool_use_id"`
-			Answers   map[string]string `json:"answers"`
-		}
-		if json.Unmarshal(payload, &v) != nil || v.ToolUseID == "" {
-			return store.ErrInvalid
-		}
-		if !execution.in.Answer(protocol.Answer{RunID: run, AttemptID: attempt, ToolUseID: v.ToolUseID, Answers: v.Answers}) {
-			return ErrLocalBusy
+		select {
+		case err := <-done:
+			if err != nil {
+				return nil, err
+			}
+			return map[string]bool{"ok": true}, nil
+		case <-execution.done:
+			return nil, ErrLocalBusy
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	default:
-		return store.ErrInvalid
+		return nil, store.ErrInvalid
 	}
-	return nil
 }
-
 func (s *Service) localActiveCount() int {
 	s.localMu.Lock()
 	defer s.localMu.Unlock()
 	return len(s.localRuns)
 }
-
 func (s *Service) requireLocalEndpoint(id string) error {
-	ep, e := s.Endpoints.GetByID(id)
-	if e != nil {
-		return e
+	ep, err := s.Endpoints.GetByID(id)
+	if err != nil {
+		return err
 	}
 	if !ep.IsLocal() {
-		return fmt.Errorf("platform tasks must be claimed from their endpoint")
+		return fmt.Errorf("platform inputs are received through their server connection")
 	}
 	return nil
 }
 func (s *Service) ProbeHarnesses() ([]harness.HarnessInfo, error) { return s.Harness.Probe() }
+
+func sessionWorkspace(root, endpoint, conversation string) string {
+	return filepath.Join(root, endpoint, conversation, "workspace")
+}
+func (s *Service) SessionStatus(ctx context.Context, id, conversation, session string) (any, error) {
+	metadata, err := s.Store.Reader().Session(ctx, id, conversation, session)
+	if err != nil {
+		return nil, err
+	}
+	adapter, err := s.Harness.Resolve(metadata.Harness)
+	if err != nil {
+		return nil, err
+	}
+	if adapter.Revision != metadata.HarnessRevision {
+		return nil, fmt.Errorf("session adapter revision is not active")
+	}
+	return s.Harness.Status(ctx, adapter, harness.EventsPath(sessionWorkspace(s.Store.Root, id, conversation), session))
+}
+
+func requestText(input json.RawMessage) string {
+	var request struct {
+		Prompt string `json:"prompt"`
+	}
+	if json.Unmarshal(input, &request) == nil && request.Prompt != "" {
+		return request.Prompt
+	}
+	return string(input)
+}

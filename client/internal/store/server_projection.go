@@ -15,7 +15,7 @@ import (
 
 // Execution content is read from the adapter's public JSONL, never copied into
 // the client journal. Adapter private state remains entirely opaque.
-func projectHarness(path string, r *Run) error {
+func projectDelivery(path string, r *Delivery) error {
 	if len(r.HarnessRunIDs) == 0 {
 		return nil
 	}

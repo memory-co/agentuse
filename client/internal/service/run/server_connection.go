@@ -25,7 +25,7 @@ import (
 )
 
 type endpointConnection struct {
-	ledger  store.Writer
+	ledger  store.DeliveryWriter
 	cfg     Config
 	log     *log.Logger
 	workdir string // configured conversation parent root
@@ -63,7 +63,7 @@ func (d *endpointConnection) send(m protocol.Message) error {
 	return err
 }
 
-func newConnection(cfg Config, logger *log.Logger, writers ...store.Writer) (*endpointConnection, error) {
+func newConnection(cfg Config, logger *log.Logger, writers ...store.DeliveryWriter) (*endpointConnection, error) {
 	if cfg.Server == "" || cfg.Key == "" {
 		return nil, errors.New("daemon 还没注册：请先运行页面上的安装命令(或 agentuse register)")
 	}
@@ -81,7 +81,7 @@ func newConnection(cfg Config, logger *log.Logger, writers ...store.Writer) (*en
 		cfg.Slots = make(chan struct{}, 2)
 	}
 	home, _ := os.UserHomeDir()
-	var ledger store.Writer
+	var ledger store.DeliveryWriter
 	if len(writers) > 0 {
 		ledger = writers[0]
 	}
@@ -363,7 +363,20 @@ func (d *endpointConnection) session(ctx context.Context) error {
 				received := false
 				d.mu.Lock()
 				if r := d.running[executionKey(m.Steer.MessageID, m.Steer.RunID, m.Steer.AttemptID)]; r != nil && r.dispatch.RunID == m.Steer.RunID && r.dispatch.AttemptID == m.Steer.AttemptID {
-					received = r.in.Steer(*m.Steer)
+					if r.steers == nil {
+						r.steers = map[int64]bool{}
+					}
+					id := m.Steer.ID
+					if !r.steers[id] {
+						received = r.in.Send(m.Steer.Prompt, func(harness.Acceptance) {
+							if r.report != nil {
+								r.report("steered", protocol.SteeredPayload{SteerID: id})
+							}
+						})
+						if received {
+							r.steers[id] = true
+						}
+					}
 				}
 				d.mu.Unlock()
 				if received {
@@ -377,7 +390,7 @@ func (d *endpointConnection) session(ctx context.Context) error {
 				r := d.running[executionKey(m.Answer.MessageID, m.Answer.RunID, m.Answer.AttemptID)]
 				d.mu.Unlock()
 				if r != nil && r.dispatch.RunID == m.Answer.RunID && r.dispatch.AttemptID == m.Answer.AttemptID {
-					r.in.Answer(*m.Answer)
+					d.replyServerAnswer(r, *m.Answer)
 				}
 			}
 		case protocol.TypeEventAck:
@@ -406,6 +419,9 @@ func (d *endpointConnection) session(ctx context.Context) error {
 }
 
 type runningMsg struct {
+	steers   map[int64]bool
+	requests map[string]harness.Event
+	report   func(string, any)
 	done     chan struct{}
 	dispatch protocol.Dispatch
 	cancel   context.CancelFunc
@@ -432,15 +448,7 @@ func (d *endpointConnection) startMessage(m protocol.Dispatch, reservations ...b
 	var reportMu sync.Mutex
 	var eventSeq int64
 	report := func(kind string, p any) {
-		if kind == "accepted" {
-			if d.cfg.LocalStore != nil && r.local.ID != "" {
-				b, _ := json.Marshal(p)
-				if err := d.cfg.LocalStore.Event(tctx, d.cfg.EndpointID, m.RunID, m.AttemptID, kind, b); err != nil {
-					d.log.Printf("record binding: %v", err)
-				}
-			}
-			return
-		}
+
 		reportMu.Lock()
 		defer reportMu.Unlock()
 		eventSeq++
@@ -460,6 +468,7 @@ func (d *endpointConnection) startMessage(m protocol.Dispatch, reservations ...b
 		}
 		_ = d.send(event)
 	}
+	r.report = report
 	go func() {
 		defer close(r.done)
 		if len(reservations) > 0 && reservations[0] {
@@ -475,19 +484,20 @@ func (d *endpointConnection) startMessage(m protocol.Dispatch, reservations ...b
 			}
 		}()
 		d.log.Printf("会话 %s(%s)开始回消息 %d", m.SessionID, m.Harness, m.ID)
-		var res harness.Result
+		var res harness.DriveResult
 		recorded := false
 		defer func() {
 			if r.local.ID != "" {
 				if !recorded {
 					d.recordCompleteLocal(m, r.local, res, ok, tctx.Err())
 				}
-				seq := int64(0)
 				if res.OK {
-					seq = m.ContextSeq
+					if err := d.saveServerCursor(r.local, m.ContextSeq); err != nil {
+						d.log.Printf("server context cursor: %v", err)
+					}
 				}
 				if !res.CleanupPending {
-					if err := d.cfg.LocalStore.ReleaseSession(r.local, seq, res.OK || errors.Is(tctx.Err(), context.Canceled), m.RunID, m.AttemptID); err != nil {
+					if err := d.cfg.LocalStore.ReleaseSession(r.local, res.OK || errors.Is(tctx.Err(), context.Canceled)); err != nil {
 						d.log.Printf("save session: %v", err)
 					}
 				}
@@ -514,20 +524,25 @@ func (d *endpointConnection) startMessage(m protocol.Dispatch, reservations ...b
 			dir, prepareErr = d.sessionDir(m)
 		}
 		if !ok {
-			res = harness.Result{Error: "本机没有 harness " + m.Harness}
+			res = harness.DriveResult{Error: "本机没有 harness " + m.Harness}
 		} else if prepareErr != nil {
-			res = harness.Result{Error: prepareErr.Error()}
+			res = harness.DriveResult{Error: prepareErr.Error()}
 		} else if err := d.loadRunHistory(tctx, &m); err != nil {
-			res = harness.Result{Error: "共享历史读取失败: " + err.Error()}
+			res = harness.DriveResult{Error: "共享历史读取失败: " + err.Error()}
 		} else if err := d.syncAttachments(tctx, &m, dir); err != nil {
-			res = harness.Result{Error: "附件同步失败: " + err.Error()}
+			res = harness.DriveResult{Error: "附件同步失败: " + err.Error()}
 		} else if err := d.prepareHistory(&m, r.local, &la, dir); err != nil {
-			res = harness.Result{Error: err.Error()}
+			res = harness.DriveResult{Error: err.Error()}
 		} else {
 			if m.RunID != "" {
 				report("started", map[string]any{"task_message_ids": m.TaskMessageIDs, "context_seq": m.ContextSeq})
 			}
-			res = d.cfg.Harness.Execute(tctx, la, m, dir, in, report)
+			text, err := serverPrompt(m, la.HistoryPath)
+			if err != nil {
+				res = harness.DriveResult{Error: err.Error()}
+			} else {
+				res = d.cfg.Harness.DriveSession(tctx, la, text, dir, in, func(event harness.Event) { d.observeServerEvent(tctx, r, event, report) })
+			}
 		}
 		if tctx.Err() != nil {
 			if d.cfg.LocalStore != nil && r.local.ID != "" {

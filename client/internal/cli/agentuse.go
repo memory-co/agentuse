@@ -116,10 +116,10 @@ func runClient(args []string, allowLocal bool) error {
 	if err = manager.Harness.Recover(ctx, ledger); err != nil {
 		return err
 	}
-	if err = ledger.RecoverSessions(ctx); err != nil {
+	if err = ledger.Reconcile(ctx); err != nil {
 		return err
 	}
-	if err = ledger.Writer().Reconcile(ctx); err != nil {
+	if err = ledger.RecoverSessions(ctx); err != nil {
 		return err
 	}
 	manager.FailOnEndpointError = !allowLocal

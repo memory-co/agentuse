@@ -23,7 +23,6 @@ type Session struct {
 	Harness         string `json:"harness" yaml:"harness"`
 	HarnessRevision string `json:"harness_revision" yaml:"harness_revision"`
 	Status          string `json:"status" yaml:"status"`
-	LastContextSeq  int64  `json:"last_context_seq" yaml:"last_context_seq"`
 	CreatedAt       int64  `json:"created_at" yaml:"created_at"`
 	LastUsedAt      int64  `json:"last_used_at" yaml:"last_used_at"`
 	UpdatedAt       int64  `json:"updated_at" yaml:"updated_at"`
@@ -151,7 +150,7 @@ func (l *Ledger) AcquireSession(ctx context.Context, endpoint, conversation, age
 	sort.Slice(ss, func(i, j int) bool { return ss[i].LastUsedAt > ss[j].LastUsedAt })
 	for _, s := range ss {
 		if s.AgentID == agent && s.Harness == harness && s.HarnessRevision == revision {
-			if s.Status == "running" || s.Status == "pending_report" {
+			if s.Status == "running" {
 				return out, "", fmt.Errorf("session is busy")
 			}
 			if s.Status == "idle" {
@@ -171,25 +170,10 @@ func (l *Ledger) AcquireSession(ctx context.Context, endpoint, conversation, age
 	}
 	return out, workspace, nil
 }
-func (l *Ledger) ReleaseSession(s Session, contextSeq int64, valid bool, run ...string) error {
+func (l *Ledger) ReleaseSession(s Session, valid bool) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	s.LastContextSeq = max(s.LastContextSeq, contextSeq)
 	s.Status = "idle"
-	if !valid {
-		s.Status = "unavailable"
-	}
-	if len(run) == 2 {
-		p := l.paths[key(s.EndpointID, run[0], run[1])]
-		record := Run{AttemptID: run[1]}
-		if readRun(p, &record) == nil {
-			if record.Status == "interrupted" {
-				s.Status = "unavailable"
-			} else if !record.ServerConfirmed && len(record.PendingReport) > 0 {
-				s.Status = "pending_report"
-			}
-		}
-	}
 	if !valid {
 		s.Status = "unavailable"
 	}
@@ -215,6 +199,12 @@ func (l *Ledger) RecoverSessions(ctx context.Context) error {
 				return e
 			}
 			for _, s := range ss {
+				if s.Status == "pending_report" {
+					s.Status = "idle"
+					if e = l.SaveSession(s); e != nil {
+						return e
+					}
+				}
 				if s.Status == "running" {
 					s.Status = "unavailable"
 					if _, e := os.Stat(filepath.Join(l.Root, s.EndpointID, s.ConversationID, "sessions", s.ID, "events.jsonl")); e == nil {
@@ -279,7 +269,7 @@ func (l *Ledger) Reclaim(ctx context.Context, maxBytes int64) (int64, error) {
 			busy := l.reserved[ep.Name()+"/"+c.ID] > 0
 			var last, size int64
 			for _, s := range ss {
-				if s.Status == "running" || s.Status == "pending_report" {
+				if s.Status == "running" {
 					busy = true
 				}
 				last = max(last, s.LastUsedAt)
@@ -300,8 +290,8 @@ func (l *Ledger) Reclaim(ctx context.Context, maxBytes int64) (int64, error) {
 						return err
 					}
 					size += info.Size()
-					if isRunRecord(l.Root, path) {
-						records, err := readRunJournal(path)
+					if isDeliveryRecord(l.Root, path) {
+						records, err := readDeliveryJournal(path)
 						if err != nil {
 							return err
 						}
@@ -333,9 +323,9 @@ func (l *Ledger) Reclaim(ctx context.Context, maxBytes int64) (int64, error) {
 			return total, e
 		}
 		total -= c.size
-		for k, p := range l.paths {
+		for k, p := range l.serverPaths {
 			if rel, e := filepath.Rel(c.path, p); e == nil && rel != ".." && !stringsHasParent(rel) {
-				delete(l.paths, k)
+				delete(l.serverPaths, k)
 			}
 		}
 	}

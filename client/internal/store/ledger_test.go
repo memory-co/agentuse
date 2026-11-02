@@ -21,8 +21,8 @@ func TestFileLedgerHierarchyAndRestart(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	w := l.ForEndpoint(s.EndpointID)
-	r := Run{EndpointID: s.EndpointID, ConversationID: s.ConversationID, SessionID: s.ID, RunID: "run", AttemptID: "attempt", Harness: "codex", Summary: strings.Repeat("中", 220) + "SECRET"}
+	w := l.ServerForEndpoint(s.EndpointID)
+	r := Delivery{EndpointID: s.EndpointID, ConversationID: s.ConversationID, SessionID: s.ID, RunID: "run", AttemptID: "attempt", Harness: "codex", Summary: strings.Repeat("中", 220) + "SECRET"}
 	if e = w.Receive(ctx, r); e != nil {
 		t.Fatal(e)
 	}
@@ -36,21 +36,21 @@ func TestFileLedgerHierarchyAndRestart(t *testing.T) {
 	if e = os.WriteFile(native, []byte(body), 0600); e != nil {
 		t.Fatal(e)
 	}
-	if e = w.Complete(ctx, "run", "attempt", Finish{HarnessRunIDs: []string{"native-1"}, Status: "succeeded"}); e != nil {
+	if e = w.Complete(ctx, "run", "attempt", DeliveryFinish{HarnessRunIDs: []string{"native-1"}, Status: "succeeded"}); e != nil {
 		t.Fatal(e)
 	}
 	if e = l.Confirm(ctx, s.EndpointID, "run", "attempt"); e != nil {
 		t.Fatal(e)
 	}
-	if e = l.ReleaseSession(s, 9, true, "run", "attempt"); e != nil {
+	if e = l.ReleaseSession(s, true); e != nil {
 		t.Fatal(e)
 	}
-	path := filepath.Join(filepath.Dir(workspace), "sessions", s.ID, "runs", "run.jsonl")
+	path := filepath.Join(filepath.Dir(workspace), "sessions", s.ID, ".server", "run.jsonl")
 	if st, e := os.Stat(path); e != nil || st.Mode().Perm() != 0600 {
 		t.Fatal(st, e)
 	}
 	l, _ = Open(root)
-	got, e := l.Reader().Detail(ctx, s.EndpointID, s.ConversationID, s.ID, "run", "attempt")
+	got, e := l.DeliveryReader().DeliveryDetail(ctx, s.EndpointID, s.ConversationID, s.ID, "run", "attempt")
 	if e != nil || got.Output != "answer" || got.SteerCount != 1 || len([]rune(got.Summary)) != 200 || strings.Contains(got.Summary, "SECRET") {
 		t.Fatal(got, e)
 	}
@@ -65,10 +65,10 @@ func TestFileLedgerHierarchyAndRestart(t *testing.T) {
 	if _, _, e = l.AcquireSession(ctx, s.EndpointID, s.ConversationID, "coder", "codex", "v1"); e == nil {
 		t.Fatal("busy session reused")
 	}
-	if _, e = l.Reader().List(ctx, Filter{}); !errors.Is(e, ErrInvalid) {
+	if _, e = l.DeliveryReader().DeliveryList(ctx, Filter{}); !errors.Is(e, ErrInvalid) {
 		t.Fatal("unscoped query allowed", e)
 	}
-	if _, e = l.Reader().Detail(ctx, s.EndpointID, "../escape", s.ID, "run", "attempt"); !errors.Is(e, ErrInvalid) {
+	if _, e = l.DeliveryReader().DeliveryDetail(ctx, s.EndpointID, "../escape", s.ID, "run", "attempt"); !errors.Is(e, ErrInvalid) {
 		t.Fatal("path traversal", e)
 	}
 }
@@ -85,18 +85,18 @@ func TestEndpointIsolationAndQuota(t *testing.T) {
 			first = s
 		}
 		os.WriteFile(filepath.Join(dir, "large"), make([]byte, 4096), 0600)
-		w := l.ForEndpoint(ep)
-		if e = w.Receive(ctx, Run{EndpointID: ep, ConversationID: "same", SessionID: s.ID, RunID: "same", AttemptID: "same"}); e != nil {
+		w := l.ServerForEndpoint(ep)
+		if e = w.Receive(ctx, Delivery{EndpointID: ep, ConversationID: "same", SessionID: s.ID, RunID: "same", AttemptID: "same"}); e != nil {
 			t.Fatal(e)
 		}
-		if e = w.Complete(ctx, "same", "same", Finish{Status: "succeeded"}); e != nil {
+		if e = w.Complete(ctx, "same", "same", DeliveryFinish{Status: "succeeded"}); e != nil {
 			t.Fatal(e)
 		}
 		if e = l.Confirm(ctx, ep, "same", "same"); e != nil {
 			t.Fatal(e)
 		}
 		if ep == "https---two" {
-			if e = l.ReleaseSession(s, 0, true, "same", "same"); e != nil {
+			if e = l.ReleaseSession(s, true); e != nil {
 				t.Fatal(e)
 			}
 		}
@@ -132,13 +132,13 @@ func TestPendingResultSurvivesRestart(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	w := l.ForEndpoint("ep")
-	w.Receive(ctx, Run{EndpointID: "ep", ConversationID: "c", SessionID: s.ID, RunID: "r", AttemptID: "a"})
-	w.Complete(ctx, "r", "a", Finish{Status: "succeeded"})
+	w := l.ServerForEndpoint("ep")
+	w.Receive(ctx, Delivery{EndpointID: "ep", ConversationID: "c", SessionID: s.ID, RunID: "r", AttemptID: "a"})
+	w.Complete(ctx, "r", "a", DeliveryFinish{Status: "succeeded"})
 	l.PrepareReport(ctx, "ep", "r", "a", json.RawMessage(`{"type":"event","kind":"done"}`))
-	l.ReleaseSession(s, 0, true, "r", "a")
+	l.ReleaseSession(s, true)
 	l, _ = Open(root)
-	if e = l.Writer().Reconcile(ctx); e != nil {
+	if e = l.ServerWriter().Reconcile(ctx); e != nil {
 		t.Fatal(e)
 	}
 	if len(l.Pending("ep")) != 1 {
@@ -186,10 +186,10 @@ func TestBusinessFilesAreNotExecutionMetadata(t *testing.T) {
 	if e = os.WriteFile(filepath.Join(cwd, "run.json"), []byte("business contents, not JSON"), 0600); e != nil {
 		t.Fatal(e)
 	}
-	if e = l.Writer().Reconcile(ctx); e != nil {
+	if e = l.ServerWriter().Reconcile(ctx); e != nil {
 		t.Fatal("recovery parsed business file", e)
 	}
-	l.ReleaseSession(s, 0, true)
+	l.ReleaseSession(s, true)
 	if _, e = l.Reclaim(ctx, 1); e != nil {
 		t.Fatal("cleanup parsed business file", e)
 	}
@@ -199,11 +199,11 @@ func TestStalePendingReportCanBeReclaimed(t *testing.T) {
 	ctx := context.Background()
 	l, _ := Open(t.TempDir())
 	s, _, _ := l.AcquireSession(ctx, "ep", "c", "a", "custom", "v")
-	w := l.ForEndpoint("ep")
-	w.Receive(ctx, Run{EndpointID: "ep", ConversationID: "c", SessionID: s.ID, RunID: "r", AttemptID: "a"})
-	w.Complete(ctx, "r", "a", Finish{Status: "succeeded"})
+	w := l.ServerForEndpoint("ep")
+	w.Receive(ctx, Delivery{EndpointID: "ep", ConversationID: "c", SessionID: s.ID, RunID: "r", AttemptID: "a"})
+	w.Complete(ctx, "r", "a", DeliveryFinish{Status: "succeeded"})
 	l.PrepareReport(ctx, "ep", "r", "a", json.RawMessage(`{"kind":"done"}`))
-	l.ReleaseSession(s, 1, true, "r", "a")
+	l.ReleaseSession(s, true)
 	if e := l.RejectReport(ctx, "ep", "r", "a", "lease expired"); e != nil {
 		t.Fatal(e)
 	}

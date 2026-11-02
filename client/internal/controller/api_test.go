@@ -56,7 +56,7 @@ func TestAPIDocumentationAuthenticationAndContract(t *testing.T) {
 	if err := json.Unmarshal(spec.Body.Bytes(), &doc); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(doc.OpenAPI, "3.1.") || len(doc.Paths) != 15 {
+	if !strings.HasPrefix(doc.OpenAPI, "3.1.") || len(doc.Paths) != 16 {
 		t.Fatalf("unexpected document version or routes: %s %d", doc.OpenAPI, len(doc.Paths))
 	}
 	if len(doc.Security) != 2 || doc.Security[0]["cookieAuth"] == nil || doc.Components.SecuritySchemes["cookieAuth"].Name != "agentuse_client_8091" || doc.Components.SecuritySchemes["bearerAuth"].Scheme != "bearer" {
@@ -64,6 +64,11 @@ func TestAPIDocumentationAuthenticationAndContract(t *testing.T) {
 	}
 	if _, ok := doc.Paths["/api/runs"]; ok {
 		t.Fatal("global run enumeration documented")
+	}
+	for _, foreign := range []string{"attempt_id", "harness_run_ids", "server_confirmed", "/attempts/"} {
+		if strings.Contains(spec.Body.String(), foreign) {
+			t.Fatalf("legacy identity in public API: %s", foreign)
+		}
 	}
 	ids := map[string]bool{}
 	for path, methods := range doc.Paths {

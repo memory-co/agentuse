@@ -174,8 +174,8 @@ func TestRun(t *testing.T) {
 	if ev := f.next(t, protocol.TypeEvent); ev.Kind != "progress" || ev.MessageID != 5 || !strings.Contains(string(ev.Payload), `"text":"p"`) {
 		t.Fatalf("progress: %+v", ev)
 	}
-	var res harness.Result
-	if ev := f.next(t, protocol.TypeEvent); ev.Kind != "done" || json.Unmarshal(ev.Payload, &res) != nil || res.Output != "done" || len(res.HarnessRunIDs) == 0 {
+	var res harness.DriveResult
+	if ev := f.next(t, protocol.TypeEvent); ev.Kind != "done" || json.Unmarshal(ev.Payload, &res) != nil || res.Output != "done" || len(res.RunIDs) == 0 {
 		t.Fatalf("done: %+v", ev)
 	}
 	f.next(t, protocol.TypeReady)

@@ -2,7 +2,6 @@ package harness
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"github.com/memory-co/agentuse/client/internal/store"
-	"github.com/memory-co/agentuse/internal/protocol"
 )
 
 func fixture(t *testing.T, name string) (Service, Adapter, string) {
@@ -47,10 +45,8 @@ func fixture(t *testing.T, name string) (Service, Adapter, string) {
 	t.Cleanup(func() { _ = Cancel(adapter, adapter.EventsPath) })
 	return service, adapter, workspace
 }
-func dispatch(prompt string) protocol.Dispatch {
-	data, _ := json.Marshal(protocol.PromptInput{Prompt: prompt})
-	return protocol.Dispatch{Local: true, SessionID: "conversation", AgentID: "agent", Input: data}
-}
+func dispatch(prompt string) string { return prompt }
+
 func waitAccepted(t *testing.T, path string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -69,8 +65,8 @@ func TestHarnessctlExecutionAndEnvironmentRefresh(t *testing.T) {
 			service, adapter, workspace := fixture(t, name)
 			for _, id := range []string{"first-attempt", "second-attempt"} {
 				adapter.Env = []string{"AGENTUSE_RUN=" + id}
-				result := service.Execute(context.Background(), adapter, dispatch("environment"), workspace, NewInput(time.Second), nil)
-				if !result.OK || result.Output != id || len(result.HarnessRunIDs) != 1 {
+				result := service.DriveSession(context.Background(), adapter, dispatch("environment"), workspace, NewInput(time.Second), nil)
+				if !result.OK || result.Output != id || len(result.RunIDs) != 1 {
 					t.Fatalf("%s: %+v", id, result)
 				}
 			}
@@ -84,17 +80,11 @@ func TestHarnessctlExecutionAndEnvironmentRefresh(t *testing.T) {
 func TestHarnessctlSteerCompletionAndBusinessRunMapping(t *testing.T) {
 	service, adapter, workspace := fixture(t, "codex")
 	input := NewInput(time.Second)
-	results := make(chan Result, 1)
+	results := make(chan DriveResult, 1)
 	var mu sync.Mutex
 	confirmed := []int64{}
 	go func() {
-		results <- service.Execute(context.Background(), adapter, dispatch("hold"), workspace, input, func(kind string, payload any) {
-			if kind == "steered" {
-				mu.Lock()
-				confirmed = append(confirmed, payload.(protocol.SteeredPayload).SteerID)
-				mu.Unlock()
-			}
-		})
+		results <- service.DriveSession(context.Background(), adapter, dispatch("hold"), workspace, input, func(Event) {})
 	}()
 	waitAccepted(t, adapter.EventsPath)
 	deadline := time.Now().Add(5 * time.Second)
@@ -108,10 +98,10 @@ func TestHarnessctlSteerCompletionAndBusinessRunMapping(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	input.Steer(protocol.Steer{ID: 7, Prompt: "race"})
+	input.Send("race", func(Acceptance) { mu.Lock(); confirmed = append(confirmed, 7); mu.Unlock() })
 	select {
 	case result := <-results:
-		if !result.OK || result.Output != "race" || len(result.HarnessRunIDs) != 2 {
+		if !result.OK || result.Output != "race" || len(result.RunIDs) != 2 {
 			t.Fatalf("did not wait for queued native interaction: %+v", result)
 		}
 	case <-time.After(8 * time.Second):
@@ -131,17 +121,21 @@ func TestHarnessctlQuestionsPermissionsAndCancellation(t *testing.T) {
 				input := NewInput(time.Second)
 				asked := false
 				answered := false
-				result := service.Execute(context.Background(), adapter, dispatch(prompt), workspace, input, func(kind string, value any) {
-					if kind == "question" {
+				result := service.DriveSession(context.Background(), adapter, dispatch(prompt), workspace, input, func(event Event) {
+					if event.Type == "request" && event.State == "pending" {
 						asked = true
-						question := value.(protocol.QuestionPayload)
+						requestID := event.RequestID
 						answer := "Go"
 						if prompt == "question" {
 							answer = "deny"
 						}
-						input.Answer(protocol.Answer{ToolUseID: question.ToolUseID, Answers: map[string]string{question.Questions[0].Question: answer}})
+						body := `{"q1":"Go"}`
+						if event.Kind == "permission" {
+							body = answer
+						}
+						input.Reply(requestID, body, nil)
 					}
-					if kind == "answered" {
+					if event.Type == "request" && event.State == "replied" {
 						answered = true
 					}
 				})
@@ -153,9 +147,9 @@ func TestHarnessctlQuestionsPermissionsAndCancellation(t *testing.T) {
 	}
 	service, adapter, workspace := fixture(t, "codex")
 	ctx, cancel := context.WithCancel(context.Background())
-	result := make(chan Result, 1)
+	result := make(chan DriveResult, 1)
 	go func() {
-		result <- service.Execute(ctx, adapter, dispatch("hold"), workspace, NewInput(time.Second), nil)
+		result <- service.DriveSession(ctx, adapter, dispatch("hold"), workspace, NewInput(time.Second), nil)
 	}()
 	waitAccepted(t, adapter.EventsPath)
 	cancel()

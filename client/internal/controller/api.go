@@ -72,7 +72,7 @@ func (c *Controller) registerAPI() {
 		}
 	}
 	bind("GET", "/api/endpoints", "list-endpoints", "列出 endpoints（包含内置 local，不含凭据）", "endpoint", endpointList{}, 200, nil, public(c.data.Endpoints))
-	bind("GET", "/api/settings", "get-settings", "读取本机配置及待重启项", "setting", settingsResponse{}, 200, nil, public(c.data.Settings))
+	bind("GET", "/api/settings", "get-settings", "读取启动时的本机配置", "setting", settingsResponse{}, 200, nil, public(c.data.Settings))
 	bind("GET", "/api/harnesses", "list-harnesses", "读取已缓存的 harness 探测结果", "harness", []harnessView{}, 200, nil, public(c.data.Harnesses))
 	bind("GET", "/api/status", "get-status", "读取连接与执行状态", "run", statusResponse{}, 200, nil, public(c.data.Status))
 	ep := query("endpoint_id", "endpoint 的目录标识；本地模式为 local")
@@ -81,23 +81,24 @@ func (c *Controller) registerAPI() {
 	bind("GET", "/api/local/harnesses", "probe-local-harnesses", "读取启动时可用于本地执行的 harness", "harness", harnessList{}, 200, nil, c.localHarnesses)
 	bind("POST", "/api/local/conversations", "create-local-conversation", "创建本地 conversation", "conversation", store.Conversation{}, 201, createConversationBody{}, c.localCreate)
 	bind("POST", "/api/local/conversations/{conversation}/runs", "start-local-run", "启动本地 harness run", "run", store.Run{}, 202, startRunBody{}, c.localStart)
-	bind("POST", "/api/local/conversations/{conversation}/sessions/{session}/runs/{run}/attempts/{attempt}/{action}", "control-local-run", "控制本地 run：cancel / steer / answer", "run", okResponse{}, 200, controlRunBody{}, c.localControl)
-	control := api.OpenAPI().Paths["/api/local/conversations/{conversation}/sessions/{session}/runs/{run}/attempts/{attempt}/{action}"].Post
-	control.Description = "action=cancel 时发送 {}；steer 时发送 {\"prompt\":\"补充内容\"}；answer 时发送 {\"tool_use_id\":\"...\",\"answers\":{\"问题\":\"回答\"}}。仅控制当前 local run。"
+	bind("POST", "/api/local/conversations/{conversation}/sessions/{session}/{action}", "control-local-run", "调用 session 的 send / cancel / reply", "run", okResponse{}, 200, controlRunBody{}, c.localControl)
+	control := api.OpenAPI().Paths["/api/local/conversations/{conversation}/sessions/{session}/{action}"].Post
+	control.Description = "send 接收 prompt，返回 accepted.run_id 对应的 run；reply 接收 request_id 和原生标准 answer；cancel 取消该 session 当前及排队执行。run_id 由适配器决定。"
 	for _, p := range control.Parameters {
 		if p.Name == "action" {
-			p.Schema.Enum = []any{"cancel", "steer", "answer"}
+			p.Schema.Enum = []any{"cancel", "send", "reply"}
 		}
 	}
 	base := "/api/conversations/{endpoint}/{conversation}"
 	bind("GET", base, "get-conversation", "读取 conversation", "conversation", store.Conversation{}, 200, nil, c.conversation)
 	bind("GET", base+"/sessions", "list-sessions", "列出 conversation 的原生 harness sessions", "session", apiPage[store.Session]{}, 200, nil, c.sessions, append(pagination(), query("harness", "harness 名称"), query("status", "session 状态"))...)
 	bind("GET", base+"/sessions/{session}", "get-session", "读取 session", "session", store.Session{}, 200, nil, c.session)
+	bind("GET", base+"/sessions/{session}/status", "get-native-session-status", "读取 harnessctl session 运行状态", "session", nativeStatusView{}, 200, nil, c.sessionStatus)
 	filters := func() []*huma.Param {
 		return append(pagination(), query("status", "run 状态"), &huma.Param{Name: "since", In: "query", Description: "开始时间，Unix 毫秒", Schema: &huma.Schema{Type: "integer", Format: "int64"}}, &huma.Param{Name: "until", In: "query", Description: "结束时间，Unix 毫秒", Schema: &huma.Schema{Type: "integer", Format: "int64"}})
 	}
 	bind("GET", base+"/sessions/{session}/runs", "list-session-runs", "分页读取 session runs（不含 output / events）", "run", store.Page{}, 200, nil, c.list, filters()...)
-	bind("GET", base+"/sessions/{session}/runs/{run}/attempts/{attempt}", "get-run-attempt", "读取 run attempt 详情、输出和事件", "run", store.Run{}, 200, nil, c.detail)
+	bind("GET", base+"/sessions/{session}/runs/{run}", "get-native-run", "读取 harnessctl run 的详情、输出和事件", "run", store.Run{}, 200, nil, c.detail)
 	bind("GET", base+"/sessions/{session}/usage", "get-session-usage", "统计仍保留在本机的 session runs 用量", "session", usageResponse{}, 200, nil, c.stats, filters()...)
 }
 
@@ -120,9 +121,9 @@ type startRunBody struct {
 	Input   any    `json:"input,omitempty" doc:"自定义 harness 原生 JSON 输入；优先于 prompt，最多 256 KiB"`
 }
 type controlRunBody struct {
-	Prompt    string            `json:"prompt,omitempty"`
-	ToolUseID string            `json:"tool_use_id,omitempty"`
-	Answers   map[string]string `json:"answers,omitempty"`
+	Prompt    string `json:"prompt,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	Answer    any    `json:"answer,omitempty"`
 }
 type okResponse struct {
 	OK bool `json:"ok"`
@@ -168,9 +169,18 @@ type settingsResponse struct {
 
 type statusResponse struct {
 	Endpoints []struct {
-		EndpointID string `json:"endpoint_id"`
-		State      string `json:"state"`
-		ActiveRuns int    `json:"active_runs"`
+		EndpointID     string `json:"endpoint_id"`
+		State          string `json:"state"`
+		ActiveSessions int    `json:"active_sessions"`
 	} `json:"endpoints"`
-	RunningRuns int `json:"running_runs"`
+	ActiveSessions int `json:"active_sessions"`
+}
+
+type nativeStatusView struct {
+	State    string  `json:"state"`
+	RunID    *string `json:"run_id"`
+	Queued   int     `json:"queued"`
+	Requests []any   `json:"requests"`
+	Cwd      string  `json:"cwd"`
+	Model    *string `json:"model"`
 }

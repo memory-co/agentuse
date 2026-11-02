@@ -1,16 +1,16 @@
-package harness
+package run
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/memory-co/agentuse/internal/protocol"
 	"strings"
 )
 
-// instructionsFor combines server-supplied instructions with local resource guidance.
-func instructionsFor(m protocol.Dispatch) string {
-	if m.Local {
-		return "# 本地 Harness 调试\n\n当前 endpoint_id 为 local，不连接中心。所有任务在当前 workspace 中执行，后续输入可继续使用本机原生 session。不要使用需要 server 凭据的 agentuse work/session/attachment 命令。\n" + m.Instructions
-	}
+// All old server-specific context is compiled at the transport boundary.
+// The harness driver receives only UTF-8 text and an events address.
+func serverInstructions(m protocol.Dispatch) string {
+
 	text := strings.TrimSpace(m.Instructions)
 	if m.RunID != "" {
 		ids, _ := json.Marshal(m.TaskMessageIDs)
@@ -26,4 +26,21 @@ func instructionsFor(m protocol.Dispatch) string {
 		text += guide
 	}
 	return text
+}
+
+func serverPrompt(m protocol.Dispatch, history string) (string, error) {
+	var input protocol.PromptInput
+	if json.Unmarshal(m.Input, &input) != nil || strings.TrimSpace(input.Prompt) == "" {
+		return "", fmt.Errorf("input.prompt must not be empty")
+	}
+	context := serverInstructions(m)
+	if history == "" {
+		context = strings.ReplaceAll(context, "先读取 .agentuse/session-history.json。", "本次没有新增共享历史。")
+	} else {
+		context = strings.ReplaceAll(context, ".agentuse/session-history.json", history)
+	}
+	if context == "" {
+		return input.Prompt, nil
+	}
+	return context + "\n\n# 本次任务\n" + input.Prompt, nil
 }

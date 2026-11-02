@@ -26,10 +26,10 @@ func (d *endpointConnection) recordReceivedLocal(m protocol.Dispatch, s store.Se
 	var input protocol.PromptInput
 	_ = json.Unmarshal(m.Input, &input)
 	d.ledgerWrite(func(ctx context.Context) error {
-		return d.ledger.Receive(ctx, store.Run{EndpointID: d.cfg.EndpointID, ConversationID: m.SessionID, RunID: m.RunID, AttemptID: m.AttemptID, Server: d.cfg.Server, DaemonID: d.cfg.DaemonID, Sender: m.Sender, AgentID: m.AgentID, SessionID: s.ID, WorkID: m.WorkID, Harness: m.Harness, HarnessRevision: s.HarnessRevision, Summary: input.Prompt, Directory: dir})
+		return d.ledger.Receive(ctx, store.Delivery{EndpointID: d.cfg.EndpointID, ConversationID: m.SessionID, RunID: m.RunID, AttemptID: m.AttemptID, Server: d.cfg.Server, DaemonID: d.cfg.DaemonID, Sender: m.Sender, AgentID: m.AgentID, SessionID: s.ID, WorkID: m.WorkID, Harness: m.Harness, HarnessRevision: s.HarnessRevision, Summary: input.Prompt, Directory: dir})
 	})
 }
-func (d *endpointConnection) recordCompleteLocal(m protocol.Dispatch, s store.Session, r harness.Result, known bool, canceled error) {
+func (d *endpointConnection) recordCompleteLocal(m protocol.Dispatch, s store.Session, r harness.DriveResult, known bool, canceled error) {
 	status := "succeeded"
 	if !r.OK {
 		status = "failed"
@@ -42,6 +42,6 @@ func (d *endpointConnection) recordCompleteLocal(m protocol.Dispatch, s store.Se
 		r.Error = canceled.Error()
 	}
 	d.ledgerWrite(func(ctx context.Context) error {
-		return d.ledger.Complete(ctx, m.RunID, m.AttemptID, store.Finish{Status: status, Error: r.Error, AttachmentCount: len(m.Attachments), HarnessRunIDs: r.HarnessRunIDs})
+		return d.ledger.Complete(ctx, m.RunID, m.AttemptID, store.DeliveryFinish{Status: status, Error: r.Error, AttachmentCount: len(m.Attachments), HarnessRunIDs: r.RunIDs})
 	})
 }

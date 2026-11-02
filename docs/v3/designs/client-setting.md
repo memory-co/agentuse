@@ -1,53 +1,35 @@
-# Client settingService：本机配置
+# Client settingService：一次加载的本机设置
 
-> v3 Client 配置设计。Client 不使用 SQLite；本服务读取 `~/.agentuse/setting.yaml`，该文件是本机设置的唯一持久化来源。
-
-## 一、职责
-
-settingService 加载、校验并提供本机设置：本地页面监听地址/端口、sessionService 的统一临时工作根目录，以及容量限制和自动清理策略。
-
-它不保存 endpoint 注册信息，不领取任务，也不直接删除 conversation 工作目录。endpointService 管 `endpoints.yaml`；runService 执行领取调度；sessionService 按设置选择和清理工作目录。
-
-## 二、setting.yaml
+settingService 读取 ~/.agentuse/setting.yaml，校验后提供不可变的启动快照。文件是唯一配置来源，不使用 SQLite，也不回写运行状态。
 
 ```yaml
 local_http:
   enabled: true
   host: 127.0.0.1
   port: 7801
-
 session:
   work_root: ~/.agentuse/tmp
   quota:
-    max_bytes: 21474836480 # 20 GiB，所有受管 conversation 工作目录合计
+    max_bytes: 21474836480
 ```
 
-| 设置 | 含义 |
-|---|---|
-| local_http | 本机只读页面的开关、监听地址和端口；默认回环地址，可显式设置 0.0.0.0 对外监听 |
-| session.work_root | 所有 conversation 目录的统一父目录，不按 harness 划分 |
-| session.quota.max_bytes | 所有受管 conversation 工作目录的总容量上限，正整数字节数 |
+省略 quota 表示不限容量，不因容量回收。声明 quota 即启用自动清理，max_bytes 必须为正整数；没有 enabled、cleanup 或 max_running_runs 配置。
 
-默认本机端口 7801；默认工作根目录为 `~/.agentuse/tmp`。声明 session.quota 就启用容量限制与自动清理，不再配置 enabled 或 cleanup。省略 quota 表示不限容量、不因容量回收；声明时 max_bytes 必须为正整数。所有 harness 共用这一目录分配规则。
+## 生命周期
 
-缺少配置文件时首次生成默认文件再使用，不另存隐藏配置表。端口须合法，路径扩展 `~` 后规范化；非法配置在启动时明确报错。运行期间不读取或监视配置文件。修改文件后重启生效；非法配置在下一次启动时明确报错，不回写或维护另一份“权威配置”。
+启动时文件不存在则生成默认文件。路径扩展 ~ 并规范化；非法端口、地址、quota、危险根目录或与配置/原生全局目录重叠时明确启动报错。
 
-`local_http.enabled: false` 表示关闭本机 Web 入口，不关闭 client 的中心连接、任务领取和执行。设计上，启用 Web 后发生端口占用等初始化故障，也只记录错误并停用该入口，后台任务服务继续运行；此容错行为尚待实现。恢复 Web 需修复问题后重启 client。配置本身非法仍按上述校验规则报错。具体故障边界见 [Client 总览](client-main.md#八断线重启和只读页面)。
+运行中不监听、不周期重读、不比较差异，也不保存待应用字段。Save 只校验并原子写文件，不改变当前快照。端口、host、enabled、根目录和 quota 的任何变化都要重启。
 
-目录布局、共享规则及容量回收流程由 sessionService 管理，见 [工作目录怎样组织](client-session.md#七工作目录怎样组织) 和 [超过容量后怎样自动清理](client-session.md#九超过容量后怎样自动清理)。
+API 只返回当前进程加载的一份配置，不返回 active_work_root、restart_required 或“配置值/生效值”两套字段。页面只读，不是配置热更新入口。
 
-## 三、配置变更与归属
+## 职责边界
 
-| 变化 | 应用方式 |
-|---|---|
-| 端口/监听设置变化 | 当前实现提示重启 client 后生效，不在运行中强制切换端口 |
-| 工作根目录变化 | 先停止任务，再修改配置并重启 client；需要保留会话时由用户完整迁移旧目录。Client 按新配置推导路径，不维护旧根目录映射或自动搬迁 |
-| 容量策略变化 | 重启 client 后使用新策略，仍保护在用目录 |
+- sessionService 决定 conversation、workspace 和 session 的布局，settingService 不保存目录映射。
+- runService 使用固定的 quota 触发检查，不自行修改容量设置。
+- harnessService 使用启动时固定的包，原生控制通道不依赖页面监听端口。
+- endpoint 列表与凭据保存在 endpoints.yaml，不混进本机设置。
 
-不发送文件变更通知、不热重读；所有修改统一重启生效。CLI 或用户编辑后的 setting.yaml 是持久化事实。sessionService 执行目录选择/回收，harnessService 负责在选定目录内运行，settingService 仅管理配置。
+同一 conversation 的 Codex、Claude 和自定义 harness 共用 workspace。更换 work_root 前先停止 client，需要保留状态时完整迁移目录，再按新配置启动。Client 不扫描旧根目录，不自动搬迁，也不维护 active/present/missing 目录绑定表。
 
-## 相关设计
-
-[Client 总览](client-main.md) · [endpointService](client-endpoint.md) · [sessionService](client-session.md) · [runService](client-run.md) · [harnessService](client-harness.md)
-
-配置生命周期统一为：启动时加载 setting.yaml、endpoints.yaml 和 harness 包，运行期间固定使用快照。修改、增删、启停和凭据变更一律重启生效；没有热更新、周期重读、重新探测或 active_work_root / restart_required 双态字段。自动重连、任务控制和 quota 检查属于运行行为，不重新加载配置。
+quota 统计受管 conversation 目录，清理整个空闲目录；运行、等待回答和未确认清理等占用受保护。它是清理和准入策略，不是执行中的文件系统硬配额。工作目录组织及保护规则以 client-session.md 为准。

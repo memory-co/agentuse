@@ -90,9 +90,10 @@ func Token(path string) (string, error) {
 type ReadFailure struct{ Err error }
 
 type PublicData struct {
+	SessionStatus  func(context.Context, string, string, string) (any, error)
 	LocalCreate    func(context.Context, string) (store.Conversation, error)
 	LocalStart     func(context.Context, string, json.RawMessage) (store.Run, error)
-	LocalControl   func(context.Context, string, string, string, string, string, json.RawMessage) error
+	LocalControl   func(context.Context, string, string, string, json.RawMessage) (any, error)
 	LocalHarnesses func() (any, error)
 	Endpoints      func() any
 	Settings       func() any
@@ -312,7 +313,7 @@ func (c *Controller) list(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, v)
 }
 func (c *Controller) detail(w http.ResponseWriter, r *http.Request) {
-	v, e := c.reader.Detail(r.Context(), r.PathValue("endpoint"), r.PathValue("conversation"), r.PathValue("session"), r.PathValue("run"), r.PathValue("attempt"))
+	v, e := c.reader.Detail(r.Context(), r.PathValue("endpoint"), r.PathValue("conversation"), r.PathValue("session"), r.PathValue("run"))
 	if e != nil {
 		failure(w, e)
 		return
@@ -453,10 +454,23 @@ func (c *Controller) localControl(w http.ResponseWriter, r *http.Request) {
 		failure(w, e)
 		return
 	}
-	e = c.data.LocalControl(r.Context(), r.PathValue("conversation"), r.PathValue("session"), r.PathValue("run"), r.PathValue("attempt"), r.PathValue("action"), b)
+	result, e := c.data.LocalControl(r.Context(), r.PathValue("conversation"), r.PathValue("session"), r.PathValue("action"), b)
 	if e != nil {
 		apiError(w, 400, "local_error", e.Error())
 		return
 	}
-	jsonResponse(w, map[string]bool{"ok": true})
+	jsonResponse(w, result)
+}
+
+func (c *Controller) sessionStatus(w http.ResponseWriter, r *http.Request) {
+	if c.data.SessionStatus == nil {
+		apiError(w, 503, "unavailable", "session runtime is unavailable")
+		return
+	}
+	state, err := c.data.SessionStatus(r.Context(), r.PathValue("endpoint"), r.PathValue("conversation"), r.PathValue("session"))
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	jsonResponse(w, state)
 }
