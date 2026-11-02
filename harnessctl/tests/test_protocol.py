@@ -230,6 +230,31 @@ class ProtocolTests(unittest.TestCase):
         self.assertTrue(any(x.get('frame',{}).get('method')=='thread/resume' for x in frames))
         self.assertTrue(any('--resume' in x.get('argv',[]) for x in frames))
 
+    def test_automatic_permissions_apply_on_creation_and_resume(self):
+        for adapter in ADAPTERS:
+            event=self.send(adapter,'events')
+            self.wait(event,'result',status='completed')
+            self.assertFalse(any(e['type']=='request' for e in self.events(event)))
+            self.stop(event)
+            self.send(adapter,'events',event=event)
+            deadline=time.monotonic()+5
+            while time.monotonic()<deadline:
+                if len([e for e in self.events(event) if e['type']=='result'])==2:break
+                time.sleep(.02)
+            self.assertEqual(len([e for e in self.events(event) if e['type']=='result']),2)
+            self.assertFalse(any(e['type']=='request' for e in self.events(event)))
+        frames=[json.loads(x) for x in self.log.read_text().splitlines()]
+        requests=[x['frame'] for x in frames if x.get('frame',{}).get('method') in ('thread/start','thread/resume')]
+        self.assertEqual({x['method'] for x in requests},{'thread/start','thread/resume'})
+        for request in requests:
+            self.assertEqual(request['params']['approvalPolicy'],'never')
+            self.assertEqual(request['params']['sandbox'],'danger-full-access')
+        commands=[x['argv'] for x in frames if 'argv' in x and Path(x['argv'][0]).name=='claude']
+        self.assertEqual(len(commands),2)
+        for command in commands:
+            self.assertEqual(command[command.index('--permission-mode')+1],'bypassPermissions')
+            self.assertEqual(command[command.index('--permission-prompt-tool')+1],'stdio')
+
     def test_loss_is_reported_once_and_next_send_resumes(self):
         event=self.send('codex')
         self.wait_log(event,'session.ready')

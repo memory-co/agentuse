@@ -18,3 +18,5 @@ printf '%s' "$prompt" | "$A" send /tmp/task.jsonl --cwd /path/to/workspace
 JSONL 完整事件契约见 [EVENT.md](EVENT.md)，机器格式见 [event.schema.json](event.schema.json)。写入前由本包校验，不依赖外部模块。
 
 公共事件仅 accepted、message、request、result、log 五种。前四种可靠落盘；日志可丢，不承担正文、审批或终态。run_id 由本适配器分配 UUID，确认的插话共享当前 run，使用方不能指定。
+
+默认执行权限为自动放行：thread/start 和 thread/resume 均显式设置 approvalPolicy=never、sandbox=danger-full-access，不继承本机较保守的默认值。普通工具执行不进入 reply 链路；用户问题仍以 request(kind=question) 等待 reply。若原生仍发出显式权限请求，作为例外保留 permission 请求，不擅自吞掉或伪造批准。组织策略拒绝、认证错误和执行失败不会通过自动 reply 绕过。

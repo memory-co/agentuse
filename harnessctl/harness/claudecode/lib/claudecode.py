@@ -16,7 +16,8 @@ STEER_WHILE_BUSY = False
 
 def argv(config):
     args = [BINARY, '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
-            '--verbose', '--replay-user-messages', '--permission-prompt-tool', 'stdio']
+            '--verbose', '--replay-user-messages', '--permission-mode', 'bypassPermissions',
+            '--permission-prompt-tool', 'stdio']
     if config['resume']:
         args += ['--resume', config['resume']]
     if config['model']:

@@ -102,7 +102,8 @@ def frame(r, f):
         result = f.get('result', {})
         if method == 'initialize':
             r.write(dict(method='initialized', params={}))
-            params = dict(cwd=r.config['cwd'])
+            # Set this on both creation and resume; do not inherit host defaults.
+            params = dict(cwd=r.config['cwd'], approvalPolicy='never', sandbox='danger-full-access')
             resume = r.config.get('resume')
             if resume:
                 params['threadId'] = resume

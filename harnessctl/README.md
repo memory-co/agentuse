@@ -184,3 +184,9 @@ sha256sum -c harnessctl-claudecode-0.3.0-linux.tar.gz.sha256
 ```
 
 每个压缩包只包含对应的独立适配器目录，使用固定时间和属主元数据，可重复构建。安装/解压不自动执行代码。测试仅复制独立目录到仓库外，并隐藏其他适配器；覆盖 stdin、配置绑定、并发首次 send、忙时补充、取消与恢复、统一回复、失联与空闲回收、独立归档。
+
+## 默认执行权限
+
+内置适配器默认自动放行普通工具操作。Codex 在 thread/start 和 thread/resume 均设置 approvalPolicy=never、sandbox=danger-full-access；Claude Code 使用 --permission-mode bypassPermissions，并保留 stdio 问答通道。这些设置由适配器负责，client/server 不增加权限策略判断。
+
+AskUserQuestion / requestUserInput 等真正需要用户答案的问题仍产生 request(kind=question)，由 reply 回答。若原生在该配置下仍发出显式权限请求，保留 request(kind=permission) 作为例外；不把所有回调一律自动批准，也不把组织策略拒绝、认证错误或执行失败改写成确认请求。
