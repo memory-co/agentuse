@@ -579,34 +579,24 @@ function App() {
                     </span>
                   </div>
                   {(runs.data?.pages.flatMap((p) => p.items) ?? []).map((r) => (
-                    <button
-                      key={r.run_id}
-                      onClick={() => setSelected(r)}
-                      className="block w-full rounded-xl border bg-background p-4 text-left transition-colors hover:bg-accent/40"
-                    >
-                      <div className="flex flex-wrap items-center gap-3">
+                    <article key={r.run_id} className="rounded-xl border bg-background p-4">
+                      <button
+                        onClick={() => setSelected(r)}
+                        aria-label={`查看 ${r.run_id} 的执行日志`}
+                        className="flex w-full flex-wrap items-center gap-3 rounded-md text-left hover:bg-accent/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+                      >
                         <Status value={r.status} />
-                        <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
-                          {r.run_id}
-                        </span>
-                        <time className="text-xs text-muted-foreground">
-                          {date(r.received_at)}
-                        </time>
+                        <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{r.run_id}</span>
+                        <time className="text-xs text-muted-foreground">{date(r.received_at)}</time>
+                        <span className="text-xs text-muted-foreground">日志与详情</span>
                         <ChevronRight className="size-4 text-muted-foreground" />
-                      </div>
-                      <p className="mt-3 line-clamp-2 whitespace-pre-wrap break-words text-sm leading-relaxed">
-                        {r.summary || "无文本摘要"}
-                      </p>
+                      </button>
+                      <RunConversation run={r} />
                       <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
                         <span>{Math.round(r.duration_ms / 1000)} 秒</span>
-                        <span>
-                          {r.usage
-                            ? `${(r.usage.input_tokens + r.usage.output_tokens).toLocaleString()} tokens`
-                            : "用量未知"}
-                        </span>
-
+                        <span>{r.usage ? `${(r.usage.input_tokens + r.usage.output_tokens).toLocaleString()} tokens` : "用量未知"}</span>
                       </div>
-                    </button>
+                    </article>
                   ))}
                   {runs.isPending ? (
                     <Loader2 className="size-4 animate-spin" />
@@ -868,6 +858,41 @@ function Empty({ title, text }: { title: string; text: string }) {
     </div>
   );
 }
+function RunConversation({ run }: { run: Run }) {
+  const entries: { key: string; label: string; text: string; input: boolean }[] = [];
+  const messages = new Map<string, number>();
+  let inputs = 0;
+  for (const [index, event] of (run.events ?? []).entries()) {
+    const payload = event.payload as { text?: string; message_id?: string } | null;
+    if (!payload || typeof payload.text !== "string") continue;
+    if (event.kind === "accepted") {
+      entries.push({ key: `input-${index}`, label: inputs++ ? "插话 / 补充输入" : "输入", text: payload.text, input: true });
+    } else if (event.kind === "message" && payload.message_id) {
+      const previous = messages.get(payload.message_id);
+      if (previous !== undefined) entries[previous].text = payload.text;
+      else {
+        messages.set(payload.message_id, entries.length);
+        entries.push({ key: `message-${payload.message_id}`, label: "输出", text: payload.text, input: false });
+      }
+    }
+  }
+  if (!inputs && run.summary) entries.unshift({ key: "summary", label: "输入", text: run.summary, input: true });
+  // result.output is a final snapshot, not another agent message.
+  if (!messages.size && run.output) entries.push({ key: "result", label: "输出", text: run.output, input: false });
+  return (
+    <div className="mt-4 space-y-3">
+      {entries.map(entry => (
+        <div key={entry.key} className={`rounded-lg p-3 ${entry.input ? "bg-muted/60" : "border-l-2 border-primary/30"}`}>
+          <div className="mb-1 text-xs font-medium text-muted-foreground">{entry.label}</div>
+          <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry.text}</div>
+        </div>
+      ))}
+      {run.error && <p className="whitespace-pre-wrap break-words text-sm text-destructive">{run.error}</p>}
+      {!run.finished_at && <p className="text-xs text-muted-foreground">{run.status === "waiting" ? "等待回复" : "正在执行…"}</p>}
+    </div>
+  );
+}
+
 function RunDetail({
   base,
   run,
@@ -917,9 +942,6 @@ function RunDetail({
           <div className="mt-5">
             <ErrorNotice error={q.error} />
           </div>
-          <p className="my-5 whitespace-pre-wrap break-words text-sm leading-relaxed">
-            {r.summary}
-          </p>
           <dl className="grid grid-cols-[90px_minmax(0,1fr)] gap-x-4 gap-y-3 text-xs">
             {[
               ["Run", r.run_id],
@@ -955,18 +977,10 @@ function RunDetail({
               {r.error}
             </pre>
           )}
-          {r.output && (
-            <section className="mt-6">
-              <h3 className="mb-2 text-sm font-medium">结果</h3>
-              <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted/50 p-4 text-sm leading-relaxed">
-                {r.output}
-              </pre>
-            </section>
-          )}
-          {!!r.events?.length && (
+          {r.events?.some(e => e.kind === "log") && (
             <section className="mt-6 space-y-3">
-              <h3 className="text-sm font-medium">执行事件</h3>
-              {r.events.map((e, i) => (
+              <h3 className="text-sm font-medium">执行日志</h3>
+              {r.events.filter(e => e.kind === "log").map((e, i) => (
                 <div key={i} className="rounded-lg border p-3">
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>{e.kind}</span>
