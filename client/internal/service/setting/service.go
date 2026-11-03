@@ -3,13 +3,14 @@ package setting
 import (
 	"bytes"
 	"fmt"
-	"github.com/memory-co/agentuse/client/internal/store"
-	"gopkg.in/yaml.v3"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/memory-co/agentuse/client/internal/fileutil"
+	"gopkg.in/yaml.v3"
 )
 
 type Settings struct {
@@ -66,14 +67,14 @@ func (s Settings) Validate() error {
 			return fmt.Errorf("work_root overlaps protected directory")
 		}
 	}
-	_, e := store.SafePath(p)
+	_, e := fileutil.SafePath(p)
 	return e
 }
 func New(path string) (*Service, error) {
 	s := &Service{Path: path}
 	if _, e := os.Stat(path); os.IsNotExist(e) {
 		v := Defaults()
-		if e = store.WriteYAML(path, v); e != nil {
+		if e = fileutil.WriteYAML(path, v); e != nil {
 			return nil, e
 		}
 	}
@@ -112,12 +113,12 @@ func (s *Service) Save(v Settings) error {
 	if e := v.Validate(); e != nil {
 		return e
 	}
-	unlock, err := store.Lock(s.Path + ".lock")
+	unlock, err := fileutil.Lock(s.Path + ".lock")
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	if e := store.WriteYAML(s.Path, v); e != nil {
+	if e := fileutil.WriteYAML(s.Path, v); e != nil {
 		return e
 	}
 	return nil

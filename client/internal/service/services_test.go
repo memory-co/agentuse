@@ -3,17 +3,18 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"github.com/memory-co/agentuse/client/internal/service/endpoint"
-	"github.com/memory-co/agentuse/client/internal/service/harness"
-	"github.com/memory-co/agentuse/client/internal/service/run"
-	"github.com/memory-co/agentuse/client/internal/store"
-	"github.com/memory-co/agentuse/internal/protocol"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/memory-co/agentuse/client/internal/service/endpoint"
+	"github.com/memory-co/agentuse/client/internal/service/harness"
+	"github.com/memory-co/agentuse/client/internal/service/run"
+	"github.com/memory-co/agentuse/client/internal/service/session"
+	"github.com/memory-co/agentuse/internal/protocol"
 )
 
 func TestConfigRoundTrip(t *testing.T) {
@@ -111,11 +112,10 @@ func TestRunningClientUsesStartupConfiguration(t *testing.T) {
 	t.Setenv("HOME", home)
 	path := filepath.Join(home, ".agentuse", "endpoints.yaml")
 	root := filepath.Join(home, ".agentuse", "tmp")
-	files, err := store.Open(root)
+	files, err := session.New(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer files.Close()
 	adapterRoot := filepath.Join(filepath.Dir(path), "harness")
 	if err = harness.SaveCommandAdapters(adapterRoot, map[string]harness.HarnessConfig{"custom": {Command: "/bin/true"}}); err != nil {
 		t.Fatal(err)

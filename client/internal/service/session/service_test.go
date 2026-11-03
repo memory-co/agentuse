@@ -2,10 +2,10 @@ package session
 
 import (
 	"context"
-	"github.com/memory-co/agentuse/client/internal/service/setting"
-	"github.com/memory-co/agentuse/client/internal/store"
 	"path/filepath"
 	"testing"
+
+	"github.com/memory-co/agentuse/client/internal/service/setting"
 )
 
 func TestSessionServiceRootChangeRequiresRestart(t *testing.T) {
@@ -15,8 +15,9 @@ func TestSessionServiceRootChangeRequiresRestart(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	files, _ := store.Open(setting.Get().Session.WorkRoot)
-	sessions := Service{Files: files, Settings: setting}
+	files, _ := New(setting.Get().Session.WorkRoot)
+	sessions := files
+	sessions.Settings = setting
 	cfg := setting.Get()
 	cfg.Session.WorkRoot = filepath.Join(home, "new-root")
 	if e = setting.Save(cfg); e != nil {

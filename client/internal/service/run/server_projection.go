@@ -1,4 +1,4 @@
-package store
+package run
 
 import (
 	"bufio"
@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/memory-co/agentuse/client/internal/fileutil"
 	"github.com/memory-co/agentuse/internal/protocol"
 	sdk "github.com/memory-co/agentuse/sdk/golang"
 )
@@ -19,7 +20,7 @@ func projectDelivery(path string, r *Delivery) error {
 	if len(r.HarnessRunIDs) == 0 {
 		return nil
 	}
-	if _, err := SafePath(filepath.Dir(path), filepath.Base(path)); err != nil {
+	if _, err := fileutil.SafePath(filepath.Dir(path), filepath.Base(path)); err != nil {
 		return err
 	}
 	file, err := os.Open(path)
@@ -147,7 +148,7 @@ func projectDelivery(path string, r *Delivery) error {
 // Recover only the unbound tail of an interrupted execution, before new work
 // can enter this session. A saved offset prevents claiming earlier inputs.
 func recoverBindings(path string, offset int64) ([]string, error) {
-	if _, err := SafePath(filepath.Dir(path), filepath.Base(path)); err != nil {
+	if _, err := fileutil.SafePath(filepath.Dir(path), filepath.Base(path)); err != nil {
 		return nil, err
 	}
 	f, err := os.Open(path)

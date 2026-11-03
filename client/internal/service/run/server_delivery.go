@@ -3,18 +3,19 @@ package run
 import (
 	"context"
 	"encoding/json"
-	"github.com/memory-co/agentuse/client/internal/service/harness"
-	"github.com/memory-co/agentuse/client/internal/store"
-	"github.com/memory-co/agentuse/internal/protocol"
 	"time"
+
+	"github.com/memory-co/agentuse/client/internal/service/harness"
+	"github.com/memory-co/agentuse/client/internal/service/session"
+	"github.com/memory-co/agentuse/internal/protocol"
 )
 
 func (d *endpointConnection) recordSteer(s protocol.Steer) {
-	if d.ledger != nil {
-		d.ledgerWrite(func(ctx context.Context) error { return d.ledger.Steer(ctx, s.RunID, s.AttemptID, s.ID) })
+	if d.deliveries != nil {
+		d.writeDelivery(func(ctx context.Context) error { return d.deliveries.Steer(ctx, s.RunID, s.AttemptID, s.ID) })
 	}
 }
-func (d *endpointConnection) ledgerWrite(write func(context.Context) error) {
+func (d *endpointConnection) writeDelivery(write func(context.Context) error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := write(ctx); err != nil {
@@ -22,14 +23,14 @@ func (d *endpointConnection) ledgerWrite(write func(context.Context) error) {
 	}
 }
 
-func (d *endpointConnection) recordReceivedLocal(m protocol.Dispatch, s store.Session, dir string) {
+func (d *endpointConnection) recordReceivedLocal(m protocol.Dispatch, s session.Session, dir string) {
 	var input protocol.PromptInput
 	_ = json.Unmarshal(m.Input, &input)
-	d.ledgerWrite(func(ctx context.Context) error {
-		return d.ledger.Receive(ctx, store.Delivery{EndpointID: d.cfg.EndpointID, ConversationID: m.SessionID, RunID: m.RunID, AttemptID: m.AttemptID, Server: d.cfg.Server, DaemonID: d.cfg.DaemonID, Sender: m.Sender, AgentID: m.AgentID, SessionID: s.ID, WorkID: m.WorkID, Harness: m.Harness, HarnessRevision: s.HarnessRevision, Summary: input.Prompt, Directory: dir})
+	d.writeDelivery(func(ctx context.Context) error {
+		return d.deliveries.Receive(ctx, Delivery{EndpointID: d.cfg.EndpointID, ConversationID: m.SessionID, RunID: m.RunID, AttemptID: m.AttemptID, Server: d.cfg.Server, DaemonID: d.cfg.DaemonID, Sender: m.Sender, AgentID: m.AgentID, SessionID: s.ID, WorkID: m.WorkID, Harness: m.Harness, HarnessRevision: s.HarnessRevision, Summary: input.Prompt, Directory: dir})
 	})
 }
-func (d *endpointConnection) recordCompleteLocal(m protocol.Dispatch, s store.Session, r harness.DriveResult, known bool, canceled error) {
+func (d *endpointConnection) recordCompleteLocal(m protocol.Dispatch, s session.Session, r harness.DriveResult, known bool, canceled error) {
 	status := "succeeded"
 	if !r.OK {
 		status = "failed"
@@ -41,7 +42,7 @@ func (d *endpointConnection) recordCompleteLocal(m protocol.Dispatch, s store.Se
 		status = "cancelled"
 		r.Error = canceled.Error()
 	}
-	d.ledgerWrite(func(ctx context.Context) error {
-		return d.ledger.Complete(ctx, m.RunID, m.AttemptID, store.DeliveryFinish{Status: status, Error: r.Error, AttachmentCount: len(m.Attachments), HarnessRunIDs: r.RunIDs})
+	d.writeDelivery(func(ctx context.Context) error {
+		return d.deliveries.Complete(ctx, m.RunID, m.AttemptID, DeliveryFinish{Status: status, Error: r.Error, AttachmentCount: len(m.Attachments), HarnessRunIDs: r.RunIDs})
 	})
 }

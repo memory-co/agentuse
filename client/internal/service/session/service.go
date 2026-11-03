@@ -3,45 +3,52 @@ package session
 import (
 	"context"
 	"fmt"
+	"os"
+	"sync"
+
+	"github.com/memory-co/agentuse/client/internal/fileutil"
 	"github.com/memory-co/agentuse/client/internal/service/endpoint"
 	"github.com/memory-co/agentuse/client/internal/service/setting"
-	"github.com/memory-co/agentuse/client/internal/store"
 )
 
 // Service owns native session selection and conversation workspace policy.
-// File persistence is delegated to store; harness execution remains separate.
+// Session YAML, workspace layout and quota are owned here.
 type Service struct {
-	Files    *store.Ledger
-	Settings *setting.Service
+	Root      string
+	mu        sync.Mutex
+	reserved  map[string]int
+	Protected func(context.Context, string, string) (bool, error)
+	Settings  *setting.Service
 }
 
-func (s *Service) Acquire(ctx context.Context, endpoint, conversation, agent, harness, revision string) (store.Session, string, error) {
-	cfg := s.Settings.Get()
-
-	if q := cfg.Session.Quota; q != nil {
-		if _, e := s.Files.Reclaim(ctx, q.MaxBytes); e != nil {
-			return store.Session{}, "", e
-		}
-	}
-	return s.Files.AcquireSession(ctx, endpoint, conversation, agent, harness, revision)
-}
-func (s *Service) Release(session store.Session, valid bool) error {
-	return s.Files.ReleaseSession(session, valid)
-}
 func (s *Service) Reclaim(ctx context.Context) (int64, error) {
-	cfg := s.Settings.Get()
+	cfg := setting.Defaults()
+	if s.Settings != nil {
+		cfg = s.Settings.Get()
+	}
 	if cfg.Session.Quota == nil {
 		return 0, nil
 	}
-	return s.Files.Reclaim(ctx, cfg.Session.Quota.MaxBytes)
+	return s.ReclaimToLimit(ctx, cfg.Session.Quota.MaxBytes)
 }
 
-func (s *Service) CreateConversation(ctx context.Context, ep endpoint.Endpoint, title string) (store.Conversation, error) {
+func (s *Service) CreateConversation(ctx context.Context, ep endpoint.Endpoint, title string) (Conversation, error) {
 	if !ep.IsLocal() {
-		return store.Conversation{}, fmt.Errorf("platform conversations are created on their server")
+		return Conversation{}, fmt.Errorf("platform conversations are created on their server")
 	}
 	if _, e := s.Reclaim(ctx); e != nil {
-		return store.Conversation{}, e
+		return Conversation{}, e
 	}
-	return s.Files.CreateLocalConversation(ctx, title)
+	return s.CreateLocalConversation(ctx, title)
+}
+
+func New(root string) (*Service, error) {
+	path, err := fileutil.SafePath(root)
+	if err != nil {
+		return nil, err
+	}
+	if err = os.MkdirAll(path, 0700); err != nil {
+		return nil, err
+	}
+	return &Service{Root: path}, nil
 }

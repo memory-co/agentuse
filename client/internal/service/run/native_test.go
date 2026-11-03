@@ -12,7 +12,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/client/internal/service/harness"
-	"github.com/memory-co/agentuse/client/internal/store"
 )
 
 func nativeFixture(t *testing.T) (*Service, string) {
@@ -50,7 +49,7 @@ func waitNative(t *testing.T, fn func() bool) {
 	}
 	t.Fatal("native state did not arrive")
 }
-func assertNativeIdentity(t *testing.T, service *Service, run store.Run) {
+func assertNativeIdentity(t *testing.T, service *Service, run Run) {
 	t.Helper()
 	if _, err := uuid.Parse(run.RunID); err != nil {
 		t.Fatal("adapter did not assign a UUID", run.RunID)
@@ -61,7 +60,7 @@ func assertNativeIdentity(t *testing.T, service *Service, run store.Run) {
 			t.Fatal("foreign identity leaked", foreign)
 		}
 	}
-	root := filepath.Join(service.Store.Root, run.EndpointID, run.ConversationID, "sessions", run.SessionID)
+	root := filepath.Join(service.Sessions.Root, run.EndpointID, run.ConversationID, "sessions", run.SessionID)
 	index, err := os.ReadFile(filepath.Join(root, "runs", run.RunID+".jsonl"))
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +102,7 @@ func TestNativeCodexSendCanKeepTheSameRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if next.(store.Run).RunID != first.RunID {
+	if next.(Run).RunID != first.RunID {
 		t.Fatal("client split a confirmed native steer")
 	}
 	result := awaitLocal(t, service, first)
@@ -114,7 +113,7 @@ func TestNativeCodexSendCanKeepTheSameRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := resumed.(store.Run)
+	run := resumed.(Run)
 	if run.RunID == first.RunID || run.SessionID != first.SessionID {
 		t.Fatal("idle send did not resume the exact session", run)
 	}
@@ -135,7 +134,7 @@ func TestNativeClaudeSteerSharesCurrentRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := second.(store.Run)
+	run := second.(Run)
 	if run.RunID != first.RunID || run.SessionID != first.SessionID {
 		t.Fatal("supplement was not injected into the current interaction", run)
 	}
@@ -144,7 +143,7 @@ func TestNativeClaudeSteerSharesCurrentRun(t *testing.T) {
 	os.WriteFile(gate, []byte("go"), 0600)
 	awaitLocal(t, service, first)
 	awaitLocal(t, service, run)
-	rows, err := service.Store.Reader().List(ctx, store.Filter{Endpoint: "local", Conversation: conversation.ID, Session: first.SessionID})
+	rows, err := service.List(ctx, Filter{Endpoint: "local", Conversation: conversation.ID, Session: first.SessionID})
 	if err != nil || len(rows.Runs) != 1 {
 		t.Fatal(rows, err)
 	}
@@ -159,7 +158,7 @@ func TestNativeReplyUsesRequestIDAndInvalidReplyDoesNotCancel(t *testing.T) {
 	}
 	requestID := ""
 	waitNative(t, func() bool {
-		view, e := service.Store.Reader().Detail(ctx, "local", conversation.ID, run.SessionID, run.RunID)
+		view, e := service.Detail(ctx, "local", conversation.ID, run.SessionID, run.RunID)
 		if e != nil || view.Status != "waiting" {
 			return false
 		}
@@ -213,7 +212,7 @@ func TestNativeClaudeReplyWhileSendAwaitsConsumption(t *testing.T) {
 	}()
 	requestID := ""
 	waitNative(t, func() bool {
-		view, err := service.Store.Reader().Detail(ctx, "local", conversation.ID, first.SessionID, first.RunID)
+		view, err := service.Detail(ctx, "local", conversation.ID, first.SessionID, first.RunID)
 		if err != nil {
 			return false
 		}
@@ -240,7 +239,7 @@ func TestNativeClaudeReplyWhileSendAwaitsConsumption(t *testing.T) {
 		if result.err != nil {
 			t.Fatal(result.err)
 		}
-		if result.run.(store.Run).RunID != first.RunID {
+		if result.run.(Run).RunID != first.RunID {
 			t.Fatal("reply split the pending supplement")
 		}
 	case <-ctx.Done():

@@ -12,7 +12,7 @@ Client 从输入来源接收文本，选择本机 session，调用 harnessctl，
 | runService | 接收输入、驱动 session、登记实际 run、查询和控制 | runs/<run_id>.jsonl 引用及 events.jsonl |
 | harnessService | 安装和固定适配器，通过四个命令执行和读取公共事件 | ~/.agentuse/harness/ 下的启动快照 |
 
-controller 处理本机 HTTP，service 负责行为，store 提供文件读写。原生 Codex RPC、Claude stream-json、权限策略和进程生命周期全部属于独立 harnessctl 包，client 不实现另一套原生协议。
+controller 处理本机 HTTP，通过 sessionService 和 runService 的只读查询接口获取页面数据。各 service 直接管理自己负责的 YAML / JSONL 文件；client 不设 store、repository、Ledger 或统一 Reader / Writer 层。fileutil 只提供路径检查、原子文件写入、YAML 编解码和进程文件锁，不包含业务实体、索引或恢复策略。原生 Codex RPC、Claude stream-json、权限策略和进程生命周期全部属于独立 harnessctl 包，client 不实现另一套原生协议。
 
 ```mermaid
 flowchart LR
@@ -27,6 +27,27 @@ flowchart LR
   index --> view
   view --> http[本机 API / 页面]
 ```
+
+## 代码和文件归属
+
+```text
+client/internal/
+  cli/                    启动、配置装配、进程锁和 HTTP 启停
+  controller/             本机 API；分别注入 session / run 的只读查询接口
+  fileutil/               通用路径、原子写入、YAML 和文件锁
+  service/
+    endpoint/             endpoints.yaml、endpoint 身份推导和注册
+    setting/              setting.yaml 的配置校验与启动快照
+    session/              conversation/session 元数据、目录、占用和 quota
+    run/                  原生 run 引用、事件查询、计量、执行和旧中心协议适配
+    harness/              独立适配器包的安装、命令调用和公共事件读取
+```
+
+sessionService 直接读取 conversation.yaml / session.yaml，并决定 workspace 及目录回收。runService 直接创建 runs/<run_id>.jsonl，从 events.jsonl 形成展示视图；恢复索引和旧 server 交付记录也由 runService 负责。两者没有包级循环依赖。
+
+重启恢复时，runService 先通过 sessionService 查询未完成 session，把其 harness / revision / events 地址交给 harnessService 确认取消，再重建 run 引用及交付状态，最后由 sessionService 恢复元数据。harnessService 不扫描 conversation 目录或解释 session.yaml。
+
+quota 回收由 sessionService 负责；旧中心待确认交付是否保护目录，由 runService 提供判断。sessionService 不解析 .server/ 文件，fileutil 不承担目录保护策略。内存互斥锁协调并发文件操作，不保存另一套持久化事实。
 
 ## 身份与生命周期
 
@@ -103,7 +124,7 @@ send body 为 prompt，返回此次 accepted 对应的 run，可能与先前相�
 
 ## 现有 server 的临时边界
 
-现有 server 仍使用自己的派发 run/attempt、租约、历史游标和 event_ack。它们隔离在 run/server_*.go 及 store/server_*.go 的协议适配层，持久化于 session/.server/，不进入 client Run DTO、公开 URL、前端或 run 文件名。
+现有 server 仍使用自己的派发 run/attempt、租约、历史游标和 event_ack。它们隔离在 run/server_*.go 的协议适配层，持久化于 session/.server/，不进入 client Run DTO、公开 URL、前端或 run 文件名。
 
 该边界只转换来源指令、凭据、输入资源和回报；client 的 run 始终以适配器 UUID 为准。Server 业务指令（包括协调者规则）由 server 生成，client 不据凭据推断角色。本次不改 server 协议，后续可以替换这一边界而不再改变 client run 模型。
 

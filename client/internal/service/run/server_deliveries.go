@@ -1,6 +1,6 @@
 // Compatibility storage for the unchanged server wire protocol. Delivery IDs
 // and attempts belong only to that protocol, never to public client runs.
-package store
+package run
 
 import (
 	"context"
@@ -12,6 +12,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/memory-co/agentuse/client/internal/fileutil"
+	"github.com/memory-co/agentuse/client/internal/service/endpoint"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
@@ -54,7 +57,7 @@ type DeliveryFinish struct {
 	Status, Error   string
 	AttachmentCount int
 }
-type DeliveryWriter interface {
+type deliverySink interface {
 	Receive(context.Context, Delivery) error
 	Complete(context.Context, string, string, DeliveryFinish) error
 	Steer(context.Context, string, string, int64) error
@@ -65,37 +68,32 @@ type DeliveryPage struct {
 	Total, Limit, Offset int
 	NextCursor           string
 }
-type DeliveryReader interface {
-	DeliveryDetail(context.Context, string, string, string, string, string) (Delivery, error)
-	DeliveryList(context.Context, Filter) (DeliveryPage, error)
-}
-
-func (l *Ledger) DeliveryReader() DeliveryReader { return &readStore{l} }
-
-type writeStore struct {
-	l        *Ledger
+type serverDeliverySink struct {
+	l        *Service
 	endpoint string
 }
 
-func (l *Ledger) ServerWriter() DeliveryWriter               { return &writeStore{l: l} }
-func (l *Ledger) ServerForEndpoint(id string) DeliveryWriter { return &writeStore{l: l, endpoint: id} }
-func key(endpoint, run, attempt string) string               { return endpoint + "/" + run + "/" + attempt }
-func (w *writeStore) Receive(ctx context.Context, r Delivery) error {
-	if !Segment(r.RunID) || !Segment(r.AttemptID) {
-		return ErrInvalid
+func (l *Service) ServerWriter() deliverySink { return &serverDeliverySink{l: l} }
+func (l *Service) ServerForEndpoint(id string) deliverySink {
+	return &serverDeliverySink{l: l, endpoint: id}
+}
+func key(endpoint, run, attempt string) string { return endpoint + "/" + run + "/" + attempt }
+func (w *serverDeliverySink) Receive(ctx context.Context, r Delivery) error {
+	if !fileutil.Segment(r.RunID) || !fileutil.Segment(r.AttemptID) {
+		return fileutil.ErrInvalid
 	}
 	if e := ctx.Err(); e != nil {
 		return e
 	}
-	w.l.mu.Lock()
-	defer w.l.mu.Unlock()
+	w.l.fileMu.Lock()
+	defer w.l.fileMu.Unlock()
 	if r.EndpointID == "" {
 		r.EndpointID = w.endpoint
 	}
 	if r.EndpointID == "" {
-		_, r.EndpointID, _ = NormalizeEndpoint(r.Server)
+		_, r.EndpointID, _ = endpoint.NormalizeEndpoint(r.Server)
 	}
-	p, e := SafePath(w.l.Root, r.EndpointID, r.ConversationID, "sessions", r.SessionID, ".server", r.RunID+".jsonl")
+	p, e := fileutil.SafePath(w.l.Sessions.Root, r.EndpointID, r.ConversationID, "sessions", r.SessionID, ".server", r.RunID+".jsonl")
 	if e != nil {
 		return e
 	}
@@ -128,18 +126,18 @@ func (w *writeStore) Receive(ctx context.Context, r Delivery) error {
 	w.l.serverPaths[key(r.EndpointID, r.RunID, r.AttemptID)] = p
 	return nil
 }
-func (w *writeStore) update(ctx context.Context, run, attempt string, fn func(*Delivery)) error {
+func (w *serverDeliverySink) update(ctx context.Context, run, attempt string, fn func(*Delivery)) error {
 	if e := ctx.Err(); e != nil {
 		return e
 	}
-	w.l.mu.Lock()
-	defer w.l.mu.Unlock()
+	w.l.fileMu.Lock()
+	defer w.l.fileMu.Unlock()
 	p := w.l.serverPaths[key(w.endpoint, run, attempt)]
 	if p == "" && w.endpoint == "" {
 		for k, path := range w.l.serverPaths {
 			if strings.HasSuffix(k, "/"+run+"/"+attempt) {
 				if p != "" {
-					return ErrInvalid
+					return fileutil.ErrInvalid
 				}
 				p = path
 			}
@@ -160,7 +158,7 @@ func (w *writeStore) update(ctx context.Context, run, attempt string, fn func(*D
 	}
 	return appendDelivery(p, "updated", attempt, changes)
 }
-func (w *writeStore) Complete(ctx context.Context, run, attempt string, f DeliveryFinish) error {
+func (w *serverDeliverySink) Complete(ctx context.Context, run, attempt string, f DeliveryFinish) error {
 	return w.update(ctx, run, attempt, func(r *Delivery) {
 		now := time.Now().UnixMilli()
 		r.Status = f.Status
@@ -174,7 +172,7 @@ func (w *writeStore) Complete(ctx context.Context, run, attempt string, f Delive
 		r.AttachmentCount = f.AttachmentCount
 	})
 }
-func (w *writeStore) Steer(ctx context.Context, run, attempt string, id int64) error {
+func (w *serverDeliverySink) Steer(ctx context.Context, run, attempt string, id int64) error {
 	return w.update(ctx, run, attempt, func(r *Delivery) {
 		for _, v := range r.SteerIDs {
 			if v == id {
@@ -185,7 +183,7 @@ func (w *writeStore) Steer(ctx context.Context, run, attempt string, id int64) e
 		r.SteerCount = len(r.SteerIDs)
 	})
 }
-func (l *Ledger) Event(ctx context.Context, endpoint, run, attempt, kind string, payload json.RawMessage) error {
+func (l *Service) Event(ctx context.Context, endpoint, run, attempt, kind string, payload json.RawMessage) error {
 	if kind != "accepted" {
 		return nil
 	}
@@ -196,9 +194,9 @@ func (l *Ledger) Event(ctx context.Context, endpoint, run, attempt, kind string,
 		return err
 	}
 	if accepted.RunID == "" {
-		return ErrInvalid
+		return fileutil.ErrInvalid
 	}
-	return (&writeStore{l: l, endpoint: endpoint}).update(ctx, run, attempt, func(r *Delivery) {
+	return (&serverDeliverySink{l: l, endpoint: endpoint}).update(ctx, run, attempt, func(r *Delivery) {
 		for _, id := range r.HarnessRunIDs {
 			if id == accepted.RunID {
 				return
@@ -207,11 +205,11 @@ func (l *Ledger) Event(ctx context.Context, endpoint, run, attempt, kind string,
 		r.HarnessRunIDs = append(r.HarnessRunIDs, accepted.RunID)
 	})
 }
-func (w *writeStore) Reconcile(ctx context.Context) error {
+func (w *serverDeliverySink) Reconcile(ctx context.Context) error {
 	if err := w.l.migrateRuns(ctx); err != nil {
 		return err
 	}
-	err := filepath.WalkDir(w.l.Root, func(path string, d os.DirEntry, e error) error {
+	err := filepath.WalkDir(w.l.Sessions.Root, func(path string, d os.DirEntry, e error) error {
 		if e != nil {
 			return e
 		}
@@ -219,7 +217,7 @@ func (w *writeStore) Reconcile(ctx context.Context) error {
 			return ctx.Err()
 		}
 		if d.IsDir() {
-			rel, _ := filepath.Rel(w.l.Root, path)
+			rel, _ := filepath.Rel(w.l.Sessions.Root, path)
 			parts := strings.Split(rel, string(filepath.Separator))
 			if (len(parts) == 3 && parts[2] == "workspace") || (len(parts) == 5 && parts[4] == "events.jsonl.d") {
 				return filepath.SkipDir
@@ -228,15 +226,15 @@ func (w *writeStore) Reconcile(ctx context.Context) error {
 		if d.Type()&os.ModeSymlink != 0 {
 			return fmt.Errorf("symlink in client state")
 		}
-		if !isDeliveryRecord(w.l.Root, path) {
+		if !isDeliveryRecord(w.l.Sessions.Root, path) {
 			return nil
 		}
 		runs, e := readDeliveryJournal(path)
 		if e != nil {
 			return e
 		}
-		w.l.mu.Lock()
-		defer w.l.mu.Unlock()
+		w.l.fileMu.Lock()
+		defer w.l.fileMu.Unlock()
 		for _, r := range runs {
 			if w.endpoint != "" && r.EndpointID != w.endpoint {
 				continue
@@ -267,12 +265,12 @@ func (w *writeStore) Reconcile(ctx context.Context) error {
 	}
 	return nil
 }
-func (r *readStore) DeliveryDetail(ctx context.Context, endpoint, conversation, session, run, attempt string) (Delivery, error) {
+func (r *Service) DeliveryDetail(ctx context.Context, endpoint, conversation, session, run, attempt string) (Delivery, error) {
 	v := Delivery{AttemptID: attempt}
 	if e := ctx.Err(); e != nil {
 		return v, e
 	}
-	p, e := SafePath(r.l.Root, endpoint, conversation, "sessions", session, ".server", run+".jsonl")
+	p, e := fileutil.SafePath(r.Sessions.Root, endpoint, conversation, "sessions", session, ".server", run+".jsonl")
 	if e != nil {
 		return v, e
 	}
@@ -282,12 +280,12 @@ func (r *readStore) DeliveryDetail(ctx context.Context, endpoint, conversation, 
 	}
 	return v, e
 }
-func (r *readStore) DeliveryList(ctx context.Context, f Filter) (DeliveryPage, error) {
+func (r *Service) DeliveryList(ctx context.Context, f Filter) (DeliveryPage, error) {
 	p := DeliveryPage{Runs: []Delivery{}, Limit: f.Limit, Offset: f.Offset}
 	if p.Limit <= 0 || p.Limit > 200 {
 		p.Limit = 50
 	}
-	root, e := SafePath(r.l.Root, f.Endpoint, f.Conversation, "sessions", f.Session, ".server")
+	root, e := fileutil.SafePath(r.Sessions.Root, f.Endpoint, f.Conversation, "sessions", f.Session, ".server")
 	if e != nil {
 		return p, e
 	}
@@ -303,10 +301,10 @@ func (r *readStore) DeliveryList(ctx context.Context, f Filter) (DeliveryPage, e
 			continue
 		}
 		runID := strings.TrimSuffix(entry.Name(), ".jsonl")
-		if !Segment(runID) {
-			return p, ErrInvalid
+		if !fileutil.Segment(runID) {
+			return p, fileutil.ErrInvalid
 		}
-		path, e := SafePath(root, entry.Name())
+		path, e := fileutil.SafePath(root, entry.Name())
 		if e != nil {
 			return p, e
 		}
@@ -337,21 +335,21 @@ func (r *readStore) DeliveryList(ctx context.Context, f Filter) (DeliveryPage, e
 	}
 	return p, nil
 }
-func (l *Ledger) PrepareReport(ctx context.Context, endpoint, run, attempt string, b json.RawMessage) error {
+func (l *Service) PrepareReport(ctx context.Context, endpoint, run, attempt string, b json.RawMessage) error {
 	var message map[string]json.RawMessage
 	if e := json.Unmarshal(b, &message); e != nil {
 		return e
 	}
 	delete(message, "payload")
 	b, _ = json.Marshal(message)
-	return (&writeStore{l: l, endpoint: endpoint}).update(ctx, run, attempt, func(r *Delivery) { r.PendingReport = b; r.ServerConfirmed = false })
+	return (&serverDeliverySink{l: l, endpoint: endpoint}).update(ctx, run, attempt, func(r *Delivery) { r.PendingReport = b; r.ServerConfirmed = false })
 }
-func (l *Ledger) Confirm(ctx context.Context, endpoint, run, attempt string) error {
-	return (&writeStore{l: l, endpoint: endpoint}).update(ctx, run, attempt, func(r *Delivery) { r.ServerConfirmed = true; r.PendingReport = nil })
+func (l *Service) Confirm(ctx context.Context, endpoint, run, attempt string) error {
+	return (&serverDeliverySink{l: l, endpoint: endpoint}).update(ctx, run, attempt, func(r *Delivery) { r.ServerConfirmed = true; r.PendingReport = nil })
 }
-func (l *Ledger) Pending(endpoint string) []json.RawMessage {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+func (l *Service) Pending(endpoint string) []json.RawMessage {
+	l.fileMu.Lock()
+	defer l.fileMu.Unlock()
 	out := []json.RawMessage{}
 	for k, p := range l.serverPaths {
 		parts := strings.Split(k, "/")
@@ -373,11 +371,11 @@ func isDeliveryRecord(root, path string) bool {
 		return false
 	}
 	p := strings.Split(rel, string(filepath.Separator))
-	return len(p) == 6 && p[2] == "sessions" && p[4] == ".server" && strings.HasSuffix(p[5], ".jsonl") && Segment(strings.TrimSuffix(p[5], ".jsonl"))
+	return len(p) == 6 && p[2] == "sessions" && p[4] == ".server" && strings.HasSuffix(p[5], ".jsonl") && fileutil.Segment(strings.TrimSuffix(p[5], ".jsonl"))
 }
 
-func (l *Ledger) RejectReport(ctx context.Context, endpoint, run, attempt, reason string) error {
-	return (&writeStore{l: l, endpoint: endpoint}).update(ctx, run, attempt, func(r *Delivery) {
+func (l *Service) RejectReport(ctx context.Context, endpoint, run, attempt, reason string) error {
+	return (&serverDeliverySink{l: l, endpoint: endpoint}).update(ctx, run, attempt, func(r *Delivery) {
 		if len(r.PendingReport) > 0 {
 			r.PendingReport = nil
 			r.Status = "interrupted"

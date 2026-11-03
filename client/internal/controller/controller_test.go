@@ -10,14 +10,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/memory-co/agentuse/client/internal/store"
+	runservice "github.com/memory-co/agentuse/client/internal/service/run"
+	"github.com/memory-co/agentuse/client/internal/service/session"
 )
 
 func TestScopedFileAPIAndAuthentication(t *testing.T) {
 	root := t.TempDir()
-	l, _ := store.Open(root)
+	l, _ := openFileServices(root)
 	ctx := context.Background()
-	s, _, e := l.AcquireSession(ctx, "http---localhost%3A8090", "c", "coder", "codex", "v1")
+	s, _, e := l.Sessions.Acquire(ctx, "http---localhost%3A8090", "c", "coder", "codex", "v1")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -58,7 +59,7 @@ func TestScopedFileAPIAndAuthentication(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	ui, e := New(l.Reader(), "127.0.0.1:7801", token)
+	ui, e := New(l.Sessions, l, "127.0.0.1:7801", token)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -98,7 +99,7 @@ func TestScopedFileAPIAndAuthentication(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 	list := call("GET", base+"/runs?cursor=", "localhost:7801", token)
-	var page store.Page
+	var page runservice.Page
 	if err := json.Unmarshal(list.Body.Bytes(), &page); err != nil || len(page.Runs) != 1 {
 		t.Fatal(list.Body.String(), err)
 	}
@@ -160,11 +161,11 @@ func TestTokenFile(t *testing.T) {
 
 func TestPaginationCursorIsBoundToParent(t *testing.T) {
 	ctx := context.Background()
-	l, _ := store.Open(t.TempDir())
-	l.AcquireSession(ctx, "ep", "c", "a", "codex", "v")
-	l.AcquireSession(ctx, "ep", "c", "b", "claude", "v")
+	l, _ := openFileServices(t.TempDir())
+	l.Sessions.Acquire(ctx, "ep", "c", "a", "codex", "v")
+	l.Sessions.Acquire(ctx, "ep", "c", "b", "claude", "v")
 	token := strings.Repeat("x", 64)
-	ui, _ := New(l.Reader(), "localhost:7801", token)
+	ui, _ := New(l.Sessions, l, "localhost:7801", token)
 	call := func(path string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("GET", "http://localhost:7801"+path, nil)
 		r.Header.Set("Authorization", "Bearer "+token)
@@ -174,8 +175,8 @@ func TestPaginationCursorIsBoundToParent(t *testing.T) {
 	}
 	first := call("/api/conversations/ep/c/sessions?limit=1")
 	var page struct {
-		Items  []store.Session `json:"items"`
-		Cursor string          `json:"next_cursor"`
+		Items  []session.Session `json:"items"`
+		Cursor string            `json:"next_cursor"`
 	}
 	if e := json.Unmarshal(first.Body.Bytes(), &page); e != nil || len(page.Items) != 1 || page.Cursor == "" {
 		t.Fatal(first.Code, first.Body.String(), e)
@@ -191,9 +192,9 @@ func TestPaginationCursorIsBoundToParent(t *testing.T) {
 }
 
 func TestPublicListenerKeepsAPIAuthentication(t *testing.T) {
-	files, _ := store.Open(t.TempDir())
+	files, _ := openFileServices(t.TempDir())
 	token := strings.Repeat("x", 64)
-	ui, e := New(files.Reader(), "0.0.0.0:8091", token)
+	ui, e := New(files.Sessions, files, "0.0.0.0:8091", token)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -212,9 +213,9 @@ func TestPublicListenerKeepsAPIAuthentication(t *testing.T) {
 }
 
 func TestBearerLoginPersistsInHTTPOnlyCookie(t *testing.T) {
-	files, _ := store.Open(t.TempDir())
+	files, _ := openFileServices(t.TempDir())
 	token := strings.Repeat("x", 64)
-	ui, _ := New(files.Reader(), "0.0.0.0:8091", token)
+	ui, _ := New(files.Sessions, files, "0.0.0.0:8091", token)
 	call := func(auth string, cookie *http.Cookie) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("GET", "http://public.example:8091/api/status", nil)
 		if auth != "" {
@@ -245,7 +246,7 @@ func TestBearerLoginPersistsInHTTPOnlyCookie(t *testing.T) {
 	if w := call("", nil); w.Code != 401 {
 		t.Fatal("unauthenticated request accepted", w.Code)
 	}
-	restarted, _ := New(files.Reader(), "0.0.0.0:8091", strings.Repeat("y", 64))
+	restarted, _ := New(files.Sessions, files, "0.0.0.0:8091", strings.Repeat("y", 64))
 	r := httptest.NewRequest("GET", "http://public.example:8091/api/status", nil)
 	r.AddCookie(cookie)
 	w := httptest.NewRecorder()
@@ -256,12 +257,12 @@ func TestBearerLoginPersistsInHTTPOnlyCookie(t *testing.T) {
 }
 
 func TestLocalMutationAuthenticationAndOrigin(t *testing.T) {
-	files, _ := store.Open(t.TempDir())
+	files, _ := openFileServices(t.TempDir())
 	token := strings.Repeat("x", 64)
 	called := 0
-	ui, _ := New(files.Reader(), "0.0.0.0:8091", token, PublicData{LocalCreate: func(ctx context.Context, title string) (store.Conversation, error) {
+	ui, _ := New(files.Sessions, files, "0.0.0.0:8091", token, PublicData{LocalCreate: func(ctx context.Context, title string) (session.Conversation, error) {
 		called++
-		return files.CreateLocalConversation(ctx, title)
+		return files.Sessions.CreateLocalConversation(ctx, title)
 	}})
 	call := func(path, origin, content, auth string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "http://public.example:8091"+path, strings.NewReader(`{"title":"自由输入 / ../ 中文"}`))
@@ -295,8 +296,16 @@ func TestLocalMutationAuthenticationAndOrigin(t *testing.T) {
 	if w.Code != 201 || called != 1 {
 		t.Fatal(w.Code, w.Body.String(), called)
 	}
-	var c store.Conversation
+	var c session.Conversation
 	if e := json.Unmarshal(w.Body.Bytes(), &c); e != nil || c.EndpointID != "local" || c.Title != "自由输入 / ../ 中文" {
 		t.Fatal(c, e)
 	}
+}
+
+func openFileServices(root string) (*runservice.Service, error) {
+	sessions, err := session.New(root)
+	if err != nil {
+		return nil, err
+	}
+	return runservice.New(runservice.Dependencies{Sessions: sessions}), nil
 }

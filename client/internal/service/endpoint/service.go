@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/memory-co/agentuse/client/internal/store"
-	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/memory-co/agentuse/client/internal/fileutil"
+	"gopkg.in/yaml.v3"
 )
 
 const LocalID = "local"
@@ -28,7 +29,7 @@ func (e Endpoint) ID() string {
 	if e.IsLocal() {
 		return LocalID
 	}
-	_, id, _ := store.NormalizeEndpoint(e.ServerURL)
+	_, id, _ := NormalizeEndpoint(e.ServerURL)
 	return id
 }
 func (e Endpoint) IsLocal() bool { return e.Mode == ModeLocal }
@@ -115,7 +116,7 @@ func (s Service) Registrations() ([]Endpoint, error) {
 	}
 	seen := map[string]bool{}
 	for i, v := range file.Endpoints {
-		url, id, e := store.NormalizeEndpoint(v.ServerURL)
+		url, id, e := NormalizeEndpoint(v.ServerURL)
 		if e != nil {
 			return nil, e
 		}
@@ -134,12 +135,12 @@ func (s Service) Save(v Endpoint) error {
 	}
 	endpointMu.Lock()
 	defer endpointMu.Unlock()
-	unlock, err := store.Lock(s.Path + ".lock")
+	unlock, err := fileutil.Lock(s.Path + ".lock")
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	u, id, e := store.NormalizeEndpoint(v.ServerURL)
+	u, id, e := NormalizeEndpoint(v.ServerURL)
 	if e != nil {
 		return e
 	}
@@ -161,7 +162,7 @@ func (s Service) Save(v Endpoint) error {
 	if !found {
 		items = append(items, v)
 	}
-	return store.WriteYAML(s.Path, struct {
+	return fileutil.WriteYAML(s.Path, struct {
 		Endpoints []Endpoint `yaml:"endpoints"`
 	}{items})
 }
@@ -170,7 +171,7 @@ func (s Service) Get(server string) (Endpoint, error) {
 	if server == LocalID {
 		return Local(), nil
 	}
-	_, id, e := store.NormalizeEndpoint(server)
+	_, id, e := NormalizeEndpoint(server)
 	if e != nil {
 		return Endpoint{}, e
 	}
@@ -191,12 +192,12 @@ func (s Service) Remove(server string) error {
 	}
 	endpointMu.Lock()
 	defer endpointMu.Unlock()
-	unlock, e := store.Lock(s.Path + ".lock")
+	unlock, e := fileutil.Lock(s.Path + ".lock")
 	if e != nil {
 		return e
 	}
 	defer unlock()
-	_, id, e := store.NormalizeEndpoint(server)
+	_, id, e := NormalizeEndpoint(server)
 	if e != nil {
 		return e
 	}
@@ -210,7 +211,7 @@ func (s Service) Remove(server string) error {
 			out = append(out, v)
 		}
 	}
-	return store.WriteYAML(s.Path, struct {
+	return fileutil.WriteYAML(s.Path, struct {
 		Endpoints []Endpoint `yaml:"endpoints"`
 	}{out})
 }

@@ -1,10 +1,12 @@
 package architecture
 
 import (
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -82,5 +84,34 @@ func TestClientServiceDependencies(t *testing.T) {
 	})
 	if e != nil {
 		t.Fatal(e)
+	}
+}
+
+func TestClientFileUtilitiesHaveNoBusinessLayer(t *testing.T) {
+	root := filepath.Join("..", "..", "client", "internal")
+	if _, err := os.Stat(filepath.Join(root, "store")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("client store layer must not be reintroduced", err)
+	}
+	err := filepath.WalkDir(filepath.Join(root, "fileutil"), func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, im := range file.Imports {
+			value, _ := strconv.Unquote(im.Path.Value)
+			if strings.HasPrefix(value, "github.com/memory-co/agentuse/") {
+				t.Errorf("generic file utility %s imports business package %s", path, value)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

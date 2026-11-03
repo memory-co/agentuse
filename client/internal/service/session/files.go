@@ -1,4 +1,4 @@
-package store
+package session
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/memory-co/agentuse/client/internal/fileutil"
 )
 
 type Session struct {
@@ -34,8 +35,8 @@ type Conversation struct {
 	Workspace  string `json:"workspace"`
 }
 
-func (r *readStore) Conversations(ctx context.Context, endpoint string) ([]Conversation, error) {
-	root, e := SafePath(r.l.Root, endpoint)
+func (l *Service) Conversations(ctx context.Context, endpoint string) ([]Conversation, error) {
+	root, e := fileutil.SafePath(l.Root, endpoint)
 	if e != nil {
 		return nil, e
 	}
@@ -51,13 +52,13 @@ func (r *readStore) Conversations(ctx context.Context, endpoint string) ([]Conve
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		if d.IsDir() && Segment(d.Name()) {
-			if _, e = SafePath(root, d.Name()); e != nil {
+		if d.IsDir() && fileutil.Segment(d.Name()) {
+			if _, e = fileutil.SafePath(root, d.Name()); e != nil {
 				return nil, e
 			}
 			c := Conversation{ID: d.Name(), EndpointID: endpoint, Workspace: filepath.Join(endpoint, d.Name(), "workspace")}
 			if endpoint == "local" {
-				c, e = r.l.LocalConversation(ctx, d.Name())
+				c, e = l.LocalConversation(ctx, d.Name())
 				if errors.Is(e, os.ErrNotExist) {
 					continue
 				}
@@ -70,23 +71,23 @@ func (r *readStore) Conversations(ctx context.Context, endpoint string) ([]Conve
 	}
 	return out, nil
 }
-func (r *readStore) Session(ctx context.Context, endpoint, conversation, id string) (Session, error) {
+func (l *Service) Session(ctx context.Context, endpoint, conversation, id string) (Session, error) {
 	var s Session
 	if e := ctx.Err(); e != nil {
 		return s, e
 	}
-	p, e := SafePath(r.l.Root, endpoint, conversation, "sessions", id, "session.yaml")
+	p, e := fileutil.SafePath(l.Root, endpoint, conversation, "sessions", id, "session.yaml")
 	if e != nil {
 		return s, e
 	}
-	e = ReadYAML(p, &s)
+	e = fileutil.ReadYAML(p, &s)
 	if e == nil && (s.ID != id || s.EndpointID != endpoint || s.ConversationID != conversation) {
 		e = fmt.Errorf("session identity mismatch")
 	}
 	return s, e
 }
-func (r *readStore) Sessions(ctx context.Context, endpoint, conversation string) ([]Session, error) {
-	root, e := SafePath(r.l.Root, endpoint, conversation, "sessions")
+func (l *Service) Sessions(ctx context.Context, endpoint, conversation string) ([]Session, error) {
+	root, e := fileutil.SafePath(l.Root, endpoint, conversation, "sessions")
 	if e != nil {
 		return nil, e
 	}
@@ -102,7 +103,7 @@ func (r *readStore) Sessions(ctx context.Context, endpoint, conversation string)
 		if !d.IsDir() {
 			continue
 		}
-		s, e := r.Session(ctx, endpoint, conversation, d.Name())
+		s, e := l.Session(ctx, endpoint, conversation, d.Name())
 		if errors.Is(e, os.ErrNotExist) {
 			continue
 		}
@@ -114,36 +115,39 @@ func (r *readStore) Sessions(ctx context.Context, endpoint, conversation string)
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
 }
-func (l *Ledger) SaveSession(s Session) error {
-	p, e := SafePath(l.Root, s.EndpointID, s.ConversationID, "sessions", s.ID, "session.yaml")
+func (l *Service) SaveSession(s Session) error {
+	p, e := fileutil.SafePath(l.Root, s.EndpointID, s.ConversationID, "sessions", s.ID, "session.yaml")
 	if e != nil {
 		return e
 	}
 	s.UpdatedAt = time.Now().UnixMilli()
-	return WriteYAML(p, s)
+	return fileutil.WriteYAML(p, s)
 }
-func (l *Ledger) AcquireSession(ctx context.Context, endpoint, conversation, agent, harness, revision string) (Session, string, error) {
+func (l *Service) Acquire(ctx context.Context, endpoint, conversation, agent, harness, revision string) (Session, string, error) {
+	if _, err := l.Reclaim(ctx); err != nil {
+		return Session{}, "", err
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var out Session
-	workspace, e := SafePath(l.Root, endpoint, conversation, "workspace")
+	workspace, e := fileutil.SafePath(l.Root, endpoint, conversation, "workspace")
 	if e != nil {
 		return out, "", e
 	}
 	if e = os.MkdirAll(workspace, 0700); e != nil {
 		return out, "", e
 	}
-	marker, e := SafePath(l.Root, endpoint, conversation, ".agentuse-workspace.json")
+	marker, e := fileutil.SafePath(l.Root, endpoint, conversation, ".agentuse-workspace.json")
 	if e != nil {
 		return out, "", e
 	}
 	if _, e = os.Stat(marker); errors.Is(e, os.ErrNotExist) {
-		e = writeJSON(marker, map[string]string{"endpoint_id": endpoint, "conversation_id": conversation})
+		e = fileutil.WriteJSON(marker, map[string]string{"endpoint_id": endpoint, "conversation_id": conversation})
 		if e != nil {
 			return out, "", e
 		}
 	}
-	ss, e := l.Reader().Sessions(ctx, endpoint, conversation)
+	ss, e := l.Sessions(ctx, endpoint, conversation)
 	if e != nil {
 		return out, "", e
 	}
@@ -170,7 +174,7 @@ func (l *Ledger) AcquireSession(ctx context.Context, endpoint, conversation, age
 	}
 	return out, workspace, nil
 }
-func (l *Ledger) ReleaseSession(s Session, valid bool) error {
+func (l *Service) Release(s Session, valid bool) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	s.Status = "idle"
@@ -180,7 +184,7 @@ func (l *Ledger) ReleaseSession(s Session, valid bool) error {
 	s.LastUsedAt = time.Now().UnixMilli()
 	return l.SaveSession(s)
 }
-func (l *Ledger) RecoverSessions(ctx context.Context) error {
+func (l *Service) RecoverSessions(ctx context.Context) error {
 	endpoints, e := os.ReadDir(l.Root)
 	if e != nil {
 		return e
@@ -189,12 +193,12 @@ func (l *Ledger) RecoverSessions(ctx context.Context) error {
 		if !ep.IsDir() {
 			continue
 		}
-		cs, e := l.Reader().Conversations(ctx, ep.Name())
+		cs, e := l.Conversations(ctx, ep.Name())
 		if e != nil {
 			return e
 		}
 		for _, c := range cs {
-			ss, e := l.Reader().Sessions(ctx, ep.Name(), c.ID)
+			ss, e := l.Sessions(ctx, ep.Name(), c.ID)
 			if e != nil {
 				return e
 			}
@@ -220,9 +224,9 @@ func (l *Ledger) RecoverSessions(ctx context.Context) error {
 	return nil
 }
 
-// Reclaim holds the same mutex as AcquireSession. Running sessions and pending
+// Reclaim holds the same mutex as Acquire. Running sessions and pending
 // results protect the entire conversation; shared workspaces are counted once.
-func (l *Ledger) Reclaim(ctx context.Context, maxBytes int64) (int64, error) {
+func (l *Service) ReclaimToLimit(ctx context.Context, maxBytes int64) (int64, error) {
 	if maxBytes <= 0 {
 		return 0, nil
 	}
@@ -242,12 +246,12 @@ func (l *Ledger) Reclaim(ctx context.Context, maxBytes int64) (int64, error) {
 		if !ep.IsDir() {
 			continue
 		}
-		cs, e := l.Reader().Conversations(ctx, ep.Name())
+		cs, e := l.Conversations(ctx, ep.Name())
 		if e != nil {
 			return 0, e
 		}
 		for _, c := range cs {
-			p, e := SafePath(l.Root, ep.Name(), c.ID)
+			p, e := fileutil.SafePath(l.Root, ep.Name(), c.ID)
 			if e != nil {
 				return 0, e
 			}
@@ -262,11 +266,18 @@ func (l *Ledger) Reclaim(ctx context.Context, maxBytes int64) (int64, error) {
 			if json.Unmarshal(b, &marker) != nil || marker.EndpointID != ep.Name() || marker.ConversationID != c.ID {
 				continue
 			}
-			ss, e := l.Reader().Sessions(ctx, ep.Name(), c.ID)
+			ss, e := l.Sessions(ctx, ep.Name(), c.ID)
 			if e != nil {
 				return 0, e
 			}
 			busy := l.reserved[ep.Name()+"/"+c.ID] > 0
+			if l.Protected != nil {
+				protected, err := l.Protected(ctx, ep.Name(), c.ID)
+				if err != nil {
+					return 0, err
+				}
+				busy = busy || protected
+			}
 			var last, size int64
 			for _, s := range ss {
 				if s.Status == "running" {
@@ -290,18 +301,7 @@ func (l *Ledger) Reclaim(ctx context.Context, maxBytes int64) (int64, error) {
 						return err
 					}
 					size += info.Size()
-					if isDeliveryRecord(l.Root, path) {
-						records, err := readDeliveryJournal(path)
-						if err != nil {
-							return err
-						}
-						for _, record := range records {
-							if len(record.PendingReport) > 0 && !record.ServerConfirmed {
-								busy = true
-							}
-						}
 
-					}
 				}
 				return nil
 			})
@@ -323,69 +323,64 @@ func (l *Ledger) Reclaim(ctx context.Context, maxBytes int64) (int64, error) {
 			return total, e
 		}
 		total -= c.size
-		for k, p := range l.serverPaths {
-			if rel, e := filepath.Rel(c.path, p); e == nil && rel != ".." && !stringsHasParent(rel) {
-				delete(l.serverPaths, k)
-			}
-		}
+
 	}
 	if total > maxBytes {
 		return total, fmt.Errorf("workspaces exceed quota; all reclaimable directories are in use")
 	}
 	return total, nil
 }
-func stringsHasParent(s string) bool { return len(s) >= 3 && s[:3] == ".."+string(filepath.Separator) }
 
 // Local conversations have their own reserved namespace. Only their title needs
 // metadata; paths remain derived, with no endpoint registration or path registry.
-func (l *Ledger) CreateLocalConversation(ctx context.Context, title string) (Conversation, error) {
+func (l *Service) CreateLocalConversation(ctx context.Context, title string) (Conversation, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if e := ctx.Err(); e != nil {
 		return Conversation{}, e
 	}
 	if strings.TrimSpace(title) == "" || len(title) > 4096 {
-		return Conversation{}, ErrInvalid
+		return Conversation{}, fileutil.ErrInvalid
 	}
 	id := uuid.NewString()
-	root, e := SafePath(l.Root, "local", id)
+	root, e := fileutil.SafePath(l.Root, "local", id)
 	if e != nil {
 		return Conversation{}, e
 	}
 	if e = os.MkdirAll(filepath.Join(root, "workspace"), 0700); e != nil {
 		return Conversation{}, e
 	}
-	if e = writeJSON(filepath.Join(root, ".agentuse-workspace.json"), map[string]string{"endpoint_id": "local", "conversation_id": id}); e != nil {
+	if e = fileutil.WriteJSON(filepath.Join(root, ".agentuse-workspace.json"), map[string]string{"endpoint_id": "local", "conversation_id": id}); e != nil {
 		return Conversation{}, e
 	}
-	if e = WriteYAML(filepath.Join(root, "conversation.yaml"), struct {
+	if e = fileutil.WriteYAML(filepath.Join(root, "conversation.yaml"), struct {
 		Title string `yaml:"title"`
 	}{title}); e != nil {
 		return Conversation{}, e
 	}
 	return Conversation{ID: id, EndpointID: "local", Workspace: filepath.Join("local", id, "workspace"), Title: title}, nil
 }
-func (l *Ledger) LocalConversation(ctx context.Context, id string) (Conversation, error) {
+func (l *Service) LocalConversation(ctx context.Context, id string) (Conversation, error) {
 	if e := ctx.Err(); e != nil {
 		return Conversation{}, e
 	}
-	root, e := SafePath(l.Root, "local", id)
+	root, e := fileutil.SafePath(l.Root, "local", id)
 	if e != nil {
 		return Conversation{}, e
 	}
 	var metadata struct {
 		Title string `yaml:"title"`
 	}
-	if e = ReadYAML(filepath.Join(root, "conversation.yaml"), &metadata); e != nil {
+	if e = fileutil.ReadYAML(filepath.Join(root, "conversation.yaml"), &metadata); e != nil {
 		return Conversation{}, e
 	}
 	return Conversation{ID: id, EndpointID: "local", Workspace: filepath.Join("local", id, "workspace"), Title: metadata.Title}, nil
 }
 
-func (l *Ledger) HoldConversation(endpoint, conversation string) (func(), error) {
+func (l *Service) HoldConversation(endpoint, conversation string) (func(), error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	path, e := SafePath(l.Root, endpoint, conversation)
+	path, e := fileutil.SafePath(l.Root, endpoint, conversation)
 	if e != nil {
 		return nil, e
 	}
@@ -408,4 +403,30 @@ func (l *Ledger) HoldConversation(endpoint, conversation string) (func(), error)
 			}
 		})
 	}, nil
+}
+
+func (l *Service) AcquireExistingSession(ctx context.Context, endpoint, conversation, id, revision string) (Session, string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	session, err := l.Session(ctx, endpoint, conversation, id)
+	if err != nil {
+		return session, "", err
+	}
+	if session.HarnessRevision != revision {
+		return session, "", fmt.Errorf("session uses another adapter revision; create a new session")
+	}
+	if session.Status != "idle" {
+		return session, "", fmt.Errorf("session is not idle")
+	}
+	cwd, err := fileutil.SafePath(l.Root, endpoint, conversation, "workspace")
+	if err != nil {
+		return session, "", err
+	}
+	if info, e := os.Stat(cwd); e != nil || !info.IsDir() {
+		return session, "", fmt.Errorf("session workspace is missing")
+	}
+	session.Status = "running"
+	session.LastUsedAt = time.Now().UnixMilli()
+	err = l.SaveSession(session)
+	return session, cwd, err
 }

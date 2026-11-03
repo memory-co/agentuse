@@ -138,8 +138,8 @@ make dist     # dist/agentuse-{linux,darwin}-{amd64,arm64}(只有用户电脑上
 ```
 client/
 ├── cmd/agentuse/      用户电脑上的 CLI
-├── internal/         cli、service 主循环、只读 controller、本机 store
-└── frontend/         本机执行账本和 token 统计网页
+├── internal/         cli、五个 service、本机 controller、通用 fileutil
+└── frontend/         本机会话、执行记录和 token 统计网页
 server/
 ├── cmd/agentuse-server/ 服务端 CLI
 ├── internal/         cli、HTTP controller、WebSocket hub、业务 service、SQLite store
@@ -151,7 +151,7 @@ test/architecture/    分层依赖检查
 docs/                 v2（当前）/ v1（旧版）
 ```
 
-client 和 server 通过 Go internal 规则隔离；本机 controller 只接收账本 Reader，service 只接收 Writer。服务端写操作和事务编排经过 service，store 保存 SQL、schema 和行解码。详见[目录设计](docs/v2/designs/layout.md)。
+client 和 server 通过 Go internal 规则隔离；本机 controller 分别查询 sessionService 和 runService；client 各 service 直接管理文件，fileutil 仅提供通用文件操作。服务端写操作和事务编排经过 service，store 保存 SQL、schema 和行解码。详见[目录设计](docs/v2/designs/layout.md)。
 
 ## License
 

@@ -1,10 +1,11 @@
 //go:build windows
 
-package store
+package fileutil
 
 import (
-	"golang.org/x/sys/windows"
 	"os"
+
+	"golang.org/x/sys/windows"
 )
 
 func Lock(path string) (func(), error) {

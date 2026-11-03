@@ -4,50 +4,32 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/memory-co/agentuse/client/internal/store"
 	"os"
 	"path/filepath"
+
+	"github.com/memory-co/agentuse/client/internal/fileutil"
 )
 
-// Recover cancels managed foreground work before old session metadata is released
-// or quota reclamation can remove its workspace. It never reads native state/PIDs.
-func (s Service) Recover(ctx context.Context, files *store.Ledger) error {
-	endpoints, e := os.ReadDir(files.Root)
-	if e != nil {
-		return e
-	}
-	for _, ep := range endpoints {
-		if !ep.IsDir() {
+type RecoverySession struct{ Harness, Revision, EventsPath string }
+
+// Recover only handles adapter cancellation at supplied event addresses.
+// Session discovery and metadata recovery belong to run/session services.
+func (s Service) Recover(ctx context.Context, sessions []RecoverySession) error {
+	for _, metadata := range sessions {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := os.Stat(metadata.EventsPath); os.IsNotExist(err) {
 			continue
+		} else if err != nil {
+			return err
 		}
-		conversations, e := files.Reader().Conversations(ctx, ep.Name())
-		if e != nil {
-			return e
+		adapter, err := s.resolveRevision(metadata.Harness, metadata.Revision)
+		if err != nil {
+			return err
 		}
-		for _, c := range conversations {
-			sessions, e := files.Reader().Sessions(ctx, ep.Name(), c.ID)
-			if e != nil {
-				return e
-			}
-			for _, session := range sessions {
-				if session.Status != "running" {
-					continue
-				}
-				events := filepath.Join(files.Root, ep.Name(), c.ID, "sessions", session.ID, "events.jsonl")
-				if _, e = os.Stat(events); os.IsNotExist(e) {
-					continue
-				}
-				if e != nil {
-					return e
-				}
-				adapter, e := s.resolveRevision(session.Harness, session.HarnessRevision)
-				if e != nil {
-					return fmt.Errorf("recover session %s: %w", session.ID, e)
-				}
-				if e = Cancel(adapter, events); e != nil {
-					return fmt.Errorf("recover session %s: %w", session.ID, e)
-				}
-			}
+		if err = Cancel(adapter, metadata.EventsPath); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -63,7 +45,7 @@ func (s Service) resolveRevision(name, want string) (Adapter, error) {
 	if a, ok := packages[name]; ok && a.Revision == want {
 		return a, nil
 	}
-	parent, err := store.SafePath(s.Root, name)
+	parent, err := fileutil.SafePath(s.Root, name)
 	if err != nil {
 		return Adapter{}, err
 	}
@@ -75,7 +57,7 @@ func (s Service) resolveRevision(name, want string) (Adapter, error) {
 		if !d.IsDir() {
 			continue
 		}
-		dir, err := store.SafePath(parent, d.Name())
+		dir, err := fileutil.SafePath(parent, d.Name())
 		if err != nil {
 			return Adapter{}, err
 		}

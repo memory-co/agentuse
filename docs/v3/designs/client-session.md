@@ -54,3 +54,9 @@ cancel 取消 session 当前和排队工作，保留原生上下文；reply 使�
 声明 quota 后自动检查受管目录总量，按整个 conversation 最近使用时间从旧到新清理空闲目录。运行、等待回答、清理未确认、预留启动和旧协议待交付均保护目录。没有可回收空间时暂停新启动，不能杀任务来满足容量目标。
 
 回收删除该 conversation 的 workspace、session、引用和输入资源，不删除 server 文件或原生工具的全局历史。旧路径重新出现不代表旧上下文可恢复；必须用新的 session 记录。目录标记只校验受管归属，不是另一张 workspace 映射表。
+
+## 实现归属
+
+sessionService 直接管理 conversation.yaml、session.yaml、workspace 和会话目录，提供 conversation/session 查询、Acquire、Release、指定 session 复用、重启元数据恢复以及 quota 回收。所有这些操作位于 service/session，直接通过 fileutil 的通用原子写入和路径检查操作文件，不转发给 store。
+
+runService 依赖 sessionService 完成占用与释放；HTTP controller 只接收其只读查询接口。目录正在执行或被保留时不得回收；旧 server 未确认交付的保护条件由 runService 注入，sessionService 不读取或理解交付协议。运行互斥和目录保留计数仅协调进程内并发，文件仍是唯一持久化事实。

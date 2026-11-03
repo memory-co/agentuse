@@ -9,8 +9,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/memory-co/agentuse/client/internal/store"
 )
 
 func fixture(t *testing.T, name string) (Service, Adapter, string) {
@@ -203,32 +201,18 @@ func TestCriticalReaderWaitsForCompleteLine(t *testing.T) {
 
 func TestRecoveryCancelsBeforeReleasingSession(t *testing.T) {
 	service, adapter, _ := fixture(t, "codex")
-	files, err := store.Open(filepath.Join(t.TempDir(), "work"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	session, cwd, err := files.AcquireSession(context.Background(), "endpoint", "conversation", "agent", adapter.Name, adapter.Revision)
-	if err != nil {
-		t.Fatal(err)
-	}
-	events := EventsPath(cwd, session.ID)
-	os.MkdirAll(filepath.Dir(events), 0700)
+	cwd := t.TempDir()
+	events := filepath.Join(cwd, "events.jsonl")
+	var err error
 	if _, err = command(context.Background(), adapter, events, "send", "hold", "--cwd", cwd); err != nil {
 		t.Fatal(err)
 	}
-	if err = service.Recover(context.Background(), files); err != nil {
-		t.Fatal(err)
-	}
-	if err = files.RecoverSessions(context.Background()); err != nil {
+	if err = service.Recover(context.Background(), []RecoverySession{{Harness: adapter.Name, Revision: adapter.Revision, EventsPath: events}}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(events)
 	if err != nil || !strings.Contains(string(data), `"status": "cancelled"`) {
 		t.Fatal(string(data), err)
-	}
-	sessions, err := files.Reader().Sessions(context.Background(), "endpoint", "conversation")
-	if err != nil || len(sessions) != 1 || sessions[0].Status != "idle" {
-		t.Fatal(sessions, err)
 	}
 }
 

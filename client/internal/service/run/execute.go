@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/memory-co/agentuse/client/internal/fileutil"
+	"github.com/memory-co/agentuse/client/internal/service/session"
+
 	"github.com/memory-co/agentuse/client/internal/service/harness"
-	"github.com/memory-co/agentuse/client/internal/store"
 	"github.com/memory-co/agentuse/internal/protocol"
 )
 
@@ -24,52 +26,52 @@ type localExecution struct {
 	cancel  context.CancelFunc
 	in      *harness.Input
 	done    chan struct{}
-	session store.Session
+	session session.Session
 	result  harness.DriveResult
 }
 
 func (s *Service) Close() { s.localMu.Lock(); s.localCancel(); s.localMu.Unlock(); s.localWG.Wait() }
-func (s *Service) CreateConversation(ctx context.Context, id, title string) (store.Conversation, error) {
+func (s *Service) CreateConversation(ctx context.Context, id, title string) (session.Conversation, error) {
 	ep, err := s.Endpoints.GetByID(id)
 	if err != nil {
-		return store.Conversation{}, err
+		return session.Conversation{}, err
 	}
 	return s.Sessions.CreateConversation(ctx, ep, title)
 }
 
 // Start returns only after the adapter publishes accepted, using its actual
 // run_id. There is no provisional task UUID and no client execution attempt.
-func (s *Service) Start(ctx context.Context, id, conversation string, request Request) (store.Run, error) {
+func (s *Service) Start(ctx context.Context, id, conversation string, request Request) (Run, error) {
 	return s.startSession(ctx, id, conversation, request, "")
 }
-func (s *Service) startSession(ctx context.Context, id, conversation string, request Request, target string) (store.Run, error) {
+func (s *Service) startSession(ctx context.Context, id, conversation string, request Request, target string) (Run, error) {
 	if err := s.requireLocalEndpoint(id); err != nil {
-		return store.Run{}, err
+		return Run{}, err
 	}
-	if _, err := s.Store.LocalConversation(ctx, conversation); err != nil {
-		return store.Run{}, err
+	if _, err := s.Sessions.LocalConversation(ctx, conversation); err != nil {
+		return Run{}, err
 	}
-	if !store.Segment(request.Harness) {
-		return store.Run{}, store.ErrInvalid
+	if !fileutil.Segment(request.Harness) {
+		return Run{}, fileutil.ErrInvalid
 	}
 	input := request.Input
 	if len(input) == 0 {
 		if strings.TrimSpace(request.Prompt) == "" {
-			return store.Run{}, store.ErrInvalid
+			return Run{}, fileutil.ErrInvalid
 		}
 		input, _ = json.Marshal(protocol.PromptInput{Prompt: request.Prompt})
 	}
 	if !json.Valid(input) || len(input) > 256<<10 {
-		return store.Run{}, store.ErrInvalid
+		return Run{}, fileutil.ErrInvalid
 	}
 	adapter, err := s.Harness.Resolve(request.Harness)
 	if err != nil {
-		return store.Run{}, err
+		return Run{}, err
 	}
 	s.localMu.Lock()
 	if s.localCtx.Err() != nil {
 		s.localMu.Unlock()
-		return store.Run{}, fmt.Errorf("client is stopping")
+		return Run{}, fmt.Errorf("client is stopping")
 	}
 	// A further send to the same active session is automatically steered/queued
 	// by the adapter. Neither the UI nor this service chooses that policy.
@@ -88,7 +90,7 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 				case <-active.done:
 					return s.startSession(ctx, id, conversation, request, target)
 				case <-ctx.Done():
-					return store.Run{}, ctx.Err()
+					return Run{}, ctx.Err()
 				}
 			}
 			return s.awaitAccepted(ctx, active, accepted, nil)
@@ -98,19 +100,19 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 	case s.slots <- struct{}{}:
 	default:
 		s.localMu.Unlock()
-		return store.Run{}, ErrLocalBusy
+		return Run{}, ErrLocalBusy
 	}
-	var session store.Session
+	var session session.Session
 	var cwd string
 	if target == "" {
 		session, cwd, err = s.Sessions.Acquire(ctx, id, conversation, "local-"+adapter.Name, adapter.Name, adapter.Revision)
 	} else {
-		session, cwd, err = s.Store.AcquireExistingSession(ctx, id, conversation, target, adapter.Revision)
+		session, cwd, err = s.Sessions.AcquireExistingSession(ctx, id, conversation, target, adapter.Revision)
 	}
 	if err != nil {
 		<-s.slots
 		s.localMu.Unlock()
-		return store.Run{}, err
+		return Run{}, err
 	}
 	adapter.EventsPath = harness.EventsPath(cwd, session.ID)
 	adapter.Env = []string{"AGENTUSE_SERVER=", "AGENTUSE_TOKEN=", "AGENTUSE_WORK=", "AGENTUSE_CONFIG=", "AGENTUSE_RUN=", "AGENTUSE_ATTEMPT=", "AGENTUSE_ENDPOINT=" + id, "AGENTUSE_CONVERSATION=" + conversation, "AGENTUSE_SESSION=" + session.ID, "AGENTUSE_AGENT=" + session.AgentID, "AGENTUSE_RESOURCES="}
@@ -131,7 +133,7 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 			if event.Type != "accepted" {
 				return
 			}
-			if err := s.Store.AcceptNative(context.Background(), session, event.RunID); err != nil {
+			if err := s.AcceptNative(context.Background(), session, event.RunID); err != nil {
 				s.log.Printf("native run index: %v", err)
 				cancel()
 				return
@@ -143,33 +145,33 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 		}
 		result := s.Harness.DriveSession(execCtx, adapter, requestText(input), cwd, execution.in, report)
 		if !result.CleanupPending {
-			_ = s.Store.ReleaseSession(session, result.OK || execCtx.Err() == context.Canceled)
+			_ = s.Sessions.Release(session, result.OK || execCtx.Err() == context.Canceled)
 		}
 		execution.result = result
 		finished <- result
 	}()
 	return s.awaitAccepted(ctx, execution, accepted, finished)
 }
-func (s *Service) awaitAccepted(ctx context.Context, execution *localExecution, accepted <-chan harness.Acceptance, finished <-chan harness.DriveResult) (store.Run, error) {
+func (s *Service) awaitAccepted(ctx context.Context, execution *localExecution, accepted <-chan harness.Acceptance, finished <-chan harness.DriveResult) (Run, error) {
 	select {
 	case a := <-accepted:
-		return s.Store.Reader().Detail(ctx, execution.session.EndpointID, execution.session.ConversationID, execution.session.ID, a.RunID)
+		return s.Detail(ctx, execution.session.EndpointID, execution.session.ConversationID, execution.session.ID, a.RunID)
 	case result := <-finished:
 		select {
 		case a := <-accepted:
-			return s.Store.Reader().Detail(ctx, execution.session.EndpointID, execution.session.ConversationID, execution.session.ID, a.RunID)
+			return s.Detail(ctx, execution.session.EndpointID, execution.session.ConversationID, execution.session.ID, a.RunID)
 		default:
 		}
-		return store.Run{}, fmt.Errorf("harnessctl send failed before acceptance: %s", result.Error)
+		return Run{}, fmt.Errorf("harnessctl send failed before acceptance: %s", result.Error)
 	case <-execution.done:
 		select {
 		case a := <-accepted:
-			return s.Store.Reader().Detail(ctx, execution.session.EndpointID, execution.session.ConversationID, execution.session.ID, a.RunID)
+			return s.Detail(ctx, execution.session.EndpointID, execution.session.ConversationID, execution.session.ID, a.RunID)
 		default:
-			return store.Run{}, ErrLocalBusy
+			return Run{}, ErrLocalBusy
 		}
 	case <-ctx.Done():
-		return store.Run{}, ctx.Err()
+		return Run{}, ctx.Err()
 	}
 }
 
@@ -178,14 +180,14 @@ func (s *Service) Control(ctx context.Context, id, conversation, session, action
 	if err := s.requireLocalEndpoint(id); err != nil {
 		return nil, err
 	}
-	metadata, err := s.Store.Reader().Session(ctx, id, conversation, session)
+	metadata, err := s.Sessions.Session(ctx, id, conversation, session)
 	if err != nil {
 		return nil, err
 	}
 	if action == "send" {
 		var request Request
 		if json.Unmarshal(payload, &request) != nil || strings.TrimSpace(request.Prompt) == "" {
-			return nil, store.ErrInvalid
+			return nil, fileutil.ErrInvalid
 		}
 		request.Harness = metadata.Harness
 		return s.startSession(ctx, id, conversation, request, session)
@@ -202,7 +204,7 @@ func (s *Service) Control(ctx context.Context, id, conversation, session, action
 			if metadata.HarnessRevision != adapter.Revision {
 				return nil, fmt.Errorf("session adapter revision is not active")
 			}
-			events := harness.EventsPath(sessionWorkspace(s.Store.Root, id, conversation), session)
+			events := harness.EventsPath(sessionWorkspace(s.Sessions.Root, id, conversation), session)
 			if e = harness.Cancel(adapter, events); e != nil {
 				return nil, e
 			}
@@ -228,7 +230,7 @@ func (s *Service) Control(ctx context.Context, id, conversation, session, action
 			Answer    json.RawMessage `json:"answer"`
 		}
 		if json.Unmarshal(payload, &request) != nil || request.RequestID == "" || len(request.Answer) == 0 {
-			return nil, store.ErrInvalid
+			return nil, fileutil.ErrInvalid
 		}
 		body := string(request.Answer)
 		var text string
@@ -251,7 +253,7 @@ func (s *Service) Control(ctx context.Context, id, conversation, session, action
 			return nil, ctx.Err()
 		}
 	default:
-		return nil, store.ErrInvalid
+		return nil, fileutil.ErrInvalid
 	}
 }
 func (s *Service) localActiveCount() int {
@@ -275,7 +277,7 @@ func sessionWorkspace(root, endpoint, conversation string) string {
 	return filepath.Join(root, endpoint, conversation, "workspace")
 }
 func (s *Service) SessionStatus(ctx context.Context, id, conversation, session string) (any, error) {
-	metadata, err := s.Store.Reader().Session(ctx, id, conversation, session)
+	metadata, err := s.Sessions.Session(ctx, id, conversation, session)
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +288,7 @@ func (s *Service) SessionStatus(ctx context.Context, id, conversation, session s
 	if adapter.Revision != metadata.HarnessRevision {
 		return nil, fmt.Errorf("session adapter revision is not active")
 	}
-	return s.Harness.Status(ctx, adapter, harness.EventsPath(sessionWorkspace(s.Store.Root, id, conversation), session))
+	return s.Harness.Status(ctx, adapter, harness.EventsPath(sessionWorkspace(s.Sessions.Root, id, conversation), session))
 }
 
 func requestText(input json.RawMessage) string {

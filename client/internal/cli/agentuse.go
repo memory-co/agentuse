@@ -4,16 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/memory-co/agentuse/client/internal/fileutil"
 	services "github.com/memory-co/agentuse/client/internal/service"
 	endpointservice "github.com/memory-co/agentuse/client/internal/service/endpoint"
 	harnessservice "github.com/memory-co/agentuse/client/internal/service/harness"
 	runservice "github.com/memory-co/agentuse/client/internal/service/run"
 	settingservice "github.com/memory-co/agentuse/client/internal/service/setting"
-	"github.com/memory-co/agentuse/client/internal/store"
 	"github.com/memory-co/agentuse/internal/command"
-	"os"
-	"path/filepath"
-	"strings"
 )
 
 const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 agentuse 服务领活
@@ -99,31 +100,31 @@ func runClient(args []string, allowLocal bool) error {
 	}
 	ctx, stop := command.SignalContext()
 	defer stop()
-	ledger, err := startLedger(ctx, cfg)
+	sessions, err := startSessions(cfg)
 	if err != nil {
 		return err
 	}
-	defer ledger.Close()
-	unlock, err := store.Lock(filepath.Join(ledger.Root, ".client.lock"))
+
+	unlock, err := fileutil.Lock(filepath.Join(sessions.Root, ".client.lock"))
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	manager, err := services.New(*cfgPath, ledger)
+	manager, err := services.New(*cfgPath, sessions)
 	if err != nil {
 		return err
 	}
-	if err = manager.Harness.Recover(ctx, ledger); err != nil {
+	if err = manager.Recover(ctx); err != nil {
 		return err
 	}
-	if err = ledger.Reconcile(ctx); err != nil {
+	if err = manager.Reconcile(ctx); err != nil {
 		return err
 	}
-	if err = ledger.RecoverSessions(ctx); err != nil {
+	if err = sessions.RecoverSessions(ctx); err != nil {
 		return err
 	}
 	manager.FailOnEndpointError = !allowLocal
-	closeUI, err := startLocalUI(cfg, ledger.Reader(), manager)
+	closeUI, err := startLocalUI(cfg, sessions, manager, manager)
 	if err != nil {
 		return err
 	}

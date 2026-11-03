@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/memory-co/agentuse/client/internal/store"
+	"github.com/memory-co/agentuse/client/internal/fileutil"
 	bundled "github.com/memory-co/agentuse/harnessctl"
 )
 
@@ -107,7 +107,7 @@ func (s Service) installBuiltins() (map[string]string, error) {
 		}
 		id := hex.EncodeToString(sum.Sum(nil))[:16]
 		installed[name] = id
-		target, e := store.SafePath(s.Root, name, id)
+		target, e := fileutil.SafePath(s.Root, name, id)
 		if e != nil {
 			return nil, e
 		}
@@ -155,11 +155,11 @@ func (s Service) Packages() (map[string]Adapter, error) {
 	}
 	out := map[string]Adapter{}
 	for _, entry := range entries {
-		if !entry.IsDir() || !store.Segment(entry.Name()) {
+		if !entry.IsDir() || !fileutil.Segment(entry.Name()) {
 			continue
 		}
 		name := entry.Name()
-		parent, e := store.SafePath(s.Root, name)
+		parent, e := fileutil.SafePath(s.Root, name)
 		if e != nil {
 			return nil, e
 		}
@@ -180,7 +180,7 @@ func (s Service) Packages() (map[string]Adapter, error) {
 		}
 		ordered = append(ordered, names...)
 		for _, v := range ordered {
-			dir, e := store.SafePath(parent, v)
+			dir, e := fileutil.SafePath(parent, v)
 			if e != nil {
 				return nil, e
 			}
@@ -209,7 +209,7 @@ func (s Service) Packages() (map[string]Adapter, error) {
 			if e != nil {
 				return nil, e
 			}
-			path, e := store.SafePath(dir, m.Entrypoint)
+			path, e := fileutil.SafePath(dir, m.Entrypoint)
 			if e != nil {
 				return nil, e
 			}
@@ -223,7 +223,7 @@ func (s Service) Packages() (map[string]Adapter, error) {
 // SaveCommandAdapters installs generic harnessctl executables; it never describes native protocols.
 func SaveCommandAdapters(root string, commands map[string]HarnessConfig) error {
 	for name, c := range commands {
-		dir, e := store.SafePath(root, name, "local")
+		dir, e := fileutil.SafePath(root, name, "local")
 		if e != nil {
 			return e
 		}
@@ -285,7 +285,7 @@ func (s *Service) Freeze(overrides map[string]HarnessConfig) error {
 		if filepath.Base(a.PackageDir) != "local" {
 			continue
 		}
-		target, err := store.SafePath(s.Root, name, a.Revision)
+		target, err := fileutil.SafePath(s.Root, name, a.Revision)
 		if err != nil {
 			return err
 		}

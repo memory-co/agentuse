@@ -59,3 +59,5 @@ run_id、input_id、request_id 都属于适配器。Codex 确认的补充输入�
 本地输入按用户给出的文本或 JSON 文本发送，不额外注入协调者 prompt。远端业务指令由来源边界准备，server 的协调者规则由 server 下发。来源凭据不作为角色判断依据。
 
 每次输入来源的环境可能不同，适配器只存环境摘要；空闲时可内部重建进程并恢复上下文，让新凭据生效，忙时拒绝更换环境。这是每次调用的执行上下文，不是配置热加载。
+
+启动恢复时，runService 根据 sessionService 的元数据提供需要恢复的 harness、revision 和事件地址清单，harnessService 只通过对应适配器确认取消。harnessService 不查询 session.yaml、不遍历业务目录，也不依赖 sessionService；包安装使用 fileutil 的通用路径与文件工具。

@@ -6,15 +6,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/memory-co/agentuse/client/internal/service/harness"
-	"github.com/memory-co/agentuse/client/internal/store"
-	"github.com/memory-co/agentuse/internal/protocol"
-	"gopkg.in/yaml.v3"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/memory-co/agentuse/client/internal/fileutil"
+	"github.com/memory-co/agentuse/client/internal/service/harness"
+	"github.com/memory-co/agentuse/client/internal/service/session"
+	"github.com/memory-co/agentuse/internal/protocol"
+	"gopkg.in/yaml.v3"
 )
 
 func writeSessionHistory(m protocol.Dispatch, dir string) error {
@@ -89,7 +91,7 @@ func (d *endpointConnection) loadRunHistory(ctx context.Context, m *protocol.Dis
 	return nil
 }
 
-func (d *endpointConnection) prepareHistory(m *protocol.Dispatch, s store.Session, la *harness.Adapter, dir string) error {
+func (d *endpointConnection) prepareHistory(m *protocol.Dispatch, s session.Session, la *harness.Adapter, dir string) error {
 	if s.ID == "" {
 		la.HistoryPath = filepath.Join(dir, ".agentuse", "session-history.json")
 		la.EventsPath = filepath.Join(filepath.Dir(dir), "sessions", la.Name, "events.jsonl")
@@ -135,11 +137,11 @@ func (d *endpointConnection) prepareHistory(m *protocol.Dispatch, s store.Sessio
 		return err
 	}
 	digest := sha256.Sum256(b)
-	path, err := store.SafePath(d.workdir, d.cfg.EndpointID, m.SessionID, "sessions", s.ID, "resources", hex.EncodeToString(digest[:])+".history.json")
+	path, err := fileutil.SafePath(d.workdir, d.cfg.EndpointID, m.SessionID, "sessions", s.ID, "resources", hex.EncodeToString(digest[:])+".history.json")
 	if err != nil {
 		return err
 	}
-	if err = store.Atomic(path, b); err != nil {
+	if err = fileutil.Atomic(path, b); err != nil {
 		return err
 	}
 	la.HistoryPath = path
@@ -147,17 +149,17 @@ func (d *endpointConnection) prepareHistory(m *protocol.Dispatch, s store.Sessio
 	return nil
 }
 
-func (d *endpointConnection) cursorPath(s store.Session) (string, error) {
-	return store.SafePath(d.workdir, s.EndpointID, s.ConversationID, "sessions", s.ID, ".server", "context.json")
+func (d *endpointConnection) cursorPath(s session.Session) (string, error) {
+	return fileutil.SafePath(d.workdir, s.EndpointID, s.ConversationID, "sessions", s.ID, ".server", "context.json")
 }
-func (d *endpointConnection) serverCursor(s store.Session) (int64, error) {
+func (d *endpointConnection) serverCursor(s session.Session) (int64, error) {
 	path, err := d.cursorPath(s)
 	if err != nil {
 		return 0, err
 	}
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		legacy, err := store.SafePath(d.workdir, s.EndpointID, s.ConversationID, "sessions", s.ID, "session.yaml")
+		legacy, err := fileutil.SafePath(d.workdir, s.EndpointID, s.ConversationID, "sessions", s.ID, "session.yaml")
 		if err != nil {
 			return 0, err
 		}
@@ -180,11 +182,11 @@ func (d *endpointConnection) serverCursor(s store.Session) (int64, error) {
 	err = json.Unmarshal(data, &cursor)
 	return cursor.Seq, err
 }
-func (d *endpointConnection) saveServerCursor(s store.Session, seq int64) error {
+func (d *endpointConnection) saveServerCursor(s session.Session, seq int64) error {
 	path, err := d.cursorPath(s)
 	if err != nil {
 		return err
 	}
 	data, _ := json.Marshal(map[string]int64{"message_seq": seq})
-	return store.Atomic(path, data)
+	return fileutil.Atomic(path, data)
 }

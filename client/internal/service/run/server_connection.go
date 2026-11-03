@@ -4,15 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
-	"github.com/google/uuid"
-	"github.com/memory-co/agentuse/client/internal/service/endpoint"
-	"github.com/memory-co/agentuse/client/internal/service/harness"
-	"github.com/memory-co/agentuse/client/internal/store"
-	"github.com/memory-co/agentuse/internal/attachment"
-	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/internal/version"
 	"log"
 	"net/http"
 	"os"
@@ -22,13 +13,24 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+	"github.com/google/uuid"
+	"github.com/memory-co/agentuse/client/internal/fileutil"
+	"github.com/memory-co/agentuse/client/internal/service/endpoint"
+	"github.com/memory-co/agentuse/client/internal/service/harness"
+	"github.com/memory-co/agentuse/client/internal/service/session"
+	"github.com/memory-co/agentuse/internal/attachment"
+	"github.com/memory-co/agentuse/internal/protocol"
+	"github.com/memory-co/agentuse/internal/version"
 )
 
 type endpointConnection struct {
-	ledger  store.DeliveryWriter
-	cfg     Config
-	log     *log.Logger
-	workdir string // configured conversation parent root
+	deliveries deliverySink
+	cfg        Config
+	log        *log.Logger
+	workdir    string // configured conversation parent root
 
 	mu        sync.Mutex
 	claimMode bool
@@ -63,7 +65,7 @@ func (d *endpointConnection) send(m protocol.Message) error {
 	return err
 }
 
-func newConnection(cfg Config, logger *log.Logger, writers ...store.DeliveryWriter) (*endpointConnection, error) {
+func newConnection(cfg Config, logger *log.Logger, writers ...deliverySink) (*endpointConnection, error) {
 	if cfg.Server == "" || cfg.Key == "" {
 		return nil, errors.New("daemon 还没注册：请先运行页面上的安装命令(或 agentuse register)")
 	}
@@ -81,20 +83,20 @@ func newConnection(cfg Config, logger *log.Logger, writers ...store.DeliveryWrit
 		cfg.Slots = make(chan struct{}, 2)
 	}
 	home, _ := os.UserHomeDir()
-	var ledger store.DeliveryWriter
+	var deliveries deliverySink
 	if len(writers) > 0 {
-		ledger = writers[0]
+		deliveries = writers[0]
 	}
 	root := cfg.Settings.Session.WorkRoot
 	if root == "" {
 		root = filepath.Join(home, ".agentuse", "tmp")
 	}
 	if cfg.EndpointID == "" {
-		_, cfg.EndpointID, _ = store.NormalizeEndpoint(cfg.Server)
+		_, cfg.EndpointID, _ = endpoint.NormalizeEndpoint(cfg.Server)
 	}
-	d := &endpointConnection{ledger: ledger, cfg: cfg, log: logger, workdir: root, running: map[string]*runningMsg{}}
-	if cfg.LocalStore != nil {
-		for _, b := range cfg.LocalStore.Pending(cfg.EndpointID) {
+	d := &endpointConnection{deliveries: deliveries, cfg: cfg, log: logger, workdir: root, running: map[string]*runningMsg{}}
+	if cfg.RunService != nil {
+		for _, b := range cfg.RunService.Pending(cfg.EndpointID) {
 			var m protocol.Message
 			if json.Unmarshal(b, &m) == nil {
 				d.outbox = append(d.outbox, m)
@@ -394,14 +396,14 @@ func (d *endpointConnection) session(ctx context.Context) error {
 				}
 			}
 		case protocol.TypeEventAck:
-			if d.cfg.LocalStore != nil {
-				if err := d.cfg.LocalStore.Confirm(ctx, d.cfg.EndpointID, m.RunID, m.AttemptID); err != nil {
+			if d.cfg.RunService != nil {
+				if err := d.cfg.RunService.Confirm(ctx, d.cfg.EndpointID, m.RunID, m.AttemptID); err != nil {
 					d.log.Printf("confirm: %v", err)
 				}
 			}
 		case protocol.TypeError:
-			if m.ErrorCode == "stale_attempt" && d.cfg.LocalStore != nil {
-				_ = d.cfg.LocalStore.RejectReport(ctx, d.cfg.EndpointID, m.RunID, m.AttemptID, m.Error)
+			if m.ErrorCode == "stale_attempt" && d.cfg.RunService != nil {
+				_ = d.cfg.RunService.RejectReport(ctx, d.cfg.EndpointID, m.RunID, m.AttemptID, m.Error)
 			}
 			if m.MessageID != 0 {
 				d.mu.Lock()
@@ -426,7 +428,7 @@ type runningMsg struct {
 	dispatch protocol.Dispatch
 	cancel   context.CancelFunc
 	in       *harness.Input
-	local    store.Session
+	local    session.Session
 }
 
 // startMessage 在后台跑 harness 回一条消息，跑完回报结果并再说一次 ready。
@@ -453,15 +455,15 @@ func (d *endpointConnection) startMessage(m protocol.Dispatch, reservations ...b
 		defer reportMu.Unlock()
 		eventSeq++
 		b, _ := json.Marshal(p)
-		if d.cfg.LocalStore != nil && r.local.ID != "" {
-			if err := d.cfg.LocalStore.Event(tctx, d.cfg.EndpointID, m.RunID, m.AttemptID, kind, b); err != nil {
+		if d.cfg.RunService != nil && r.local.ID != "" {
+			if err := d.cfg.RunService.Event(tctx, d.cfg.EndpointID, m.RunID, m.AttemptID, kind, b); err != nil {
 				d.log.Printf("record event: %v", err)
 			}
 		}
 		event := protocol.Message{Type: protocol.TypeEvent, MessageID: m.ID, RunID: m.RunID, AttemptID: m.AttemptID, EventSeq: eventSeq, Kind: kind, Payload: b}
-		if (kind == "done" || kind == "failed") && d.cfg.LocalStore != nil && r.local.ID != "" {
+		if (kind == "done" || kind == "failed") && d.cfg.RunService != nil && r.local.ID != "" {
 			raw, _ := json.Marshal(event)
-			if e := d.cfg.LocalStore.PrepareReport(tctx, d.cfg.EndpointID, m.RunID, m.AttemptID, raw); e != nil {
+			if e := d.cfg.RunService.PrepareReport(tctx, d.cfg.EndpointID, m.RunID, m.AttemptID, raw); e != nil {
 				d.log.Printf("persist result: %v", e)
 				return
 			}
@@ -497,7 +499,7 @@ func (d *endpointConnection) startMessage(m protocol.Dispatch, reservations ...b
 					}
 				}
 				if !res.CleanupPending {
-					if err := d.cfg.LocalStore.ReleaseSession(r.local, res.OK || errors.Is(tctx.Err(), context.Canceled)); err != nil {
+					if err := d.cfg.RunService.Sessions.Release(r.local, res.OK || errors.Is(tctx.Err(), context.Canceled)); err != nil {
 						d.log.Printf("save session: %v", err)
 					}
 				}
@@ -505,15 +507,15 @@ func (d *endpointConnection) startMessage(m protocol.Dispatch, reservations ...b
 		}()
 		var dir string
 		var prepareErr error
-		if ok && d.cfg.LocalStore != nil {
+		if ok && d.cfg.RunService != nil {
 			if d.cfg.Sessions != nil {
 				r.local, dir, prepareErr = d.cfg.Sessions.Acquire(tctx, d.cfg.EndpointID, m.SessionID, m.AgentID, m.Harness, la.Revision)
 			} else if q := d.cfg.Settings.Session.Quota; q != nil {
-				_, prepareErr = d.cfg.LocalStore.Reclaim(tctx, q.MaxBytes)
+				_, prepareErr = d.cfg.RunService.Sessions.ReclaimToLimit(tctx, q.MaxBytes)
 			}
 			if prepareErr == nil {
 				if r.local.ID == "" {
-					r.local, dir, prepareErr = d.cfg.LocalStore.AcquireSession(tctx, d.cfg.EndpointID, m.SessionID, m.AgentID, m.Harness, la.Revision)
+					r.local, dir, prepareErr = d.cfg.RunService.Sessions.Acquire(tctx, d.cfg.EndpointID, m.SessionID, m.AgentID, m.Harness, la.Revision)
 				}
 				la.EventsPath = harness.EventsPath(dir, r.local.ID)
 				if prepareErr == nil {
@@ -545,8 +547,8 @@ func (d *endpointConnection) startMessage(m protocol.Dispatch, reservations ...b
 			}
 		}
 		if tctx.Err() != nil {
-			if d.cfg.LocalStore != nil && r.local.ID != "" {
-				_ = d.cfg.LocalStore.Confirm(context.Background(), d.cfg.EndpointID, m.RunID, m.AttemptID)
+			if d.cfg.RunService != nil && r.local.ID != "" {
+				_ = d.cfg.RunService.Confirm(context.Background(), d.cfg.EndpointID, m.RunID, m.AttemptID)
 			}
 			d.log.Printf("消息 %d 已取消", m.ID)
 			return
@@ -569,7 +571,7 @@ func (d *endpointConnection) sessionDir(m protocol.Dispatch) (string, error) {
 	if m.SessionID == "" || strings.ContainsAny(m.SessionID, `/\`) || strings.HasPrefix(m.SessionID, ".") {
 		return "", errors.New("会话 id 不合法: " + m.SessionID)
 	}
-	dir, err := store.SafePath(d.workdir, d.cfg.EndpointID, m.SessionID, "workspace")
+	dir, err := fileutil.SafePath(d.workdir, d.cfg.EndpointID, m.SessionID, "workspace")
 	if err != nil {
 		return "", err
 	}

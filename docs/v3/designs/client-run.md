@@ -30,7 +30,7 @@ run 引用仅定位实际的适配器 UUID：
 {"type":"reference","at":1793443200000,"run_id":"550e8400-e29b-41d4-a716-446655440000","endpoint_id":"local","conversation_id":"conversation-1","session_id":"session-1","agent_id":"local-codex","harness":"codex","harness_revision":"revision"}
 ```
 
-正文、结果、完整输入、请求、用量、费用和执行日志不复制到引用中。Reader 按同一个 UUID 从 events.jsonl 读取五种公共事件，返回 completed/failed/cancelled 结果；未结束时为 running，仍有 pending request 时为 waiting。计量按一个真实 result 计数，不把输入数当作执行次数，也不累计原生 session 的累计计量。
+正文、结果、完整输入、请求、用量、费用和执行日志不复制到引用中。runService 按同一个 UUID 从 events.jsonl 读取五种公共事件，返回 completed/failed/cancelled 结果；未结束时为 running，仍有 pending request 时为 waiting。计量按一个真实 result 计数，不把输入数当作执行次数，也不累计原生 session 的累计计量。
 
 input_id 和 request_id 来自适配器，不能以客户端临时 ID 替换。无论 local 还是远端，Run DTO 都没有 attempt_id、server_confirmed、harness_run_ids 或第二套任务 ID。
 
@@ -44,7 +44,7 @@ accepted 事件是执行归属的事实。若适配器写入 accepted 后 client
 
 ## 来源边界
 
-local 提供本机输入；现有 server 提供旧版派发协议。两者都调用同一个 harnessService，登记同样的 adapter UUID，并使用同一个 Reader。旧 server 的派发标识与确认状态仅存在 server_*.go 和 .server/，不是 client run。
+local 提供本机输入；现有 server 提供旧版派发协议。两者都调用同一个 harnessService，登记同样的 adapter UUID，并使用同一组 runService 查询。旧 server 的派发标识与确认状态仅存在 server_*.go 和 .server/，不是 client run。
 
 如果旧协议需要把多个实际 run 汇总成一个回报，由边界层完成；这个汇总不在 client API 中形成另一个执行实体。
 
@@ -53,3 +53,9 @@ local 提供本机输入；现有 server 提供旧版派发协议。两者都调
 旧任务文件先移出 runs/：远端旧交付记录进入 .server/，本地旧任务记录进入 legacy/ 只作历史留存。根据其中的真实适配器 UUID及公共 accepted 事件重建 runs 引用。没有适配器 UUID 的适配前记录不伪造成新 run，不生成替代 UUID；保留原数据供查阅。
 
 迁移不修改 events.jsonl 或 events.jsonl.d/，不重放输入，不递归删除未知文件。
+
+## 实现归属
+
+service/run 的 native_runs.go 直接创建原生 run 引用，并提供 List / Detail / Stats；views.go 定义公开查询数据。reconcile.go 编排启动恢复，run_migration.go 保留旧文件的迁移规则。server_*.go 只处理现有中心协议及 .server/ 交付文件。这里没有独立 store、Ledger 或全局 Reader。
+
+runService 使用 sessionService 的目录与 session 查询，不复制 session.yaml 的管理逻辑。HTTP controller 通过只读接口分别查询这两个 service；文件路径、事件格式、API 响应和 run_id 归属不因代码目录调整而变化。

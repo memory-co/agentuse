@@ -5,14 +5,14 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+
 	"github.com/memory-co/agentuse/client/internal/service/endpoint"
 	"github.com/memory-co/agentuse/client/internal/service/harness"
 	"github.com/memory-co/agentuse/client/internal/service/run"
 	"github.com/memory-co/agentuse/client/internal/service/session"
 	"github.com/memory-co/agentuse/client/internal/service/setting"
-	"github.com/memory-co/agentuse/client/internal/store"
-	"os"
-	"path/filepath"
 )
 
 func LoadConfigs(path string) ([]run.Config, error) {
@@ -57,7 +57,7 @@ func LoadConfigForServer(path, server string) (run.Config, error) {
 	if e != nil {
 		return run.Config{}, e
 	}
-	normalized, _, e := store.NormalizeEndpoint(server)
+	normalized, _, e := endpoint.NormalizeEndpoint(server)
 	if e != nil {
 		return run.Config{}, e
 	}
@@ -76,7 +76,7 @@ func Register(ctx context.Context, server, token, path string) (run.Config, erro
 	return LoadConfigForServer(path, ep.ServerURL)
 }
 
-func New(path string, files *store.Ledger) (*run.Service, error) {
+func New(path string, sessions *session.Service) (*run.Service, error) {
 	settings, e := setting.New(filepath.Join(filepath.Dir(path), "setting.yaml"))
 	if e != nil {
 		return nil, e
@@ -85,10 +85,10 @@ func New(path string, files *store.Ledger) (*run.Service, error) {
 	if e != nil {
 		return nil, e
 	}
-	sessions := &session.Service{Files: files, Settings: settings}
+	sessions.Settings = settings
 	harnesses := &harness.Service{Root: harness.HarnessRoot(harness.Config{ConfigPath: path})}
 	if e = harnesses.Freeze(nil); e != nil {
 		return nil, e
 	}
-	return run.New(run.Dependencies{Endpoints: endpoints, Settings: settings, Sessions: sessions, Harness: harnesses, Store: files}), nil
+	return run.New(run.Dependencies{Endpoints: endpoints, Settings: settings, Sessions: sessions, Harness: harnesses}), nil
 }

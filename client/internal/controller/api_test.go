@@ -10,7 +10,7 @@ import (
 
 func TestAPIDocumentationAuthenticationAndContract(t *testing.T) {
 	token := strings.Repeat("a", 64)
-	c, err := New(nil, "127.0.0.1:8091", token)
+	c, err := New(nil, nil, "127.0.0.1:8091", token)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestAPIDocumentationAuthenticationAndContract(t *testing.T) {
 		t.Fatal("incorrect mutation response codes")
 	}
 	if len(doc.Components.Schemas["Run"]) == 0 || len(doc.Components.Schemas["Session"]) == 0 {
-		t.Fatal("missing store response schemas")
+		t.Fatal("missing service response schemas")
 	}
 	cookies := spec.Result().Cookies()
 	if len(cookies) == 0 {

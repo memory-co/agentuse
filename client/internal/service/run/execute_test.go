@@ -3,16 +3,16 @@ package run
 import (
 	"context"
 	"encoding/json"
-	"github.com/memory-co/agentuse/client/internal/service/endpoint"
-	"github.com/memory-co/agentuse/client/internal/service/harness"
-	"github.com/memory-co/agentuse/client/internal/service/session"
-	"github.com/memory-co/agentuse/client/internal/service/setting"
-	"github.com/memory-co/agentuse/client/internal/store"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/memory-co/agentuse/client/internal/service/endpoint"
+	"github.com/memory-co/agentuse/client/internal/service/harness"
+	"github.com/memory-co/agentuse/client/internal/service/session"
+	"github.com/memory-co/agentuse/client/internal/service/setting"
 )
 
 func localFixture(t *testing.T) (*Service, string) {
@@ -23,17 +23,18 @@ func localFixture(t *testing.T) (*Service, string) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	files, _ := store.Open(setting.Get().Session.WorkRoot)
+	files, _ := session.New(setting.Get().Session.WorkRoot)
+	files.Settings = setting
 	path := filepath.Join(home, ".agentuse", "endpoints.yaml")
-	local := New(Dependencies{Store: files, Settings: setting, Endpoints: &endpoint.Service{Path: path}, Sessions: &session.Service{Files: files, Settings: setting}, Harness: &harness.Service{Root: harness.HarnessRoot(harness.Config{ConfigPath: path})}})
+	local := New(Dependencies{Settings: setting, Endpoints: &endpoint.Service{Path: path}, Sessions: files, Harness: &harness.Service{Root: harness.HarnessRoot(harness.Config{ConfigPath: path})}})
 	t.Cleanup(local.Close)
 	return local, home
 }
-func awaitLocal(t *testing.T, s *Service, run store.Run) store.Run {
+func awaitLocal(t *testing.T, s *Service, run Run) Run {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		record, e := s.Store.Reader().Detail(context.Background(), "local", run.ConversationID, run.SessionID, run.RunID)
+		record, e := s.Detail(context.Background(), "local", run.ConversationID, run.SessionID, run.RunID)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -43,7 +44,7 @@ func awaitLocal(t *testing.T, s *Service, run store.Run) store.Run {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("local execution did not finish")
-	return store.Run{}
+	return Run{}
 }
 func TestLocalCustomHarnessExecutionAndResume(t *testing.T) {
 	local, home := localFixture(t)
@@ -96,7 +97,7 @@ printf '{"type":"result","ok":true,"output":"local result","session_id":"native-
 	if b, e := os.ReadFile(filepath.Join(localWorkspace(local, got), "environment.txt")); e != nil || string(b) != "||" {
 		t.Fatal("local harness inherited platform credentials", string(b), e)
 	}
-	rows, e := local.Store.Reader().Conversations(ctx, "local")
+	rows, e := local.Sessions.Conversations(ctx, "local")
 	if e != nil || len(rows) != 1 || rows[0].Title != title {
 		t.Fatal(rows, e)
 	}
@@ -164,6 +165,6 @@ func TestEndpointModeControlsRunSubmission(t *testing.T) {
 	}
 }
 
-func localWorkspace(s *Service, r store.Run) string {
-	return filepath.Join(s.Store.Root, r.EndpointID, r.ConversationID, "workspace")
+func localWorkspace(s *Service, r Run) string {
+	return filepath.Join(s.Sessions.Root, r.EndpointID, r.ConversationID, "workspace")
 }

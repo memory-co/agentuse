@@ -3,6 +3,7 @@ package run
 import (
 	"context"
 	"encoding/json"
+
 	"github.com/memory-co/agentuse/client/internal/service/harness"
 	"github.com/memory-co/agentuse/internal/protocol"
 )
@@ -12,12 +13,12 @@ import (
 func (d *endpointConnection) observeServerEvent(ctx context.Context, r *runningMsg, event harness.Event, report func(string, any)) {
 	switch event.Type {
 	case "accepted":
-		if d.cfg.LocalStore != nil && r.local.ID != "" {
-			if err := d.cfg.LocalStore.AcceptNative(ctx, r.local, event.RunID); err != nil {
+		if d.cfg.RunService != nil && r.local.ID != "" {
+			if err := d.cfg.RunService.AcceptNative(ctx, r.local, event.RunID); err != nil {
 				d.log.Printf("native run index: %v", err)
 			}
 			binding, _ := json.Marshal(map[string]string{"harness_run_id": event.RunID})
-			if err := d.cfg.LocalStore.Event(ctx, d.cfg.EndpointID, r.dispatch.RunID, r.dispatch.AttemptID, "accepted", binding); err != nil {
+			if err := d.cfg.RunService.Event(ctx, d.cfg.EndpointID, r.dispatch.RunID, r.dispatch.AttemptID, "accepted", binding); err != nil {
 				d.log.Printf("server delivery binding: %v", err)
 			}
 		}

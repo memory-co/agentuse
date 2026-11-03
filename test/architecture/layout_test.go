@@ -40,8 +40,11 @@ func TestLayerDependencies(t *testing.T) {
 			if strings.HasPrefix(rel, "internal/") {
 				forbidden = forbidden || strings.HasPrefix(imp, "client/") || strings.HasPrefix(imp, "server/")
 			}
-			for _, pair := range [][2]string{{"client/internal/controller/", "client/internal/service"}, {"client/internal/service/", "client/internal/controller"}, {"server/internal/store/", "server/internal/service"}, {"server/internal/store/", "server/internal/controller"}, {"server/internal/store/", "server/internal/hub"}, {"server/internal/service/", "server/internal/hub"}, {"server/internal/service/", "server/internal/controller"}} {
+			for _, pair := range [][2]string{{"client/internal/service/", "client/internal/controller"}, {"server/internal/store/", "server/internal/service"}, {"server/internal/store/", "server/internal/controller"}, {"server/internal/store/", "server/internal/hub"}, {"server/internal/service/", "server/internal/hub"}, {"server/internal/service/", "server/internal/controller"}} {
 				forbidden = forbidden || strings.HasPrefix(rel, pair[0]) && strings.HasPrefix(imp, pair[1])
+			}
+			if strings.HasPrefix(rel, "client/internal/controller/") && strings.HasPrefix(imp, "client/internal/service") {
+				forbidden = forbidden || (imp != "client/internal/service/run" && imp != "client/internal/service/session")
 			}
 			if forbidden {
 				t.Errorf("%s imports forbidden layer %s", rel, imp)

@@ -1,4 +1,4 @@
-package store
+package run
 
 import (
 	"bufio"
@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/memory-co/agentuse/client/internal/fileutil"
+	"github.com/memory-co/agentuse/client/internal/service/session"
 
 	sdk "github.com/memory-co/agentuse/sdk/golang"
 )
@@ -50,36 +53,36 @@ type nativeReceipt struct {
 	HarnessRevision string `json:"harness_revision"`
 }
 
-func (l *Ledger) AcceptNative(ctx context.Context, s Session, id string) error {
+func (l *Service) AcceptNative(ctx context.Context, s session.Session, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if parsed, e := uuid.Parse(id); e != nil || parsed.String() != id {
-		return ErrInvalid
+		return fileutil.ErrInvalid
 	}
-	path, err := SafePath(l.Root, s.EndpointID, s.ConversationID, "sessions", s.ID, "runs", id+".jsonl")
+	path, err := fileutil.SafePath(l.Sessions.Root, s.EndpointID, s.ConversationID, "sessions", s.ID, "runs", id+".jsonl")
 	if err != nil {
 		return err
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.fileMu.Lock()
+	defer l.fileMu.Unlock()
 	if _, err = os.Stat(path); err == nil {
 		return nil
 	} else if !os.IsNotExist(err) {
 		return err
 	}
 	receipt := nativeReceipt{Type: "reference", At: time.Now().UnixMilli(), RunID: id, EndpointID: s.EndpointID, ConversationID: s.ConversationID, SessionID: s.ID, AgentID: s.AgentID, Harness: s.Harness, HarnessRevision: s.HarnessRevision}
-	return Atomic(path, append(raw(receipt), '\n'))
+	return fileutil.Atomic(path, append(raw(receipt), '\n'))
 }
-func (r *readStore) Detail(ctx context.Context, endpoint, conversation, session, id string) (Run, error) {
+func (r *Service) Detail(ctx context.Context, endpoint, conversation, session, id string) (Run, error) {
 	var result Run
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
 	if parsed, e := uuid.Parse(id); e != nil || parsed.String() != id {
-		return result, ErrInvalid
+		return result, fileutil.ErrInvalid
 	}
-	path, err := SafePath(r.l.Root, endpoint, conversation, "sessions", session, "runs", id+".jsonl")
+	path, err := fileutil.SafePath(r.Sessions.Root, endpoint, conversation, "sessions", session, "runs", id+".jsonl")
 	if err != nil {
 		return result, err
 	}
@@ -97,7 +100,7 @@ func (r *readStore) Detail(ctx context.Context, endpoint, conversation, session,
 
 	result = Run{EndpointID: endpoint, ConversationID: conversation, SessionID: session, RunID: id, AgentID: receipt.AgentID, Harness: receipt.Harness, HarnessRevision: receipt.HarnessRevision, Status: "running", ReceivedAt: receipt.At}
 	source := filepath.Join(filepath.Dir(filepath.Dir(path)), "events.jsonl")
-	if _, err = SafePath(filepath.Dir(source), filepath.Base(source)); err != nil {
+	if _, err = fileutil.SafePath(filepath.Dir(source), filepath.Base(source)); err != nil {
 		return result, err
 	}
 	file, err := os.Open(source)
@@ -175,12 +178,12 @@ func (r *readStore) Detail(ctx context.Context, endpoint, conversation, session,
 
 	return result, nil
 }
-func (r *readStore) List(ctx context.Context, f Filter) (Page, error) {
+func (r *Service) List(ctx context.Context, f Filter) (Page, error) {
 	page := Page{Runs: []Run{}, Limit: f.Limit, Offset: f.Offset}
 	if page.Limit <= 0 || page.Limit > 200 {
 		page.Limit = 50
 	}
-	root, err := SafePath(r.l.Root, f.Endpoint, f.Conversation, "sessions", f.Session, "runs")
+	root, err := fileutil.SafePath(r.Sessions.Root, f.Endpoint, f.Conversation, "sessions", f.Session, "runs")
 	if err != nil {
 		return page, err
 	}
@@ -218,8 +221,8 @@ func (r *readStore) List(ctx context.Context, f Filter) (Page, error) {
 
 // Rebuild is deterministic: every accepted UUID in a session belongs to that
 // session. No caller task ID, attempt or input-to-run prediction is involved.
-func (l *Ledger) rebuildNativeIndexes(ctx context.Context) error {
-	endpoints, err := os.ReadDir(l.Root)
+func (l *Service) rebuildNativeIndexes(ctx context.Context) error {
+	endpoints, err := os.ReadDir(l.Sessions.Root)
 	if err != nil {
 		return err
 	}
@@ -227,17 +230,17 @@ func (l *Ledger) rebuildNativeIndexes(ctx context.Context) error {
 		if !ep.IsDir() {
 			continue
 		}
-		conversations, err := l.Reader().Conversations(ctx, ep.Name())
+		conversations, err := l.Sessions.Conversations(ctx, ep.Name())
 		if err != nil {
 			return err
 		}
 		for _, c := range conversations {
-			sessions, err := l.Reader().Sessions(ctx, ep.Name(), c.ID)
+			sessions, err := l.Sessions.Sessions(ctx, ep.Name(), c.ID)
 			if err != nil {
 				return err
 			}
 			for _, session := range sessions {
-				path, err := SafePath(l.Root, ep.Name(), c.ID, "sessions", session.ID, "events.jsonl")
+				path, err := fileutil.SafePath(l.Sessions.Root, ep.Name(), c.ID, "sessions", session.ID, "events.jsonl")
 				if err != nil {
 					return err
 				}
@@ -280,34 +283,9 @@ func (l *Ledger) rebuildNativeIndexes(ctx context.Context) error {
 	return nil
 }
 
-func (l *Ledger) AcquireExistingSession(ctx context.Context, endpoint, conversation, id, revision string) (Session, string, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	session, err := l.Reader().Session(ctx, endpoint, conversation, id)
-	if err != nil {
-		return session, "", err
-	}
-	if session.HarnessRevision != revision {
-		return session, "", fmt.Errorf("session uses another adapter revision; create a new session")
-	}
-	if session.Status != "idle" {
-		return session, "", fmt.Errorf("session is not idle")
-	}
-	cwd, err := SafePath(l.Root, endpoint, conversation, "workspace")
-	if err != nil {
-		return session, "", err
-	}
-	if info, e := os.Stat(cwd); e != nil || !info.IsDir() {
-		return session, "", fmt.Errorf("session workspace is missing")
-	}
-	session.Status = "running"
-	session.LastUsedAt = time.Now().UnixMilli()
-	err = l.SaveSession(session)
-	return session, cwd, err
-}
-func (r *readStore) Stats(ctx context.Context, group string, f Filter) ([]Statistic, error) {
+func (r *Service) Stats(ctx context.Context, group string, f Filter) ([]Statistic, error) {
 	if group != "harness" && group != "day" && group != "agent" {
-		return nil, ErrInvalid
+		return nil, fileutil.ErrInvalid
 	}
 	counts := map[string]*Statistic{}
 	f.Limit = 200

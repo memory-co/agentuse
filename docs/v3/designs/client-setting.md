@@ -33,3 +33,5 @@ API 只返回当前进程加载的一份配置，不返回 active_work_root、re
 同一 conversation 的 Codex、Claude 和自定义 harness 共用 workspace。更换 work_root 前先停止 client，需要保留状态时完整迁移目录，再按新配置启动。Client 不扫描旧根目录，不自动搬迁，也不维护 active/present/missing 目录绑定表。
 
 quota 统计受管 conversation 目录，清理整个空闲目录；运行、等待回答和未确认清理等占用受保护。它是清理和准入策略，不是执行中的文件系统硬配额。工作目录组织及保护规则以 client-session.md 为准。
+
+settingService 直接读取、校验和保存 setting.yaml，使用 fileutil 完成原子文件写入；没有配置 repository 或数据库层。进程仍只使用启动快照。

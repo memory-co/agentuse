@@ -5,13 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/memory-co/agentuse/client/internal/controller"
-	endpointservice "github.com/memory-co/agentuse/client/internal/service/endpoint"
-	harnessservice "github.com/memory-co/agentuse/client/internal/service/harness"
-	runservice "github.com/memory-co/agentuse/client/internal/service/run"
-	settingservice "github.com/memory-co/agentuse/client/internal/service/setting"
-	"github.com/memory-co/agentuse/client/internal/store"
-	"github.com/memory-co/agentuse/internal/command"
 	"log"
 	"net/http"
 	"net/url"
@@ -21,13 +14,22 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/memory-co/agentuse/client/internal/controller"
+	"github.com/memory-co/agentuse/client/internal/fileutil"
+	endpointservice "github.com/memory-co/agentuse/client/internal/service/endpoint"
+	harnessservice "github.com/memory-co/agentuse/client/internal/service/harness"
+	runservice "github.com/memory-co/agentuse/client/internal/service/run"
+	"github.com/memory-co/agentuse/client/internal/service/session"
+	settingservice "github.com/memory-co/agentuse/client/internal/service/setting"
+	"github.com/memory-co/agentuse/internal/command"
 )
 
 func localPath(name string) string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".agentuse", name)
 }
-func startLocalUI(cfg runservice.Config, reader store.Reader, managers ...*runservice.Service) (func(), error) {
+func startLocalUI(cfg runservice.Config, sessions controller.SessionQueries, runs controller.RunQueries, managers ...*runservice.Service) (func(), error) {
 	addr := cfg.UIAddress()
 	if addr == "" {
 		return func() {}, nil
@@ -53,15 +55,15 @@ func startLocalUI(cfg runservice.Config, reader store.Reader, managers ...*runse
 			return nil, err
 		}
 	}
-	handler, err := controller.New(reader, ln.Addr().String(), token, controller.PublicData{
+	handler, err := controller.New(sessions, runs, ln.Addr().String(), token, controller.PublicData{
 		SessionStatus: func(ctx context.Context, ep, c, s string) (any, error) { return manager.SessionStatus(ctx, ep, c, s) },
-		LocalCreate: func(ctx context.Context, title string) (store.Conversation, error) {
+		LocalCreate: func(ctx context.Context, title string) (session.Conversation, error) {
 			return manager.CreateConversation(ctx, endpointservice.LocalID, title)
 		},
-		LocalStart: func(ctx context.Context, conversation string, b json.RawMessage) (store.Run, error) {
+		LocalStart: func(ctx context.Context, conversation string, b json.RawMessage) (runservice.Run, error) {
 			var req runservice.Request
 			if err := json.Unmarshal(b, &req); err != nil {
-				return store.Run{}, store.ErrInvalid
+				return runservice.Run{}, fileutil.ErrInvalid
 			}
 			return manager.Start(ctx, endpointservice.LocalID, conversation, req)
 		},
@@ -134,15 +136,15 @@ func runUI(args []string) error {
 	}
 	return nil
 }
-func startLedger(ctx context.Context, cfg runservice.Config) (*store.Ledger, error) {
+func startSessions(cfg runservice.Config) (*session.Service, error) {
 	root := cfg.Settings.Session.WorkRoot
 	if root == "" {
 		root = settingservice.Defaults().Session.WorkRoot
 	}
-	ledger, err := store.Open(root)
+	sessions, err := session.New(root)
 	if err != nil {
 		return nil, err
 	}
 
-	return ledger, nil
+	return sessions, nil
 }

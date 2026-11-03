@@ -1,12 +1,12 @@
 package run
 
 import (
+	"os"
+	"time"
+
 	"github.com/memory-co/agentuse/client/internal/service/harness"
 	"github.com/memory-co/agentuse/client/internal/service/session"
 	"github.com/memory-co/agentuse/client/internal/service/setting"
-	"github.com/memory-co/agentuse/client/internal/store"
-	"os"
-	"time"
 )
 
 // Config is an in-memory endpoint execution context, loaded from YAML files.
@@ -17,7 +17,7 @@ type Config struct {
 	Settings   setting.Settings `json:"-"`
 	Slots      chan struct{}    `json:"-"`
 	Sessions   *session.Service `json:"-"`
-	LocalStore *store.Ledger    `json:"-"`
+	RunService *Service         `json:"-"`
 	UIAddr     *string          `json:"ui_addr,omitempty"`
 	ConfigPath string           `json:"-"`
 	Server     string           `json:"server"`

@@ -3,15 +3,15 @@ package run
 import (
 	"context"
 	"errors"
-	"github.com/memory-co/agentuse/client/internal/service/endpoint"
-	"github.com/memory-co/agentuse/client/internal/service/harness"
-	"github.com/memory-co/agentuse/client/internal/service/session"
-	"github.com/memory-co/agentuse/client/internal/service/setting"
-	"github.com/memory-co/agentuse/client/internal/store"
 	"log"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/memory-co/agentuse/client/internal/service/endpoint"
+	"github.com/memory-co/agentuse/client/internal/service/harness"
+	"github.com/memory-co/agentuse/client/internal/service/session"
+	"github.com/memory-co/agentuse/client/internal/service/setting"
 )
 
 type endpointWorker struct {
@@ -26,7 +26,8 @@ type endpointWorker struct {
 type Service struct {
 	FailOnEndpointError bool
 	Path                string
-	Store               *store.Ledger
+	fileMu              sync.Mutex
+	serverPaths         map[string]string
 	Sessions            *session.Service
 	Settings            *setting.Service
 	mu                  sync.Mutex
@@ -47,13 +48,16 @@ type Dependencies struct {
 	Settings  *setting.Service
 	Sessions  *session.Service
 	Harness   *harness.Service
-	Store     *store.Ledger
 }
 
 func New(d Dependencies) *Service {
-	m := &Service{Path: d.Endpoints.Path, Store: d.Store, Endpoints: d.Endpoints, Settings: d.Settings, Sessions: d.Sessions, Harness: d.Harness, workers: map[string]*endpointWorker{}, slots: make(chan struct{}, min(8, max(2, runtime.NumCPU()))), log: log.Default()}
+	if d.Endpoints == nil {
+		d.Endpoints = &endpoint.Service{}
+	}
+	m := &Service{serverPaths: map[string]string{}, Path: d.Endpoints.Path, Endpoints: d.Endpoints, Settings: d.Settings, Sessions: d.Sessions, Harness: d.Harness, workers: map[string]*endpointWorker{}, slots: make(chan struct{}, min(8, max(2, runtime.NumCPU()))), log: log.Default()}
 	m.localCtx, m.localCancel = context.WithCancel(context.Background())
 	m.localRuns = map[string]*localExecution{}
+	m.Sessions.Protected = m.pendingConversation
 	return m
 }
 func (s *Service) Snapshot() any {
@@ -108,8 +112,8 @@ func (s *Service) Run(ctx context.Context) error {
 			continue
 		}
 		id := ep.ID()
-		cfg := Config{ConfigPath: s.Path, Server: ep.ServerURL, DaemonID: ep.DeviceID, Key: ep.DeviceKey, EndpointID: id, Enabled: true, Settings: settings, LocalStore: s.Store, Slots: s.slots, Sessions: s.Sessions, Harness: s.Harness}
-		connection, err := newConnection(cfg, nil, s.Store.ServerForEndpoint(id))
+		cfg := Config{ConfigPath: s.Path, Server: ep.ServerURL, DaemonID: ep.DeviceID, Key: ep.DeviceKey, EndpointID: id, Enabled: true, Settings: settings, RunService: s, Slots: s.slots, Sessions: s.Sessions, Harness: s.Harness}
+		connection, err := newConnection(cfg, nil, s.ServerForEndpoint(id))
 		if err != nil {
 			s.mu.Unlock()
 			return err
@@ -143,7 +147,7 @@ func (s *Service) Run(ctx context.Context) error {
 			}
 		case <-cleanup.C:
 			if q := settings.Session.Quota; q != nil {
-				if _, err := s.Store.Reclaim(ctx, q.MaxBytes); err != nil {
+				if _, err := s.Sessions.ReclaimToLimit(ctx, q.MaxBytes); err != nil {
 					s.log.Printf("quota: %v", err)
 				}
 			}

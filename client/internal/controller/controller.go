@@ -1,5 +1,5 @@
 // Package controller serves authenticated queries and local harness debug actions.
-// It imports store.Reader, never the execution service or its Writer.
+// Queries are provided by the owning services through read-only interfaces.
 package controller
 
 import (
@@ -20,18 +20,34 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/memory-co/agentuse/client/internal/fileutil"
+	runservice "github.com/memory-co/agentuse/client/internal/service/run"
+	"github.com/memory-co/agentuse/client/internal/service/session"
+
 	"github.com/memory-co/agentuse/client/frontend"
-	"github.com/memory-co/agentuse/client/internal/store"
 )
 
+// Queries expose service-owned file views without execution or mutation methods.
+type SessionQueries interface {
+	Conversations(context.Context, string) ([]session.Conversation, error)
+	Sessions(context.Context, string, string) ([]session.Session, error)
+	Session(context.Context, string, string, string) (session.Session, error)
+}
+type RunQueries interface {
+	List(context.Context, runservice.Filter) (runservice.Page, error)
+	Detail(context.Context, string, string, string, string) (runservice.Run, error)
+	Stats(context.Context, string, runservice.Filter) ([]runservice.Statistic, error)
+}
+
 type Controller struct {
-	reader store.Reader
-	token  string
-	hosts  map[string]bool
-	public bool
-	port   string
-	mux    *http.ServeMux
-	data   PublicData
+	sessionQueries SessionQueries
+	runQueries     RunQueries
+	token          string
+	hosts          map[string]bool
+	public         bool
+	port           string
+	mux            *http.ServeMux
+	data           PublicData
 }
 
 func Listen(addr string) (net.Listener, error) {
@@ -91,8 +107,8 @@ type ReadFailure struct{ Err error }
 
 type PublicData struct {
 	SessionStatus  func(context.Context, string, string, string) (any, error)
-	LocalCreate    func(context.Context, string) (store.Conversation, error)
-	LocalStart     func(context.Context, string, json.RawMessage) (store.Run, error)
+	LocalCreate    func(context.Context, string) (session.Conversation, error)
+	LocalStart     func(context.Context, string, json.RawMessage) (runservice.Run, error)
 	LocalControl   func(context.Context, string, string, string, json.RawMessage) (any, error)
 	LocalHarnesses func() (any, error)
 	Endpoints      func() any
@@ -101,7 +117,7 @@ type PublicData struct {
 	Status         func() any
 }
 
-func New(reader store.Reader, addr, token string, data ...PublicData) (*Controller, error) {
+func New(sessions SessionQueries, runs RunQueries, addr, token string, data ...PublicData) (*Controller, error) {
 	if len(token) < 32 {
 		return nil, fmt.Errorf("本机页面令牌太短")
 	}
@@ -113,7 +129,7 @@ func New(reader store.Reader, addr, token string, data ...PublicData) (*Controll
 	if host != "localhost" && ip == nil {
 		return nil, fmt.Errorf("invalid listen address")
 	}
-	c := &Controller{public: ip != nil && ip.IsUnspecified(), port: port, reader: reader, token: token, hosts: map[string]bool{net.JoinHostPort("127.0.0.1", port): true, net.JoinHostPort("localhost", port): true}, mux: http.NewServeMux()}
+	c := &Controller{public: ip != nil && ip.IsUnspecified(), port: port, sessionQueries: sessions, runQueries: runs, token: token, hosts: map[string]bool{net.JoinHostPort("127.0.0.1", port): true, net.JoinHostPort("localhost", port): true}, mux: http.NewServeMux()}
 	c.hosts[net.JoinHostPort(host, port)] = true
 	if len(data) > 0 {
 		c.data = data[0]
@@ -197,7 +213,7 @@ func apiError(w http.ResponseWriter, status int, code, message string) {
 func failure(w http.ResponseWriter, e error) {
 	if errors.Is(e, os.ErrNotExist) {
 		apiError(w, 404, "not_found", "记录不存在或已回收")
-	} else if errors.Is(e, store.ErrInvalid) {
+	} else if errors.Is(e, fileutil.ErrInvalid) {
 		apiError(w, 400, "invalid_argument", "无效的目录标识")
 	} else {
 		apiError(w, 500, "read_failed", "本机文件读取失败")
@@ -205,19 +221,19 @@ func failure(w http.ResponseWriter, e error) {
 }
 func (c *Controller) conversations(w http.ResponseWriter, r *http.Request) {
 	ep := r.URL.Query().Get("endpoint_id")
-	if !store.Segment(ep) {
+	if !fileutil.Segment(ep) {
 		apiError(w, 400, "invalid_argument", "endpoint_id required")
 		return
 	}
-	v, e := c.reader.Conversations(r.Context(), ep)
+	v, e := c.sessionQueries.Conversations(r.Context(), ep)
 	if e != nil {
 		failure(w, e)
 		return
 	}
-	respondPage(w, r, v, func(c store.Conversation) string { return c.ID })
+	respondPage(w, r, v, func(c session.Conversation) string { return c.ID })
 }
 func (c *Controller) conversation(w http.ResponseWriter, r *http.Request) {
-	v, e := c.reader.Conversations(r.Context(), r.PathValue("endpoint"))
+	v, e := c.sessionQueries.Conversations(r.Context(), r.PathValue("endpoint"))
 	if e != nil {
 		failure(w, e)
 		return
@@ -231,12 +247,12 @@ func (c *Controller) conversation(w http.ResponseWriter, r *http.Request) {
 	failure(w, os.ErrNotExist)
 }
 func (c *Controller) sessions(w http.ResponseWriter, r *http.Request) {
-	v, e := c.reader.Sessions(r.Context(), r.PathValue("endpoint"), r.PathValue("conversation"))
+	v, e := c.sessionQueries.Sessions(r.Context(), r.PathValue("endpoint"), r.PathValue("conversation"))
 	if e != nil {
 		failure(w, e)
 		return
 	}
-	filtered := []store.Session{}
+	filtered := []session.Session{}
 	for _, s := range v {
 		if h := r.URL.Query().Get("harness"); h != "" && h != s.Harness {
 			continue
@@ -246,18 +262,18 @@ func (c *Controller) sessions(w http.ResponseWriter, r *http.Request) {
 		}
 		filtered = append(filtered, s)
 	}
-	respondPage(w, r, filtered, func(s store.Session) string { return s.ID })
+	respondPage(w, r, filtered, func(s session.Session) string { return s.ID })
 }
 func (c *Controller) session(w http.ResponseWriter, r *http.Request) {
-	v, e := c.reader.Session(r.Context(), r.PathValue("endpoint"), r.PathValue("conversation"), r.PathValue("session"))
+	v, e := c.sessionQueries.Session(r.Context(), r.PathValue("endpoint"), r.PathValue("conversation"), r.PathValue("session"))
 	if e != nil {
 		failure(w, e)
 		return
 	}
 	jsonResponse(w, v)
 }
-func queryFilter(r *http.Request) (store.Filter, error) {
-	f := store.Filter{Endpoint: r.PathValue("endpoint"), Conversation: r.PathValue("conversation"), Session: r.PathValue("session"), Status: r.URL.Query().Get("status"), Limit: 50}
+func queryFilter(r *http.Request) (runservice.Filter, error) {
+	f := runservice.Filter{Endpoint: r.PathValue("endpoint"), Conversation: r.PathValue("conversation"), Session: r.PathValue("session"), Status: r.URL.Query().Get("status"), Limit: 50}
 	for name, dst := range map[string]*int{"limit": &f.Limit, "cursor": &f.Offset} {
 		if s := r.URL.Query().Get(name); s != "" {
 			if name == "cursor" {
@@ -269,19 +285,19 @@ func queryFilter(r *http.Request) (store.Filter, error) {
 			}
 			v, e := strconv.Atoi(s)
 			if e != nil || v < 0 {
-				return f, store.ErrInvalid
+				return f, fileutil.ErrInvalid
 			}
 			*dst = v
 		}
 	}
 	if f.Limit < 1 || f.Limit > 200 {
-		return f, store.ErrInvalid
+		return f, fileutil.ErrInvalid
 	}
 	for name, dst := range map[string]*int64{"since": &f.After, "until": &f.Before} {
 		if s := r.URL.Query().Get(name); s != "" {
 			v, e := strconv.ParseInt(s, 10, 64)
 			if e != nil || v < 0 {
-				return f, store.ErrInvalid
+				return f, fileutil.ErrInvalid
 			}
 			*dst = v
 		}
@@ -294,11 +310,11 @@ func (c *Controller) list(w http.ResponseWriter, r *http.Request) {
 		failure(w, e)
 		return
 	}
-	if _, e = c.reader.Session(r.Context(), f.Endpoint, f.Conversation, f.Session); e != nil {
+	if _, e = c.sessionQueries.Session(r.Context(), f.Endpoint, f.Conversation, f.Session); e != nil {
 		failure(w, e)
 		return
 	}
-	v, e := c.reader.List(r.Context(), f)
+	v, e := c.runQueries.List(r.Context(), f)
 	if e != nil {
 		failure(w, e)
 		return
@@ -319,7 +335,7 @@ func (c *Controller) list(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, v)
 }
 func (c *Controller) detail(w http.ResponseWriter, r *http.Request) {
-	v, e := c.reader.Detail(r.Context(), r.PathValue("endpoint"), r.PathValue("conversation"), r.PathValue("session"), r.PathValue("run"))
+	v, e := c.runQueries.Detail(r.Context(), r.PathValue("endpoint"), r.PathValue("conversation"), r.PathValue("session"), r.PathValue("run"))
 	if e != nil {
 		failure(w, e)
 		return
@@ -332,7 +348,7 @@ func (c *Controller) stats(w http.ResponseWriter, r *http.Request) {
 		failure(w, e)
 		return
 	}
-	v, e := c.reader.Stats(r.Context(), "harness", f)
+	v, e := c.runQueries.Stats(r.Context(), "harness", f)
 	if e != nil {
 		failure(w, e)
 		return
@@ -344,7 +360,7 @@ func respondPage[T any](w http.ResponseWriter, r *http.Request, items []T, key f
 	if s := r.URL.Query().Get("limit"); s != "" {
 		v, e := strconv.Atoi(s)
 		if e != nil || v < 1 || v > 200 {
-			failure(w, store.ErrInvalid)
+			failure(w, fileutil.ErrInvalid)
 			return
 		}
 		limit = v
@@ -382,11 +398,11 @@ func encodeCursor(r *http.Request, position string) string {
 func decodeCursor(r *http.Request, s string) (string, error) {
 	b, e := base64.RawURLEncoding.DecodeString(s)
 	if e != nil {
-		return "", store.ErrInvalid
+		return "", fileutil.ErrInvalid
 	}
 	var values []string
 	if json.Unmarshal(b, &values) != nil || len(values) != 2 || values[0] != cursorScope(r) {
-		return "", store.ErrInvalid
+		return "", fileutil.ErrInvalid
 	}
 	return values[1], nil
 }
@@ -395,7 +411,7 @@ func localBody(w http.ResponseWriter, r *http.Request) (json.RawMessage, error) 
 	r.Body = http.MaxBytesReader(w, r.Body, 300<<10)
 	b, e := io.ReadAll(r.Body)
 	if e != nil || !json.Valid(b) {
-		return nil, store.ErrInvalid
+		return nil, fileutil.ErrInvalid
 	}
 	return b, nil
 }
@@ -419,7 +435,7 @@ func (c *Controller) localCreate(w http.ResponseWriter, r *http.Request) {
 	b, e := localBody(w, r)
 	var v createConversationBody
 	if e != nil || json.Unmarshal(b, &v) != nil {
-		failure(w, store.ErrInvalid)
+		failure(w, fileutil.ErrInvalid)
 		return
 	}
 	result, e := c.data.LocalCreate(r.Context(), v.Title)

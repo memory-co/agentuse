@@ -1,4 +1,4 @@
-package store
+package run
 
 import (
 	"context"
@@ -11,12 +11,12 @@ import (
 
 func TestNativeIndexesComeOnlyFromAdapterAccepted(t *testing.T) {
 	ctx := context.Background()
-	files, _ := Open(t.TempDir())
-	conversation, err := files.CreateLocalConversation(ctx, "native index test")
+	files, _ := openFileServices(t.TempDir())
+	conversation, err := files.Sessions.CreateLocalConversation(ctx, "native index test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, cwd, err := files.AcquireSession(ctx, "local", conversation.ID, "agent", "codex", "v")
+	session, cwd, err := files.Sessions.Acquire(ctx, "local", conversation.ID, "agent", "codex", "v")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,15 +40,15 @@ func TestNativeIndexesComeOnlyFromAdapterAccepted(t *testing.T) {
 	if err = files.Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
-	page, err := files.Reader().List(ctx, Filter{Endpoint: "local", Conversation: conversation.ID, Session: session.ID})
+	page, err := files.List(ctx, Filter{Endpoint: "local", Conversation: conversation.ID, Session: session.ID})
 	if err != nil || len(page.Runs) != 2 {
 		t.Fatal(page, err)
 	}
-	run, err := files.Reader().Detail(ctx, "local", conversation.ID, session.ID, first)
+	run, err := files.Detail(ctx, "local", conversation.ID, session.ID, first)
 	if err != nil || run.Status != "completed" || run.Summary != "first" || run.Output != "unique result" || run.DurationMS != 2000 || run.Usage.InputTokens != 42 {
 		t.Fatal(run, err)
 	}
-	queued, err := files.Reader().Detail(ctx, "local", conversation.ID, session.ID, second)
+	queued, err := files.Detail(ctx, "local", conversation.ID, session.ID, second)
 	if err != nil || queued.Status != "waiting" {
 		t.Fatal(queued, err)
 	}
@@ -67,7 +67,7 @@ func TestNativeIndexesComeOnlyFromAdapterAccepted(t *testing.T) {
 	if err = files.Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = files.Reader().Detail(ctx, "local", conversation.ID, session.ID, first); err != nil {
+	if _, err = files.Detail(ctx, "local", conversation.ID, session.ID, first); err != nil {
 		t.Fatal("accepted run was not rebuilt", err)
 	}
 	if err = files.AcceptNative(ctx, session, "caller-chosen-name"); err == nil {

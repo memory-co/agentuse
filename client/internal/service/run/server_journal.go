@@ -1,4 +1,4 @@
-package store
+package run
 
 import (
 	"bufio"
@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/memory-co/agentuse/client/internal/fileutil"
 )
 
 type runRecord struct {
@@ -17,7 +19,6 @@ type runRecord struct {
 	Data      map[string]json.RawMessage `json:"data"`
 }
 
-func raw(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 func deliveryMetadata(r Delivery) map[string]json.RawMessage {
 	var m map[string]json.RawMessage
 	json.Unmarshal(raw(r), &m)
@@ -41,7 +42,7 @@ func deliveryDiff(before, after map[string]json.RawMessage) map[string]json.RawM
 	return out
 }
 func appendDelivery(path, kind, attempt string, data map[string]json.RawMessage) error {
-	if _, err := SafePath(filepath.Dir(path), filepath.Base(path)); err != nil {
+	if _, err := fileutil.SafePath(filepath.Dir(path), filepath.Base(path)); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -86,7 +87,7 @@ func appendDelivery(path, kind, attempt string, data map[string]json.RawMessage)
 	return f.Sync()
 }
 func readDeliveryJournal(path string) ([]Delivery, error) {
-	if _, err := SafePath(filepath.Dir(path), filepath.Base(path)); err != nil {
+	if _, err := fileutil.SafePath(filepath.Dir(path), filepath.Base(path)); err != nil {
 		return nil, err
 	}
 	f, err := os.Open(path)
@@ -121,10 +122,10 @@ func readDeliveryJournal(path string) ([]Delivery, error) {
 			}
 		case "updated":
 			if states[record.AttemptID] == nil {
-				return nil, ErrInvalid
+				return nil, fileutil.ErrInvalid
 			}
 		default:
-			return nil, ErrInvalid
+			return nil, fileutil.ErrInvalid
 		}
 		for key, value := range record.Data {
 			if bytes.Equal(value, []byte("null")) {
@@ -141,7 +142,7 @@ func readDeliveryJournal(path string) ([]Delivery, error) {
 			return nil, err
 		}
 		if r.AttemptID != attempt {
-			return nil, ErrInvalid
+			return nil, fileutil.ErrInvalid
 		}
 		r.legacy = legacy[attempt]
 		out = append(out, r)

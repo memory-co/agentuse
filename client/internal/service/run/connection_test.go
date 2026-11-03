@@ -4,11 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
-	"github.com/memory-co/agentuse/client/internal/service/harness"
-	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/internal/version"
 	"io"
 	"log"
 	"net/http"
@@ -18,6 +13,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+	"github.com/memory-co/agentuse/client/internal/service/harness"
+	"github.com/memory-co/agentuse/internal/protocol"
+	"github.com/memory-co/agentuse/internal/version"
 )
 
 func TestNew(t *testing.T) {
