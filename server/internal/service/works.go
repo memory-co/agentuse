@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/memory-co/agentuse/server/internal/store"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 func cleanWorkName(name string) (string, error) {
@@ -131,6 +132,29 @@ func (s *Service) DeleteWork(ctx context.Context, u User, id string) error {
 	if busy > 0 {
 		return ErrSessionBusy
 	}
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM sessions WHERE work_id=?`, w.ID)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err = deleteConversationExecution(ctx, tx, id); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, store.DeleteWorkDelete, w.ID); err != nil {
 		return err
 	}
@@ -177,7 +201,7 @@ func (s *Service) setResolved(ctx context.Context, u User, id, from, to string) 
 	return ss, tx.Commit()
 }
 
-// WorkByToken validates a coordinator's current run and attempt.
+// WorkByToken validates the server-scoped business credential for a delivered input.
 func (s *Service) WorkByToken(ctx context.Context, token string) (Work, User, error) {
 	return s.runWorkToken(ctx, token)
 }

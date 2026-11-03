@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
@@ -109,6 +110,9 @@ func (s *Service) DeleteSession(ctx context.Context, u User, id string) error {
 	}
 	if ss.WorkRole == WorkCoordinator {
 		return ErrCoordinator
+	}
+	if err := deleteConversationExecution(ctx, tx, id); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, store.DeleteSessionDelete, id); err != nil {
 		return err

@@ -35,6 +35,6 @@ local conversation 的任意标题保存在 conversation.yaml，目录使用 UUI
 
 同一来源下的实际 run UUID仍由 harnessctl 分配，不能用 server 派发 ID 替代。不同 endpoint 的工作目录、session 和公开查询互相隔离；凭据只传给该来源的调用，不通过修改进程全局环境切换。
 
-现有 server 的旧版派发、续租、确认和业务 CLI 上下文属于 run/server_*.go 的临时协议边界；endpointService 不解释这些业务状态。删除来源配置不删除本机历史，不代表授权重新执行旧输入。
+中心输入分配、公共事件确认和业务 CLI 凭据属于 run/server_connection.go 的传输边界；endpointService 不解释这些业务状态。删除来源配置不删除本机历史，不代表授权重新执行旧输入。
 
 endpointService 直接读写 endpoints.yaml，并在本包内负责 URL 规范化与 endpoint_id 推导。身份规则不放入通用文件工具；YAML 原子写入和路径检查使用 fileutil。

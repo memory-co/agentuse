@@ -115,3 +115,38 @@ func TestClientFileUtilitiesHaveNoBusinessLayer(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Server owns business inputs and projections, never the local adapter runtime.
+func TestServerDoesNotImportHarnessExecution(t *testing.T) {
+	root := filepath.Join("..", "..", "server")
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == "node_modules" || d.Name() == "dist" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, im := range f.Imports {
+			value, _ := strconv.Unquote(im.Path.Value)
+			for _, prefix := range []string{"github.com/memory-co/agentuse/internal/harness", "github.com/memory-co/agentuse/client/internal/service/harness"} {
+				if strings.HasPrefix(value, prefix) {
+					t.Errorf("server %s imports local execution %s", path, value)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

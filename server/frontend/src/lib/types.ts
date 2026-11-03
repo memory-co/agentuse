@@ -21,13 +21,9 @@ export interface Session {
 // 工作：协调者 + 线程 + 共用说明(docs/v2/designs/work.md)
 export interface Work { coordinator_agent_id?: string; id: string; user_id: string; name: string; instructions: string; coordinator_id: string; thread_count: number; created_at: number; updated_at: number }
 export interface Message { seq?:number; agent_key?:string;agent_name?:string;run_id?:string;target_agent_ids?:string[]; id: number; session_id: string; role: 'user' | 'assistant'; content: any; created_at: number }
-export interface SessionEvent { run_id?:string;attempt_id?:string; id: number; session_id: string; message_id: number; daemon_id: string; kind: string; payload?: any; created_at: number }
+export interface SessionEvent { run_id?:string;client_session_id:string;agent_id:string;event_seq:number; id: number; session_id: string; message_id: number; daemon_id: string; kind: string; payload?: any; created_at: number }
 export interface QuestionItem { question: string; header?: string; multi_select?: boolean; options?: { label: string; description?: string }[] }
-export interface Question {
- run_id?:string;attempt_id?:string;
-  id: number; session_id: string; message_id: number; tool_use_id: string; questions: QuestionItem[];
-  answers?: Record<string, string>; answered_by?: string; status: 'pending' | 'answered' | 'expired'; created_at: number;
-}
+export interface Question {request_id:string;run_id:string;session_id:string;state:'pending'|'replied'|'expired';payload:any;answer?:unknown;answered_by?:string;created_at:number;delivery_error?:string}
 export interface SessionDetail { runs?:Run[];deliveries?:Delivery[];run_counts?:Record<string,number>; session: Session; messages: Message[]; questions?: Question[]; events: SessionEvent[]; daemon_offline?: boolean }
 
 export interface Attachment {
@@ -36,5 +32,5 @@ export interface Attachment {
  created_by: string; source: 'user' | 'daemon' | 'work'; daemon_id?: string; created_at: number; download_path: string;
 }
 
-export interface Run { id:string;session_id:string;message_id:number;agent_id?:string;agent_key:string;agent_name:string;daemon_id?:string;harness:string;status:'pending'|'running'|'waiting'|'succeeded'|'failed'|'cancelled';attempt_id?:string;context_seq:number;error?:string;result_message_id?:number }
-export interface Delivery { id:number;message_id:number;agent_key:string;run_id:string;kind:'new_run'|'steer';status:'pending'|'delivered'|'succeeded'|'failed'|'cancelled';error?:string }
+export interface Run {id:string;session_id:string;first_message_id:number;agent_id:string;daemon_id:string;client_session_id:string;harness:string;harness_revision:string;status:'running'|'waiting'|'completed'|'failed'|'cancelled';error?:string;output?:string;result?:any;result_message_id?:number}
+export interface Delivery {id:number;message_id:number;session_id:string;agent_id:string;daemon_id:string;run_id?:string;input_id?:string;client_session_id?:string;harness:string;content:any;status:'pending'|'sent'|'accepted'|'completed'|'failed'|'cancelled';error?:string}

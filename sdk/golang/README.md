@@ -68,10 +68,10 @@ _, err = io.Copy(destination, r)
 ss, err := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Mode: "multi_agent"})
 if err != nil { return err }
 reply, err := c.SendMessage(ctx, user, ss.Session.ID, agentuse.MessageRequest{
-    Prompt: "分别看看实现与风险", TargetAgentIDs: []string{"coder", "reviewer"}, IdempotencyKey: "turn-1",
+    Prompt: "分别看看实现与风险", TargetAgentIDs: []string{"coder", "reviewer"},
 })
 if err != nil { return err }
 detail, err := c.WaitMessageRuns(ctx, user, ss.Session.ID, reply.Message.ID, time.Second)
 ```
 
-Reply.Runs 与 Reply.Deliveries 对应各目标的新执行/插话。另有 GetRun、WaitRun、CancelRun、AnswerRunQuestion。新模式 WaitSession 默认等全部执行终态，可传 WaitOptions{ReturnOnWaiting:true}。
+Reply.Deliveries 是各目标输入分配，accepted 前 Reply.Runs 可以为空。实际 UUID 及插话归属由 client 决定。另有 GetRun、WaitRun、CancelRun、ReplyRunRequest。新模式 WaitSession 默认等全部执行终态，可传 WaitOptions{ReturnOnWaiting:true}。

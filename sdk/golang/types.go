@@ -32,12 +32,6 @@ type Harness struct {
 	CreatedAt   int64  `json:"created_at"`
 }
 
-type CreateHarnessRequest struct {
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name,omitempty"`
-	Description string `json:"description,omitempty"`
-}
-
 type Agent struct {
 	ID          string `json:"id"`
 	UserID      string `json:"user_id"`
@@ -79,6 +73,7 @@ type Daemon struct {
 }
 
 type DaemonHarness struct {
+	Revision  string `json:"revision"`
 	DaemonID  string `json:"daemon_id"`
 	UserID    string `json:"user_id"`
 	Harness   string `json:"harness"`
@@ -115,15 +110,16 @@ type Message struct {
 }
 
 type SessionEvent struct {
-	RunID     string          `json:"run_id,omitempty"`
-	AttemptID string          `json:"attempt_id,omitempty"`
-	ID        int64           `json:"id"`
-	SessionID string          `json:"session_id"`
-	MessageID int64           `json:"message_id"`
-	DaemonID  string          `json:"daemon_id"`
-	Kind      string          `json:"kind"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
-	CreatedAt int64           `json:"created_at"`
+	ID              int64           `json:"id"`
+	SessionID       string          `json:"session_id"`
+	ClientSessionID string          `json:"client_session_id"`
+	RunID           string          `json:"run_id,omitempty"`
+	AgentID         string          `json:"agent_id"`
+	DaemonID        string          `json:"daemon_id"`
+	EventSeq        int64           `json:"event_seq"`
+	Kind            string          `json:"kind"`
+	Payload         json.RawMessage `json:"payload"`
+	CreatedAt       int64           `json:"created_at"`
 }
 
 // MessageRequest 是一条用户消息:给 Prompt 时内容是 {"prompt": …};给 Input 时原样交给 harness。
@@ -160,31 +156,17 @@ type SessionDetail struct {
 	Events     []SessionEvent `json:"events"`
 }
 
-// Question 是 harness 向用户的一次提问，见 docs/v2/designs/question.md。用 AnswerRunQuestion 回答。
+// Question preserves the public harnessctl request snapshot. Use ReplyRunRequest.
 type Question struct {
-	RunID      string            `json:"run_id,omitempty"`
-	AttemptID  string            `json:"attempt_id,omitempty"`
-	ID         int64             `json:"id"`
-	SessionID  string            `json:"session_id"`
-	MessageID  int64             `json:"message_id"`
-	ToolUseID  string            `json:"tool_use_id"`
-	Questions  []QuestionItem    `json:"questions"`
-	Answers    map[string]string `json:"answers,omitempty"`
-	AnsweredBy string            `json:"answered_by,omitempty"`
-	Status     string            `json:"status"` // pending / answered / expired
-	CreatedAt  int64             `json:"created_at"`
-}
-
-type QuestionItem struct {
-	Question    string           `json:"question"`
-	Header      string           `json:"header,omitempty"`
-	MultiSelect bool             `json:"multi_select,omitempty"`
-	Options     []QuestionOption `json:"options,omitempty"`
-}
-
-type QuestionOption struct {
-	Label       string `json:"label"`
-	Description string `json:"description,omitempty"`
+	DeliveryError string          `json:"delivery_error,omitempty"`
+	RequestID     string          `json:"request_id"`
+	SessionID     string          `json:"session_id"`
+	RunID         string          `json:"run_id"`
+	State         string          `json:"state"`
+	Payload       json.RawMessage `json:"payload"`
+	Answer        json.RawMessage `json:"answer,omitempty"`
+	AnsweredBy    string          `json:"answered_by,omitempty"`
+	CreatedAt     int64           `json:"created_at"`
 }
 
 // Reply 包含共享消息和各目标的执行/投递。

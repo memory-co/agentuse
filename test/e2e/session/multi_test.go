@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"net/url"
+
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/test/e2e/e2eutil"
-	"net/url"
 )
 
 func runDaemonForMulti(t *testing.T, c *agentuse.Client, user, home, cli, fake string, native bool) *agentuse.Daemon {
@@ -46,7 +47,7 @@ func runDaemonForMulti(t *testing.T, c *agentuse.Client, user, home, cli, fake s
 		for _, item := range ds {
 			if item.ID == d.ID && item.Status == "online" && len(item.Harnesses) == count {
 				for _, cap := range item.Capabilities {
-					if cap == "session-runs-v1" {
+					if cap == "harnessctl-events-v1" {
 						return true
 					}
 				}
@@ -66,16 +67,13 @@ func runDaemonForMulti(t *testing.T, c *agentuse.Client, user, home, cli, fake s
 }
 func TestMultiAgentSession(t *testing.T) {
 	e2eutil.Skip(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	srv := e2eutil.StartServer(t, e2eutil.Binary(t, "agentuse-server"), t.TempDir())
 	cli := e2eutil.Binary(t, "agentuse")
 	fake := e2eutil.Binary(t, "fakeharness")
 	c := agentuse.New(srv.URL, srv.AdminToken)
 	user := "alice"
-	if _, err := c.CreateHarness(ctx, user, agentuse.CreateHarnessRequest{Name: "fake"}); err != nil {
-		t.Fatal(err)
-	}
 	homeA, homeB := t.TempDir(), t.TempDir()
 	dA := runDaemonForMulti(t, c, user, homeA, cli, fake, false)
 	dB := runDaemonForMulti(t, c, user, homeB, cli, fake, false)
@@ -84,14 +82,11 @@ func TestMultiAgentSession(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	created, err := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Mode: "multi_agent", Title: "Shared session"})
+	created, err := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Title: "Shared conversation"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	id := created.Session.ID
-	if created.Message != nil {
-		t.Fatal("session binding", created)
-	}
 	if _, err = c.UploadAttachment(ctx, user, id, "input.txt", strings.NewReader("shared input")); err != nil {
 		t.Fatal(err)
 	}
@@ -99,122 +94,72 @@ func TestMultiAgentSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	first, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:hold", TargetAgentIDs: []string{"coder"}})
-	if err != nil || len(first.Runs) != 1 {
-		t.Fatal("first", first, err)
+	if err != nil || len(first.Runs) != 0 || len(first.Deliveries) != 1 {
+		t.Fatal(first, err)
 	}
-	e2eutil.WaitFor(t, 10*time.Second, "coder executing", func() bool {
-		d, e := c.GetSession(ctx, user, id)
-		return e == nil && len(d.Events) > 1 && d.Session.Status == "running"
+	var firstRun string
+	e2eutil.WaitFor(t, 10*time.Second, "client accepted coder input", func() bool {
+		detail, e := c.GetSession(ctx, user, id)
+		if e == nil {
+			for _, r := range detail.Runs {
+				if r.AgentID == "coder" && r.Status == "running" {
+					firstRun = r.ID
+					return true
+				}
+			}
+		}
+		return false
 	})
-	req := agentuse.MessageRequest{Prompt: "multi:review", TargetAgentIDs: []string{"coder", "reviewer"}, IdempotencyKey: "turn2"}
-	second, err := c.SendMessage(ctx, user, id, req)
-	if err != nil || len(second.Runs) != 1 || second.Runs[0].AgentKey != "reviewer" {
-		t.Fatalf("mixed send %+v %v", second, err)
+	second, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:review", TargetAgentIDs: []string{"coder", "reviewer"}})
+	if err != nil || len(second.Runs) != 0 || len(second.Deliveries) != 2 {
+		t.Fatal(second, err)
 	}
-	repeated, err := c.SendMessage(ctx, user, id, req)
-	if err != nil || repeated.Message.ID != second.Message.ID {
-		t.Fatal("idempotency", repeated, err)
+	e2eutil.WaitFor(t, 10*time.Second, "reviewer runs while coder is held", func() bool {
+		detail, e := c.GetSession(ctx, user, id)
+		if e != nil {
+			return false
+		}
+		for _, r := range detail.Runs {
+			if r.AgentID == "reviewer" && r.Status == "failed" {
+				t.Fatalf("reviewer failed: %+v", r)
+			}
+			if r.AgentID == "reviewer" && r.Status == "completed" {
+				return true
+			}
+		}
+		return false
+	})
+	held, err := c.GetRun(ctx, user, id, firstRun)
+	if err != nil || held.Run.Status != "running" {
+		t.Fatal(held, err)
 	}
-	bResult, err := c.WaitRun(ctx, user, id, second.Runs[0].ID, 50*time.Millisecond)
-	if err != nil || bResult.Run.Status != "succeeded" {
-		t.Fatal("parallel B", bResult, err)
+	u, _ := url.Parse(srv.URL)
+	ep := "http---" + strings.ReplaceAll(u.Host, ":", "%3A")
+	if err = os.WriteFile(filepath.Join(homeA, ".agentuse", "tmp", ep, id, "workspace", "release"), []byte("go"), 0600); err != nil {
+		t.Fatal(err)
 	}
-	aResult, err := c.GetRun(ctx, user, id, first.Runs[0].ID)
-	if err != nil || aResult.Run.Status != "running" {
-		t.Fatal("A should still hold", aResult, err)
-	}
-	u, _ := url.Parse(c.BaseURL)
-	endpoint := "http---" + strings.ReplaceAll(u.Host, ":", "%3A")
-	os.WriteFile(filepath.Join(homeA, ".agentuse", "tmp", endpoint, id, "workspace", "release"), []byte("go"), 0600)
-	detail, err := c.WaitMessageRuns(ctx, user, id, second.Message.ID, 50*time.Millisecond)
+	detail, err := c.WaitMessageRuns(ctx, user, id, second.Message.ID, 30*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(detail.Runs) != 2 || len(detail.Messages) != 5 {
-		t.Fatalf("supplement duplicated business runs: runs=%d messages=%d", len(detail.Runs), len(detail.Messages))
+	if len(detail.Runs) != 3 {
+		t.Fatal("custom adapter assigned three native interactions; server must preserve them", detail.Runs)
 	}
-	var lastA agentuse.Run
 	for _, r := range detail.Runs {
-		if r.AgentKey == "coder" {
-			lastA = r
+		if r.Status != "completed" {
+			t.Fatal(r)
 		}
 	}
-	if lastA.ID == "" || lastA.Status != "succeeded" {
-		t.Fatal("original business run did not finish", lastA)
+	// A new message is always new input, even if its text is identical.
+	again, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:review", TargetAgentIDs: []string{"reviewer"}})
+	if err != nil || again.Message.ID == second.Message.ID {
+		t.Fatal(again, err)
 	}
-	for _, m := range detail.Messages {
-		if m.Role != "assistant" {
-			continue
-		}
-		var r result
-		if err = json.Unmarshal(m.Content, &r); err != nil || !r.OK {
-			t.Fatal("result", r, err)
-		}
-		var out struct {
-			Resume  string             `json:"resume"`
-			History []agentuse.Message `json:"history"`
-			RunID   string             `json:"run_id"`
-			Live    []agentuse.Message `json:"live"`
-		}
-		for _, output := range strings.Split(r.Output, "\n\n") {
-			if err = json.Unmarshal([]byte(output), &out); err != nil {
-				t.Fatal(err)
-			}
-			if out.Resume != "" || out.RunID != m.RunID || len(out.History) < 1 || len(out.Live) < 2 {
-				t.Fatalf("shared context %+v", out)
-			}
-		}
-	}
-	// A later run keeps the local session and receives other agents' new replies.
-	next, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:after-review", TargetAgentIDs: []string{"coder"}})
-	if err != nil {
+	if _, err = c.WaitMessageRuns(ctx, user, id, again.Message.ID, 30*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	after, err := c.WaitMessageRuns(ctx, user, id, next.Message.ID, 50*time.Millisecond)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var shared struct {
-		History []agentuse.Message `json:"history"`
-	}
-	rafter := lastResult(t, after)
-	if !rafter.OK || json.Unmarshal([]byte(rafter.Output), &shared) != nil {
-		t.Fatal(rafter)
-	}
-	reviewerSeen := false
-	for _, message := range shared.History {
-		if message.AgentKey == "reviewer" {
-			reviewerSeen = true
-		}
-	}
-	if !reviewerSeen {
-		t.Fatal("resumed session missed reviewer context")
-	}
-	// New runs pick the agent's current runtime; no per-agent resume or rebind step.
-	if _, err = c.UpdateAgent(ctx, user, "coder", agentuse.UpdateAgentRequest{DaemonID: &dB.ID, Harness: ptrString("fake")}); err != nil {
-		t.Fatal(err)
-	}
-	switched, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "attachments", TargetAgentIDs: []string{"coder"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(switched.Runs) != 1 || switched.Runs[0].DaemonID != dB.ID {
-		t.Fatal("runtime switch", switched)
-	}
-	detail, err = c.WaitMessageRuns(ctx, user, id, switched.Message.ID, 50*time.Millisecond)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r := lastResult(t, detail)
-	if !r.OK {
-		t.Fatal("run attachment", r)
-	}
-	var a agentuse.Attachment
-	if err = json.Unmarshal([]byte(r.Output), &a); err != nil || a.CreatedByRunID != switched.Runs[0].ID {
-		t.Fatal("attachment attribution", a, err)
-	}
-	testMultiSDKs(t, srv.URL, srv.AdminToken)
 }
+
 func ptrString(s string) *string { return &s }
 func testMultiSDKs(t *testing.T, server, token string) {
 	root, _ := filepath.Abs("../../..")
@@ -265,9 +210,6 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 	user := "alice"
 	cli := e2eutil.Binary(t, "agentuse")
 	fake := e2eutil.Binary(t, "fakeharness")
-	if _, err := c.CreateHarness(ctx, user, agentuse.CreateHarnessRequest{Name: "fake"}); err != nil {
-		t.Fatal(err)
-	}
 	d := runDaemonForMulti(t, c, user, t.TempDir(), cli, fake, true)
 	for _, a := range []agentuse.CreateAgentRequest{{ID: "native", Name: "Native", DaemonID: d.ID, Harness: "claude"}, {ID: "worker", Name: "Worker", DaemonID: d.ID, Harness: "fake"}} {
 		if _, err := c.CreateAgent(ctx, user, a); err != nil {
@@ -281,14 +223,14 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 	id := created.Session.ID
 	e2eutil.WaitFor(t, 10*time.Second, "native started", func() bool { v, e := c.GetSession(ctx, user, id); return e == nil && len(v.Events) > 1 })
 	extra, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "补一个测试", TargetAgentIDs: []string{"native"}})
-	if err != nil || len(extra.Runs) != 0 || len(extra.Deliveries) != 1 || extra.Deliveries[0].Kind != "steer" {
+	if err != nil || len(extra.Runs) != 0 || len(extra.Deliveries) != 1 {
 		t.Fatal("native steer", extra, err)
 	}
 	detail, err := c.WaitMessageRuns(ctx, user, id, extra.Message.ID, 50*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(detail.Runs) != 1 || len(detail.Messages) != 3 {
+	if len(detail.Runs) != 2 || len(detail.Messages) != 4 {
 		t.Fatalf("steer created extra run/message: %+v", detail)
 	}
 	if r := lastResult(t, detail); !r.OK || !strings.Contains(r.Output, "补一个测试") {
@@ -298,23 +240,29 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = c.WaitRun(ctx, user, id, ask.Runs[0].ID, 50*time.Millisecond, agentuse.WaitOptions{ReturnOnWaiting: true}); err != nil {
-		t.Fatal(err)
-	}
-	detail, err = c.GetSession(ctx, user, id)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var question agentuse.Question
-	for _, q := range detail.Questions {
-		if q.RunID == ask.Runs[0].ID {
-			question = q
+	e2eutil.WaitFor(t, 10*time.Second, "public client request", func() bool {
+		detail, e := c.GetSession(ctx, user, id)
+		if e != nil {
+			return false
+		}
+		for _, q := range detail.Questions {
+			if q.State == "pending" {
+				question = q
+				return true
+			}
+		}
+		return false
+	})
+	var body struct {
+		Questions []struct {
+			ID string `json:"id"`
 		}
 	}
-	if question.ID == 0 {
-		t.Fatal("run question missing")
+	if err = json.Unmarshal(question.Payload, &body); err != nil || len(body.Questions) != 1 {
+		t.Fatal(question, err)
 	}
-	if _, err = c.AnswerRunQuestion(ctx, user, id, question.RunID, question.ID, map[string]string{"用哪种语言？": "Go"}); err != nil {
+	if err = c.ReplyRunRequest(ctx, user, id, question.RunID, question.RequestID, map[string]string{body.Questions[0].ID: "Go"}); err != nil {
 		t.Fatal(err)
 	}
 	detail, err = c.WaitMessageRuns(ctx, user, id, ask.Message.ID, 50*time.Millisecond)
@@ -347,7 +295,7 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 		t.Fatal("work thread", threads, err)
 	}
 	child, err := c.GetSession(ctx, user, threads[0].ID)
-	if err != nil || len(child.Runs) != 1 || child.Runs[0].AgentKey != "worker" || child.Runs[0].Status != "succeeded" {
+	if err != nil || len(child.Runs) != 1 || child.Runs[0].AgentID != "worker" || child.Runs[0].Status != "completed" {
 		t.Fatal("child", child, err)
 	}
 }

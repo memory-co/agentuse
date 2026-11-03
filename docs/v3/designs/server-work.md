@@ -13,14 +13,14 @@ workService 将多个 conversation 组织成一项工作。一个 work 有一个
 | 创建 work | 通过 agentService 校验协调 agent，通过 conversationService 创建协调 conversation；在同一事务建立关联 |
 | 创建线程 | 以工作范围权限调用 conversationService 创建关联 work_id 的 conversation |
 | 修改配置 | 维护名称、说明和协调 agent；忙碌时拒绝不安全的执行选择变更 |
-| 汇总结果 | 在最终回复已由 conversationService 保存后，检查原消息给所有目标的 run_prompts 是否完成（沿 superseded_by 跟踪后续副本）；将汇总作为消息发到协调 conversation |
+| 汇总结果 | 在最终回复已由 conversationService 保存后，检查原消息给所有目标的 run_prompts 是否完成；将汇总作为消息发到协调 conversation |
 | 删除 work | 检查相关任务空闲，再经 conversationService 删除所属对话及 work 数据 |
 
 汇总使用 run_notifications 去重：记录“该线程消息已汇报”与向协调 conversation 发汇总消息，必须在同一事务完成。不能只收到 run 结束事件就汇总，因为最终回复可能还没消费入库；需要等回复落库通知，并能通过持久化消息/run_prompts 扫描补偿。
 
 ## 工作令牌
 
-协调 agent 的 run 领取时，工作授权参与领取事务，由 workService 签发限定 work/run/attempt 的令牌；明文只交给对应 client。每次使用时同时检查 run 当前状态、attempt 和租约。run 结束、重排或设备凭据撤销时协调撤销，不把令牌当作长期用户身份。
+领取输入时签发限定 work/prompt 的令牌；此时实际 run 可能还不存在。每次使用检查输入状态为 sent 或 accepted，以及 work 范围。输入完成后授权失效，不把令牌当作长期用户身份。
 
 协调者职责、派活规则及工作说明由 server 在领取 run 时组织到 Instructions，再随任务下发。只有协调 conversation 当前指定的协调 agent 获得协调者指令；线程和其他 agent 只收到共享工作说明。client 不根据 WorkToken 推断角色或生成协调策略，只透传凭据和已准备的指令。
 
@@ -49,14 +49,13 @@ CREATE INDEX works_user
 
 ### work_run_tokens
 
-令牌只存哈希，绑定一个 work/run/attempt。表中没有 expires_at，实际有效期由当前 run 的状态和 lease_until 决定；校验时不能只查到 token_hash 就放行。
+令牌只存哈希，绑定 work 和输入分配 prompt_id；实际有效性由 run_prompts.status 检查。
 
 ```sql
 CREATE TABLE work_run_tokens (
     token_hash TEXT PRIMARY KEY,
     work_id TEXT NOT NULL,
-    run_id TEXT NOT NULL,
-    attempt_id TEXT NOT NULL
+    prompt_id INTEGER NOT NULL
 );
 ```
 

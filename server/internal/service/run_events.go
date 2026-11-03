@@ -4,166 +4,191 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/memory-co/agentuse/server/internal/store"
-	"strings"
+
+	"github.com/google/uuid"
+	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-func (s *Service) reportRunEvent(ctx context.Context, daemon, run, attempt string, seq int64, kind string, payload json.RawMessage, lease int64) error {
-	if seq <= 0 || !json.Valid(payload) {
-		return fmt.Errorf("event_seq 和 payload 不合法")
+// ReportClientEvent stores the public event unchanged. Only envelope ownership,
+// ordering and the five common types are server concerns, never native frames.
+func (s *Service) ReportClientEvent(ctx context.Context, device string, envelope protocol.ClientEvent) error {
+	if envelope.Seq <= 0 || envelope.SessionID == "" || envelope.AgentID == "" || !json.Valid(envelope.Event) {
+		return fmt.Errorf("invalid client event")
 	}
-	switch kind {
-	case "started", EventProgress, EventPlan, EventSteered, EventQuestion, EventAnswered, EventQuestionExpired, EventDone, EventFailed:
+	var event struct {
+		Type      string   `json:"type"`
+		RunID     string   `json:"run_id"`
+		InputID   string   `json:"input_id"`
+		InputIDs  []string `json:"input_ids"`
+		RequestID string   `json:"request_id"`
+		State     string   `json:"state"`
+		Status    string   `json:"status"`
+		Output    string   `json:"output"`
+		Error     *string  `json:"error"`
+	}
+	if err := json.Unmarshal(envelope.Event, &event); err != nil {
+		return err
+	}
+	switch event.Type {
+	case "accepted", "message", "request", "result", "log":
 	default:
-		return fmt.Errorf("未知事件")
+		return fmt.Errorf("unknown public event type")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	r, err := scanRun(tx.QueryRowContext(ctx, runCols+store.ReportRunEventClause, run, daemon))
-	if err != nil {
-		return err
-	}
-	if r.AttemptID != attempt {
-		return ErrStaleMessage
-	}
-	var oldKind, oldPayload string
-	err = tx.QueryRowContext(ctx, store.ReportRunEventSelect, run, attempt, seq).Scan(&oldKind, &oldPayload)
-	if err == nil {
-		if oldKind != kind || oldPayload != string(payload) {
-			return ErrStaleMessage
+	if event.Type != "log" {
+		if id, err := uuid.Parse(event.RunID); err != nil || id.String() != event.RunID {
+			return fmt.Errorf("invalid client run UUID")
 		}
-		return nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	if _, err = s.CheckRun(ctx, tx, daemon, run, attempt); err != nil {
-		return err
-	}
-	now := s.unix()
-	if _, err = tx.ExecContext(ctx, store.ReportRunEventInsert, r.SessionID, run, attempt, r.MessageID, daemon, seq, kind, string(payload), now); err != nil {
-		return err
-	}
-	if _, err = tx.ExecContext(ctx, store.ReportRunEventUpdate, now+lease, run); err != nil {
-		return err
-	}
-	switch kind {
-	case "started":
-		var p struct {
-			ContextSeq int64 `json:"context_seq"`
-		}
-		_ = json.Unmarshal(payload, &p)
-		if p.ContextSeq > 0 {
-			if _, err = tx.ExecContext(ctx, store.ReportRunEventUpdate2, p.ContextSeq, r.SessionID, run); err != nil {
-				return err
-			}
-		}
-		_, err = tx.ExecContext(ctx, store.ReportRunEventUpdate3, run, attempt)
-	case EventSteered:
-		var p struct {
-			SteerID int64 `json:"steer_id"`
-		}
-		if json.Unmarshal(payload, &p) != nil || p.SteerID <= 0 {
-			return fmt.Errorf("steer_id 必填")
-		}
-		_, err = tx.ExecContext(ctx, store.ReportRunEventUpdate4, p.SteerID, run)
-	case EventQuestion:
-		var p struct {
-			ToolUseID string          `json:"tool_use_id"`
-			Questions json.RawMessage `json:"questions"`
-		}
-		if json.Unmarshal(payload, &p) != nil || p.ToolUseID == "" || len(p.Questions) == 0 || p.Questions[0] != '[' {
-			return fmt.Errorf("提问格式错误")
-		}
-		_, err = tx.ExecContext(ctx, store.ReportRunEventInsert2, r.SessionID, run, attempt, r.MessageID, p.ToolUseID, string(p.Questions), now, now)
+	return s.repository.Tx(ctx, func(tx *sql.Tx) error {
+		var existing, existingConversation, existingAgent string
+		err := tx.QueryRowContext(ctx, `SELECT payload,session_id,agent_id FROM run_events WHERE daemon_id=? AND client_session_id=? AND event_seq=?`, device, envelope.SessionID, envelope.Seq).Scan(&existing, &existingConversation, &existingAgent)
 		if err == nil {
-			_, err = tx.ExecContext(ctx, store.ReportRunEventUpdate5, run)
-		}
-	case EventAnswered, EventQuestionExpired:
-		var p struct {
-			ToolUseID string `json:"tool_use_id"`
-		}
-		_ = json.Unmarshal(payload, &p)
-		status := "answered"
-		if kind == EventQuestionExpired {
-			status = "expired"
-		}
-		if kind == EventQuestionExpired {
-			if err = s.recoverRunAnswers(ctx, tx, r, `tool_use_id=?`, p.ToolUseID); err != nil {
-				return err
+			if existing != string(envelope.Event) || existingConversation != envelope.ConversationID || existingAgent != envelope.AgentID {
+				return fmt.Errorf("event sequence conflict")
 			}
+			return nil
 		}
-		_, err = tx.ExecContext(ctx, store.ReportRunEventUpdate6, status, now, run, attempt, p.ToolUseID)
-		if err == nil {
-			_, err = tx.ExecContext(ctx, store.ReportRunEventUpdate7, run)
-		}
-	case EventDone, EventFailed:
-		if err = s.recoverRunAnswers(ctx, tx, r, `1=1`); err != nil {
+		if err != sql.ErrNoRows {
 			return err
 		}
-		status := "succeeded"
-		if kind == EventFailed {
-			status = "failed"
-		}
-		err = s.finishRun(ctx, tx, r, status, payload, true)
-	}
-	if err != nil {
-		return err
-	}
-	if err = multiStatus(ctx, tx, r.SessionID, now); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func (s *Service) recoverRunAnswers(ctx context.Context, tx *sql.Tx, r Run, where string, args ...any) error {
-	rows, err := tx.QueryContext(ctx, store.RecoverRunAnswersSelect+where, append([]any{r.ID, r.AttemptID}, args...)...)
-	if err != nil {
-		return err
-	}
-	var texts []string
-	for rows.Next() {
-		var raw string
-		if err = rows.Scan(&raw); err != nil {
-			rows.Close()
+		var authorized int
+		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM run_prompts WHERE daemon_id=? AND session_id=? AND agent_id=? AND status IN ('sent','accepted','completed','failed','cancelled')`, device, envelope.ConversationID, envelope.AgentID).Scan(&authorized); err != nil {
 			return err
 		}
-		var answers map[string]string
-		_ = json.Unmarshal([]byte(raw), &answers)
-		texts = append(texts, answerText(answers))
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	for _, text := range texts {
-		b, _ := json.Marshal(map[string]string{"prompt": text})
-		m, e := insertMessage(ctx, tx, r.SessionID, RoleUserMsg, b, s.unix())
-		if e != nil {
-			return e
+		if authorized == 0 {
+			return ErrNotFound
 		}
-		if _, e = tx.ExecContext(ctx, store.RecoverRunAnswersInsert, m.ID); e != nil {
-			return e
+		var rebound int
+		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM run_events WHERE daemon_id=? AND client_session_id=? AND (session_id<>? OR agent_id<>?)`, device, envelope.SessionID, envelope.ConversationID, envelope.AgentID).Scan(&rebound); err != nil {
+			return err
 		}
-		if _, e = tx.ExecContext(ctx, store.RecoverRunAnswersInsert2, m.ID, r.SessionID, nullIfEmpty(r.AgentID), r.AgentKey, r.ID); e != nil {
-			return e
+		if rebound > 0 {
+			return fmt.Errorf("client session route conflict")
 		}
-	}
-	return nil
-}
+		if event.Type == "log" && event.RunID != "" {
+			var owner, sessionID, agentID string
+			err := tx.QueryRowContext(ctx, `SELECT daemon_id,client_session_id,agent_id FROM runs WHERE id=?`, event.RunID).Scan(&owner, &sessionID, &agentID)
+			if err != nil && err != sql.ErrNoRows {
+				return err
+			}
+			if err == nil && (owner != device || sessionID != envelope.SessionID || agentID != envelope.AgentID) {
+				return ErrNotFound
+			}
+		}
+		now := s.unix()
+		if event.Type == "accepted" {
+			if envelope.PromptID <= 0 || event.InputID == "" {
+				return fmt.Errorf("accepted requires prompt and input identity")
+			}
+			prompt, err := scanPrompt(tx.QueryRowContext(ctx, promptCols+` WHERE id=? AND daemon_id=? AND session_id=? AND agent_id=?`, envelope.PromptID, device, envelope.ConversationID, envelope.AgentID))
+			if err != nil {
+				return err
+			}
+			if prompt.Status != "sent" && prompt.Status != "accepted" {
+				return fmt.Errorf("prompt is not awaiting acceptance")
+			}
+			if prompt.RunID != "" && (prompt.RunID != event.RunID || prompt.InputID != event.InputID) {
+				return fmt.Errorf("prompt already bound to another accepted input")
+			}
+			if _, err = tx.ExecContext(ctx, `INSERT INTO runs(id,session_id,first_message_id,agent_id,daemon_id,client_session_id,harness,harness_revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, event.RunID, envelope.ConversationID, prompt.MessageID, envelope.AgentID, device, envelope.SessionID, envelope.Harness, envelope.Revision, now, now); err != nil {
+				return err
+			}
+			r, err := scanNativeRun(tx.QueryRowContext(ctx, nativeRunCols+` WHERE id=?`, event.RunID))
+			if err != nil {
+				return err
+			}
+			if r.DaemonID != device || r.ClientSessionID != envelope.SessionID || r.SessionID != envelope.ConversationID || r.AgentID != envelope.AgentID || r.Status == "completed" || r.Status == "failed" || r.Status == "cancelled" {
+				return fmt.Errorf("accepted run ownership or lifecycle conflict")
+			}
+			if _, err = tx.ExecContext(ctx, `UPDATE run_prompts SET status='accepted',run_id=?,input_id=?,client_session_id=?,updated_at=? WHERE id=?`, event.RunID, event.InputID, envelope.SessionID, now, prompt.ID); err != nil {
+				return err
+			}
+		} else if event.Type != "log" {
+			r, err := scanNativeRun(tx.QueryRowContext(ctx, nativeRunCols+` WHERE id=? AND daemon_id=? AND client_session_id=? AND session_id=? AND agent_id=?`, event.RunID, device, envelope.SessionID, envelope.ConversationID, envelope.AgentID))
+			if err != nil {
+				return err
+			}
+			if event.Type == "request" {
+				if event.RequestID == "" || (event.State != "pending" && event.State != "replied" && event.State != "expired") {
+					return fmt.Errorf("invalid public request")
+				}
+				if _, err = tx.ExecContext(ctx, `INSERT INTO run_requests(request_id,session_id,run_id,client_session_id,daemon_id,payload,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(request_id) DO UPDATE SET payload=excluded.payload,state=excluded.state,updated_at=excluded.updated_at WHERE run_requests.run_id=excluded.run_id AND run_requests.daemon_id=excluded.daemon_id`, event.RequestID, r.SessionID, r.ID, r.ClientSessionID, device, string(envelope.Event), event.State, now, now); err != nil {
+					return err
+				}
+				if _, err = tx.ExecContext(ctx, `UPDATE runs SET status=CASE WHEN EXISTS(SELECT 1 FROM run_requests WHERE run_id=? AND state='pending') THEN 'waiting' ELSE 'running' END,updated_at=? WHERE id=? AND status IN ('running','waiting')`, r.ID, now, r.ID); err != nil {
+					return err
+				}
+			}
+			if event.Type == "result" {
+				if event.Status != "completed" && event.Status != "failed" && event.Status != "cancelled" {
+					return fmt.Errorf("invalid public result status")
+				}
+				if len(event.InputIDs) == 0 {
+					return fmt.Errorf("result input_ids required")
+				}
+				if len(r.Result) > 0 {
+					return fmt.Errorf("run already has a result")
+				}
+				prompts, err := deliveries(ctx, tx, `run_id=?`, r.ID)
+				if err != nil {
+					return err
+				}
+				owned := map[string]bool{}
+				for _, p := range prompts {
+					owned[p.InputID] = true
+				}
+				if len(event.InputIDs) != len(owned) {
+					return fmt.Errorf("result must cover all accepted inputs")
+				}
+				seen := map[string]bool{}
+				for _, id := range event.InputIDs {
+					if !owned[id] || seen[id] {
+						return fmt.Errorf("result names an unknown or duplicate input")
+					}
+					seen[id] = true
+				}
+				errorText := ""
+				if event.Error != nil {
+					errorText = *event.Error
+				}
+				if _, err = tx.ExecContext(ctx, `UPDATE runs SET status=?,output=?,error=?,result=?,updated_at=? WHERE id=?`, event.Status, event.Output, errorText, string(envelope.Event), now, r.ID); err != nil {
+					return err
+				}
+				if _, err = tx.ExecContext(ctx, `UPDATE run_prompts SET status=?,error=?,updated_at=? WHERE run_id=?`, event.Status, errorText, now, r.ID); err != nil {
+					return err
+				}
 
-func (s *Service) RunEvents(ctx context.Context, session string) ([]SessionEvent, error) {
-	return runEvents(ctx, s.db, session)
+				// The final client result becomes one conversation reply, in this transaction.
+				if event.Status != "cancelled" {
+					payload, _ := json.Marshal(map[string]any{"ok": event.Status == "completed", "output": event.Output, "error": event.Error, "result": json.RawMessage(envelope.Event)})
+					message, err := insertMessage(ctx, tx, r.SessionID, RoleAssistantMsg, payload, now)
+					if err != nil {
+						return err
+					}
+					if _, err = tx.ExecContext(ctx, `UPDATE messages SET author_agent_id=?,reply_to_message_id=? WHERE id=?`, r.AgentID, r.FirstMessageID, message.ID); err != nil {
+						return err
+					}
+					if _, err = tx.ExecContext(ctx, `UPDATE runs SET result_message_id=? WHERE id=?`, message.ID, r.ID); err != nil {
+						return err
+					}
+				}
+				if err = s.notifyRunMessages(ctx, tx, r.SessionID); err != nil {
+					return err
+				}
+			}
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO run_events(session_id,client_session_id,run_id,agent_id,daemon_id,event_seq,kind,payload,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, envelope.ConversationID, envelope.SessionID, event.RunID, envelope.AgentID, device, envelope.Seq, event.Type, string(envelope.Event), now); err != nil {
+			return err
+		}
+		return multiStatus(ctx, tx, envelope.ConversationID, now)
+	})
 }
-
-func runEvents(ctx context.Context, q rowsQuerier, session string) ([]SessionEvent, error) {
-	rows, err := q.QueryContext(ctx, store.RunEventsSelect, session)
+func (s *Service) RunEvents(ctx context.Context, conversation string) ([]SessionEvent, error) {
+	return runEvents(ctx, s.db, conversation)
+}
+func runEvents(ctx context.Context, q rowsQuerier, conversation string) ([]SessionEvent, error) {
+	rows, err := q.QueryContext(ctx, `SELECT id,session_id,client_session_id,run_id,agent_id,daemon_id,event_seq,kind,payload,created_at FROM run_events WHERE session_id=? ORDER BY id`, conversation)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +197,7 @@ func runEvents(ctx context.Context, q rowsQuerier, session string) ([]SessionEve
 	for rows.Next() {
 		var e SessionEvent
 		var raw string
-		if err = rows.Scan(&e.ID, &e.SessionID, &e.RunID, &e.AttemptID, &e.MessageID, &e.DaemonID, &e.Kind, &raw, &e.CreatedAt); err != nil {
+		if err = rows.Scan(&e.ID, &e.SessionID, &e.ClientSessionID, &e.RunID, &e.AgentID, &e.DaemonID, &e.EventSeq, &e.Kind, &raw, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		e.Payload = json.RawMessage(raw)
@@ -180,93 +205,50 @@ func runEvents(ctx context.Context, q rowsQuerier, session string) ([]SessionEve
 	}
 	return out, rows.Err()
 }
-
-func (s *Service) RunQuestions(ctx context.Context, session string) ([]Question, error) {
-	return s.runQuestions(ctx, `session_id=?`, session)
+func (s *Service) RunQuestions(ctx context.Context, conversation string) ([]Question, error) {
+	return queryRunQuestions(ctx, s.db, `session_id=?`, conversation)
 }
-
-func (s *Service) runQuestions(ctx context.Context, where string, args ...any) ([]Question, error) {
-	return queryRunQuestions(ctx, s.db, where, args...)
-}
-
 func queryRunQuestions(ctx context.Context, q rowsQuerier, where string, args ...any) ([]Question, error) {
-	rows, err := q.QueryContext(ctx, store.QueryRunQuestionsSelect+where+store.QueryRunQuestionsClause, args...)
+	rows, err := q.QueryContext(ctx, `SELECT request_id,session_id,run_id,payload,state,answer,answered_by,created_at,COALESCE((SELECT error FROM run_controls c WHERE c.request_id=run_requests.request_id AND c.kind='reply' ORDER BY c.created_at DESC,c.rowid DESC LIMIT 1),'') FROM run_requests WHERE `+where+` ORDER BY created_at,request_id`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []Question{}
 	for rows.Next() {
-		var q Question
+		var r Question
 		var raw string
-		var answers sql.NullString
-		if err = rows.Scan(&q.ID, &q.SessionID, &q.RunID, &q.AttemptID, &q.MessageID, &q.ToolUseID, &raw, &answers, &q.AnsweredBy, &q.Status, &q.CreatedAt); err != nil {
+		var answer, by sql.NullString
+		if err = rows.Scan(&r.RequestID, &r.SessionID, &r.RunID, &raw, &r.State, &answer, &by, &r.CreatedAt, &r.DeliveryError); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal([]byte(raw), &q.Questions)
-		if answers.Valid {
-			_ = json.Unmarshal([]byte(answers.String), &q.Answers)
+		r.Payload = json.RawMessage(raw)
+		if answer.Valid {
+			r.Answer = json.RawMessage(answer.String)
 		}
-		out = append(out, q)
+		r.AnsweredBy = by.String
+		out = append(out, r)
 	}
 	return out, rows.Err()
 }
-
-func (s *Service) answerRunQuestion(ctx context.Context, u User, session, run string, qid int64, answers map[string]string) (Run, Question, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+func (s *Service) ReplyRequest(ctx context.Context, u User, conversation, run, request string, answer json.RawMessage) error {
+	r, err := s.GetRun(ctx, u, conversation, run)
 	if err != nil {
-		return Run{}, Question{}, err
+		return err
 	}
-	defer tx.Rollback()
-	if _, err = s.getSession(ctx, tx, u, session); err != nil {
-		return Run{}, Question{}, err
+	if r.Status != "running" && r.Status != "waiting" {
+		return ErrQuestionClosed
 	}
-	r, err := scanRun(tx.QueryRowContext(ctx, runCols+store.AnswerRunQuestionClause, run, session))
-	if err != nil {
-		return r, Question{}, err
+	if !json.Valid(answer) {
+		return fmt.Errorf("answer must be JSON")
 	}
-	if _, err = s.CheckRun(ctx, tx, r.DaemonID, run, r.AttemptID); err != nil {
-		return r, Question{}, err
+	var state string
+	if err = s.db.QueryRowContext(ctx, `SELECT state FROM run_requests WHERE request_id=? AND run_id=?`, request, run).Scan(&state); err != nil {
+		return err
 	}
-	var raw string
-	var q Question
-	var stored sql.NullString
-	err = tx.QueryRowContext(ctx, store.AnswerRunQuestionSelect, qid, run, r.AttemptID).Scan(&raw, &stored, &q.Status, &q.ToolUseID, &q.MessageID, &q.CreatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return r, q, ErrNotFound
+	if state != "pending" {
+		return ErrQuestionClosed
 	}
-	if err != nil {
-		return r, q, err
-	}
-	if q.Status != "pending" || stored.Valid {
-		return r, q, ErrQuestionClosed
-	}
-	var items []struct {
-		Question string `json:"question"`
-	}
-	_ = json.Unmarshal([]byte(raw), &items)
-	clean := map[string]string{}
-	for _, item := range items {
-		if strings.TrimSpace(answers[item.Question]) == "" {
-			return r, q, fmt.Errorf("每个问题都需要答案")
-		}
-		clean[item.Question] = answers[item.Question]
-	}
-	b, _ := json.Marshal(clean)
-	_, err = tx.ExecContext(ctx, store.AnswerRunQuestionUpdate, string(b), u.ID, s.unix(), qid)
-	if err != nil {
-		return r, q, err
-	}
-	q.ID = qid
-	q.SessionID = session
-	q.RunID = run
-	q.AttemptID = r.AttemptID
-	_ = json.Unmarshal([]byte(raw), &q.Questions)
-	q.Answers = clean
-	q.AnsweredBy = u.ID
-	return r, q, tx.Commit()
-}
-
-func (s *Service) PendingRunAnswers(ctx context.Context, daemon string) ([]Question, error) {
-	return s.runQuestions(ctx, store.PendingRunAnswersClause, daemon, s.unix())
+	_, err = s.queueControl(ctx, r, protocol.TypeReply, request, answer, u.ID)
+	return err
 }

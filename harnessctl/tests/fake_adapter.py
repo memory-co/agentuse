@@ -27,7 +27,7 @@ def main():
         p.stdin.write(prompt.encode()); p.stdin.close()
         print('{}'); return
     if verb == '_worker':
-        run, iid, cwd = args; prompt = sys.stdin.read()
+        run, iid, cwd = args; prompt = sys.stdin.read(); os.environ['AGENTUSE_RUN']=run
         lock = open(root/'queue.lock','w'); fcntl.flock(lock, fcntl.LOCK_EX)
         instruction, sep, task = prompt.partition('\n\n# 本次任务\n'); task = task if sep else prompt
         import re
@@ -42,13 +42,16 @@ def main():
                 data = json.loads(history_path.read_text())
                 history = data.get('messages', []) if isinstance(data, dict) else data
             except FileNotFoundError: pass
+        context_marker='共享对话历史（JSON 数据，按当前消息处理）：\n'
+        if context_marker in instruction:
+            history=json.loads(instruction.split(context_marker,1)[1].strip())
         attachments = []
         marker = '本轮输入附件（JSON 数据，本地 path 相对当前目录）：\n'
         if marker in instruction:
             attachments = json.loads(instruction.split(marker)[1].splitlines()[0])
         import re
         found = re.search('用户消息 id 为 (\\[[^\\n]*?\\])', instruction)
-        envelope = dict(endpoint_id=os.environ.get('AGENTUSE_ENDPOINT',''),conversation_id=os.environ.get('AGENTUSE_CONVERSATION',''),input=dict(prompt=task), run_id=os.environ.get('AGENTUSE_RUN',''), agent_id=os.environ.get('AGENTUSE_AGENT',''), session_id=os.environ.get('AGENTUSE_SESSION',''), resume='', session_messages=history, task_message_ids=json.loads(found[1]) if found else [], attachments=attachments, instructions=instruction)
+        envelope = dict(endpoint_id=os.environ.get('AGENTUSE_ENDPOINT',''),conversation_id=os.environ.get('AGENTUSE_CONVERSATION',''),input=dict(prompt=task), run_id=run, agent_id=os.environ.get('AGENTUSE_AGENT',''), session_id=os.environ.get('AGENTUSE_SESSION',''), resume='', session_messages=history, task_message_ids=json.loads(found[1]) if found else [], attachments=attachments, instructions=instruction)
         if task == 'multi:hold': event('message',run,message_id=str(uuid.uuid4()),text='working on '+task)
         proc = subprocess.Popen([backend], cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         stdout, stderr = proc.communicate(json.dumps(envelope)+'\n')

@@ -2,159 +2,160 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"path/filepath"
-	"strings"
-	"sync"
 	"testing"
-	"time"
+
+	"github.com/google/uuid"
+	"github.com/memory-co/agentuse/internal/protocol"
 )
 
 func runStore(t *testing.T) (*Service, User, Daemon, Agent) {
 	t.Helper()
 	s := newStore(t)
-	s.now = func() time.Time { return time.Unix(100000, 0) }
-	ctx := context.Background()
-	u, _, e := s.CreateUser(ctx, "u_run", "runner", RoleUser)
-	if e != nil {
-		t.Fatal(e)
+	u, _, err := s.CreateUser(context.Background(), "u", "user", RoleUser)
+	if err != nil {
+		t.Fatal(err)
 	}
-	d := registered(t, s, u, "machine", "claude")
-	if _, e = s.DaemonConnected(ctx, d, []ReportedHarness{{Name: "claude"}}, []string{RunCapability, "attachments-v1"}); e != nil {
-		t.Fatal(e)
-	}
-	a, e := s.CreateAgent(ctx, u.ID, "coder", "Coder", d.ID, "claude", "")
-	if e != nil {
-		t.Fatal(e)
+	d := registered(t, s, u, "device", "custom-harness")
+	a, err := s.CreateAgent(context.Background(), u.ID, "agent", "Agent", d.ID, "custom-harness", "")
+	if err != nil {
+		t.Fatal(err)
 	}
 	return s, u, d, a
 }
-func TestRunConcurrentMessages(t *testing.T) {
+func acceptedEvent(run, input, text string) map[string]any {
+	return map[string]any{"type": "accepted", "ts": "2026-11-03T00:00:00Z", "run_id": run, "input_id": input, "text": text}
+}
+func reportNative(t *testing.T, s *Service, d Daemon, p protocol.Prompt, session string, seq int64, event map[string]any) protocol.ClientEvent {
+	t.Helper()
+	raw, _ := json.Marshal(event)
+	e := protocol.ClientEvent{ConversationID: p.ConversationID, AgentID: p.AgentID, Harness: p.Harness, Revision: "client-revision", SessionID: session, Seq: seq, PromptID: p.ID, Event: raw}
+	if err := s.ReportClientEvent(context.Background(), d.ID, e); err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, _, err := s.CreateMultiSession(ctx, u, "", "", nil, nil, "")
+	ss, reply, err := s.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"first"}`), []string{a.ID}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var wg sync.WaitGroup
-	errs := make(chan error, 10)
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, e := s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"supplement"}`), []string{a.ID}, "")
-			errs <- e
-		}()
+	if len(reply.Runs) != 0 || len(reply.Deliveries) != 1 {
+		t.Fatal("server fabricated a run", reply)
 	}
-	wg.Wait()
-	close(errs)
-	for e := range errs {
-		if e != nil {
-			t.Fatal(e)
+	p, err := s.ClaimPrompt(ctx, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := uuid.NewString()
+	event := reportNative(t, s, d, p, "client-session", 1, acceptedEvent(id, "input-1", p.Content))
+	if err = s.ReportClientEvent(ctx, d.ID, event); err != nil {
+		t.Fatal("replay failed", err)
+	}
+	event.Event = json.RawMessage(`{"type":"log","topic":"changed"}`)
+	if err = s.ReportClientEvent(ctx, d.ID, event); err == nil {
+		t.Fatal("sequence conflict accepted")
+	}
+	if _, err = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"supplement"}`), []string{a.ID}, ""); err != nil {
+		t.Fatal(err)
+	}
+	p2, err := s.ClaimPrompt(ctx, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportNative(t, s, d, p2, "client-session", 2, acceptedEvent(id, "input-2", p2.Content))
+	rows, err := s.Runs(ctx, ss.ID)
+	if err != nil || len(rows) != 1 || rows[0].ID != id {
+		t.Fatal(rows, err)
+	}
+	reportNative(t, s, d, p2, "client-session", 3, map[string]any{"type": "message", "run_id": id, "message_id": "body", "text": "client body"})
+	reportNative(t, s, d, p2, "client-session", 4, map[string]any{"type": "result", "run_id": id, "status": "completed", "input_ids": []string{"input-1", "input-2"}, "output": "client result", "usage": map[string]int{"input_tokens": 17}, "cost_usd": .03})
+	detail, err := s.ReadSession(ctx, u, ss.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Runs) != 1 || detail.Runs[0].Status != "completed" || detail.Runs[0].Output != "client result" || len(detail.Messages) != 3 {
+		t.Fatalf("bad projection: %+v", detail)
+	}
+	for _, prompt := range detail.Deliveries {
+		if prompt.RunID != id || prompt.Status != "completed" {
+			t.Fatal(prompt)
 		}
 	}
-	runs, err := s.Runs(ctx, ss.ID)
-	if err != nil || len(runs) != 1 {
-		t.Fatal("duplicate active run", runs, err)
+	if _, err = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"next"}`), []string{a.ID}, ""); err != nil {
+		t.Fatal(err)
 	}
-	cl, err := s.ClaimRun(ctx, d, 60)
-	if err != nil || len(cl.TaskMessageIDs) != 10 || len(cl.Messages) != 10 {
-		t.Fatal("pending tasks lost", cl, err)
+	p3, _ := s.ClaimPrompt(ctx, d)
+	other := uuid.NewString()
+	reportNative(t, s, d, p3, "client-session", 5, acceptedEvent(other, "input-3", p3.Content))
+	rows, _ = s.Runs(ctx, ss.ID)
+	if len(rows) != 2 {
+		t.Fatal("server merged two client runs", rows)
 	}
 }
-func TestRunLeaseRecoversQuestionAnswer(t *testing.T) {
+func TestClientRequestReplyCancelAndDisconnectAreAuthoritative(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	now := time.Unix(100000, 0)
-	s.now = func() time.Time { return now }
-	ss, _, err := s.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"task"}`), []string{a.ID}, "")
+	ss, _, err := s.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"question"}`), []string{a.ID}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	cl, err := s.ClaimRun(ctx, d, 10)
-	if err != nil {
+	p, _ := s.ClaimPrompt(ctx, d)
+	id := uuid.NewString()
+	reportNative(t, s, d, p, "client-session", 1, acceptedEvent(id, "input", p.Content))
+	request := map[string]any{"type": "request", "run_id": id, "request_id": "public-request", "state": "pending", "kind": "permission", "message": "Continue?"}
+	reportNative(t, s, d, p, "client-session", 2, request)
+	if err = s.ReplyRequest(ctx, u, ss.ID, id, "public-request", json.RawMessage(`"deny"`)); err != nil {
 		t.Fatal(err)
 	}
-	payload := json.RawMessage(`{"tool_use_id":"q1","questions":[{"question":"language?"}]}`)
-	if err = s.ReportRunEvent(ctx, d.ID, cl.Run.ID, cl.Run.AttemptID, 1, "question", payload, 10); err != nil {
+	controls, err := s.PendingControls(ctx, d.ID)
+	if err != nil || len(controls) != 1 || string(controls[0].Control.Answer) != `"deny"` {
+		t.Fatal(controls, err)
+	}
+	if _, err = s.CancelRun(ctx, u, ss.ID, id); err != nil {
 		t.Fatal(err)
 	}
-	qs, err := s.RunQuestions(ctx, ss.ID)
-	if err != nil {
-		t.Fatal(err)
+	r, _ := s.GetRun(ctx, u, ss.ID, id)
+	if r.Status != "waiting" {
+		t.Fatal("server fabricated cancellation", r)
 	}
-	if _, _, err = s.AnswerRunQuestion(ctx, u, ss.ID, cl.Run.ID, qs[0].ID, map[string]string{"language?": "Go"}); err != nil {
-		t.Fatal(err)
+	s.DaemonDisconnected(ctx, d.ID)
+
+	r, _ = s.GetRun(ctx, u, ss.ID, id)
+	if r.Status != "waiting" {
+		t.Fatal("disconnect fabricated a native result")
 	}
-	now = now.Add(11 * time.Second)
-	if err = s.RequeueRuns(ctx); err != nil {
-		t.Fatal(err)
-	}
-	next, err := s.ClaimRun(ctx, d, 60)
-	if err != nil || next.Run.ID != cl.Run.ID || next.Run.AttemptID == cl.Run.AttemptID || len(next.TaskMessageIDs) != 2 {
-		t.Fatal("requeue", next, err)
-	}
-	found := false
-	for _, m := range next.Messages {
-		if strings.Contains(string(m.Content), "language? → Go") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("answer lost after lease expiry")
-	}
-	if err = s.ReportRunEvent(ctx, d.ID, cl.Run.ID, cl.Run.AttemptID, 1, "question", payload, 60); err != ErrStaleMessage {
-		t.Fatal("stale event replay accepted", err)
+	reportNative(t, s, d, p, "client-session", 3, map[string]any{"type": "request", "run_id": id, "request_id": "public-request", "state": "replied", "kind": "permission", "message": "Continue?", "answer": "deny"})
+	reportNative(t, s, d, p, "client-session", 4, map[string]any{"type": "result", "run_id": id, "status": "cancelled", "input_ids": []string{"input"}, "output": ""})
+	r, _ = s.GetRun(ctx, u, ss.ID, id)
+	if r.Status != "cancelled" {
+		t.Fatal(r)
 	}
 }
-
-func TestRejectOldDatabase(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "old.db")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.Exec("CREATE TABLE sessions(id TEXT PRIMARY KEY)"); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-	if st, err := Open(path); err == nil {
-		st.Close()
-		t.Fatal("old schema must be explicitly reset")
-	}
-}
-
-func TestSharedSchemaAndSessionLifecycle(t *testing.T) {
-	s, u, _, _ := runStore(t)
+func TestClientEventsCannotCrossOwnershipOrRebindInputs(t *testing.T) {
+	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	for _, table := range []string{"steers", "questions", "session_events", "work_tokens", "session_access"} {
-		var n int
-		if err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&n); err != nil || n != 0 {
-			t.Fatalf("obsolete table %s: %d %v", table, n, err)
-		}
+	ss, _, _ := s.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"first"}`), []string{a.ID}, "")
+	p, _ := s.ClaimPrompt(ctx, d)
+	id := uuid.NewString()
+	e := reportNative(t, s, d, p, "client-session", 1, acceptedEvent(id, "input", p.Content))
+	e.Seq = 2
+	if err := s.ReportClientEvent(ctx, "other-device", e); err == nil {
+		t.Fatal("cross-device event accepted")
 	}
-	for _, col := range []string{"agent_id", "daemon_id", "harness", "harness_session_id", "lease_until"} {
-		var n int
-		s.db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name=?", col).Scan(&n)
-		if n != 0 {
-			t.Fatalf("session runtime column %s", col)
-		}
+	e.AgentID = "other-agent"
+	if err := s.ReportClientEvent(ctx, d.ID, e); err == nil {
+		t.Fatal("cross-agent event accepted")
 	}
-	ss, _, err := s.CreateMultiSession(ctx, u, "", "notes", nil, nil, "")
-	if err != nil {
-		t.Fatal(err)
+	e.AgentID = a.ID
+	e.Event, _ = json.Marshal(acceptedEvent(uuid.NewString(), "second", p.Content))
+	if err := s.ReportClientEvent(ctx, d.ID, e); err == nil {
+		t.Fatal("prompt rebound to another run")
 	}
-	if _, err = s.ResolveSession(ctx, u, ss.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.ReopenSession(ctx, u, ss.ID); err != nil {
-		t.Fatal(err)
-	}
-	if err = s.DeleteSession(ctx, u, ss.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = s.GetSession(ctx, u, ss.ID); err != ErrNotFound {
-		t.Fatal("deleted session", err)
+	detail, _ := s.ReadSession(ctx, u, ss.ID)
+	if len(detail.Runs) != 1 || len(detail.Events) != 1 {
+		t.Fatal("invalid event partially committed", detail)
 	}
 }

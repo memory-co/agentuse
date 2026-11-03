@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/memory-co/agentuse/internal/attachment"
 	"log"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/memory-co/agentuse/internal/attachment"
 )
 
 type AttachmentConfig struct {
@@ -91,7 +93,7 @@ func (s *Service) CleanupAttachments(ctx context.Context) error {
 			}
 			continue
 		}
-		if !session.IsDir() || !attachment.ValidID(session.Name(), "ss_") {
+		if !session.IsDir() || uuid.Validate(session.Name()) != nil {
 			continue
 		}
 		files, e := os.ReadDir(filepath.Join(s.attachments.Dir, session.Name()))

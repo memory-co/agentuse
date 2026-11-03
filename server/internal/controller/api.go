@@ -206,32 +206,6 @@ func (s *Server) handleListHarnesses(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, harnesses)
 }
 
-func (s *Server) handleCreateHarness(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name        string `json:"name"`
-		DisplayName string `json:"display_name"`
-		Description string `json:"description"`
-	}
-	if err := readJSON(r, &req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	a, err := s.service.CreateCustomHarness(r.Context(), currentUser(r).ID, req.Name, req.DisplayName, req.Description)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, a)
-}
-
-func (s *Server) handleDeleteHarness(w http.ResponseWriter, r *http.Request) {
-	if err := s.service.DeleteCustomHarness(r.Context(), currentUser(r), r.PathValue("name")); err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	agents, err := s.service.ListAgents(r.Context(), currentUser(r))
 	if err != nil {

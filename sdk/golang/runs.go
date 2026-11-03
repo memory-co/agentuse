@@ -2,39 +2,43 @@ package agentuse
 
 import (
 	"context"
-	"strconv"
+	"encoding/json"
 	"time"
 )
 
+// Run is one client-reported harnessctl interaction; its ID is adapter-owned.
 type Run struct {
-	AgentUserID     string `json:"agent_user_id"`
-	ID              string `json:"id"`
-	SessionID       string `json:"session_id"`
-	MessageID       int64  `json:"message_id"`
-	AgentID         string `json:"agent_id,omitempty"`
-	AgentKey        string `json:"agent_key"`
-	AgentName       string `json:"agent_name"`
-	DaemonID        string `json:"daemon_id,omitempty"`
-	Harness         string `json:"harness"`
-	Status          string `json:"status"`
-	AttemptID       string `json:"attempt_id,omitempty"`
-	LeaseUntil      *int64 `json:"lease_until,omitempty"`
-	ContextSeq      int64  `json:"context_seq"`
-	ResultMessageID *int64 `json:"result_message_id,omitempty"`
-	Error           string `json:"error,omitempty"`
-	CreatedAt       int64  `json:"created_at"`
-	UpdatedAt       int64  `json:"updated_at"`
+	ID              string          `json:"id"`
+	SessionID       string          `json:"session_id"`
+	FirstMessageID  int64           `json:"first_message_id"`
+	AgentID         string          `json:"agent_id"`
+	DaemonID        string          `json:"daemon_id"`
+	ClientSessionID string          `json:"client_session_id"`
+	Harness         string          `json:"harness"`
+	HarnessRevision string          `json:"harness_revision"`
+	Status          string          `json:"status"`
+	ResultMessageID *int64          `json:"result_message_id,omitempty"`
+	Output          string          `json:"output,omitempty"`
+	Error           string          `json:"error,omitempty"`
+	Result          json.RawMessage `json:"result,omitempty"`
+	CreatedAt       int64           `json:"created_at"`
+	UpdatedAt       int64           `json:"updated_at"`
 }
+
+// Delivery exists before a client accepts input. RunID is empty until accepted.
 type Delivery struct {
-	SessionID string `json:"session_id"`
-	ID        int64  `json:"id"`
-	MessageID int64  `json:"message_id"`
-	AgentID   string `json:"agent_id,omitempty"`
-	AgentKey  string `json:"agent_key"`
-	RunID     string `json:"run_id"`
-	Kind      string `json:"kind"`
-	Status    string `json:"status"`
-	Error     string `json:"error,omitempty"`
+	ID              int64           `json:"id"`
+	MessageID       int64           `json:"message_id"`
+	SessionID       string          `json:"session_id"`
+	AgentID         string          `json:"agent_id"`
+	DaemonID        string          `json:"daemon_id"`
+	Harness         string          `json:"harness"`
+	Content         json.RawMessage `json:"content"`
+	Status          string          `json:"status"`
+	RunID           string          `json:"run_id,omitempty"`
+	InputID         string          `json:"input_id,omitempty"`
+	ClientSessionID string          `json:"client_session_id,omitempty"`
+	Error           string          `json:"error,omitempty"`
 }
 type RunDetail struct {
 	Run    Run            `json:"run"`
@@ -42,64 +46,65 @@ type RunDetail struct {
 }
 type WaitOptions struct{ ReturnOnWaiting bool }
 
-func (c *Client) GetRun(ctx context.Context, user, session, run string) (*RunDetail, error) {
-	var d RunDetail
-	err := c.do(ctx, user, "GET", "/api/sessions/"+esc(session)+"/runs/"+esc(run), nil, &d)
-	return &d, err
+func (c *Client) GetRun(ctx context.Context, as, conversation, run string) (*RunDetail, error) {
+	var out RunDetail
+	err := c.do(ctx, as, "GET", "/api/sessions/"+esc(conversation)+"/runs/"+esc(run), nil, &out)
+	return &out, err
 }
-func (c *Client) CancelRun(ctx context.Context, user, session, run string) (*Run, error) {
-	var r Run
-	err := c.do(ctx, user, "POST", "/api/sessions/"+esc(session)+"/runs/"+esc(run)+"/cancel", nil, &r)
-	return &r, err
+func (c *Client) CancelRun(ctx context.Context, as, conversation, run string) (*Run, error) {
+	var out Run
+	err := c.do(ctx, as, "POST", "/api/sessions/"+esc(conversation)+"/runs/"+esc(run)+"/cancel", map[string]any{}, &out)
+	return &out, err
 }
-
-func (c *Client) AnswerRunQuestion(ctx context.Context, user, session, run string, qid int64, answers map[string]string) (*Question, error) {
-	var q Question
-	err := c.do(ctx, user, "POST", "/api/sessions/"+esc(session)+"/runs/"+esc(run)+"/questions/"+strconv.FormatInt(qid, 10)+"/answer", map[string]any{"answers": answers}, &q)
-	return &q, err
+func (c *Client) ReplyRunRequest(ctx context.Context, as, conversation, run, request string, answer any) error {
+	return c.do(ctx, as, "POST", "/api/sessions/"+esc(conversation)+"/runs/"+esc(run)+"/requests/"+esc(request)+"/reply", map[string]any{"answer": answer}, nil)
 }
-func terminal(s string) bool { return s == "succeeded" || s == "failed" || s == "cancelled" }
-func (c *Client) WaitRun(ctx context.Context, user, session, run string, interval time.Duration, opts ...WaitOptions) (*RunDetail, error) {
-	if interval <= 0 {
-		interval = time.Second
+func (c *Client) WaitRun(ctx context.Context, as, conversation, run string, poll time.Duration, opts ...WaitOptions) (*RunDetail, error) {
+	if poll <= 0 {
+		poll = 200 * time.Millisecond
 	}
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
 	for {
-		d, e := c.GetRun(ctx, user, session, run)
-		if e != nil {
-			return nil, e
+		out, err := c.GetRun(ctx, as, conversation, run)
+		if err != nil {
+			return out, err
 		}
-		if terminal(d.Run.Status) || (d.Run.Status == "waiting" && len(opts) > 0 && opts[0].ReturnOnWaiting) {
-			return d, nil
+		s := out.Run.Status
+		if s == "completed" || s == "failed" || s == "cancelled" || (s == "waiting" && len(opts) > 0 && opts[0].ReturnOnWaiting) {
+			return out, nil
 		}
 		select {
 		case <-ctx.Done():
-			return d, ctx.Err()
-		case <-time.After(interval):
+			return nil, ctx.Err()
+		case <-ticker.C:
 		}
 	}
 }
-func (c *Client) WaitMessageRuns(ctx context.Context, user, session string, message int64, interval time.Duration) (*SessionDetail, error) {
-	if interval <= 0 {
-		interval = time.Second
+func (c *Client) WaitMessageRuns(ctx context.Context, as, conversation string, message int64, poll time.Duration) (*SessionDetail, error) {
+	if poll <= 0 {
+		poll = 200 * time.Millisecond
 	}
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
 	for {
-		d, e := c.GetSession(ctx, user, session)
-		if e != nil {
-			return nil, e
+		out, err := c.GetSession(ctx, as, conversation)
+		if err != nil {
+			return out, err
 		}
-		ready := true
-		for _, delivery := range d.Deliveries {
-			if delivery.MessageID == message && !terminal(delivery.Status) {
-				ready = false
+		done := true
+		for _, d := range out.Deliveries {
+			if d.MessageID == message && d.Status != "completed" && d.Status != "failed" && d.Status != "cancelled" {
+				done = false
 			}
 		}
-		if ready {
-			return d, nil
+		if done {
+			return out, nil
 		}
 		select {
 		case <-ctx.Done():
-			return d, ctx.Err()
-		case <-time.After(interval):
+			return nil, ctx.Err()
+		case <-ticker.C:
 		}
 	}
 }

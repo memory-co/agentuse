@@ -42,20 +42,25 @@ accepted 事件是执行归属的事实。若适配器写入 accepted 后 client
 
 活动、等待答案或清理未确认的 session 都保护整个 conversation 工作目录。取消失败不能假装已经空闲。声明 quota 后只回收完整的空闲受管目录，不能单独删正在使用的 run 文件。
 
-## 来源边界
+## 远端传输边界
 
-local 提供本机输入；现有 server 提供旧版派发协议。两者都调用同一个 harnessService，登记同样的 adapter UUID，并使用同一组 runService 查询。旧 server 的派发标识与确认状态仅存在 server_*.go 和 .server/，不是 client run。
+local 和远端调用完全相同的 sessionService、harnessService 与 runService；都直接展示适配器 UUID。Server 不再有另一套执行 run，输入分配 ID 仅用于关联 server 消息。
 
-如果旧协议需要把多个实际 run 汇总成一个回报，由边界层完成；这个汇总不在 client API 中形成另一个执行实体。
+每个远端 session 额外保存传输收据：
 
-## 旧数据
+```text
+.server/
+  inputs/<prompt_id>.json  输入提交状态、源起点及 accepted 的 run_id/input_id
+  stream.json             server 已提交确认的 events.jsonl 字节偏移
+  controls/<control_id>.json  reply/cancel 送达收据
+```
 
-旧任务文件先移出 runs/：远端旧交付记录进入 .server/，本地旧任务记录进入 legacy/ 只作历史留存。根据其中的真实适配器 UUID及公共 accepted 事件重建 runs 引用。没有适配器 UUID 的适配前记录不伪造成新 run，不生成替代 UUID；保留原数据供查阅。
+这些文件不复制执行输出或结果。源 JSONL 是唯一事件 outbox：发送完整行，收到 ACK 后原子推进游标。ACK 丢失则重传同一源位置，server 去重；重连收到同一输入 ID 时读取收据，不再次 send。活动 session 在连接短暂断开时继续运行。
 
-迁移不修改 events.jsonl 或 events.jsonl.d/，不重放输入，不递归删除未知文件。
+启动先确认遗留前台工作停止，再恢复输入收据：从提交前保存的源位置读取 accepted，补回实际 UUID；存在歧义则报错，不重放输入。只读完整 JSONL 行。尚未确认的失败通知、未确定受理状态和未确认上报的事件保护 conversation 目录，不因 quota 丢掉待交付事实。
+
+控制命令以 control_id 去重；cancel 携带目标 run_id，目标已经终态时不能取消后续交互。request 的状态和最终结果仍以适配器事件为准，传输 ACK 不代表业务状态已改变。
 
 ## 实现归属
 
-service/run 的 native_runs.go 直接创建原生 run 引用，并提供 List / Detail / Stats；views.go 定义公开查询数据。reconcile.go 编排启动恢复，run_migration.go 保留旧文件的迁移规则。server_*.go 只处理现有中心协议及 .server/ 交付文件。这里没有独立 store、Ledger 或全局 Reader。
-
-runService 使用 sessionService 的目录与 session 查询，不复制 session.yaml 的管理逻辑。HTTP controller 通过只读接口分别查询这两个 service；文件路径、事件格式、API 响应和 run_id 归属不因代码目录调整而变化。
+native_runs.go 管引用与查询，views.go 定义公开视图，reconcile.go 管启动恢复，server_connection.go 管中心连接、输入收据、事件游标和控制传输。没有 store、执行 attempt、结果副本或旧协议兼容层。sessionService 管目录与会话元数据，fileutil 仅提供通用文件操作。

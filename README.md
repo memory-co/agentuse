@@ -183,7 +183,7 @@ agentuse attachment download at_xxx --output ./report.pdf
 {"prompt":"分别看看实现和风险","target_agent_ids":["coder","reviewer"]}
 ```
 
-返回 `{message, runs, deliveries}`。也支持 `agentuse session send ss_xxx --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有会话统一使用共享模型，未传 mode 也创建 multi_agent。需要服务端和 daemon 一起升级（`session-runs-v1`）。[设计](docs/v2/designs/session-mentions.md) · [API](docs/v2/apis/sessions.md)。
+返回 `{message, runs, deliveries}`。也支持 `agentuse session send ss_xxx --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有会话统一使用共享模型，未传 mode 也创建 multi_agent。需要服务端和 client 一起升级（`harnessctl-events-v1`）。[设计](docs/v2/designs/session-mentions.md) · [API](docs/v2/apis/sessions.md)。
 
 ### Client 本机页面与文件配置
 
@@ -226,8 +226,12 @@ Client 不再使用 SQLite，文件结构为：
     .server/                    # 暂存旧中心协议交付与确认信息
 ```
 
-工作说明与 skill 内容随本次输入加载，不覆盖共享 workspace 中的 AGENTS.md / CLAUDE.md。Codex 恢复指定 thread，Claude Code 恢复指定 session；不同 session 可并行执行。执行事实只保存在 events.jsonl，run_id 由适配器决定；补充输入可能属于同一个 run，也可能排队形成新 run。client 不创建 attempt。旧中心协议的领取和确认信息隔离在 .server/，待确认交付仍受目录保护。
+工作说明与 skill 内容随本次输入加载，不覆盖共享 workspace 中的 AGENTS.md / CLAUDE.md。Codex 恢复指定 thread，Claude Code 恢复指定 session；不同 session 可并行执行。执行事实只保存在 events.jsonl，run_id 由适配器决定；补充输入可能属于同一个 run，也可能排队形成新 run。client 不创建 attempt。中心输入收据、事件 ACK 游标和控制收据隔离在 .server/，未确认事件仍受目录保护。
 
 详见 [Client 设计与 API](docs/v3/designs/client-main.md)。
 
 配置生命周期统一为：启动时加载 setting.yaml、endpoints.yaml 和 harness 包，运行期间固定使用快照。修改、增删、启停和凭据变更一律重启生效；没有热更新、周期重读、重新探测或 active_work_root / restart_required 双态字段。自动重连、任务控制和 quota 检查属于运行行为，不重新加载配置。
+
+### 执行协议升级
+
+Server/client 使用 `harnessctl-events-v1`：server 分配输入，适配器决定 run UUID，并报告 accepted/message/request/result/log。Server 不管理 harness YAML、原生权限或 attempt。数据库 schema 2 不兼容旧执行表，启动会拒绝旧数据库；升级需先备份并使用新数据库，同时更新 client，不会自动删除运行数据。详见 [server-run 设计](docs/v3/designs/server-run.md)。

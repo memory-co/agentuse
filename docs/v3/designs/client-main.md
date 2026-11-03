@@ -39,7 +39,7 @@ client/internal/
     endpoint/             endpoints.yaml、endpoint 身份推导和注册
     setting/              setting.yaml 的配置校验与启动快照
     session/              conversation/session 元数据、目录、占用和 quota
-    run/                  原生 run 引用、事件查询、计量、执行和旧中心协议适配
+    run/                  原生 run 引用、事件查询、计量、执行和中心事件传输
     harness/              独立适配器包的安装、命令调用和公共事件读取
 ```
 
@@ -47,7 +47,7 @@ sessionService 直接读取 conversation.yaml / session.yaml，并决定 workspa
 
 重启恢复时，runService 先通过 sessionService 查询未完成 session，把其 harness / revision / events 地址交给 harnessService 确认取消，再重建 run 引用及交付状态，最后由 sessionService 恢复元数据。harnessService 不扫描 conversation 目录或解释 session.yaml。
 
-quota 回收由 sessionService 负责；旧中心待确认交付是否保护目录，由 runService 提供判断。sessionService 不解析 .server/ 文件，fileutil 不承担目录保护策略。内存互斥锁协调并发文件操作，不保存另一套持久化事实。
+quota 回收由 sessionService 负责；中心未确认事件是否保护目录，由 runService 提供判断。sessionService 不解析 .server/ 文件，fileutil 不承担目录保护策略。内存互斥锁协调并发文件操作，不保存另一套持久化事实。
 
 ## 身份与生命周期
 
@@ -122,10 +122,10 @@ runs 文件名必须来自 accepted.run_id。文件内 reference 记录 session�
 
 send body 为 prompt，返回此次 accepted 对应的 run，可能与先前相同；reply body 为 request_id、answer，answer 使用原生公共协议的字符串或 JSON 对象；cancel body 为 {}，确认 session 前台工作停止后返回。空闲 session 可以再次 send。失败发生在 accepted 之前时直接返回错误，不伪造 run。
 
-## 现有 server 的临时边界
+## Server 事件传输
 
-现有 server 仍使用自己的派发 run/attempt、租约、历史游标和 event_ack。它们隔离在 run/server_*.go 的协议适配层，持久化于 session/.server/，不进入 client Run DTO、公开 URL、前端或 run 文件名。
+Server 与 client 使用 harnessctl-events-v1。Server 下发输入分配，client 用同一 harnessctl 执行路径处理；accepted 回报实际 run UUID，五种公共事件原样上传。Server 准备业务上下文和协调者规则，client 不据凭据推断角色。
 
-该边界只转换来源指令、凭据、输入资源和回报；client 的 run 始终以适配器 UUID 为准。Server 业务指令（包括协调者规则）由 server 生成，client 不据凭据推断角色。本次不改 server 协议，后续可以替换这一边界而不再改变 client run 模型。
+输入收据、源 ACK 游标和控制收据位于 session/.server/；执行事实仍只在 events.jsonl，不再有旧版 run/attempt、租约或结果汇总层。详见 client-run.md。
 
 配置修改一律重启生效。运行中任务输入、答案、取消和来源重连属于正常运行行为，不是配置热更新。

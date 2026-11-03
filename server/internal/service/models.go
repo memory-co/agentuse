@@ -2,6 +2,7 @@ package service
 
 import (
 	"database/sql"
+
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
@@ -27,29 +28,16 @@ type DaemonHarness = store.DaemonHarness
 type ReportedHarness = store.ReportedHarness
 
 const daemonCols = store.DaemonCols
-const HarnessBuiltin = store.HarnessBuiltin
-const HarnessCustom = store.HarnessCustom
 
 type Harness = store.Harness
 type Question = store.Question
 
-const QuestionPending = store.QuestionPending
-const QuestionAnswered = store.QuestionAnswered
-const QuestionExpired = store.QuestionExpired
 const MultiAgent = store.MultiAgent
 const RunCapability = store.RunCapability
 
 type Run = store.Run
 type Delivery = store.Delivery
 type MultiReply = store.MultiReply
-type RunClaim = store.RunClaim
-
-const runCols = store.RunCols
-
-var scanRun = store.ScanRun
-
-const deliveryCols = store.DeliveryCols
-
 type SessionDetail = store.SessionDetail
 
 const SessionIdle = store.SessionIdle
@@ -61,14 +49,6 @@ const WorkCoordinator = store.WorkCoordinator
 const WorkThread = store.WorkThread
 const RoleUserMsg = store.RoleUserMsg
 const RoleAssistantMsg = store.RoleAssistantMsg
-const EventProgress = store.EventProgress
-const EventPlan = store.EventPlan
-const EventSteered = store.EventSteered
-const EventQuestion = store.EventQuestion
-const EventAnswered = store.EventAnswered
-const EventQuestionExpired = store.EventQuestionExpired
-const EventDone = store.EventDone
-const EventFailed = store.EventFailed
 
 type Session = store.Session
 type Message = store.Message

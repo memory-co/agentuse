@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/memory-co/agentuse/server/internal/service"
@@ -79,7 +78,7 @@ func (s *Server) sessionReadAuth(h http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, 401, "daemon 密钥无效")
 			return
 		}
-		if _, err = s.service.RunAccess(r.Context(), d.ID, r.PathValue("id"), r.Header.Get("X-Agentuse-Run"), r.Header.Get("X-Agentuse-Attempt")); err != nil {
+		if err = s.service.DeviceConversationAccess(r.Context(), d.ID, r.PathValue("id")); err != nil {
 			s.storeErr(w, err)
 			return
 		}
@@ -133,22 +132,16 @@ func (s *Server) handleAnswerRun(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, r.PathValue("id")) {
 		return
 	}
-	id, err := strconv.ParseInt(r.PathValue("qid"), 10, 64)
-	if err != nil {
-		writeErr(w, 404, "提问不存在")
-		return
+	var body struct {
+		Answer json.RawMessage `json:"answer"`
 	}
-	var req struct {
-		Answers map[string]string `json:"answers"`
-	}
-	if err = readJSON(r, &req); err != nil {
+	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	_, q, err := s.service.AnswerRunQuestion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("run_id"), id, req.Answers)
-	if err != nil {
+	if err := s.service.ReplyRequest(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("run_id"), r.PathValue("request_id"), body.Answer); err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, 202, q)
+	writeJSON(w, 202, map[string]string{"state": "pending"})
 }

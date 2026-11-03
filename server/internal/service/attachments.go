@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+
 	"github.com/memory-co/agentuse/server/internal/store"
 
 	"github.com/memory-co/agentuse/internal/attachment"
@@ -65,14 +66,15 @@ func (s *Service) attachmentSession(ctx context.Context, q querier, a Attachment
 		return ss, ErrNotFound
 	}
 	if a.DaemonID != "" {
-		run, e := s.CheckRun(ctx, q, a.DaemonID, a.RunID, a.AttemptID)
-		if e != nil {
-			return ss, e
+		var allowed int
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM run_prompts WHERE daemon_id=? AND session_id=? AND status IN ('sent','accepted','completed')`, a.DaemonID, ss.ID).Scan(&allowed); err != nil {
+			return ss, err
 		}
-		if run.SessionID != ss.ID {
+		if allowed == 0 {
 			return ss, ErrNotFound
 		}
 	}
+
 	return ss, nil
 }
 

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/memory-co/agentuse/client/internal/service/session"
 )
 
 func TestNativeIndexesComeOnlyFromAdapterAccepted(t *testing.T) {
@@ -73,4 +75,12 @@ func TestNativeIndexesComeOnlyFromAdapterAccepted(t *testing.T) {
 	if err = files.AcceptNative(ctx, session, "caller-chosen-name"); err == nil {
 		t.Fatal("non-adapter run identity accepted")
 	}
+}
+
+func openFileServices(root string) (*Service, error) {
+	sessions, err := session.New(root)
+	if err != nil {
+		return nil, err
+	}
+	return New(Dependencies{Sessions: sessions}), nil
 }

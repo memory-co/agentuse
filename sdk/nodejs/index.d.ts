@@ -87,31 +87,18 @@ export interface Work {
 }
 
 export interface SessionEvent {
- run_id?:string;attempt_id?:string;
+ run_id?:string;client_session_id:string;agent_id:string;event_seq:number;
   id: number;
   session_id: string;
-  message_id: number;
   daemon_id: string;
   kind: string;
   payload: any;
   created_at: number;
 }
 
-export interface Question {
- run_id?:string;attempt_id?:string;
-  id: number;
-  session_id: string;
-  message_id: number;
-  tool_use_id: string;
-  questions: { question: string; header?: string; multi_select?: boolean; options?: { label: string; description?: string }[] }[];
-  answers?: Record<string, string>;
-  answered_by?: string;
-  status: "pending" | "answered" | "expired";
-  created_at: number;
-}
-
-export interface Run { id:string;session_id:string;message_id:number;agent_id?:string;agent_key:string;agent_name:string;daemon_id?:string;harness:string;status:"pending"|"running"|"waiting"|"succeeded"|"failed"|"cancelled";attempt_id?:string;context_seq:number;result_message_id?:number;error?:string }
-export interface Delivery { id:number;message_id:number;agent_key:string;run_id:string;kind:"new_run"|"steer";status:string;error?:string }
+export interface Question {delivery_error?:string;request_id:string;session_id:string;run_id:string;state:"pending"|"replied"|"expired";payload:unknown;answer?:unknown;answered_by?:string;created_at:number}
+export interface Run {id:string;session_id:string;first_message_id:number;agent_id:string;daemon_id:string;client_session_id:string;harness:string;harness_revision:string;status:"running"|"waiting"|"completed"|"failed"|"cancelled";result_message_id?:number;output?:string;error?:string;result?:unknown;created_at:number;updated_at:number}
+export interface Delivery {id:number;message_id:number;session_id:string;agent_id:string;daemon_id:string;harness:string;content:unknown;run_id?:string;input_id?:string;client_session_id?:string;status:string;error?:string}
 export interface RunDetail { run:Run;events:SessionEvent[] }
 export interface MultiReply { message:Message;runs:Run[];deliveries:Delivery[] }
 export interface WaitOptions { interval?:number;timeout?:number;returnOnWaiting?:boolean }
@@ -137,7 +124,7 @@ export interface AttachmentPage { attachments: Attachment[]; next_cursor: string
 export declare class Client {
  getRun(user:UserId,session:string,run:string):Promise<RunDetail>;
  cancelRun(user:UserId,session:string,run:string):Promise<Run>;
- answerRunQuestion(user:UserId,session:string,run:string,question:number,answers:Record<string,string>):Promise<Question>;
+ replyRunRequest(user:UserId,session:string,run:string,request:string,answer:unknown):Promise<void>;
  waitRun(user:UserId,session:string,run:string,opts?:WaitOptions):Promise<RunDetail>;
  waitMessageRuns(user:UserId,session:string,message:number,opts?:WaitOptions):Promise<SessionDetail>;
 
@@ -158,8 +145,6 @@ export declare class Client {
   resetUserToken(userId: string): Promise<UserToken>;
 
   listHarnesses(user: UserId): Promise<Harness[]>;
-  createHarness(user: UserId, harness: { name: string; display_name?: string; description?: string }): Promise<Harness>;
-  deleteHarness(user: UserId, name: string): Promise<void>;
 
   listAgents(user: UserId): Promise<Agent[]>;
   createAgent(user: UserId, agent: { id?: string; name: string; daemon_id: string; harness: string; description?: string }): Promise<Agent>;

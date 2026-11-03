@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"fmt"
 	"strings"
+
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // CreateDaemon 在页面上添加一台 daemon:生成一次性的安装令牌，等用户在电脑上跑 setup.sh 注册。
@@ -174,7 +176,7 @@ func (s *Service) daemonHarnesses(ctx context.Context, where string, args ...any
 	for rows.Next() {
 		var a DaemonHarness
 		var ver sql.NullString
-		if err := rows.Scan(&a.DaemonID, &a.UserID, &a.Harness, &ver, &a.Available, &a.Enabled, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.DaemonID, &a.UserID, &a.Harness, &ver, &a.Revision, &a.Available, &a.Enabled, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 		a.Version = ver.String
@@ -215,7 +217,7 @@ func (s *Service) deleteDaemon(ctx context.Context, u User, id string) error {
 
 // DaemonConnected 处理 daemon 连上:标在线，按上报更新 daemon_harnesses。
 // 上报里有的标 available=1 并保留原来的 enabled;没上报的标 available=0。
-// 不在 harnesses 表里登记过的名字被忽略，返回给调用方。
+// Harness 标识直接来自 client；server 不维护适配器注册表或原生执行配置。
 func (s *Service) DaemonConnected(ctx context.Context, d Daemon, reported []ReportedHarness, caps ...[]string) (ignored []string, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -240,17 +242,12 @@ func (s *Service) DaemonConnected(ctx context.Context, d Daemon, reported []Repo
 		return nil, err
 	}
 	for _, a := range reported {
-		var exists int
-		if err := tx.QueryRowContext(ctx, store.DaemonConnectedSelect, a.Name).Scan(&exists); err != nil {
-			return nil, err
-		}
-		if exists == 0 {
-			ignored = append(ignored, a.Name)
-			continue
+		if strings.TrimSpace(a.Name) == "" || len(a.Name) > 128 || len(a.Version) > 512 {
+			return nil, fmt.Errorf("invalid reported harness identity")
 		}
 		if _, err := tx.ExecContext(ctx,
 			store.DaemonConnectedInsert2,
-			d.ID, d.UserID, a.Name, a.Version, now); err != nil {
+			d.ID, d.UserID, a.Name, a.Version, a.Revision, now); err != nil {
 			return nil, err
 		}
 	}

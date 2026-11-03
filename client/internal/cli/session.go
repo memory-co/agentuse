@@ -4,15 +4,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+
 	services "github.com/memory-co/agentuse/client/internal/service"
 	endpointservice "github.com/memory-co/agentuse/client/internal/service/endpoint"
 	runservice "github.com/memory-co/agentuse/client/internal/service/run"
 	"github.com/memory-co/agentuse/internal/command"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"net/url"
-	"os"
-	"strings"
-	"time"
 )
 
 func splitAgents(s string) []string {
@@ -92,7 +93,6 @@ func runSession(args []string) error {
 	c := &agentuse.Client{BaseURL: strings.TrimRight(*server, "/"), Token: *token}
 	if strings.HasPrefix(*token, "dk_") {
 		c.RunID = os.Getenv("AGENTUSE_RUN")
-		c.AttemptID = os.Getenv("AGENTUSE_ATTEMPT")
 	}
 	need := 0
 	if action == "send" || action == "cancel" {
@@ -142,7 +142,7 @@ func runSession(args []string) error {
 			}
 			if action == "runs" {
 				for _, r := range detail.Runs {
-					fmt.Printf("%s\t@%s\t%s\n", r.ID, r.AgentKey, r.Status)
+					fmt.Printf("%s\t@%s\t%s\n", r.ID, r.AgentID, r.Status)
 				}
 				return nil
 			}

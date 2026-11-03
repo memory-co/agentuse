@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/attachment"
 	"github.com/memory-co/agentuse/server/internal/service"
 )
@@ -32,7 +33,6 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 				a.WorkID = wk.ID
 				if run, e := s.service.WorkRunByToken(r.Context(), token); e == nil {
 					a.RunID = run.ID
-					a.AttemptID = run.AttemptID
 				}
 			}
 			h(w, r.WithContext(context.WithValue(r.Context(), attachmentKey{}, a)))
@@ -59,7 +59,7 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 			s.attachmentErr(w, err)
 			return
 		}
-		a := service.AttachmentAccess{User: u, DaemonID: d.ID, Token: token, RunID: r.Header.Get("X-Agentuse-Run"), AttemptID: r.Header.Get("X-Agentuse-Attempt")}
+		a := service.AttachmentAccess{User: u, DaemonID: d.ID, Token: token, RunID: r.Header.Get("X-Agentuse-Run")}
 		h(w, r.WithContext(context.WithValue(r.Context(), attachmentKey{}, a)))
 	}
 }
@@ -80,7 +80,7 @@ func (s *Server) attachmentErr(w http.ResponseWriter, err error) {
 }
 func (s *Server) attachmentSession(w http.ResponseWriter, r *http.Request, upload bool) bool {
 	id := r.PathValue("id")
-	if !attachment.ValidID(id, "ss_") {
+	if uuid.Validate(id) != nil {
 		writeErr(w, 404, "会话不存在")
 		return false
 	}
@@ -261,7 +261,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 			}
 			return v.SessionID
 		}(), a.RunID); e == nil {
-			v.CreatedByAgentKey = run.AgentKey
+			v.CreatedByAgentKey = run.AgentID
 		}
 	}
 	err = s.service.PublishAttachment(r.Context(), a, v, tmp)

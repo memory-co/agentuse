@@ -32,7 +32,7 @@ runService 先持久化终态与结果事件；conversationService 消费后，�
 
 ## 状态和删除
 
-Conversation 状态是 run 的聚合投影，优先 waiting、running、pending，再到 idle；resolved 是用户的完成标记。投影由 conversationService 通过 runService 查询当前状态后更新，run 状态变化和最终结果事件都触发重算；重算读取当前 run 集合，不用旧事件直接覆盖投影。idle 不表示历史任务全部成功。
+Conversation 状态是实际 run 与未完成输入的聚合投影，优先 waiting、running、pending，再到 idle；resolved 是用户的完成标记。投影由 conversationService 通过 runService 查询当前状态后更新，run 状态变化和最终结果事件都触发重算；重算读取当前 run 集合，不用旧事件直接覆盖投影。idle 不表示历史任务全部成功。
 
 有活跃 run 时拒绝删除，检查与删除共用事务；回复消费前也要重新检查对话是否存在，已删除的对话不恢复创建。删除对话由 conversationService 协调相关 service，在同一事务内清理消息、run、run_prompts、事件、问题及辅助记录；本地目录或 S3 对象前缀由 fileService 清理。Work 的协调对话和线程归属由 workService 决定。
 
@@ -128,3 +128,9 @@ CREATE INDEX messages_replies ON messages(conversation_id,reply_to_message_id,se
 ## 相关设计
 
 [Server 总览](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [Client harnessService](client-harness.md) · [runService](server-run.md) · [fileService](server-file.md) · [workService](server-work.md)
+
+## 执行身份补充
+
+发送消息只生成各目标的 run_prompts，不生成执行 UUID。消息与实际 run 的 N:M 关系在 client accepted 后建立；后续输入是否加入当前 run 完全由适配器决定。一次 send 不等于一次新 run。详情见 server-run.md。
+
+result 与最终回复一起提交，回复关联 first_message_id。断线、取消入队、控制送达不会生成 assistant 结果；结果重放不会重复写回复。

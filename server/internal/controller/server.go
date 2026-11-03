@@ -4,12 +4,13 @@ package controller
 import (
 	"encoding/json"
 	"errors"
-	"github.com/memory-co/agentuse/server/internal/service"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/memory-co/agentuse/server/internal/service"
 
 	"github.com/memory-co/agentuse/internal/protocol"
 )
@@ -75,8 +76,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/users", s.admin(s.handleCreateUser))
 	s.mux.HandleFunc("POST /api/users/{id}/token", s.admin(s.handleResetUserToken))
 	s.mux.HandleFunc("GET /api/harnesses", s.auth(s.handleListHarnesses))
-	s.mux.HandleFunc("POST /api/harnesses", s.auth(s.handleCreateHarness))
-	s.mux.HandleFunc("DELETE /api/harnesses/{name}", s.auth(s.handleDeleteHarness))
 	s.mux.HandleFunc("GET /api/agents", s.workAuth(s.handleListAgents))
 	s.mux.HandleFunc("POST /api/agents", s.auth(s.handleCreateAgent))
 	s.mux.HandleFunc("GET /api/agents/{id}", s.auth(s.handleGetAgent))
@@ -98,7 +97,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/sessions/{id}", s.sessionReadAuth(s.handleGetSession))
 	s.mux.HandleFunc("GET /api/sessions/{id}/runs/{run_id}", s.workAuth(s.handleGetRun))
 	s.mux.HandleFunc("POST /api/sessions/{id}/runs/{run_id}/cancel", s.workAuth(s.handleCancelRun))
-	s.mux.HandleFunc("POST /api/sessions/{id}/runs/{run_id}/questions/{qid}/answer", s.workAuth(s.handleAnswerRun))
+	s.mux.HandleFunc("POST /api/sessions/{id}/runs/{run_id}/requests/{request_id}/reply", s.workAuth(s.handleAnswerRun))
 	s.mux.HandleFunc("DELETE /api/sessions/{id}", s.auth(s.handleDeleteSession))
 	s.mux.HandleFunc("POST /api/sessions/{id}/messages", s.workAuth(s.handleAddMessage))
 	s.mux.HandleFunc("POST /api/sessions/{id}/resolve", s.workAuth(s.handleResolveSession))

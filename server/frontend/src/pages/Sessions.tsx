@@ -27,16 +27,11 @@ const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['s
 // progress 回报只有 {text} 时直接显示文字，否则显示 JSON。
 const evText = (p: any) => (p && typeof p === 'object' && Object.keys(p).length === 1 && 'text' in p ? String(p.text) : JSON.stringify(p ?? ''));
 
-function useMessageKey(){
- const ref=useRef<{body:string;key:string}|null>(null);
- return {key:(body:unknown)=>{const encoded=JSON.stringify(body);if(ref.current?.body!==encoded)ref.current={body:encoded,key:`message-${Date.now()}-${Math.random().toString(36).slice(2)}`};return ref.current!.key;},reset:()=>{ref.current=null;}};
-}
-
 /** 新会话：选 agent,写第一句话。 */
 export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
   const t = useT();
   const agents = useAgents();
- const messageKey=useMessageKey();
+
   const [files, setFiles] = useState<File[]>([]);
   const [progress, setProgress] = useState('');
   const draft = useRef<string | null>(null);
@@ -54,7 +49,7 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
           if (uploaded.current.has(file)) continue;
           await uploadAttachment(id, file, n => setProgress(`${file.name} ${n}%`)); uploaded.current.add(file);
         }
-        const body={prompt,target_agent_ids:targets};await api(`/api/sessions/${id}/messages`, {method: 'POST', body,headers:{"Idempotency-Key":messageKey.key(body)}});
+        const body={prompt,target_agent_ids:targets};await api(`/api/sessions/${id}/messages`, {method: 'POST', body,});
         return {session: {id} as Session};
       } finally { setProgress(''); }
     },
@@ -82,11 +77,11 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
 export function Conversation({ id, onDeleted, placeholder,defaultAgent }: { id: string; onDeleted: () => void; placeholder?: string; defaultAgent?:string }) {
   const t = useT();
  const agents=useAgents();
- const messageKey=useMessageKey();
+
   const q = useQuery({ queryKey: ['sessions', id], queryFn: () => api<Detail>(`/api/sessions/${id}`), refetchInterval: 3000 });
   const reply = useMutation({
-    mutationFn: ({prompt,targets}: {prompt:string;targets?:string[]}) => {const body={prompt,target_agent_ids:targets};return api(`/api/sessions/${id}/messages`, { method: 'POST', body,headers:{"Idempotency-Key":messageKey.key(body)} });},
-    onSuccess: () => {messageKey.reset(); void refresh(); },
+    mutationFn: ({prompt,targets}: {prompt:string;targets?:string[]}) => {const body={prompt,target_agent_ids:targets};return api(`/api/sessions/${id}/messages`, { method: 'POST', body, });},
+    onSuccess: () => { void refresh(); },
   });
   const del = useMutation({ mutationFn: () => api(`/api/sessions/${id}`, { method: 'DELETE' }), onSuccess: () => { void refresh(); onDeleted(); } });
   const resolve = useMutation({ mutationFn: (done: boolean) => api(`/api/sessions/${id}/${done ? 'resolve' : 'reopen'}`, { method: 'POST' }), onSuccess: () => { void refresh(); } });
@@ -116,8 +111,8 @@ export function Conversation({ id, onDeleted, placeholder,defaultAgent }: { id: 
         </div>
         <Attachments key={id} session={id} running={!settled} />
         {messages.map(m=><div key={m.id} className="grid min-w-0 grid-cols-1 gap-2"><MessageView m={m}/>
-        {m.role==='user'&&<div className="flex flex-wrap gap-2">{(q.data.deliveries??[]).filter(d=>d.message_id===m.id && !(q.data.runs??[]).some(run=>run.id===d.run_id && run.message_id===m.id)).map(d=><span key={d.id} className="rounded-md border px-2 py-1 text-xs" title={d.error}>@{d.agent_key} · {d.kind==='steer'?t('mention.steer')+' · ':''}{t(`mention.${d.status}`)}</span>)}</div>}
-        {(q.data.runs??[]).filter(r=>r.message_id===m.id).map(run=><RunView key={run.id} run={run} events={events} questions={questions} messages={messages} deliveries={q.data.deliveries ?? []} sessionId={id}/>)}
+        {m.role==='user'&&<div className="flex flex-wrap gap-2">{(q.data.deliveries??[]).filter(d=>d.message_id===m.id && !(q.data.runs??[]).some(run=>run.id===d.run_id && run.first_message_id===m.id)).map(d=><span key={d.id} className="rounded-md border px-2 py-1 text-xs" title={d.error}>@{d.agent_id} · {d.status}</span>)}</div>}
+        {(q.data.runs??[]).filter(r=>r.first_message_id===m.id).map(run=><RunView key={run.id} run={run} events={events} questions={questions} messages={messages} deliveries={q.data.deliveries ?? []} sessionId={id}/>)}
         </div>)}
         <div ref={bottom} />
       </div>
@@ -166,123 +161,39 @@ function ThreadNote({ m }: { m: Message }) {
   </a>;
 }
 
-type Step = { text: string; status: string };
-
-/** 计划：harness 列的步骤清单，显示最新一份(docs/v2/designs/plan.md)。 */
-function PlanView({ steps }: { steps?: Step[] }) {
-  if (!Array.isArray(steps) || !steps.length) return null;
-  return <ul className="grid gap-1.5 rounded-lg border px-3 py-2.5 text-sm">
-    {steps.map((s, i) => <li key={i} className="flex items-start gap-2">
-      {s.status === 'completed' ? <Check className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-        : s.status === 'in_progress' ? <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin" />
-        : <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground/60" />}
-      <span className={cn('min-w-0 break-words', s.status === 'completed' && 'text-muted-foreground', s.status === 'in_progress' && 'font-medium')}>{s.text}</span>
-    </li>)}
-  </ul>;
-}
-
-/** 提问:harness 用 AskUserQuestion 问用户，选选项或自己写(docs/v2/designs/question.md)。 */
 function QuestionView({ q, sessionId }: { q: Question; sessionId: string }) {
-  const t = useT();
-  const [picked, setPicked] = useState<Record<string, string[]>>({});
-  const [other, setOther] = useState<Record<string, string>>({});
-  const answer = useMutation({
-    mutationFn: (answers: Record<string, string>) => api(`/api/sessions/${sessionId}/runs/${q.run_id}/questions/${q.id}/answer`, { method: 'POST', body: { answers } }),
-    onSuccess: () => { void refresh(); },
-  });
-  if (q.status !== 'pending' || q.answers) {
-    const note = q.status === 'answered' ? 'question.answered' : q.status === 'expired' && !q.answers ? 'question.expired' : 'question.sending';
-    return <div className="grid gap-1 rounded-lg border px-3 py-2.5 text-sm">
-      {q.questions.map(it => <div key={it.question} className="grid gap-0.5">
-        <span className="break-words"><span className="text-muted-foreground">{t('question.ask')}:</span>{it.question}</span>
-        {q.answers?.[it.question] && <span className="break-words"><span className="text-muted-foreground">{t('question.answer')}:</span>{q.answers[it.question]}</span>}
-      </div>)}
-      <span className="text-[11px] text-muted-foreground">{t(note)}</span>
-    </div>;
-  }
-  const value = (it: Question['questions'][number]) => [...(picked[it.question] ?? []), ...(other[it.question]?.trim() ? [other[it.question].trim()] : [])].join(', ');
-  const ready = q.questions.every(it => value(it) !== '');
-  const toggle = (it: Question['questions'][number], label: string) => setPicked(p => {
-    const cur = p[it.question] ?? [];
-    const next = cur.includes(label) ? cur.filter(l => l !== label) : it.multi_select ? [...cur, label] : [label];
-    return { ...p, [it.question]: next };
-  });
-  return <form className="grid gap-3 rounded-lg border border-amber-500/50 px-3 py-3 text-sm" onSubmit={e => {
-    e.preventDefault();
-    if (ready) answer.mutate(Object.fromEntries(q.questions.map(it => [it.question, value(it)])));
-  }}>
-    {q.questions.map(it => <fieldset key={it.question} className="grid gap-2">
-      <legend className="mb-1 break-words font-medium">{it.header && <span className="mr-2 text-xs text-muted-foreground">{it.header}</span>}{it.question}</legend>
-      <div className="flex flex-wrap gap-2">
-        {it.options?.map(o => <Button key={o.label} type="button" size="sm" title={o.description}
-          variant={(picked[it.question] ?? []).includes(o.label) ? 'default' : 'outline'} onClick={() => toggle(it, o.label)}>{o.label}</Button>)}
-      </div>
-      <Input className="h-8 text-xs" placeholder={t('question.other')} value={other[it.question] ?? ''}
-        onChange={e => { const v = e.target.value; setOther(o => ({ ...o, [it.question]: v })); if (!it.multi_select && v) setPicked(p => ({ ...p, [it.question]: [] })); }} />
-    </fieldset>)}
-    <div><Button type="submit" size="sm" disabled={!ready || answer.isPending}>{t('question.submit')}</Button></div>
-  </form>;
+ const [answers,setAnswers]=useState<Record<string,string>>({});
+ const p=q.payload??{};
+ const reply=useMutation({mutationFn:(answer:unknown)=>api(`/api/sessions/${sessionId}/runs/${q.run_id}/requests/${encodeURIComponent(q.request_id)}/reply`,{method:'POST',body:{answer}}),onSuccess:()=>void refresh()});
+ const busy=reply.isPending||(reply.isSuccess&&!q.delivery_error);
+ return <div className="grid gap-2 rounded-lg border p-3 text-sm">
+  <p className="whitespace-pre-wrap break-words font-medium">{p.message}</p>
+  {q.state!=='pending' ? <p className="text-xs text-muted-foreground">{q.state}{p.answer!==undefined&&` · ${JSON.stringify(p.answer)}`}</p> : p.kind==='permission' ? <div className="flex gap-2"><Button size="sm" disabled={busy} onClick={()=>reply.mutate('allow')}>allow</Button><Button size="sm" variant="outline" disabled={busy} onClick={()=>reply.mutate('deny')}>deny</Button></div> : <form className="grid gap-3" onSubmit={e=>{e.preventDefault();const value=Object.fromEntries((p.questions??[]).map((item:any)=>[item.id,item.multiple?(answers[item.id]??'').split(',').map(x=>x.trim()).filter(Boolean):answers[item.id]]));reply.mutate(value)}}>
+   {(p.questions??[]).map((item:any)=><label key={item.id} className="grid gap-1"><span>{item.text}</span>{item.options?.length>0&&<span className="text-xs text-muted-foreground">{item.options.map((o:any)=>o.label).join(' / ')}</span>}<Input required value={answers[item.id]??''} onChange={e=>setAnswers({...answers,[item.id]:e.target.value})} placeholder={item.multiple?'多个答案用逗号分隔':''}/></label>)}
+   <Button size="sm" disabled={busy}>回复</Button>
+  </form>}
+  {busy&&reply.isSuccess&&<p className="text-xs text-muted-foreground">已发送，等待 client 确认</p>}
+  {q.delivery_error&&<p className="text-xs text-destructive">{q.delivery_error}</p>}
+  {reply.isError&&<ErrorState error={reply.error}/>}
+ </div>;
 }
 
-function RunView({ run, events, questions, messages, deliveries, sessionId }: { run: Run; events: SessionEvent[]; questions: Question[]; messages: Message[]; deliveries: Delivery[]; sessionId: string }) {
-  const t = useT();
-  const cancel = useMutation({
-    mutationFn: () => api(`/api/sessions/${sessionId}/runs/${run.id}/cancel`, { method: 'POST' }),
-    onSuccess: () => { void refresh(); },
-  });
-  const mine = events.filter(event => event.run_id === run.id);
-  const progress = mine.filter(event => event.kind === 'progress');
-  const steers = deliveries.filter(delivery => delivery.run_id === run.id && delivery.kind === 'steer')
-    .map(delivery => ({ delivery, message: messages.find(message => message.id === delivery.message_id) }))
-    .sort((a, b) => a.delivery.message_id - b.delivery.message_id);
-  const plan = mine.filter(event => event.kind === 'plan').pop();
-  const active = ['pending', 'running', 'waiting'].includes(run.status);
-  return <section data-run-id={run.id} aria-label={`run @${run.agent_key}`}>
-    <Dialog.Root>
-      <Dialog.Trigger asChild>
-        <button type="button" className="inline-flex max-w-full items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={t('mention.detailsFor', { agent: run.agent_key })}>
-          {active && <LoaderCircle className={cn('size-3.5 shrink-0', run.status === 'running' && 'animate-spin')} />}
-          <span className="truncate font-medium">@{run.agent_key}</span>
-          <span className="shrink-0">{t(`mention.${run.status}`)}</span>
-          <ChevronRight className="size-3.5 shrink-0" />
-        </button>
-      </Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 grid max-h-[85dvh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 grid-rows-[auto_minmax(0,1fr)] rounded-xl border bg-background shadow-lg" data-run-detail={run.id}>
-          <div className="flex items-start gap-3 border-b p-4">
-            <div className="min-w-0 flex-1">
-              <Dialog.Title className="break-words font-semibold">@{run.agent_key} · {t('mention.details')}</Dialog.Title>
-              <Dialog.Description className="mt-1 text-sm text-muted-foreground">{t(`mention.${run.status}`)}</Dialog.Description>
-            </div>
-            <Dialog.Close asChild><Button variant="ghost" size="icon" className="size-7 shrink-0" aria-label={t('common.close')}><X className="size-4" /></Button></Dialog.Close>
-          </div>
-          <div className="grid min-h-0 gap-4 overflow-y-auto p-4 text-xs">
-            <p className="break-all text-muted-foreground">{run.harness} · {run.daemon_id ?? '—'}</p>
-            {run.error && run.status !== 'cancelled' && <p className="break-words text-destructive">{run.error}</p>}
-            {steers.length > 0 && <section className="grid min-w-0 gap-2" aria-label={t('mention.steerMessages')}>
-              <h3 className="font-medium">{t('mention.steerMessages')}</h3>
-              {steers.map(({ delivery, message }) => <div key={delivery.id} className="grid min-w-0 gap-2 rounded-lg border p-3" data-steer-message={delivery.message_id}>
-                <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
-                  <span>@{delivery.agent_key}</span>
-                  <span>{t(`mention.${delivery.status}`)}</span>
-                  {message && <time className="ml-auto" dateTime={new Date(message.created_at * 1000).toISOString()}>{fmtTime(message.created_at)}</time>}
-                </div>
-                {message && <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{typeof message.content?.prompt === 'string' ? message.content.prompt : JSON.stringify(message.content, null, 2)}</p>}
-                {delivery.error && <p className="break-words text-destructive">{delivery.error}</p>}
-              </div>)}
-            </section>}
-            {plan && <PlanView steps={plan.payload?.steps} />}
-            {questions.filter(question => question.run_id === run.id).map(question => <QuestionView key={question.id} q={question} sessionId={sessionId} />)}
-            {progress.length > 0 && <div className="grid min-w-0 gap-2">
-              <p className="font-medium">{t('session.progress', { n: progress.length })}</p>
-              <div className="grid gap-1 font-mono">{progress.map(event => <p className="[overflow-wrap:anywhere]" key={event.id}>{evText(event.payload)}</p>)}</div>
-            </div>}
-            {cancel.isError && <ErrorState error={cancel.error} />}
-            {active && <div><Button variant="outline" size="sm" disabled={cancel.isPending} onClick={() => cancel.mutate()}>{t('mention.cancel')}</Button></div>}
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-  </section>;
+function RunView({run,events,questions,sessionId}:{run:Run;events:SessionEvent[];questions:Question[];messages:Message[];deliveries:Delivery[];sessionId:string}){
+ const cancel=useMutation({mutationFn:()=>api(`/api/sessions/${sessionId}/runs/${run.id}/cancel`,{method:'POST'}),onSuccess:()=>void refresh()});
+ const mine=events.filter(e=>e.run_id===run.id);
+ const active=['running','waiting'].includes(run.status);
+ return <section data-run-id={run.id} aria-label={`run @${run.agent_id}`}><Dialog.Root>
+  <Dialog.Trigger asChild><button className="inline-flex max-w-full items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted">{active&&<LoaderCircle className="size-3.5 animate-spin"/>}<span>@{run.agent_id}</span><span>{run.status}</span><ChevronRight className="size-3.5"/></button></Dialog.Trigger>
+  <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-50 bg-black/50"/><Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-background p-4 shadow-lg" data-run-detail={run.id}>
+   <div className="flex items-start justify-between"><div><Dialog.Title className="font-semibold">@{run.agent_id} · Run details</Dialog.Title><Dialog.Description className="mt-1 text-xs text-muted-foreground">{run.status} · {run.harness} · {run.harness_revision}</Dialog.Description></div><Dialog.Close asChild><Button size="icon" variant="ghost" aria-label="关闭"><X className="size-4"/></Button></Dialog.Close></div>
+   <dl className="my-4 grid grid-cols-[auto_minmax(0,1fr)] gap-2 text-xs"><dt>Run</dt><dd className="break-all">{run.id}</dd><dt>Client session</dt><dd className="break-all">{run.client_session_id}</dd><dt>Device</dt><dd className="break-all">{run.daemon_id}</dd></dl>
+   {run.output&&<p className="whitespace-pre-wrap break-words text-sm">{run.output}</p>}
+   {run.error&&<p className="text-sm text-destructive">{run.error}</p>}
+   <div className="my-4 grid gap-3">{questions.filter(q=>q.run_id===run.id).map(q=><QuestionView key={q.request_id} q={q} sessionId={sessionId}/>)}</div>
+   {active&&<Button size="sm" variant="outline" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>取消此 client session</Button>}
+   {cancel.isSuccess&&active&&<p className="mt-2 text-xs text-muted-foreground">取消请求已发送，等待 client 上报结果</p>}
+   {cancel.isError&&<ErrorState error={cancel.error}/>}
+   <div className="mt-4 grid gap-3">{mine.map(e=><div key={e.id} className="rounded border p-3 text-xs"><span className="text-muted-foreground">{e.kind}</span><pre className="mt-2 whitespace-pre-wrap break-words">{JSON.stringify(e.payload,null,2)}</pre></div>)}</div>
+  </Dialog.Content></Dialog.Portal>
+ </Dialog.Root></section>;
 }

@@ -18,9 +18,13 @@ import (
 var ErrLocalBusy = errors.New("session execution is busy or no longer active")
 
 type Request struct {
-	Harness string          `json:"harness"`
-	Prompt  string          `json:"prompt"`
-	Input   json.RawMessage `json:"input,omitempty"`
+	Harness     string          `json:"harness"`
+	Prompt      string          `json:"prompt"`
+	Input       json.RawMessage `json:"input,omitempty"`
+	agentID     string
+	environment []string
+	beforeSend  func(session.Session) error
+	accepted    func(harness.Acceptance) error
 }
 type localExecution struct {
 	cancel  context.CancelFunc
@@ -42,14 +46,19 @@ func (s *Service) CreateConversation(ctx context.Context, id, title string) (ses
 // Start returns only after the adapter publishes accepted, using its actual
 // run_id. There is no provisional task UUID and no client execution attempt.
 func (s *Service) Start(ctx context.Context, id, conversation string, request Request) (Run, error) {
-	return s.startSession(ctx, id, conversation, request, "")
-}
-func (s *Service) startSession(ctx context.Context, id, conversation string, request Request, target string) (Run, error) {
 	if err := s.requireLocalEndpoint(id); err != nil {
 		return Run{}, err
 	}
-	if _, err := s.Sessions.LocalConversation(ctx, conversation); err != nil {
+	return s.startSession(ctx, id, conversation, request, "")
+}
+func (s *Service) startSession(ctx context.Context, id, conversation string, request Request, target string) (Run, error) {
+	if _, err := s.Endpoints.GetByID(id); err != nil {
 		return Run{}, err
+	}
+	if id == "local" {
+		if _, err := s.Sessions.LocalConversation(ctx, conversation); err != nil {
+			return Run{}, err
+		}
 	}
 	if !fileutil.Segment(request.Harness) {
 		return Run{}, fileutil.ErrInvalid
@@ -76,14 +85,28 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 	// A further send to the same active session is automatically steered/queued
 	// by the adapter. Neither the UI nor this service chooses that policy.
 	for _, active := range s.localRuns {
-		if active.session.EndpointID == id && active.session.ConversationID == conversation && active.session.Harness == request.Harness && (target == "" || active.session.ID == target) {
+		if active.session.EndpointID == id && active.session.ConversationID == conversation && active.session.Harness == request.Harness && (request.agentID == "" || active.session.AgentID == request.agentID) && (target == "" || active.session.ID == target) {
 			var pi protocol.PromptInput
 			text := string(input)
 			if json.Unmarshal(input, &pi) == nil && pi.Prompt != "" {
 				text = pi.Prompt
 			}
 			accepted := make(chan harness.Acceptance, 1)
-			ok := active.in.Send(text, func(a harness.Acceptance) { accepted <- a })
+			if request.beforeSend != nil {
+				if err := request.beforeSend(active.session); err != nil {
+					s.localMu.Unlock()
+					return Run{}, err
+				}
+			}
+			ok := active.in.Send(text, func(a harness.Acceptance) {
+				if request.accepted != nil {
+					if err := request.accepted(a); err != nil {
+						active.cancel()
+						return
+					}
+				}
+				accepted <- a
+			})
 			s.localMu.Unlock()
 			if !ok {
 				select {
@@ -102,23 +125,38 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 		s.localMu.Unlock()
 		return Run{}, ErrLocalBusy
 	}
-	var session session.Session
+	agentID := request.agentID
+	if agentID == "" {
+		agentID = "local-" + adapter.Name
+	}
+	var metadata session.Session
 	var cwd string
 	if target == "" {
-		session, cwd, err = s.Sessions.Acquire(ctx, id, conversation, "local-"+adapter.Name, adapter.Name, adapter.Revision)
+		metadata, cwd, err = s.Sessions.Acquire(ctx, id, conversation, agentID, adapter.Name, adapter.Revision)
 	} else {
-		session, cwd, err = s.Sessions.AcquireExistingSession(ctx, id, conversation, target, adapter.Revision)
+		metadata, cwd, err = s.Sessions.AcquireExistingSession(ctx, id, conversation, target, adapter.Revision)
 	}
 	if err != nil {
 		<-s.slots
 		s.localMu.Unlock()
 		return Run{}, err
 	}
-	adapter.EventsPath = harness.EventsPath(cwd, session.ID)
-	adapter.Env = []string{"AGENTUSE_SERVER=", "AGENTUSE_TOKEN=", "AGENTUSE_WORK=", "AGENTUSE_CONFIG=", "AGENTUSE_RUN=", "AGENTUSE_ATTEMPT=", "AGENTUSE_ENDPOINT=" + id, "AGENTUSE_CONVERSATION=" + conversation, "AGENTUSE_SESSION=" + session.ID, "AGENTUSE_AGENT=" + session.AgentID, "AGENTUSE_RESOURCES="}
+	if request.beforeSend != nil {
+		if err = request.beforeSend(metadata); err != nil {
+			<-s.slots
+			s.localMu.Unlock()
+			_ = s.Sessions.Release(metadata, true)
+			return Run{}, err
+		}
+	}
+	adapter.EventsPath = harness.EventsPath(cwd, metadata.ID)
+	adapter.Env = []string{"AGENTUSE_SERVER=", "AGENTUSE_TOKEN=", "AGENTUSE_WORK=", "AGENTUSE_CONFIG=", "AGENTUSE_RUN=", "AGENTUSE_ATTEMPT=", "AGENTUSE_ENDPOINT=" + id, "AGENTUSE_CONVERSATION=" + conversation, "AGENTUSE_SESSION=" + metadata.ID, "AGENTUSE_AGENT=" + metadata.AgentID, "AGENTUSE_RESOURCES="}
+	if len(request.environment) > 0 {
+		adapter.Env = request.environment
+	}
 	execCtx, cancel := context.WithCancel(s.localCtx)
-	execution := &localExecution{cancel: cancel, in: harness.NewInput(harness.DefaultAskTimeout), done: make(chan struct{}), session: session}
-	s.localRuns[session.ID] = execution
+	execution := &localExecution{cancel: cancel, in: harness.NewInput(harness.DefaultAskTimeout), done: make(chan struct{}), session: metadata}
+	s.localRuns[metadata.ID] = execution
 	s.localWG.Add(1)
 	s.localMu.Unlock()
 	accepted := make(chan harness.Acceptance, 1)
@@ -127,25 +165,31 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 		defer s.localWG.Done()
 		defer close(execution.done)
 		defer cancel()
-		defer func() { <-s.slots; s.localMu.Lock(); delete(s.localRuns, session.ID); s.localMu.Unlock() }()
+		defer func() { <-s.slots; s.localMu.Lock(); delete(s.localRuns, metadata.ID); s.localMu.Unlock() }()
 		first := true
 		report := func(event harness.Event) {
 			if event.Type != "accepted" {
 				return
 			}
-			if err := s.AcceptNative(context.Background(), session, event.RunID); err != nil {
+			if err := s.AcceptNative(context.Background(), metadata, event.RunID); err != nil {
 				s.log.Printf("native run index: %v", err)
 				cancel()
 				return
 			}
 			if first {
 				first = false
+				if request.accepted != nil {
+					if err := request.accepted(harness.Acceptance{RunID: event.RunID, InputID: event.InputID}); err != nil {
+						cancel()
+						return
+					}
+				}
 				accepted <- harness.Acceptance{RunID: event.RunID, InputID: event.InputID}
 			}
 		}
 		result := s.Harness.DriveSession(execCtx, adapter, requestText(input), cwd, execution.in, report)
 		if !result.CleanupPending {
-			_ = s.Sessions.Release(session, result.OK || execCtx.Err() == context.Canceled)
+			_ = s.Sessions.Release(metadata, result.OK || execCtx.Err() == context.Canceled)
 		}
 		execution.result = result
 		finished <- result
@@ -176,10 +220,13 @@ func (s *Service) awaitAccepted(ctx context.Context, execution *localExecution, 
 }
 
 // Control mirrors the public harnessctl session commands, not run attempts.
-func (s *Service) Control(ctx context.Context, id, conversation, session, action string, payload json.RawMessage) (any, error) {
+func (s *Service) Control(ctx context.Context, id, conversation, sessionID, action string, payload json.RawMessage) (any, error) {
 	if err := s.requireLocalEndpoint(id); err != nil {
 		return nil, err
 	}
+	return s.controlSession(ctx, id, conversation, sessionID, action, payload)
+}
+func (s *Service) controlSession(ctx context.Context, id, conversation, session, action string, payload json.RawMessage) (any, error) {
 	metadata, err := s.Sessions.Session(ctx, id, conversation, session)
 	if err != nil {
 		return nil, err
@@ -190,6 +237,7 @@ func (s *Service) Control(ctx context.Context, id, conversation, session, action
 			return nil, fileutil.ErrInvalid
 		}
 		request.Harness = metadata.Harness
+		request.agentID = metadata.AgentID
 		return s.startSession(ctx, id, conversation, request, session)
 	}
 	s.localMu.Lock()

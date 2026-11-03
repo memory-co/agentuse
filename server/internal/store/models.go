@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
@@ -13,7 +12,7 @@ type AgentPatch = agentuse.UpdateAgentRequest
 type AttachmentAccess struct {
 	User                    User
 	DaemonID, WorkID, Token string
-	RunID, AttemptID        string
+	RunID                   string
 }
 
 const (
@@ -28,40 +27,20 @@ type DaemonHarness = agentuse.DaemonHarness
 
 // ReportedHarness 是 daemon 连上时上报的一个本机可用 harness。
 type ReportedHarness struct {
-	Name    string `json:"name"`
-	Version string `json:"version,omitempty"`
+	Revision string `json:"revision,omitempty"`
+	Name     string `json:"name"`
+	Version  string `json:"version,omitempty"`
 }
-
-const (
-	HarnessBuiltin = "builtin"
-	HarnessCustom  = "custom"
-)
 
 type Harness = agentuse.Harness
 
 type Question = agentuse.Question
-
-const (
-	QuestionPending  = "pending"
-	QuestionAnswered = "answered"
-	QuestionExpired  = "expired"
-)
 
 type Run = agentuse.Run
 
 type Delivery = agentuse.Delivery
 
 type MultiReply = agentuse.Reply
-
-type RunClaim struct {
-	Sender                  agentuse.Sender
-	WorkID                  string
-	Run                     Run
-	Input                   json.RawMessage
-	Messages                []Message
-	TaskMessageIDs          []int64
-	Instructions, WorkToken string
-}
 
 type SessionDetail = agentuse.SessionDetail
 
@@ -79,16 +58,6 @@ const (
 
 	RoleUserMsg      = "user"
 	RoleAssistantMsg = "assistant"
-
-	EventProgress = "progress"
-	EventPlan     = "plan"
-	EventSteered  = "steered"
-	// 提问，见 docs/v2/designs/question.md
-	EventQuestion        = "question"
-	EventAnswered        = "answered"
-	EventQuestionExpired = "question_expired"
-	EventDone            = "done"
-	EventFailed          = "failed"
 )
 
 type Session = agentuse.Session

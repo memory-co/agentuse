@@ -60,15 +60,11 @@ func TestAgents(t *testing.T) {
 		t.Fatal("harness not on that daemon should fail")
 	}
 	// 有 agent 用着的 harness 不能删
-	s.CreateCustomHarness(ctx, alice.ID, "mine", "", "")
 	s.DaemonConnected(ctx, desktop, []ReportedHarness{{Name: "codex"}, {Name: "mine"}})
 	s.SetDaemonHarnessEnabled(ctx, alice, desktop.ID, "mine", true)
 	mine := "mine"
 	if _, err := s.UpdateAgent(ctx, alice, ag.ID, AgentPatch{DaemonID: &desktopID, Harness: &mine}); err != nil {
 		t.Fatal(err)
-	}
-	if err := s.DeleteCustomHarness(ctx, alice, "mine"); err == nil {
-		t.Fatal("harness used by agent should not be deletable")
 	}
 
 	// 删 agent:会话还在,agent_id 变空

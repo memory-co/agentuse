@@ -9,7 +9,7 @@ device 是一台用户的执行设备，client 是设备上运行的程序。dev
 - 登记设备、生成一次性 setup token，注册时换取长期 device key。
 - 保存 client 本地探测后上报的 harness、版本与业务能力，不下发探测命令。
 - 维护 online/offline 和最近活动时间，管理某个 harness 是否允许领取任务。
-- 删除/重置设备时协调终止相关 run，再撤销凭据、断开旧连接。
+- 删除/重置时撤销凭据并断开旧连接；未领取输入可失败，已经执行的 run 不由 server 合成终态。
 
 ## 操作与协作
 
@@ -19,11 +19,13 @@ device 是一台用户的执行设备，client 是设备上运行的程序。dev
 | 上线 | 验证设备密钥，更新 client 上报的 run 协议能力与本地 harness 探测结果，不把 available 自动等同于 enabled |
 | 心跳/离线 | 更新最近活动时间和连接状态；在线连接对象由连接管理组件维护 |
 | 开关 harness | 修改 enabled；重新开启后通知派活 |
-| 删除/重置 | 调用 runService 终止相关任务并协调撤销 work 凭据，然后提交凭据变更，再关闭连接 |
+| 删除/重置 | 失败未领取输入，撤销凭据后关闭连接，不伪造原生执行结果 |
 
 agentService 读取设备归属和运行能力，runService 根据设备选择可领取任务。探测由 client 本地 harnessService 读取 YAML 完成；deviceService 保存上报的 harness 标识、接入包版本、程序版本及业务能力。Server 不保存全局 harnesses 定义或 YAML，也不向设备发送探测命令。
 
 状态为 pending（未注册）、offline、online。在线状态表示连接状态，不代表设备当前空闲；是否可以领取由 client 的 ready 和 runService 的领取规则共同决定。
+
+执行协议仅声明 harnessctl-events-v1。Server 接受 client 上报的自定义 harness 标签，不要求先注册全局目录，不按 codex/claudecode 分支。harness 列表接口是设备上报结果的只读视图，没有创建或编辑 YAML 的 API。
 
 ## 表结构
 
@@ -73,7 +75,7 @@ CREATE INDEX device_harnesses_user_harness
 
 设备支持的 run 业务协议版本与能力，例如任务领取、标准事件、文件操作。每次上线以上报内容替换旧集合，不把进程流、JSON-RPC 或原生 hook 等 client 内部实现当成 server 指令集。
 
-device_harnesses.harness_revision 是本地接入包版本，capabilities 是该 harness 的业务能力 JSON 数组，例如 steer/question/plan/usage。Client 升级接入包后重新探测并上报，不用 server 编译配置。
+device_harnesses.harness_revision 是本地接入包版本，连接 capability 声明公共传输协议 harnessctl-events-v1，不通过 steer/question/plan 等原生能力分支调度。Client 升级接入包后重新探测并上报，不用 server 编译配置。
 
 ```sql
 CREATE TABLE device_capabilities (

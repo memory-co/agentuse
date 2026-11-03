@@ -5,14 +5,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/memory-co/agentuse/internal/attachment"
-	"github.com/memory-co/agentuse/internal/protocol"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/memory-co/agentuse/internal/attachment"
+	"github.com/memory-co/agentuse/internal/protocol"
 )
 
 func TestSyncAttachments(t *testing.T) {
@@ -43,13 +44,10 @@ func TestSyncAttachments(t *testing.T) {
 		json.NewEncoder(w).Encode(attachment.Page{Attachments: files})
 	}))
 	defer ts.Close()
-	d, err := newConnection(Config{Server: ts.URL, Key: "dk_ok"}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	d := &endpointConnection{cfg: Config{Server: ts.URL, Key: "dk_ok"}}
 	dir := t.TempDir()
-	sync := func() (*protocol.Dispatch, error) {
-		m := protocol.Dispatch{SessionID: a.SessionID, AttachmentSupport: true}
+	sync := func() (*protocol.Prompt, error) {
+		m := protocol.Prompt{ConversationID: a.SessionID}
 		err := d.syncAttachments(context.Background(), &m, dir)
 		return &m, err
 	}

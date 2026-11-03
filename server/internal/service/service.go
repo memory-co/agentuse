@@ -3,18 +3,18 @@ package service
 
 import (
 	"database/sql"
-	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/store"
 	"log"
 	"sync"
 	"time"
+
+	"github.com/memory-co/agentuse/internal/protocol"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 type Notifier interface {
 	KickAll()
 	KickUser(string)
 	PushRun(string, protocol.Message)
-	PushRunSteers([]store.Delivery)
 	Disconnect(string)
 }
 
@@ -51,5 +51,5 @@ type discardNotifier struct{}
 func (discardNotifier) KickAll()                         {}
 func (discardNotifier) KickUser(string)                  {}
 func (discardNotifier) PushRun(string, protocol.Message) {}
-func (discardNotifier) PushRunSteers([]store.Delivery)   {}
-func (discardNotifier) Disconnect(string)                {}
+
+func (discardNotifier) Disconnect(string) {}

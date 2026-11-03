@@ -4,13 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/memory-co/agentuse/server/internal/store"
 	"strings"
+
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
-func (s *Service) CreateMultiWork(ctx context.Context, u User, name, agentID, instructions string) (Work, Session, error) {
+func (s *Service) CreateMultiWork(ctx context.Context, u User, name, agent, instructions string) (Work, Session, error) {
 	name, err := cleanWorkName(name)
 	if err != nil {
 		return Work{}, Session{}, err
@@ -20,7 +20,7 @@ func (s *Service) CreateMultiWork(ctx context.Context, u User, name, agentID, in
 		return Work{}, Session{}, err
 	}
 	defer tx.Rollback()
-	a, err := scanAgent(tx.QueryRowContext(ctx, agentCols+store.CreateMultiWorkClause, agentID, u.ID))
+	a, err := scanAgent(tx.QueryRowContext(ctx, agentCols+` WHERE id=? AND user_id=?`, agent, u.ID))
 	if err != nil {
 		return Work{}, Session{}, err
 	}
@@ -28,8 +28,8 @@ func (s *Service) CreateMultiWork(ctx context.Context, u User, name, agentID, in
 		return Work{}, Session{}, err
 	}
 	now := s.unix()
-	w := Work{ID: randomID("wk_"), UserID: u.ID, Name: name, Instructions: instructions, CoordinatorID: randomID("ss_"), CoordinatorAgentID: agentID, CreatedAt: now, UpdatedAt: now}
-	if _, err = tx.ExecContext(ctx, store.CreateMultiWorkInsert, w.ID, u.ID, name, instructions, w.CoordinatorID, agentID, now, now); err != nil {
+	w := Work{ID: newUUID(), UserID: u.ID, Name: name, Instructions: instructions, CoordinatorID: newUUID(), CoordinatorAgentID: agent, CreatedAt: now, UpdatedAt: now}
+	if _, err = tx.ExecContext(ctx, store.CreateMultiWorkInsert, w.ID, u.ID, name, instructions, w.CoordinatorID, agent, now, now); err != nil {
 		return w, Session{}, err
 	}
 	ss, err := s.insertMulti(ctx, tx, u, w.ID, name)
@@ -43,113 +43,82 @@ func (s *Service) CreateMultiWork(ctx context.Context, u User, name, agentID, in
 	ss.WorkRole = WorkCoordinator
 	return w, ss, tx.Commit()
 }
-
-func (s *Service) WorkRunByToken(ctx context.Context, token string) (Run, error) {
-	return scanRun(s.db.QueryRowContext(ctx, runCols+store.WorkRunByTokenClause, HashSecret(token), s.unix()))
-}
-
 func (s *Service) runWorkToken(ctx context.Context, token string) (Work, User, error) {
 	var id string
-	err := s.db.QueryRowContext(ctx, store.RunWorkTokenSelect, HashSecret(token), s.unix()).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
+	err := s.db.QueryRowContext(ctx, `SELECT t.work_id FROM work_run_tokens t JOIN run_prompts p ON p.id=t.prompt_id WHERE t.token_hash=? AND p.status IN ('sent','accepted')`, HashSecret(token)).Scan(&id)
+	if err == sql.ErrNoRows {
 		return Work{}, User{}, ErrNotFound
 	}
 	if err != nil {
 		return Work{}, User{}, err
 	}
-	w, err := scanWork(s.db.QueryRowContext(ctx, workCols+store.RunWorkTokenClause, id))
+	w, err := scanWork(s.db.QueryRowContext(ctx, workCols+` WHERE w.id=?`, id))
 	if err != nil {
 		return w, User{}, err
 	}
 	u, err := s.GetUser(ctx, w.UserID)
 	return w, u, err
 }
+func (s *Service) WorkRunByToken(ctx context.Context, token string) (Run, error) {
+	return scanNativeRun(s.db.QueryRowContext(ctx, nativeRunCols+` WHERE id=(SELECT p.run_id FROM work_run_tokens t JOIN run_prompts p ON p.id=t.prompt_id WHERE t.token_hash=? AND p.status IN ('sent','accepted'))`, HashSecret(token)))
+}
 
-func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, session string) error {
-	ss, err := s.getSession(ctx, tx, User{Role: RoleAdmin}, session)
+func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversation string) error {
+	ss, err := s.getSession(ctx, tx, User{Role: RoleAdmin}, conversation)
 	if err != nil {
 		return err
 	}
 	if ss.WorkRole != WorkThread {
 		return nil
 	}
-	ds, err := deliveries(ctx, tx, `session_id=?`, session)
+	prompts, err := deliveries(ctx, tx, `session_id=?`, conversation)
 	if err != nil {
 		return err
 	}
 	groups := map[int64][]Delivery{}
-	var ids []int64
-	for _, d := range ds {
-		if _, ok := groups[d.MessageID]; !ok {
-			ids = append(ids, d.MessageID)
-		}
-		groups[d.MessageID] = append(groups[d.MessageID], d)
+	for _, p := range prompts {
+		groups[p.MessageID] = append(groups[p.MessageID], p)
 	}
-	for _, id := range ids {
-		ready := true
-		for _, d := range groups[id] {
-			if d.Status != "succeeded" && d.Status != "failed" && d.Status != "cancelled" {
-				ready = false
+	for id, group := range groups {
+		done := true
+		for _, p := range group {
+			if p.Status != "completed" && p.Status != "failed" && p.Status != "cancelled" {
+				done = false
 			}
 		}
-		if !ready {
+		if !done {
 			continue
 		}
-		res, e := tx.ExecContext(ctx, store.NotifyRunMessagesInsert, id)
-		if e != nil {
-			return e
+		result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO run_notifications(message_id) VALUES(?)`, id)
+		if err != nil {
+			return err
 		}
-		n, _ := res.RowsAffected()
+		n, _ := result.RowsAffected()
 		if n == 0 {
 			continue
 		}
 		var summary strings.Builder
-		for _, d := range groups[id] {
-			fmt.Fprintf(&summary, "\n@%s: %s", d.AgentKey, d.Status)
-			if d.RunID != "" {
-				var raw sql.NullString
-				if e = tx.QueryRowContext(ctx, store.NotifyRunMessagesSelect, d.RunID).Scan(&raw); e != nil {
-					return e
+		for _, p := range group {
+			fmt.Fprintf(&summary, "\n@%s: %s", p.AgentID, p.Status)
+			if p.RunID != "" {
+				var output string
+				if err = tx.QueryRowContext(ctx, `SELECT output FROM runs WHERE id=?`, p.RunID).Scan(&output); err != nil {
+					return err
 				}
-				if raw.Valid {
-					var v struct{ Output, Error string }
-					_ = json.Unmarshal([]byte(raw.String), &v)
-					text := v.Output
-					if text == "" {
-						text = v.Error
-					}
-					runes := []rune(text)
-					if len(runes) > 4000 {
-						runes = runes[:4000]
-					}
-					summary.WriteString("\n" + string(runes))
-				}
-			}
-			if d.Error != "" {
-				summary.WriteString("\n" + d.Error)
+				summary.WriteString("\n" + output)
 			}
 		}
-		wk, e := getWork(ctx, tx, User{Role: RoleAdmin}, ss.WorkID)
-		if e != nil {
-			return e
+		w, err := getWork(ctx, tx, User{Role: RoleAdmin}, ss.WorkID)
+		if err != nil {
+			return err
 		}
-		coord, e := s.getSession(ctx, tx, User{Role: RoleAdmin}, wk.CoordinatorID)
-		if e != nil {
-			return e
+		coord, err := s.getSession(ctx, tx, User{Role: RoleAdmin}, w.CoordinatorID)
+		if err != nil {
+			return err
 		}
-		b, _ := json.Marshal(map[string]string{"prompt": fmt.Sprintf("[线程 %s「%s」回复了]\n%s", ss.ID, ss.Title, summary.String()), "from_session": ss.ID})
-		a, e := s.runAgent(ctx, tx, User{ID: wk.UserID}, coord, wk.CoordinatorAgentID)
-		if e == nil {
-			e = runRuntime(ctx, tx, a)
-		}
-		if e != nil {
-			if _, e = insertMessage(ctx, tx, coord.ID, RoleUserMsg, b, s.unix()); e != nil {
-				return e
-			}
-			continue
-		}
-		if _, e = s.sendMultiTx(ctx, tx, User{ID: wk.UserID}, coord, b, []string{wk.CoordinatorAgentID}, "", true); e != nil {
-			return e
+		payload, _ := json.Marshal(map[string]string{"prompt": fmt.Sprintf("[线程 %s「%s」回复了]\n%s", ss.ID, ss.Title, summary.String())})
+		if _, err = s.sendMultiTx(ctx, tx, User{ID: w.UserID}, coord, payload, []string{w.CoordinatorAgentID}, ""); err != nil {
+			return err
 		}
 	}
 	return nil

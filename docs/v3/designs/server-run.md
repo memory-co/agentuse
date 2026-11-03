@@ -1,163 +1,113 @@
-# runService：任务、消息分配与执行生命周期
+# runService：输入分配与执行事实
 
-> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。表之间只保留关联字段，不声明数据库外键；引用校验和关联清理由 service 在事务内完成。
+Server 分配输入，client 执行并报告事实。**run_id 只由适配器的 accepted 事件产生**。Server 不生成执行 UUID，不创建 attempt、租约或原生执行状态，也不推断一次输入应该 start、steer 还是 queue。
 
-## 职责
+## 消息、输入与 Run
 
-runService 管一次业务执行任务。一个 run 属于一个 conversation，确定 agent、device、harness；通过 run_prompts 保存多条任务输入副本。每次重新领取通过 attempt 区分实际执行身份，不另建一条 run 代表网络重试。
+一条消息 @ 两个 agent，先写两条 run_prompts，此时 run_id 为空，HTTP 返回 deliveries，runs 可以为空。领取成功表示输入已交付，不等于适配器已接受。
+
+```text
+M1 @coder @reviewer → P1、P2（pending）
+client 领取 P1 → P1.sent
+accepted(run_id=R1,input_id=I1) → 建 R1，P1 绑定 R1/I1
+M2 @coder → P3 → client 再次 send
+accepted(run_id=R1,input_id=I2) → P3 也绑定 R1：真实插话
+或 accepted(run_id=R3,input_id=I2) → 建 R3：真实排队
+```
+
+一个 message 对多个 run，一个 run 可以消费多条 message。关系以 accepted 为准，不根据“上一个 run 尚未结束”提前合并。first_message_id 来自该 UUID 第一条 accepted 对应的消息。输入分配 ID 只用于传输关联，不是另一个执行身份。
 
 ## 与其他 Service 的关系
 
-- conversationService 在发送事务中调用 runService，为每个目标建立分配；runService 不反向调用 conversationService。
-- agentService 提供角色及执行选择，deviceService 提供设备能力，client 的 harnessService 在本地管理配置并归一化交互；server 不调用 harnessService。
-- workService 提供工作说明和执行范围的授权；与 run 同寿命的工作令牌由 workService 管理。
-- runService 持久化结果事件后通知 conversationService 消费；由 conversationService 在事务内检查并绑定 runs.result_message_id，防止重复回复；messages 不需要 run_id。
+conversationService 保存共享历史并建立输入分配；agentService 提供执行设备和 harness 标签；deviceService 管连接和上报能力。runService 在领取时准备共享历史、附件引用和业务指令。workService 提供工作说明、协调规则和授权。所有这些都是 server 业务，client 不推断角色。
 
-## run_prompts：面向一次 Run 的消息副本
+Client 的 harnessService 管适配器 YAML、进程、原生协议、hook、skill、自动授权及插话策略。Server 不导入这些实现，不保存全局 harness 配置。设备上报的名称、版本、revision 用作选择和历史展示。
 
-messages 保存用户在 conversation 中说过什么；run_prompts 保存“这次 run 实际要处理什么”。它既建立 message 与 run 的 N:M 关系，也保存输入内容快照和消费状态，不再另建 message_deliveries。
+## WebSocket 协议
 
-```text
-M1 @coder @reviewer
-  → P1：run=R1，message=M1，复制 M1 内容，供 coder 执行
-  → P2：run=R2，message=M1，复制 M1 内容，供 reviewer 执行
-M2 @coder（R1 仍在执行）
-  → P3：run=R1，message=M2，复制 M2 内容，作为 R1 的补充输入
-```
+版本为 harnessctl-events-v1，旧协议不能接入。hello 报告可用 harness；claim 带空闲 session 数和仍可接收输入的 conversation/agent，server 返回 prompt 或 no_task。
 
-一条消息 @ 两个 agent，写两条 run_prompts。一个 run 可有多条 run_prompts。副本保存消息正文和 attachments 路径列表，执行时以副本为准，不每次回查原始 messages 重建输入；运行时上下文仍可读取同 conversation 的共享历史。
+下行 prompt 包含分配 ID、conversation、message、agent、harness 标签、准备好的文本、共享上下文及附件引用；不含原生命令或 attempt。补充输入仍是 prompt。reply 携带 request_id 与不透明 JSON answer；cancel 针对 client session，并携带目标 run_id 防止延迟取消作用于后续交互。
 
-run.first_message_id 仅标识主任务。run_prompts.run_id 创建后不改变：未消费的输入需要后续 run 时，复制到新 run 的新 run_prompts，旧行保留并标记 deferred，用 superseded_by 连接后续副本。这样旧 run 当时收到的输入仍可追溯。
+上行 event 包含 conversation、agent、client session、实际 harness/revision、源 JSONL 行结束字节偏移，以及完整公共事件。accepted 额外关联 prompt_id。Server 原样保存公共事件，不把原生工具帧转换成业务类型。
 
-## 生命周期
-
-| 操作 | 规则 |
+| 公共类型 | Server 行为 |
 |---|---|
-| 建立分配 | 同 conversation + agent 最多一个 pending/running/waiting run；无活跃任务则建新 run，否则追加 supplement run_prompts |
-| 领取 | 按 device 找 pending run；一次请求明确返回 run 或 no_task；校验能力，生成 attempt，设租约，准备任务消息和共享上下文 |
-| 插话 | 仅对当前执行推送可接受的输入；执行端确认后记 delivered，不因 HTTP 保存成功就确认消费 |
-| 提问/回答 | 问题绑定 run/attempt；答案先保存，执行端确认消费后再推进问题与 run 状态 |
-| 结束 | 写终态及持久化结果事件；更新 run_prompts、撤销执行凭据，通知 conversationService 保存回复 |
-| 超时重试 | 同 run 重排 pending，重新领取时换 attempt；拒绝旧执行的新事件 |
-| 未消费输入 | 正常结束时可转入后续新 run；取消则终止分配，不自动继续 |
+| accepted | 验证输入分配归属，按适配器 UUID 建 run，绑定 input_id |
+| message | 保存正文事件，供执行详情读取 |
+| request | 保存完整请求快照及 pending/replied/expired 状态；不解释原生权限工具 |
+| result | 保存 completed/failed/cancelled、input_ids、输出、错误、用量和费用原文；投影 run 与输入终态 |
+| log | 保存可观测事件；允许在 accepted 之前出现，不据日志猜测状态 |
 
-Run 状态是 pending/running/waiting/succeeded/failed/cancelled；run_prompts 是 pending/delivered/succeeded/failed/cancelled/deferred。等待某条消息全部处理完，需跟踪该 message 的全部 run_prompts：沿 superseded_by 找到各目标最新副本，等待它们全部成功、失败或取消；deferred 仅表示移交，不代表任务已完成，不能只等最初返回的某个 run。
+请求答案由 client/适配器解释。控制命令送达确认不等于 request 已 replied；必须等待 client 的 request 事件。取消 HTTP 成功只表示已排入控制队列，run 保持原状，直到 client 报告 result。
 
-所有终态来源（包括取消、运行时不可用、设备删除）都必须写可恢复的终态事件。run_events 同时保存执行端事件和 server 生成的生命周期事件；server 合成事件在事务内分配不冲突的 event_seq。处理终态与后续输入在统一事务内完成，网络通知在提交后进行。
+Server 校验身份、路由、事件格式、UUID、输入集合及重复记录一致性；不接受跨设备、跨 agent 或重新绑定输入。结果的 input_ids 必须覆盖该 run 已接受的输入。执行输出及终态以 client 为准。
 
-一个 server run 被 client 领到后，绑定 client 本地 session 执行；多个 run 可以先后复用同一原生上下文。本地 session 不进入 server 表结构，server 不用它替代 conversation。
+## 断线、恢复与回复
 
-## Server 与本地执行的边界
+Client 以 events.jsonl 为持久化 outbox，一次发送完整行，只有 server 提交后收到 event_ack 才推进源字节游标。Server 以 device/client_session/event_seq 唯一键处理重放；同偏移不同内容拒绝。结果重放不会重复生成 assistant 消息或 Work 汇报。
 
-runService 固定 agent、device、设备上报的 harness 标识和 harness_revision。Client 按本地接入包执行，不从 server 接收 YAML、shell 命令或执行描述；已建立的 run 不因配置更新自动换版本。本地缺少对应版本时明确报错，不静默改用新版本，包安装/升级属于设备本地管理。
+断线只改变设备在线状态，不补造 failed/cancelled，不重新分配正在执行的输入。首次领取保存准备好的 dispatch 快照，重连不重新组织上下文或签发令牌。重连重送相同分配 ID 与未确认控制命令；client 使用输入收据去重，绝不因重连重新 send。未被适配器接受的失败以 prompt_error 报告，只失败该输入，不伪造 run。失败通知同样等待 server 提交确认；确认前保留输入收据和所属目录。
 
-WebSocket 下行只含 run/attempt、harness 标识/版本、run_prompts、上下文/文件引用、补充输入、答案和取消。Client 本地处理原生进程、RPC、hook、skill 和指令，将进度、问题、消费确认、用量、结果转成标准上行事件。共享上下文和文件仍可通过 HTTP 获取。
-
-Server 不解释原始 stdout 或原生工具帧；runService 只校验 attempt/租约和标准事件后推进业务状态。steer 确认由本地 harnessService 按原生接入依据生成，只有通道写入回执时不能冒充输入被接受。
+原生 result 与 assistant 回复在同一事务内保存。回复通过 reply_to_message_id 指向 first_message_id，messages 不以 run_id 建关系。run.result_message_id 只是内部去重关联。cancelled 不新增 assistant 回复。
 
 ## 表结构
 
-### runs
-
-一次执行任务。`first_message_id` 是触发本 run 的第一条消息，`result_message_id` 是执行结果的内部关联；最终回复通过 messages.reply_to_message_id 指向主任务消息，而不是回复这个 run。agent 名称和所属用户通过 agent_id 关联 agents 查询，不在 runs 中冗余保存；agent 删除后保留原 agent_id，读取时用 LEFT JOIN 展示已删除状态。设备删除时由 service 清空当前 device_id 引用。attempt_id/lease_until 表示当前执行租约，context_seq 对应 messages.seq，表示上下文读取边界；first_message_id 和 result_message_id 保存消息 UUID，不用 UUID 比较先后。harness_revision 是本地接入包的版本标识，不是服务端执行配置。
+以下为当前执行层实际 SQL。物理 session_id 指 server conversation，daemon_id 指 device；公共 API 的 /sessions、/daemons 及旧元数据命名尚未整体更名。client_session_id 才是本地原生会话。message_id 目前仍为 INTEGER；消息 UUID 和文件存储改造属于独立的元数据设计，不能把本文当作已经完成它们。新执行表没有数据库外键。
 
 ```sql
-CREATE TABLE runs (
-    id TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL,
-    first_message_id TEXT NOT NULL,
-    agent_id TEXT,
-    device_id TEXT,
-    harness TEXT NOT NULL,
-    harness_revision TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    attempt_id TEXT NOT NULL DEFAULT '',
-    lease_until INTEGER,
-    context_seq INTEGER NOT NULL DEFAULT 0,
-    result_message_id TEXT,
-    error TEXT NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+-- A prompt is a server-side message delivery, not an execution.
+CREATE TABLE IF NOT EXISTS run_prompts (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ session_id TEXT NOT NULL, message_id INTEGER NOT NULL,
+ agent_id TEXT NOT NULL, daemon_id TEXT NOT NULL, harness TEXT NOT NULL,
+ content TEXT NOT NULL, dispatch TEXT, status TEXT NOT NULL DEFAULT 'pending',
+ run_id TEXT NOT NULL DEFAULT '', input_id TEXT NOT NULL DEFAULT '',
+ client_session_id TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
+ created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+ UNIQUE(message_id,agent_id)
 );
-CREATE UNIQUE INDEX runs_active_agent
-    ON runs(conversation_id,agent_id)
-    WHERE agent_id IS NOT NULL AND status IN ('pending','running','waiting');
-CREATE INDEX runs_status
-    ON runs(status,created_at);
-CREATE INDEX runs_dispatch
-    ON runs(device_id,status,created_at);
+CREATE INDEX IF NOT EXISTS prompts_dispatch ON run_prompts(daemon_id,status,id);
+CREATE INDEX IF NOT EXISTS prompts_run ON run_prompts(run_id,input_id);
+-- IDs and terminal facts come exclusively from authenticated client reports.
+CREATE TABLE IF NOT EXISTS runs (
+ id TEXT PRIMARY KEY, session_id TEXT NOT NULL, first_message_id INTEGER NOT NULL,
+ agent_id TEXT NOT NULL, daemon_id TEXT NOT NULL, client_session_id TEXT NOT NULL,
+ harness TEXT NOT NULL, harness_revision TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'running', result_message_id INTEGER,
+ output TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
+ result TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS runs_conversation ON runs(session_id,created_at,id);
+CREATE TABLE IF NOT EXISTS run_events (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
+ client_session_id TEXT NOT NULL, run_id TEXT NOT NULL DEFAULT '',
+ agent_id TEXT NOT NULL, daemon_id TEXT NOT NULL,
+ event_seq INTEGER NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL,
+ created_at INTEGER NOT NULL, UNIQUE(daemon_id,client_session_id,event_seq)
+);
+CREATE TABLE IF NOT EXISTS run_requests (
+ request_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, run_id TEXT NOT NULL,
+ client_session_id TEXT NOT NULL, daemon_id TEXT NOT NULL,
+ payload TEXT NOT NULL, state TEXT NOT NULL, answer TEXT,
+ answered_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS run_controls (
+ id TEXT PRIMARY KEY, session_id TEXT NOT NULL, client_session_id TEXT NOT NULL,
+ run_id TEXT NOT NULL, daemon_id TEXT NOT NULL, kind TEXT NOT NULL, request_id TEXT NOT NULL DEFAULT '',
+ answer TEXT, state TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '',
+ created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS work_run_tokens (
+ token_hash TEXT PRIMARY KEY, work_id TEXT NOT NULL, prompt_id INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS run_notifications (message_id INTEGER PRIMARY KEY);
 ```
 
-### run_prompts
+run_prompts 状态为 pending/sent/accepted/completed/failed/cancelled；runs 只有真实执行的 running/waiting/completed/failed/cancelled。run_events.payload 和 runs.result 保存公共事件原文。run_requests 保存最新公共请求快照；run_controls 是待传输控制命令，不是执行事件。
 
-每行属于一个确定的 run，并引用原始 message；content 和 attachments 是消息正文及文件路径列表的冗余快照。kind 为 initial/supplement，表示首次任务或补充输入；prepared_attempt 标识准备该输入的执行尝试。相同 run/message 只能插一行，但同一 message 可以在多个 run 各有副本。
+work_run_tokens 绑定输入分配，而不是尚不存在的 run；有效性由输入状态检查。run_notifications 保证同一线程消息只汇报一次。
 
-```sql
-CREATE TABLE run_prompts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id TEXT NOT NULL,
-    message_id TEXT NOT NULL,
-    content TEXT NOT NULL,
-    attachments TEXT NOT NULL DEFAULT '[]',
-    kind TEXT NOT NULL CHECK(kind IN ('initial','supplement')),
-    status TEXT NOT NULL DEFAULT 'pending',
-    prepared_attempt TEXT NOT NULL DEFAULT '',
-    superseded_by INTEGER,
-    error TEXT NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    UNIQUE(run_id,message_id)
-);
-CREATE INDEX run_prompts_message ON run_prompts(message_id,run_id);
-CREATE INDEX run_prompts_pending ON run_prompts(run_id,status,id);
-```
+## 升级
 
-attachments 同样是当前 conversation 下的相对路径 JSON 数组，复制列表不复制文件；文件仍通过 fileService 读取，同一路径覆盖上传后读到更新内容，不承诺文件版本快照。
-
-副本内容在创建后固定；从同 run 的旧 attempt 重试时复用这些输入行，更新准备/消费状态。转入新 run 时在同一事务创建新行并设置旧行的 superseded_by，不移动旧行，不重复创建原消息。通过 run 和 message 的归属检查，保证关联属于同一个 conversation。
-
-### run_events
-
-进度、计划、交互确认和终态事件。payload 为 JSON，唯一键保证同 run/attempt/序号重复上报不重复生效。终态 payload 保留完整结果，供结果消费恢复。device_id 是事件来源身份快照，设备删除后仍保留历史标识。
-
-```sql
-CREATE TABLE run_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    conversation_id TEXT NOT NULL,
-    run_id TEXT NOT NULL,
-    attempt_id TEXT NOT NULL,
-    message_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    event_seq INTEGER NOT NULL,
-    kind TEXT NOT NULL,
-    payload TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    UNIQUE(run_id,attempt_id,event_seq)
-);
-```
-
-### run_questions
-
-某 attempt 中 tool_use_id 对应的问题。questions 是 JSON 数组，answers 是 JSON map；answered_by 记录用户。保存答案不等于执行端已消费，status 由确认事件推进。
-
-```sql
-CREATE TABLE run_questions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    conversation_id TEXT NOT NULL,
-    run_id TEXT NOT NULL,
-    attempt_id TEXT NOT NULL,
-    message_id TEXT NOT NULL,
-    tool_use_id TEXT NOT NULL,
-    questions TEXT NOT NULL,
-    answers TEXT,
-    answered_by TEXT,
-    status TEXT NOT NULL DEFAULT 'pending',
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    UNIQUE(run_id,attempt_id,tool_use_id)
-);
-```
-
-## 相关设计
-
-[Server 总览](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [Client harnessService](client-harness.md) · [conversationService](server-conversation.md) · [fileService](server-file.md) · [workService](server-work.md)
+数据库 schema 版本为 2。旧执行表和旧 WebSocket 协议不兼容；现有数据库会被拒绝启动，需按部署流程备份后使用新数据库，并同步更新 client。代码不会在启动时自动清空历史或重放旧输入。

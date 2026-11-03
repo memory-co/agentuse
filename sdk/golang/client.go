@@ -21,10 +21,10 @@ const UserHeader = "X-Agentuse-User"
 // 除了用户管理，每个方法 ctx 之后的参数 user 是网站的 user id,请求带 X-Agentuse-User
 // 按那个用户的身份执行;传 "" 就是 admin 本身。
 type Client struct {
-	RunID, AttemptID string
-	BaseURL          string
-	Token            string
-	HTTPClient       *http.Client // 为空时用 http.DefaultClient
+	RunID      string
+	BaseURL    string
+	Token      string
+	HTTPClient *http.Client // 为空时用 http.DefaultClient
 }
 
 // New 返回一个以 token 身份调用 baseURL 的客户端。
@@ -136,17 +136,6 @@ func (c *Client) ListHarnesses(ctx context.Context, user string) ([]Harness, err
 	var as []Harness
 	return as, c.do(ctx, user, "GET", "/api/harnesses", nil, &as)
 }
-
-func (c *Client) CreateHarness(ctx context.Context, user string, req CreateHarnessRequest) (*Harness, error) {
-	var a Harness
-	return &a, c.do(ctx, user, "POST", "/api/harnesses", req, &a)
-}
-
-func (c *Client) DeleteHarness(ctx context.Context, user, name string) error {
-	return c.do(ctx, user, "DELETE", "/api/harnesses/"+esc(name), nil, nil)
-}
-
-// ---- agents ----
 
 func (c *Client) ListAgents(ctx context.Context, user string) ([]Agent, error) {
 	var as []Agent
@@ -315,6 +304,5 @@ func (c *Client) Request(ctx context.Context, user, method, path string, body, o
 func (c *Client) runHeaders(r *http.Request) {
 	if c.RunID != "" {
 		r.Header.Set("X-Agentuse-Run", c.RunID)
-		r.Header.Set("X-Agentuse-Attempt", c.AttemptID)
 	}
 }

@@ -1,14 +1,16 @@
 package run
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,577 +18,515 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
-	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/client/internal/fileutil"
-	"github.com/memory-co/agentuse/client/internal/service/endpoint"
 	"github.com/memory-co/agentuse/client/internal/service/harness"
 	"github.com/memory-co/agentuse/client/internal/service/session"
-	"github.com/memory-co/agentuse/internal/attachment"
 	"github.com/memory-co/agentuse/internal/protocol"
 	"github.com/memory-co/agentuse/internal/version"
 )
 
+var errEndpointCredential = errors.New("设备密钥无效，请重新注册")
+
 type endpointConnection struct {
-	deliveries deliverySink
-	cfg        Config
-	log        *log.Logger
-	workdir    string // configured conversation parent root
-
-	mu        sync.Mutex
-	claimMode bool
-	claimID   string
-	claimAt   time.Time
-	harnesses map[string]harness.Adapter
-	running   map[string]*runningMsg       // active executions keyed by run/attempt
-	conn      func(protocol.Message) error // 当前连接的发送函数，断线时为 nil
-	outbox    []protocol.Message           // 断线期间跑完的结果，重连后补发
+	controlMu     sync.Mutex
+	cfg           Config
+	log           *log.Logger
+	mu            sync.Mutex
+	conn          *websocket.Conn
+	active        map[int64]bool
+	streamPending map[string]int64
+	claimPending  bool
+	groups        map[string]*sync.Mutex
+}
+type promptReceipt struct {
+	Reported  bool            `json:"reported,omitempty"`
+	Prompt    protocol.Prompt `json:"prompt"`
+	SessionID string          `json:"session_id"`
+	Offset    int64           `json:"offset"`
+	State     string          `json:"state"`
+	RunID     string          `json:"run_id,omitempty"`
+	InputID   string          `json:"input_id,omitempty"`
+	Error     string          `json:"error,omitempty"`
+}
+type streamReceipt struct {
+	Offset int64 `json:"offset"`
 }
 
-var errOffline = errors.New("未连接")
-
-// send 发到当前连接。断线时进度直接丢掉，最终结果留到重连后补发。
-func (d *endpointConnection) send(m protocol.Message) error {
-	durable := m.Type == protocol.TypeEvent && (m.RunID != "" || m.Kind == "done" || m.Kind == "failed")
-	d.mu.Lock()
-	conn := d.conn
-	if conn == nil && durable {
-		d.outbox = append(d.outbox, m)
-	}
-	d.mu.Unlock()
-	if conn == nil {
-		return errOffline
-	}
-	err := conn(m)
-	if err != nil && durable {
-		d.mu.Lock()
-		d.outbox = append(d.outbox, m)
-		d.mu.Unlock()
-	}
-	return err
-}
-
-func newConnection(cfg Config, logger *log.Logger, writers ...deliverySink) (*endpointConnection, error) {
-	if cfg.Server == "" || cfg.Key == "" {
-		return nil, errors.New("daemon 还没注册：请先运行页面上的安装命令(或 agentuse register)")
+func newConnection(cfg Config, logger *log.Logger) (*endpointConnection, error) {
+	if cfg.Server == "" || cfg.Key == "" || cfg.RunService == nil {
+		return nil, errors.New("registered endpoint and run service required")
 	}
 	if logger == nil {
 		logger = log.Default()
 	}
-	if cfg.Harness == nil {
-		cfg.Harness = &harness.Service{Root: harness.HarnessRoot(cfg.HarnessConfig())}
-	}
-	if err := cfg.Harness.Freeze(cfg.Harnesses); err != nil {
-		return nil, err
-	}
-
-	if cfg.Slots == nil {
-		cfg.Slots = make(chan struct{}, 2)
-	}
-	home, _ := os.UserHomeDir()
-	var deliveries deliverySink
-	if len(writers) > 0 {
-		deliveries = writers[0]
-	}
-	root := cfg.Settings.Session.WorkRoot
-	if root == "" {
-		root = filepath.Join(home, ".agentuse", "tmp")
-	}
-	if cfg.EndpointID == "" {
-		_, cfg.EndpointID, _ = endpoint.NormalizeEndpoint(cfg.Server)
-	}
-	d := &endpointConnection{deliveries: deliveries, cfg: cfg, log: logger, workdir: root, running: map[string]*runningMsg{}}
-	if cfg.RunService != nil {
-		for _, b := range cfg.RunService.Pending(cfg.EndpointID) {
-			var m protocol.Message
-			if json.Unmarshal(b, &m) == nil {
-				d.outbox = append(d.outbox, m)
-			}
-		}
-	}
-	return d, nil
+	return &endpointConnection{cfg: cfg, log: logger, active: map[int64]bool{}, streamPending: map[string]int64{}, groups: map[string]*sync.Mutex{}}, nil
 }
-
-// Run 连上服务干活，断线自动退避重连，直到 ctx 结束。
 func (d *endpointConnection) Run(ctx context.Context) error {
-	defer func() {
-		d.mu.Lock()
-		active := make([]*runningMsg, 0, len(d.running))
-		for _, r := range d.running {
-			active = append(active, r)
-			r.cancel()
-		}
-		d.mu.Unlock()
-		deadline := time.NewTimer(5 * time.Second)
-		defer deadline.Stop()
-		for _, r := range active {
-			select {
-			case <-r.done:
-			case <-deadline.C:
-				return
-			}
-		}
-	}()
-	backoff := time.Second
 	for {
-		start := time.Now()
-		err := d.session(ctx)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if errors.Is(err, errUnauthorized) {
-			return err
+		if err := d.session(ctx); err != nil && ctx.Err() == nil {
+			if errors.Is(err, errEndpointCredential) {
+				return err
+			}
+			d.log.Printf("endpoint %s: %v", d.cfg.EndpointID, err)
 		}
-		if time.Since(start) > time.Minute {
-			backoff = time.Second
-		}
-		d.log.Printf("连接断开: %v;%s 后重连", err, backoff)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(backoff):
+		case <-time.After(time.Second):
 		}
-		backoff = min(backoff*2, time.Minute)
 	}
 }
-
-var errUnauthorized = endpoint.ErrUnauthorized
-
-func wsURL(server string) string {
-	switch {
-	case strings.HasPrefix(server, "https://"):
-		return "wss://" + strings.TrimPrefix(server, "https://") + protocol.WSPath
-	case strings.HasPrefix(server, "http://"):
-		return "ws://" + strings.TrimPrefix(server, "http://") + protocol.WSPath
-	}
-	return server + protocol.WSPath
-}
-
-// session 是一次连接的生命周期。
-func (d *endpointConnection) session(ctx context.Context) error {
-	dialCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	ws, resp, err := websocket.Dial(dialCtx, wsURL(d.cfg.Server), &websocket.DialOptions{
-		HTTPHeader: http.Header{"Authorization": {"Bearer " + d.cfg.Key}},
-	})
-	cancel()
-	if err != nil {
-		if resp != nil && resp.StatusCode == http.StatusUnauthorized {
-			return errUnauthorized
-		}
-		return err
-	}
-	ws.SetReadLimit(8 << 20)
-	defer ws.CloseNow()
-	ctx, stop := context.WithCancel(ctx)
-	defer stop()
-
-	var wmu sync.Mutex
-	send := func(m protocol.Message) error {
-		wmu.Lock()
-		defer wmu.Unlock()
-		wctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		return wsjson.Write(wctx, ws, m)
-	}
-
+func (d *endpointConnection) send(ctx context.Context, m protocol.Message) error {
 	d.mu.Lock()
-	d.harnesses = d.cfg.Harness.Available()
-	hello := protocol.Message{Type: protocol.TypeHello, Version: version.Version, Capabilities: []string{attachment.Capability, "session-runs-v1", "codex-steer-v1"}}
-	for _, a := range d.harnesses {
-		hello.Harnesses = append(hello.Harnesses, protocol.Harness{Name: a.Name, Version: a.Version})
-	}
-	sort.Slice(hello.Harnesses, func(i, j int) bool { return hello.Harnesses[i].Name < hello.Harnesses[j].Name })
-	for _, r := range d.running {
-		hello.ActiveRuns = append(hello.ActiveRuns, protocol.RunRef{RunID: r.dispatch.RunID, AttemptID: r.dispatch.AttemptID})
-	}
-	for _, m := range d.outbox {
-		hello.ActiveRuns = append(hello.ActiveRuns, protocol.RunRef{RunID: m.RunID, AttemptID: m.AttemptID})
-	}
+	c := d.conn
 	d.mu.Unlock()
-	if err := send(hello); err != nil {
+	if c == nil {
+		return errors.New("endpoint offline")
+	}
+	return wsjson.Write(ctx, c, &m)
+}
+func (d *endpointConnection) session(ctx context.Context) error {
+	url := strings.Replace(strings.Replace(d.cfg.Server, "https://", "wss://", 1), "http://", "ws://", 1) + protocol.WSPath
+	conn, response, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer " + d.cfg.Key}}})
+	if err != nil {
+		if response != nil && (response.StatusCode == 401 || response.StatusCode == 403) {
+			return fmt.Errorf("%w: %v", errEndpointCredential, err)
+		}
 		return err
 	}
-	defer func() {
-		d.mu.Lock()
-		d.conn = nil
-		if d.claimID != "" {
-			d.claimID = ""
-			<-d.cfg.Slots
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	conn.SetReadLimit(8 << 20)
+	d.mu.Lock()
+	d.conn = conn
+	d.streamPending = map[string]int64{}
+	d.claimPending = false
+	d.mu.Unlock()
+	defer func() { d.mu.Lock(); d.conn = nil; d.mu.Unlock() }()
+	hs, err := d.cfg.Harness.Probe()
+	if err != nil {
+		return err
+	}
+	reported := []protocol.Harness{}
+	for _, h := range hs {
+		if !h.Disabled && h.Found {
+			reported = append(reported, protocol.Harness{Name: h.Name, Version: h.Version, Revision: h.Revision})
 		}
-		d.mu.Unlock()
-	}()
-
+	}
+	if err = d.send(ctx, protocol.Message{Type: protocol.TypeHello, Protocol: protocol.ExecutionProtocol, Version: version.Version, Harnesses: reported, Capabilities: []string{protocol.ExecutionProtocol, "session-attachments-v1"}}); err != nil {
+		return err
+	}
+	var welcome protocol.Message
+	if err = wsjson.Read(ctx, conn, &welcome); err != nil {
+		return err
+	}
+	if welcome.Type != protocol.TypeWelcome || welcome.Protocol != protocol.ExecutionProtocol {
+		return errors.New("server execution protocol upgrade required")
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	pollDone := make(chan struct{})
+	defer func() { cancel(); <-pollDone }()
+	errs := make(chan error, 1)
 	go func() {
-		tick := time.NewTicker(250 * time.Millisecond)
+		defer close(pollDone)
+		tick := time.NewTicker(100 * time.Millisecond)
 		defer tick.Stop()
+		lastHeartbeat := time.Time{}
 		for {
 			select {
-			case <-ctx.Done():
+			case <-runCtx.Done():
 				return
 			case <-tick.C:
-				d.mu.Lock()
-				if !d.claimMode || d.conn == nil {
-					d.mu.Unlock()
-					continue
-				}
-				if d.claimID != "" {
-					expired := time.Since(d.claimAt) > 10*time.Second
-					d.mu.Unlock()
-					if expired {
-						ws.CloseNow()
-						return
+				if err := d.flushEvents(runCtx); err != nil {
+					select {
+					case errs <- err:
+					default:
 					}
-					continue
-				}
-				select {
-				case d.cfg.Slots <- struct{}{}:
-				default:
-					d.mu.Unlock()
-					continue
-				}
-				id := uuid.NewString()
-				d.claimID = id
-				d.claimAt = time.Now()
-				d.mu.Unlock()
-				if send(protocol.Message{Type: protocol.TypeClaim, ClaimID: id}) != nil {
-					ws.CloseNow()
+					conn.Close(websocket.StatusInternalError, "event synchronization failed")
 					return
 				}
-			}
-		}
-	}()
-	// 心跳:有活时续租，没活时保活。
-	go func() {
-		t := time.NewTicker(protocol.HeartbeatSeconds * time.Second)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
 				d.mu.Lock()
-				beats := []protocol.Message{}
-				for _, r := range d.running {
-					beats = append(beats, protocol.Message{Type: protocol.TypeHeartbeat, MessageID: r.dispatch.ID, RunID: r.dispatch.RunID, AttemptID: r.dispatch.AttemptID})
+				claim := !d.claimPending && len(d.active) < cap(d.cfg.RunService.slots)
+				if claim {
+					d.claimPending = true
 				}
 				d.mu.Unlock()
-				if len(beats) == 0 {
-					beats = append(beats, protocol.Message{Type: protocol.TypeHeartbeat})
-				}
-				for _, beat := range beats {
-					_ = send(beat)
-				}
-			}
-		}
-	}()
-
-	for {
-		var m protocol.Message
-		if err := wsjson.Read(ctx, ws, &m); err != nil {
-			return err
-		}
-		switch m.Type {
-		case protocol.TypeWelcome:
-			names := make([]string, 0, len(hello.Harnesses))
-			for _, a := range hello.Harnesses {
-				names = append(names, a.Name)
-			}
-			d.log.Printf("已连上 %s,daemon %s(%s),本机 harness: %v", d.cfg.Server, m.DaemonID, m.Name, names)
-			if len(m.Ignored) > 0 {
-				d.log.Printf("这些 harness 服务上没登记，已忽略: %v", m.Ignored)
-			}
-			d.mu.Lock()
-			d.conn = send
-			d.claimMode = false
-			for _, cap := range m.Capabilities {
-				if cap == "bounded-claim-v1" {
-					d.claimMode = true
-				}
-			}
-			valid := map[string]string{}
-			for _, ref := range m.ValidRuns {
-				valid[ref.RunID] = ref.AttemptID
-			}
-			for _, r := range d.running {
-				if r.dispatch.RunID != "" && valid[r.dispatch.RunID] != r.dispatch.AttemptID {
-					r.cancel()
-				}
-			}
-			outbox := d.outbox
-			d.outbox = nil
-			busy := len(d.running) > 0
-			d.mu.Unlock()
-			for i, m := range outbox {
-				if err := send(m); err != nil {
-					d.mu.Lock()
-					d.outbox = append(outbox[i:], d.outbox...)
-					d.mu.Unlock()
-					return err
-				}
-			}
-			if !busy && !d.isPaused() {
-				if err := send(protocol.Message{Type: protocol.TypeReady}); err != nil {
-					return err
-				}
-			}
-		case protocol.TypeNoTask:
-			d.mu.Lock()
-			if d.claimID != "" && d.claimID == m.ClaimID {
-				d.claimID = ""
-				<-d.cfg.Slots
-			}
-			d.mu.Unlock()
-		case protocol.TypeRun:
-			if m.Run != nil {
-				reserved := false
-				d.mu.Lock()
-				if d.claimMode {
-					if m.ClaimID == "" || m.ClaimID != d.claimID {
-						d.mu.Unlock()
-						ws.CloseNow()
-						return errors.New("stale task claim")
-					}
-					d.claimID = ""
-					reserved = true
-				}
-				d.mu.Unlock()
-				d.startMessage(*m.Run, reserved)
-			}
-		case protocol.TypeCancel:
-			d.mu.Lock()
-			for _, r := range d.running {
-				if r.dispatch.RunID == m.RunID && r.dispatch.AttemptID == m.AttemptID {
-					r.cancel()
-				}
-			}
-			d.mu.Unlock()
-		case protocol.TypeSteer:
-			// 插话：交给正在跑这条消息的 harness;不在跑就忽略，服务会把它转成下一条消息
-			if m.Steer != nil {
-				received := false
-				d.mu.Lock()
-				if r := d.running[executionKey(m.Steer.MessageID, m.Steer.RunID, m.Steer.AttemptID)]; r != nil && r.dispatch.RunID == m.Steer.RunID && r.dispatch.AttemptID == m.Steer.AttemptID {
-					if r.steers == nil {
-						r.steers = map[int64]bool{}
-					}
-					id := m.Steer.ID
-					if !r.steers[id] {
-						received = r.in.Send(m.Steer.Prompt, func(harness.Acceptance) {
-							if r.report != nil {
-								r.report("steered", protocol.SteeredPayload{SteerID: id})
-							}
-						})
-						if received {
-							r.steers[id] = true
+				if claim {
+					message := protocol.Message{Type: protocol.TypeClaim, ClaimID: "next", FreeSessions: cap(d.cfg.RunService.slots) - len(d.cfg.RunService.slots)}
+					d.cfg.RunService.localMu.Lock()
+					for _, active := range d.cfg.RunService.localRuns {
+						if active.session.EndpointID == d.cfg.EndpointID {
+							message.ActiveStreams = append(message.ActiveStreams, protocol.StreamRef{ConversationID: active.session.ConversationID, AgentID: active.session.AgentID})
 						}
 					}
+					d.cfg.RunService.localMu.Unlock()
+					if err := d.send(runCtx, message); err != nil {
+						return
+					}
 				}
-				d.mu.Unlock()
-				if received {
-					d.recordSteer(*m.Steer)
+				if time.Since(lastHeartbeat) > 10*time.Second {
+					lastHeartbeat = time.Now()
+					if err := d.send(runCtx, protocol.Message{Type: protocol.TypeHeartbeat}); err != nil {
+						return
+					}
 				}
 			}
-		case protocol.TypeAnswer:
-			// 提问的答案：交给正在等的 harness;已经不在等就忽略
-			if m.Answer != nil {
-				d.mu.Lock()
-				r := d.running[executionKey(m.Answer.MessageID, m.Answer.RunID, m.Answer.AttemptID)]
-				d.mu.Unlock()
-				if r != nil && r.dispatch.RunID == m.Answer.RunID && r.dispatch.AttemptID == m.Answer.AttemptID {
-					d.replyServerAnswer(r, *m.Answer)
+		}
+	}()
+	for {
+		var m protocol.Message
+		if err = wsjson.Read(ctx, conn, &m); err != nil {
+			select {
+			case e := <-errs:
+				return e
+			default:
+				return err
+			}
+		}
+		switch m.Type {
+		case protocol.TypeNoTask:
+			d.mu.Lock()
+			d.claimPending = false
+			d.mu.Unlock()
+		case protocol.TypeReady:
+		case protocol.TypePrompt:
+			if m.Prompt == nil {
+				return errors.New("missing prompt")
+			}
+			d.mu.Lock()
+			d.claimPending = false
+			busy := d.active[m.Prompt.ID]
+			if !busy {
+				d.active[m.Prompt.ID] = true
+			}
+			d.mu.Unlock()
+			if !busy {
+				prompt := *m.Prompt
+				go d.receivePrompt(ctx, prompt)
+			}
+		case protocol.TypePromptErrorAck:
+			if m.Prompt != nil {
+				saved, found, e := d.findReceipt(ctx, *m.Prompt)
+				if e != nil {
+					return e
+				}
+				if found && saved.State == "failed" {
+					saved.Reported = true
+					metadata, e := d.cfg.RunService.Sessions.Session(ctx, d.cfg.EndpointID, m.Prompt.ConversationID, saved.SessionID)
+					if e != nil {
+						return e
+					}
+					if e = fileutil.WriteJSON(d.receiptPath(metadata, m.PromptID), saved); e != nil {
+						return e
+					}
 				}
 			}
 		case protocol.TypeEventAck:
-			if d.cfg.RunService != nil {
-				if err := d.cfg.RunService.Confirm(ctx, d.cfg.EndpointID, m.RunID, m.AttemptID); err != nil {
-					d.log.Printf("confirm: %v", err)
-				}
+			if err = d.ackEvent(m.SessionID, m.AckSeq); err != nil {
+				return err
 			}
+		case protocol.TypeCancel, protocol.TypeReply:
+			if m.Control == nil {
+				return errors.New("missing session control")
+			}
+			control := *m.Control
+			go d.control(ctx, m.Type, control)
 		case protocol.TypeError:
-			if m.ErrorCode == "stale_attempt" && d.cfg.RunService != nil {
-				_ = d.cfg.RunService.RejectReport(ctx, d.cfg.EndpointID, m.RunID, m.AttemptID, m.Error)
-			}
-			if m.MessageID != 0 {
-				d.mu.Lock()
-				r := d.running[executionKey(m.MessageID, m.RunID, m.AttemptID)]
-				d.mu.Unlock()
-				if r != nil && r.dispatch.RunID == m.RunID && r.dispatch.AttemptID == m.AttemptID {
-					d.log.Printf("消息 %d 已不归本机(%s),停止执行", m.MessageID, m.Error)
-					r.cancel()
-				}
-			} else {
-				d.log.Printf("服务报错: %s", m.Error)
-			}
+			return fmt.Errorf("server rejected event: %s", m.Error)
+		default:
+			return fmt.Errorf("unexpected server message %s", m.Type)
 		}
 	}
 }
-
-type runningMsg struct {
-	steers   map[int64]bool
-	requests map[string]harness.Event
-	report   func(string, any)
-	done     chan struct{}
-	dispatch protocol.Dispatch
-	cancel   context.CancelFunc
-	in       *harness.Input
-	local    session.Session
+func (d *endpointConnection) sessionDir(metadata session.Session) string {
+	return filepath.Join(d.cfg.RunService.Sessions.Root, metadata.EndpointID, metadata.ConversationID, "sessions", metadata.ID)
 }
-
-// startMessage 在后台跑 harness 回一条消息，跑完回报结果并再说一次 ready。
-// 不跟连接绑定：中途断线重连，结果照样回报给新连接。
-func (d *endpointConnection) startMessage(m protocol.Dispatch, reservations ...bool) {
-	m.AttachmentSupport = true
+func (d *endpointConnection) receiptPath(metadata session.Session, id int64) string {
+	return filepath.Join(d.sessionDir(metadata), ".server", "inputs", strconv.FormatInt(id, 10)+".json")
+}
+func (d *endpointConnection) findReceipt(ctx context.Context, p protocol.Prompt) (promptReceipt, bool, error) {
+	sessions, err := d.cfg.RunService.Sessions.Sessions(ctx, d.cfg.EndpointID, p.ConversationID)
+	if err != nil {
+		return promptReceipt{}, false, err
+	}
+	for _, metadata := range sessions {
+		path := d.receiptPath(metadata, p.ID)
+		raw, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return promptReceipt{}, false, err
+		}
+		var saved promptReceipt
+		if err = json.Unmarshal(raw, &saved); err != nil {
+			return saved, false, err
+		}
+		return saved, true, nil
+	}
+	return promptReceipt{}, false, nil
+}
+func (d *endpointConnection) receivePrompt(ctx context.Context, p protocol.Prompt) {
+	defer func() { d.mu.Lock(); delete(d.active, p.ID); d.mu.Unlock() }()
 	d.mu.Lock()
-	la, ok := d.harnesses[m.Harness]
-	cfgPath := d.cfg.ConfigPath
-	if cfgPath == "" {
-		cfgPath = endpoint.DefaultPath()
+	key := p.ConversationID + "/" + p.AgentID
+	group := d.groups[key]
+	if group == nil {
+		group = &sync.Mutex{}
+		d.groups[key] = group
 	}
-	la.Env = append(workEnv(d.cfg.Server, m), "AGENTUSE_CONFIG="+cfgPath, "AGENTUSE_TOKEN="+d.cfg.Key)
-	tctx, cancel := context.WithCancel(context.Background())
-	in := harness.NewInput(d.cfg.askTimeout())
-	r := &runningMsg{cancel: cancel, in: in, dispatch: m, done: make(chan struct{})}
-	d.running[executionKey(m.ID, m.RunID, m.AttemptID)] = r
 	d.mu.Unlock()
-	var reportMu sync.Mutex
-	var eventSeq int64
-	report := func(kind string, p any) {
-
-		reportMu.Lock()
-		defer reportMu.Unlock()
-		eventSeq++
-		b, _ := json.Marshal(p)
-		if d.cfg.RunService != nil && r.local.ID != "" {
-			if err := d.cfg.RunService.Event(tctx, d.cfg.EndpointID, m.RunID, m.AttemptID, kind, b); err != nil {
-				d.log.Printf("record event: %v", err)
-			}
+	group.Lock()
+	defer group.Unlock()
+	if saved, found, err := d.findReceipt(ctx, p); err != nil {
+		d.log.Printf("prompt receipt: %v", err)
+		return
+	} else if found {
+		if saved.State == "failed" {
+			_ = d.send(ctx, protocol.Message{Type: protocol.TypePromptError, PromptID: p.ID, Prompt: &p, Error: saved.Error})
 		}
-		event := protocol.Message{Type: protocol.TypeEvent, MessageID: m.ID, RunID: m.RunID, AttemptID: m.AttemptID, EventSeq: eventSeq, Kind: kind, Payload: b}
-		if (kind == "done" || kind == "failed") && d.cfg.RunService != nil && r.local.ID != "" {
-			raw, _ := json.Marshal(event)
-			if e := d.cfg.RunService.PrepareReport(tctx, d.cfg.EndpointID, m.RunID, m.AttemptID, raw); e != nil {
-				d.log.Printf("persist result: %v", e)
-				return
-			}
-		}
-		_ = d.send(event)
+		// A submitting receipt is uncertain after a crash. Never execute it again.
+		return
 	}
-	r.report = report
-	go func() {
-		defer close(r.done)
-		if len(reservations) > 0 && reservations[0] {
-			defer func() { <-d.cfg.Slots }()
+	var saved promptReceipt
+	var path string
+	request := Request{Harness: p.Harness, Prompt: p.Content, agentID: p.AgentID, environment: []string{"AGENTUSE_SERVER=" + d.cfg.Server, "AGENTUSE_TOKEN=" + d.cfg.Key, "AGENTUSE_CONFIG=" + d.cfg.ConfigPath, "AGENTUSE_WORK=" + p.WorkToken, "AGENTUSE_SESSION=" + p.ConversationID, "AGENTUSE_CONVERSATION=" + p.ConversationID, "AGENTUSE_AGENT=" + p.AgentID, "AGENTUSE_PROMPT=" + strconv.FormatInt(p.ID, 10), "AGENTUSE_RUN=", "AGENTUSE_ATTEMPT="}}
+	if exe, err := os.Executable(); err == nil {
+		request.environment = append(request.environment, "PATH="+filepath.Dir(exe)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	request.environment = append(request.environment, "AGENTUSE_ENDPOINT="+d.cfg.EndpointID, "AGENTUSE_MESSAGE_ID="+strconv.FormatInt(p.MessageID, 10))
+
+	request.beforeSend = func(metadata session.Session) error {
+		path = d.receiptPath(metadata, p.ID)
+		saved = promptReceipt{Prompt: p, SessionID: metadata.ID, State: "submitting"}
+		events := filepath.Join(d.sessionDir(metadata), "events.jsonl")
+		var offset int64
+		if info, err := os.Stat(events); err == nil {
+			offset = info.Size()
+		} else if !os.IsNotExist(err) {
+			return err
 		}
-		defer func() {
+		cursor := filepath.Join(d.sessionDir(metadata), ".server", "stream.json")
+		if _, err := os.Stat(cursor); os.IsNotExist(err) {
+			if err = fileutil.WriteJSON(cursor, streamReceipt{Offset: offset}); err != nil {
+				return err
+			}
+		}
+		cwd := filepath.Join(d.cfg.RunService.Sessions.Root, metadata.EndpointID, metadata.ConversationID, "workspace")
+		if err := d.syncAttachments(ctx, &protocol.Prompt{ConversationID: p.ConversationID}, cwd); err != nil {
+			return err
+		}
+		saved.Offset = offset
+		return fileutil.WriteJSON(path, saved)
+	}
+	request.accepted = func(a harness.Acceptance) error {
+		saved.State = "accepted"
+		saved.RunID = a.RunID
+		saved.InputID = a.InputID
+		return fileutil.WriteJSON(path, saved)
+	}
+	_, err := d.cfg.RunService.startSession(ctx, d.cfg.EndpointID, p.ConversationID, request, "")
+	if err != nil {
+		if saved.State != "accepted" {
+			saved.State = "failed"
+			saved.Error = err.Error()
+			if path != "" {
+				_ = fileutil.WriteJSON(path, saved)
+			}
+			_ = d.send(ctx, protocol.Message{Type: protocol.TypePromptError, PromptID: p.ID, Prompt: &p, Error: err.Error()})
+		}
+	}
+}
+func (d *endpointConnection) streamMetadata(ctx context.Context, id string) (session.Session, error) {
+	conversations, err := d.cfg.RunService.Sessions.Conversations(ctx, d.cfg.EndpointID)
+	if err != nil {
+		return session.Session{}, err
+	}
+	for _, c := range conversations {
+		metadata, err := d.cfg.RunService.Sessions.Session(ctx, d.cfg.EndpointID, c.ID, id)
+		if err == nil {
+			return metadata, nil
+		}
+		if !os.IsNotExist(err) {
+			return metadata, err
+		}
+	}
+	return session.Session{}, os.ErrNotExist
+}
+func (d *endpointConnection) ackEvent(id string, offset int64) error {
+	d.mu.Lock()
+	expected := d.streamPending[id]
+	if expected == 0 || offset != expected {
+		d.mu.Unlock()
+		return fmt.Errorf("unexpected event acknowledgement")
+	}
+	d.mu.Unlock()
+	metadata, err := d.streamMetadata(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	if err = fileutil.WriteJSON(filepath.Join(d.sessionDir(metadata), ".server", "stream.json"), streamReceipt{Offset: offset}); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	delete(d.streamPending, id)
+	d.mu.Unlock()
+	return nil
+}
+func (d *endpointConnection) flushEvents(ctx context.Context) error {
+	conversations, err := d.cfg.RunService.Sessions.Conversations(ctx, d.cfg.EndpointID)
+	if err != nil {
+		return err
+	}
+	for _, c := range conversations {
+		sessions, err := d.cfg.RunService.Sessions.Sessions(ctx, d.cfg.EndpointID, c.ID)
+		if err != nil {
+			return err
+		}
+		for _, metadata := range sessions {
+			dir := d.sessionDir(metadata)
+			entries, e := os.ReadDir(filepath.Join(dir, ".server", "inputs"))
+			if e != nil && !os.IsNotExist(e) {
+				return e
+			}
+			for _, entry := range entries {
+				if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+					continue
+				}
+				data, e := os.ReadFile(filepath.Join(dir, ".server", "inputs", entry.Name()))
+				if e != nil {
+					return e
+				}
+				var saved promptReceipt
+				if e = json.Unmarshal(data, &saved); e != nil {
+					return e
+				}
+				if saved.State == "failed" && !saved.Reported {
+					p := saved.Prompt
+					if e = d.send(ctx, protocol.Message{Type: protocol.TypePromptError, PromptID: p.ID, Prompt: &p, Error: saved.Error}); e != nil {
+						return e
+					}
+				}
+			}
 			d.mu.Lock()
-			delete(d.running, executionKey(m.ID, m.RunID, m.AttemptID))
+			pending := d.streamPending[metadata.ID] != 0
 			d.mu.Unlock()
-			cancel()
-			if !d.isPaused() {
-				_ = d.send(protocol.Message{Type: protocol.TypeReady})
+			if pending {
+				continue
 			}
-		}()
-		d.log.Printf("会话 %s(%s)开始回消息 %d", m.SessionID, m.Harness, m.ID)
-		var res harness.DriveResult
-		recorded := false
-		defer func() {
-			if r.local.ID != "" {
-				if !recorded {
-					d.recordCompleteLocal(m, r.local, res, ok, tctx.Err())
-				}
-				if res.OK {
-					if err := d.saveServerCursor(r.local, m.ContextSeq); err != nil {
-						d.log.Printf("server context cursor: %v", err)
-					}
-				}
-				if !res.CleanupPending {
-					if err := d.cfg.RunService.Sessions.Release(r.local, res.OK || errors.Is(tctx.Err(), context.Canceled)); err != nil {
-						d.log.Printf("save session: %v", err)
-					}
-				}
+			cursorPath := filepath.Join(dir, ".server", "stream.json")
+			var cursor streamReceipt
+			data, err := os.ReadFile(cursorPath)
+			if os.IsNotExist(err) {
+				continue
 			}
-		}()
-		var dir string
-		var prepareErr error
-		if ok && d.cfg.RunService != nil {
-			if d.cfg.Sessions != nil {
-				r.local, dir, prepareErr = d.cfg.Sessions.Acquire(tctx, d.cfg.EndpointID, m.SessionID, m.AgentID, m.Harness, la.Revision)
-			} else if q := d.cfg.Settings.Session.Quota; q != nil {
-				_, prepareErr = d.cfg.RunService.Sessions.ReclaimToLimit(tctx, q.MaxBytes)
-			}
-			if prepareErr == nil {
-				if r.local.ID == "" {
-					r.local, dir, prepareErr = d.cfg.RunService.Sessions.Acquire(tctx, d.cfg.EndpointID, m.SessionID, m.AgentID, m.Harness, la.Revision)
-				}
-				la.EventsPath = harness.EventsPath(dir, r.local.ID)
-				if prepareErr == nil {
-					d.recordReceivedLocal(m, r.local, dir)
-				}
-			}
-		} else if ok {
-			dir, prepareErr = d.sessionDir(m)
-		}
-		if !ok {
-			res = harness.DriveResult{Error: "本机没有 harness " + m.Harness}
-		} else if prepareErr != nil {
-			res = harness.DriveResult{Error: prepareErr.Error()}
-		} else if err := d.loadRunHistory(tctx, &m); err != nil {
-			res = harness.DriveResult{Error: "共享历史读取失败: " + err.Error()}
-		} else if err := d.syncAttachments(tctx, &m, dir); err != nil {
-			res = harness.DriveResult{Error: "附件同步失败: " + err.Error()}
-		} else if err := d.prepareHistory(&m, r.local, &la, dir); err != nil {
-			res = harness.DriveResult{Error: err.Error()}
-		} else {
-			if m.RunID != "" {
-				report("started", map[string]any{"task_message_ids": m.TaskMessageIDs, "context_seq": m.ContextSeq})
-			}
-			text, err := serverPrompt(m, la.HistoryPath)
 			if err != nil {
-				res = harness.DriveResult{Error: err.Error()}
-			} else {
-				res = d.cfg.Harness.DriveSession(tctx, la, text, dir, in, func(event harness.Event) { d.observeServerEvent(tctx, r, event, report) })
+				return err
+			}
+			if err = json.Unmarshal(data, &cursor); err != nil {
+				return err
+			}
+			file, err := os.Open(filepath.Join(dir, "events.jsonl"))
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			_, err = file.Seek(cursor.Offset, io.SeekStart)
+			if err != nil {
+				file.Close()
+				return err
+			}
+			line, readErr := bufio.NewReader(file).ReadBytes('\n')
+			file.Close()
+			if readErr == io.EOF {
+				continue
+			}
+			if readErr != nil {
+				return readErr
+			}
+			envelope := protocol.ClientEvent{ConversationID: c.ID, AgentID: metadata.AgentID, SessionID: metadata.ID, Harness: metadata.Harness, Revision: metadata.HarnessRevision, Seq: cursor.Offset + int64(len(line)), Event: json.RawMessage(strings.TrimSuffix(string(line), "\n"))}
+			var event harness.Event
+			if err = json.Unmarshal(line, &event); err != nil {
+				return err
+			}
+			if event.Type == "accepted" {
+				entries, err := os.ReadDir(filepath.Join(dir, ".server", "inputs"))
+				if err != nil {
+					return err
+				}
+				for _, entry := range entries {
+					raw, err := os.ReadFile(filepath.Join(dir, ".server", "inputs", entry.Name()))
+					if err != nil {
+						return err
+					}
+					var receipt promptReceipt
+					if err = json.Unmarshal(raw, &receipt); err != nil {
+						return err
+					}
+					if receipt.InputID == event.InputID && receipt.RunID == event.RunID {
+						envelope.PromptID = receipt.Prompt.ID
+						break
+					}
+				}
+				if envelope.PromptID == 0 {
+					continue
+				}
+			}
+			d.mu.Lock()
+			d.streamPending[metadata.ID] = envelope.Seq
+			d.mu.Unlock()
+			if err = d.send(ctx, protocol.Message{Type: protocol.TypeEvent, ClientEvent: &envelope}); err != nil {
+				return err
 			}
 		}
-		if tctx.Err() != nil {
-			if d.cfg.RunService != nil && r.local.ID != "" {
-				_ = d.cfg.RunService.Confirm(context.Background(), d.cfg.EndpointID, m.RunID, m.AttemptID)
-			}
-			d.log.Printf("消息 %d 已取消", m.ID)
+	}
+	return nil
+}
+func (d *endpointConnection) control(ctx context.Context, kind string, c protocol.SessionControl) {
+	d.controlMu.Lock()
+	defer d.controlMu.Unlock()
+	if !fileutil.Segment(c.ID) {
+		return
+	}
+	metadata, err := d.cfg.RunService.Sessions.Session(ctx, d.cfg.EndpointID, c.ConversationID, c.SessionID)
+	if err != nil {
+		_ = d.send(ctx, protocol.Message{Type: protocol.TypeControlAck, Control: &c, Error: err.Error()})
+		return
+	}
+	receipt := filepath.Join(d.sessionDir(metadata), ".server", "controls", c.ID+".json")
+	var saved struct {
+		Error string `json:"error"`
+	}
+	if data, err := os.ReadFile(receipt); err == nil {
+		if json.Unmarshal(data, &saved) == nil {
+			_ = d.send(ctx, protocol.Message{Type: protocol.TypeControlAck, Control: &c, Error: saved.Error})
 			return
 		}
-		kind := "done"
-		if !res.OK {
-			kind = "failed"
-		}
-		if r.local.ID != "" {
-			d.recordCompleteLocal(m, r.local, res, ok, nil)
-			recorded = true
-		}
-		report(kind, res)
-		d.log.Printf("消息 %d 结束: %s", m.ID, kind)
-	}()
-}
-
-// sessionDir 是会话的工作目录，固定为 ~/.agentuse/work/<session_id>,每条消息都在同一个目录。
-func (d *endpointConnection) sessionDir(m protocol.Dispatch) (string, error) {
-	if m.SessionID == "" || strings.ContainsAny(m.SessionID, `/\`) || strings.HasPrefix(m.SessionID, ".") {
-		return "", errors.New("会话 id 不合法: " + m.SessionID)
 	}
-	dir, err := fileutil.SafePath(d.workdir, d.cfg.EndpointID, m.SessionID, "workspace")
+	body := json.RawMessage(`{}`)
+	action := "cancel"
+	if kind == protocol.TypeReply {
+		action = "reply"
+		body, _ = json.Marshal(map[string]any{"request_id": c.RequestID, "answer": c.Answer})
+	}
+	// A replayed cancellation must never cancel a later native interaction.
+	native, lookupErr := d.cfg.RunService.Detail(ctx, d.cfg.EndpointID, c.ConversationID, c.SessionID, c.RunID)
+	if lookupErr != nil {
+		err = lookupErr
+	} else if native.Status == "completed" || native.Status == "failed" || native.Status == "cancelled" {
+		err = nil
+	} else {
+		_, err = d.cfg.RunService.controlSession(ctx, d.cfg.EndpointID, c.ConversationID, c.SessionID, action, body)
+	}
 	if err != nil {
-		return "", err
+		saved.Error = err.Error()
 	}
-	return dir, os.MkdirAll(dir, 0o700)
-}
-
-func (d *endpointConnection) isPaused() bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.claimMode
-}
-
-func executionKey(message int64, run, attempt string) string {
-	if run != "" {
-		return run + "/" + attempt
+	if e := fileutil.WriteJSON(receipt, saved); e != nil {
+		saved.Error = e.Error()
 	}
-	return "message/" + strconv.FormatInt(message, 10)
+	_ = d.send(ctx, protocol.Message{Type: protocol.TypeControlAck, Control: &c, Error: saved.Error})
 }

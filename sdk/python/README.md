@@ -7,6 +7,7 @@ pip install "git+https://github.com/memory-co/agentuse#subdirectory=sdk/python"
 ```
 
 ```python
+import os
 from agentuse import Client, AgentuseError
 
 agentuse = Client("http://agentuse.internal:8080", token=os.environ["AGENTUSE_TOKEN"])  # admin 令牌，全局一个
@@ -30,13 +31,13 @@ print(detail["messages"][-1]["content"])
 
 # harness 向用户提问时会话是 waiting,wait_session 也会返回;回答后它在同一轮里接着做
 if detail["session"]["status"] == "waiting":
-    q = detail["questions"][-1]["questions"][0]
-    agentuse.answer_question(uid, s["id"], detail["questions"][-1]["id"], {q["question"]: q["options"][0]["label"]})
+    request = detail["questions"][-1]
+    q = request["payload"]["questions"][0]
+    agentuse.reply_run_request(uid, s["id"], request["run_id"], request["request_id"], {q["id"]: q["options"][0]["label"]})
 
-# 接着回复;harness 还在跑时是插话(返回 steer),会在它下一步之前送达
+# 接着回复；适配器 accepted 决定加入当前 run 或产生新 run
 r = agentuse.send_message(uid, s["id"], prompt="再把 CHANGELOG 也改一下")
-if "status" in r:
-    print("插话:", r["status"])
+print(r["deliveries"])  # accepted 前 runs 可以为空
 ```
 
 返回值都是接口里的 JSON 对象(dict / list),字段见 [apis](../../docs/v2/apis/README.md)。`timeout` 是单次 HTTP 请求的超时(秒),建客户端时给。
@@ -66,4 +67,6 @@ r = c.send_message(user, s['id'], prompt='分别看看实现与风险',
 d = c.wait_message_runs(user, s['id'], r['message']['id'], interval=.5, timeout=600)
 ```
 
-支持 get_run、wait_run、cancel_run、answer_run_question。响应 deliveries 包含各目标的新执行或插话状态；新模式 wait_session 默认等全部终态，return_on_waiting=True 可在提问时返回。
+支持 get_run、wait_run、cancel_run、reply_run_request。响应 deliveries 包含各目标输入分配；accepted 回报实际 run；新模式 wait_session 默认等全部终态，return_on_waiting=True 可在提问时返回。
+
+执行状态以 client 的公共事件为准：running/waiting/completed/failed/cancelled。发送消息先返回输入分配，不预创建 run；断线、取消入队不代表执行终态。harness 列表来自设备上报，仅供读取。

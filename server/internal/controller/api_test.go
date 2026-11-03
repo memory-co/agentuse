@@ -150,27 +150,16 @@ func TestUsersAPI(t *testing.T) {
 	}
 }
 
-func TestHarnessesAPI(t *testing.T) {
+func TestHarnessesAPIIsOnlyADeviceReportView(t *testing.T) {
 	e := newEnv(t, Config{})
-	_, aliceTok := e.user("alice", service.RoleUser)
-	_, bobTok := e.user("bob", service.RoleUser)
-
-	var h service.Harness
-	if r := e.req(aliceTok, "POST", "/api/harnesses", map[string]string{"name": "mine", "description": "d"}, &h); r.StatusCode != http.StatusCreated || h.Kind != service.HarnessCustom {
-		t.Fatalf("create: %d %+v", r.StatusCode, h)
-	}
-	if c := e.code(aliceTok, "POST", "/api/harnesses", map[string]string{"name": "Bad Name"}); c != http.StatusBadRequest {
-		t.Fatalf("bad name: %d", c)
-	}
+	u, token := e.user("alice", service.RoleUser)
+	e.daemonWith(u, "custom-local")
 	var hs []service.Harness
-	if e.req(bobTok, "GET", "/api/harnesses", nil, &hs); len(hs) != 3 {
-		t.Fatalf("list: %+v", hs)
+	if r := e.req(token, "GET", "/api/harnesses", nil, &hs); r.StatusCode != 200 || len(hs) != 1 || hs[0].Name != "custom-local" {
+		t.Fatal(r.StatusCode, hs)
 	}
-	if c := e.code(bobTok, "DELETE", "/api/harnesses/mine", nil); c != http.StatusNotFound {
-		t.Fatalf("bob deletes: %d", c)
-	}
-	if c := e.code(aliceTok, "DELETE", "/api/harnesses/mine", nil); c != http.StatusNoContent {
-		t.Fatalf("delete: %d", c)
+	if code := e.code(token, "POST", "/api/harnesses", map[string]string{"name": "server-config"}); code != http.StatusMethodNotAllowed {
+		t.Fatal("server harness registration still enabled", code)
 	}
 }
 

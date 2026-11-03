@@ -3,7 +3,7 @@
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker></defs>
 <rect width="1560" height="970" rx="16" fill="white"/>
 <text x="30" y="40" font-size="25" fill="#0f172a" font-weight="600">V3：Server 到 Run 为止，Harness 执行留在 Client</text>
-<text x="30" y="78" font-size="17" fill="#475569">WebSocket：run / 补充输入 / 答案 / 取消 ↔ 标准事件；不传原生执行命令或控制帧。</text>
+<text x="30" y="78" font-size="17" fill="#475569">WebSocket：输入 / 答案 / 取消 ↔ 标准事件；不传原生执行命令或控制帧。</text>
 <rect x="25" y="115" width="1010" height="765" rx="12" fill="#fafaff" stroke="#cbd5e1"/>
 <text x="45" y="150" font-size="20" fill="#3730a3" font-weight="600">Server · 业务服务与存储</text>
 <rect x="45" y="190" width="255" height="130" rx="12" fill="#f1f5f9" stroke="#cbd5e1"/>
@@ -12,7 +12,7 @@
 <text x="63" y="272" font-size="15" fill="#475569">网页 / SDK / CLI 入口</text>
 <rect x="45" y="455" width="255" height="130" rx="12" fill="#f1f5f9" stroke="#cbd5e1"/>
 <text x="63" y="484" font-size="19" fill="#0f172a" font-weight="600">device 连接入口</text>
-<text x="63" y="513" font-size="15" fill="#475569">业务任务派发与事件接收</text>
+<text x="63" y="513" font-size="15" fill="#475569">业务输入分配与公共事件接收</text>
 <text x="63" y="537" font-size="15" fill="#475569">不解释原生 harness 协议</text>
 <rect x="350" y="190" width="305" height="130" rx="12" fill="#eef2ff" stroke="#cbd5e1"/>
 <text x="368" y="219" font-size="19" fill="#0f172a" font-weight="600">conversationService</text>

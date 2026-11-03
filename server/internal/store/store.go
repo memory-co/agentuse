@@ -27,15 +27,6 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_token ON users(token_hash);
 
-CREATE TABLE IF NOT EXISTS harnesses (
-  name         TEXT PRIMARY KEY,
-  kind         TEXT NOT NULL,
-  display_name TEXT NOT NULL,
-  description  TEXT,
-  owner_id     TEXT REFERENCES users(id),
-  created_at   INTEGER NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS daemons (
   id           TEXT PRIMARY KEY,
   user_id      TEXT NOT NULL REFERENCES users(id),
@@ -52,8 +43,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS daemons_setup_token ON daemons(setup_token);
 CREATE TABLE IF NOT EXISTS daemon_harnesses (
   daemon_id  TEXT NOT NULL REFERENCES daemons(id) ON DELETE CASCADE,
   user_id    TEXT NOT NULL REFERENCES users(id),
-  harness    TEXT NOT NULL REFERENCES harnesses(name) ON DELETE CASCADE,
+  harness    TEXT NOT NULL,
   version    TEXT,
+  revision   TEXT NOT NULL DEFAULT '',
   available  INTEGER NOT NULL DEFAULT 1,
   enabled    INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL,
@@ -66,7 +58,7 @@ CREATE TABLE IF NOT EXISTS agents (
   user_id     TEXT NOT NULL REFERENCES users(id),
   name        TEXT NOT NULL,
   daemon_id   TEXT REFERENCES daemons(id) ON DELETE SET NULL,
-  harness     TEXT NOT NULL REFERENCES harnesses(name),
+  harness     TEXT NOT NULL,
   description TEXT,
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
@@ -106,6 +98,7 @@ CREATE TABLE IF NOT EXISTS messages (
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   role       TEXT NOT NULL,
   content    TEXT NOT NULL,
+  author_user_id TEXT, author_agent_id TEXT, run_agent_ids TEXT NOT NULL DEFAULT '[]', reply_to_message_id INTEGER,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_session ON messages(session_id, id);
@@ -139,19 +132,15 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if existing > 0 && revision != 1 {
+	if existing > 0 && revision != 2 {
 		db.Close()
 		return nil, errors.New("unsupported database schema: reset the database before starting this version")
 	}
-	if _, err := db.Exec(schema + attachmentSchema + runSchema + "PRAGMA user_version=1;"); err != nil {
+	if _, err := db.Exec(schema + attachmentSchema + runSchema + "PRAGMA user_version=2;"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("store: initialize: %w", err)
 	}
 	s := &Store{db: db, now: time.Now}
-	if err := s.seedBuiltinHarnesses(context.Background()); err != nil {
-		db.Close()
-		return nil, err
-	}
 	return s, nil
 }
 

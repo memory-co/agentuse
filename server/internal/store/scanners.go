@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+
 	"github.com/memory-co/agentuse/internal/attachment"
 )
 
@@ -46,9 +47,13 @@ func ScanDaemon(row scanner) (Daemon, error) {
 
 func ScanRun(row scanner) (Run, error) {
 	var r Run
-	err := row.Scan(&r.ID, &r.SessionID, &r.MessageID, &r.AgentID, &r.AgentKey, &r.AgentName, &r.AgentUserID, &r.DaemonID, &r.Harness, &r.Status, &r.AttemptID, &r.LeaseUntil, &r.ContextSeq, &r.ResultMessageID, &r.Error, &r.CreatedAt, &r.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
+	var result sql.NullString
+	err := row.Scan(&r.ID, &r.SessionID, &r.FirstMessageID, &r.AgentID, &r.DaemonID, &r.ClientSessionID, &r.Harness, &r.HarnessRevision, &r.Status, &r.ResultMessageID, &r.Output, &r.Error, &result, &r.CreatedAt, &r.UpdatedAt)
+	if err == sql.ErrNoRows {
 		err = ErrNotFound
+	}
+	if result.Valid {
+		r.Result = json.RawMessage(result.String)
 	}
 	return r, err
 }

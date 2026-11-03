@@ -32,12 +32,12 @@ console.log(detail.messages.at(-1).content);
 // harness 向用户提问时会话是 waiting,waitSession 也会返回;回答后它在同一轮里接着做
 if (detail.session.status === "waiting") {
   const q = detail.questions.at(-1);
-  await agentuse.answerQuestion(uid, session.id, q.id, { [q.questions[0].question]: q.questions[0].options[0].label });
+  await agentuse.replyRunRequest(uid, session.id, q.run_id, q.request_id, { [q.payload.questions[0].id]: q.payload.questions[0].options[0].label });
 }
 
-// 接着回复;harness 还在跑时是插话(返回 steer),会在它下一步之前送达
+// 接着回复；适配器 accepted 决定加入当前 run 或产生新 run
 const r = await agentuse.sendMessage(uid, session.id, { prompt: "再把 CHANGELOG 也改一下" });
-if ("status" in r) console.log("插话:", r.status);
+console.log(r.deliveries); // accepted 前 runs 可以为空
 ```
 
 返回值都是接口里的 JSON 对象，字段见 [apis](../../docs/v2/apis/README.md) 和 `index.d.ts`。需要自定义请求时可以传 `fetch`。
@@ -65,4 +65,6 @@ const reply = await c.sendMessage(user, session.id, {
 const detail = await c.waitMessageRuns(user, session.id, reply.message.id, {interval: 500, timeout: 600000});
 ```
 
-支持 getRun、waitRun、cancelRun、answerRunQuestion。reply.deliveries 表示自动路由到新执行或插话的状态；新模式 waitSession 默认等待全部终态，可设置 returnOnWaiting。
+支持 getRun、waitRun、cancelRun、replyRunRequest。reply.deliveries 表示输入分配状态；accepted 决定实际 run；新模式 waitSession 默认等待全部终态，可设置 returnOnWaiting。
+
+执行状态以 client 的公共事件为准：running/waiting/completed/failed/cancelled。发送消息先返回输入分配，不预创建 run；断线、取消入队不代表执行终态。harness 列表来自设备上报，仅供读取。

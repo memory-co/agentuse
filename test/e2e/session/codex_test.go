@@ -66,7 +66,7 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 			return false
 		}
 		for _, cap := range ds[0].Capabilities {
-			if cap == "codex-steer-v1" {
+			if cap == "harnessctl-events-v1" {
 				return true
 			}
 		}
@@ -84,24 +84,28 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 		t.Fatal(err)
 	}
 	id := created.Session.ID
-	runID := created.Runs[0].ID
+	runID := ""
 	e2eutil.WaitFor(t, 90*time.Second, "real active Codex command", func() bool {
 		detail, e := c.GetSession(ctx, user, id)
 		if e != nil {
 			return false
 		}
 		for _, event := range detail.Events {
-			if event.Kind == "progress" {
+			if event.Kind == "log" {
 				var v struct {
-					Text string `json:"text"`
+					Topic string `json:"topic"`
+					Data  struct {
+						Title string `json:"title"`
+					} `json:"data"`
 				}
 				_ = json.Unmarshal(event.Payload, &v)
-				if strings.HasPrefix(v.Text, "🔧 ") && strings.Contains(v.Text, "sleep") {
+				if v.Topic == "tool.started" && strings.Contains(v.Data.Title, "sleep") {
+					runID = event.RunID
 					return true
 				}
 			}
 		}
-		if len(detail.Runs) > 0 && (detail.Runs[0].Status == "failed" || detail.Runs[0].Status == "succeeded") {
+		if len(detail.Runs) > 0 && (detail.Runs[0].Status == "failed" || detail.Runs[0].Status == "completed") {
 			t.Fatalf("Codex ended before steering: %+v messages=%+v", detail.Runs, detail.Messages)
 		}
 		return false
@@ -111,28 +115,22 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sent.Runs) != 0 || len(sent.Deliveries) != 1 || sent.Deliveries[0].Kind != "steer" || sent.Deliveries[0].RunID != runID {
+	if len(sent.Runs) != 0 || len(sent.Deliveries) != 1 {
 		t.Fatalf("not steered to same run: %+v", sent)
 	}
 	detail, err := c.WaitMessageRuns(ctx, user, id, sent.Message.ID, 100*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(detail.Runs) != 1 || detail.Runs[0].ID != runID || detail.Runs[0].Status != "succeeded" {
+	if len(detail.Runs) != 1 || detail.Runs[0].ID != runID || detail.Runs[0].Status != "completed" {
 		t.Fatalf("steer fell back to a later run: %+v", detail.Runs)
 	}
 	var acknowledged bool
 	var output string
 	var assistantCount int
-	for _, event := range detail.Events {
-		if event.Kind == "steered" && event.RunID == runID {
-			var ack struct {
-				ID int64 `json:"steer_id"`
-			}
-			_ = json.Unmarshal(event.Payload, &ack)
-			if ack.ID == sent.Deliveries[0].ID {
-				acknowledged = true
-			}
+	for _, delivery := range detail.Deliveries {
+		if delivery.ID == sent.Deliveries[0].ID && delivery.RunID == runID && delivery.InputID != "" {
+			acknowledged = true
 		}
 	}
 	for _, message := range detail.Messages {

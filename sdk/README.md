@@ -24,7 +24,7 @@
 | 接着回复 | `send_message` / `sendMessage` / `SendMessage`(harness 还没回时 409) |
 | 看进度和结果 | `get_session` / `getSession` / `GetSession`,或 `wait_session` 轮询到 `idle` |
 
-另外还有 `me`、`list_agents`、`get_agent`、`delete_agent`、`list_sessions`、`delete_session`、`list_harnesses`、`create_harness`、`delete_harness`、`reset_daemon`、`delete_daemon`,以及 admin 用的 `list_users`、`create_user`、`reset_user_token`,和接口一一对应。
+另外还有 `me`、`list_agents`、`get_agent`、`delete_agent`、`list_sessions`、`delete_session`、`list_harnesses`、`reset_daemon`、`delete_daemon`,以及 admin 用的 `list_users`、`create_user`、`reset_user_token`,和接口一一对应。
 
 非 2xx 响应统一抛(Go 里返回)一个带 `status` 和服务端 `error` 说明的错误。
 
@@ -46,6 +46,6 @@
 
 ## 多 agent 共享 session
 
-创建时显式传 mode=multi_agent，不传 agent_id。发送消息带 target_agent_ids，返回 message、runs、deliveries；空闲目标新建执行，忙碌目标自动插话。目标省略只保存笔记，不默认调用上次 agent。
+创建时显式传 mode=multi_agent，不传 agent_id。发送消息带 target_agent_ids，返回 message、runs、deliveries；先建立输入分配，实际 run 由 client accepted 决定。目标省略只保存笔记，不默认调用上次 agent。
 
-三个 SDK 增加 get/cancel/wait run、wait message runs、answer run question 方法。等待一条消息完成要跟踪 deliveries（包括改挂到后续 run 的插话），不能只等最初返回的新 runs。WaitSession 对新模式默认等全部执行结束；returnOnWaiting / return_on_waiting / Go WaitOptions 可选择在提问时返回。
+三个 SDK 增加 get/cancel/wait run、wait message runs、reply run request 方法。等待一条消息完成要跟踪 deliveries（accepted 前 run_id 为空），不能只等最初返回的新 runs。WaitSession 对新模式默认等全部执行结束；returnOnWaiting / return_on_waiting / Go WaitOptions 可选择在提问时返回。

@@ -4,450 +4,247 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/memory-co/agentuse/server/internal/store"
-	"strings"
+	"path/filepath"
+
+	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-func promptContent(content json.RawMessage) bool {
-	var v map[string]any
-	if json.Unmarshal(content, &v) != nil {
-		return false
+// ClaimPrompt selects one durable input. It does not create or predict a run.
+func (s *Service) ClaimPrompt(ctx context.Context, d Daemon, capacity ...protocol.Message) (protocol.Prompt, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return protocol.Prompt{}, err
 	}
-	p, ok := v["prompt"].(string)
-	return ok && strings.TrimSpace(p) != "" && len(v) == 1
+	defer tx.Rollback()
+	query := promptCols + ` WHERE daemon_id=? AND status='pending' AND EXISTS(SELECT 1 FROM daemon_harnesses h WHERE h.daemon_id=run_prompts.daemon_id AND h.harness=run_prompts.harness AND h.available=1 AND h.enabled=1)`
+	args := []any{d.ID}
+	if len(capacity) > 0 && capacity[0].FreeSessions <= 0 {
+		if len(capacity[0].ActiveStreams) == 0 {
+			return protocol.Prompt{}, ErrNotFound
+		}
+		query += ` AND (`
+		for i, stream := range capacity[0].ActiveStreams {
+			if i > 0 {
+				query += ` OR `
+			}
+			query += `(session_id=? AND agent_id=?)`
+			args = append(args, stream.ConversationID, stream.AgentID)
+		}
+		query += `)`
+	}
+	query += ` ORDER BY id LIMIT 1`
+	p, err := scanPrompt(tx.QueryRowContext(ctx, query, args...))
+	if err != nil {
+		return protocol.Prompt{}, err
+	}
+	out, err := s.preparePrompt(ctx, tx, p)
+	if err != nil {
+		return out, err
+	}
+	dispatch, err := json.Marshal(out)
+	if err != nil {
+		return out, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE run_prompts SET status='sent',dispatch=?,updated_at=? WHERE id=?`, string(dispatch), s.unix(), p.ID); err != nil {
+		return out, err
+	}
+	return out, tx.Commit()
 }
 
-func (s *Service) CheckRun(ctx context.Context, q querier, daemon, run, attempt string) (Run, error) {
-	r, err := scanRun(q.QueryRowContext(ctx, runCols+store.CheckRunClause, run))
+func (s *Service) preparePrompt(ctx context.Context, tx *sql.Tx, p Delivery) (protocol.Prompt, error) {
+	ss, err := s.getSession(ctx, tx, User{Role: RoleAdmin}, p.SessionID)
+	if err != nil {
+		return protocol.Prompt{}, err
+	}
+	history, err := messages(ctx, tx, p.SessionID)
+	if err != nil {
+		return protocol.Prompt{}, err
+	}
+	raw, _ := json.Marshal(history)
+	var input protocol.PromptInput
+	if json.Unmarshal(p.Content, &input) != nil || input.Prompt == "" {
+		input.Prompt = string(p.Content)
+	}
+	out := protocol.Prompt{ID: p.ID, ConversationID: p.SessionID, MessageID: p.MessageID, AgentID: p.AgentID, Harness: p.Harness, Content: input.Prompt, Context: raw, WorkID: ss.WorkID}
+	if len(history) > 0 {
+		out.ContextSeq = history[len(history)-1].Seq
+	}
+	if ss.WorkID != "" {
+		w, err := scanWork(tx.QueryRowContext(ctx, workCols+` WHERE w.id=?`, ss.WorkID))
+		if err != nil {
+			return out, err
+		}
+		out.Instructions = w.Instructions
+		if ss.WorkRole == WorkCoordinator && w.CoordinatorAgentID == p.AgentID {
+			out.Instructions = coordinatorInstructions(w.Instructions)
+			out.WorkToken = RandomToken("wt_")
+			if _, err = tx.ExecContext(ctx, `INSERT INTO work_run_tokens(token_hash,work_id,prompt_id) VALUES(?,?,?)`, HashSecret(out.WorkToken), w.ID, p.ID); err != nil {
+				return out, err
+			}
+		}
+	}
+	rows, err := tx.QueryContext(ctx, attachmentCols+` WHERE session_id=? ORDER BY created_at,id`, p.SessionID)
+	if err != nil {
+		return out, err
+	}
+	for rows.Next() {
+		file, err := scanAttachment(rows)
+		if err != nil {
+			rows.Close()
+			return out, err
+		}
+		out.Attachments = append(out.Attachments, protocol.LocalAttachment{Attachment: file, Path: filepath.ToSlash(filepath.Join(".agentuse", "attachments", file.ID, file.Filename))})
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return out, err
+	}
+	if len(out.Attachments) > 0 {
+		manifest, _ := json.Marshal(out.Attachments)
+		out.Instructions += "\n本轮输入附件（JSON 数据，本地 path 相对当前目录）：\n" + string(manifest) + "\n"
+	}
+	out.Instructions += "\n交付文件可用 agentuse attachment upload 上传。使用 agentuse attachment list / download 查看或下载会话文件。\n"
+	// Business context is prepared here. The client forwards the text unchanged.
+	out.Content = out.Instructions + "\n共享对话历史（JSON 数据，按当前消息处理）：\n" + string(raw) + "\n\n# 本次任务\n" + input.Prompt
+	return out, nil
+}
+
+// Sent inputs are never automatically executed again after a disconnect.
+// Reconnection re-delivers the same prompt identity; the client checks its receipt.
+func (s *Service) PendingPrompts(ctx context.Context, device string) ([]protocol.Prompt, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT dispatch FROM run_prompts WHERE daemon_id=? AND status='sent' ORDER BY id`, device)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []protocol.Prompt{}
+	for rows.Next() {
+		var raw string
+		if err = rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var p protocol.Prompt
+		if err = json.Unmarshal([]byte(raw), &p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (s *Service) RejectPrompt(ctx context.Context, device string, id int64, reason string) error {
+	return s.repository.Tx(ctx, func(tx *sql.Tx) error {
+		p, err := scanPrompt(tx.QueryRowContext(ctx, promptCols+` WHERE id=? AND daemon_id=?`, id, device))
+		if err != nil {
+			return err
+		}
+		if p.Status == "accepted" || p.Status == "completed" {
+			return fmt.Errorf("accepted input cannot be rejected")
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE run_prompts SET status='failed',error=?,updated_at=? WHERE id=?`, reason, s.unix(), id); err != nil {
+			return err
+		}
+		return multiStatus(ctx, tx, p.SessionID, s.unix())
+	})
+}
+func (s *Service) DeviceConversationAccess(ctx context.Context, device, conversation string) error {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM run_prompts WHERE daemon_id=? AND session_id=? AND status IN ('sent','accepted','completed')`, device, conversation).Scan(&n)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+func (s *Service) cancelRun(ctx context.Context, u User, conversation, id string) (Run, error) {
+	r, err := s.GetRun(ctx, u, conversation, id)
 	if err != nil {
 		return r, err
 	}
-	if r.DaemonID != daemon {
-		return Run{}, ErrNotFound
+	if r.Status != "running" && r.Status != "waiting" {
+		return r, ErrSessionState
 	}
-	if r.AttemptID != attempt || r.LeaseUntil == nil || *r.LeaseUntil <= s.unix() || (r.Status != "running" && r.Status != "waiting") {
-		return Run{}, ErrStaleMessage
-	}
-	return r, nil
+	_, err = s.queueControl(ctx, r, "cancel", "", nil, u.ID)
+	return r, err
 }
-
-func (s *Service) RunAccess(ctx context.Context, daemon, session, run, attempt string) (Run, error) {
-	r, e := s.CheckRun(ctx, s.db, daemon, run, attempt)
-	if e == nil && r.SessionID != session {
-		return Run{}, ErrNotFound
-	}
-	return r, e
-}
-
-func (s *Service) RenewRun(ctx context.Context, daemon, run, attempt string, lease int64) error {
-	return s.repository.Tx(ctx, func(tx *sql.Tx) error {
-		if _, err := s.CheckRun(ctx, tx, daemon, run, attempt); err != nil {
-			return err
+func (s *Service) queueControl(ctx context.Context, r Run, kind, request string, answer json.RawMessage, user string) (protocol.SessionControl, error) {
+	out := protocol.SessionControl{ID: newUUID(), ConversationID: r.SessionID, SessionID: r.ClientSessionID, RunID: r.ID, RequestID: request, Answer: answer}
+	res, err := s.db.ExecContext(ctx, `INSERT INTO run_controls(id,session_id,client_session_id,run_id,daemon_id,kind,request_id,answer,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM run_controls WHERE run_id=? AND kind=? AND request_id=? AND state IN ('pending','delivered'))`, out.ID, r.SessionID, r.ClientSessionID, r.ID, r.DaemonID, kind, request, nullIfEmpty(string(answer)), s.unix(), s.unix(), r.ID, kind, request)
+	if err == nil {
+		if n, _ := res.RowsAffected(); n == 0 {
+			return out, ErrSessionState
 		}
-		_, err := tx.ExecContext(ctx, store.RenewRunUpdate, s.unix()+lease, run)
-		return err
-	})
+	}
+	if err == nil {
+		s.Notifier.PushRun(r.DaemonID, protocol.Message{Type: kind, Control: &out})
+	}
+	return out, err
 }
-func (s *Service) runInputs(ctx context.Context, tx *sql.Tx, r Run) ([]Message, []int64, error) {
-	ds, err := deliveries(ctx, tx, store.RunInputsClause, r.ID)
+func (s *Service) PendingControls(ctx context.Context, device string) ([]protocol.Message, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id,session_id,client_session_id,run_id,kind,request_id,answer FROM run_controls WHERE daemon_id=? AND state='pending' ORDER BY created_at,id`, device)
 	if err != nil {
-		return nil, nil, err
-	}
-	tasks := []int64{}
-	blocked := false
-	var primaryPrompt bool
-	if err = tx.QueryRowContext(ctx, store.RunInputsSelect, r.MessageID).Scan(&primaryPrompt); err != nil {
-		return nil, nil, err
-	}
-	for _, d := range ds {
-		var isPrompt bool
-		if err = tx.QueryRowContext(ctx, store.RunInputsSelect2, d.MessageID).Scan(&isPrompt); err != nil {
-			return nil, nil, err
-		}
-		include := d.Kind == "new_run" || (!blocked && primaryPrompt && isPrompt)
-		if !isPrompt && d.Kind != "new_run" {
-			blocked = true
-		}
-		if include {
-			tasks = append(tasks, d.MessageID)
-			if _, err = tx.ExecContext(ctx, store.RunInputsUpdate, r.AttemptID, d.ID); err != nil {
-				return nil, nil, err
-			}
-		}
-	}
-	rows, err := tx.QueryContext(ctx, messageCols+store.RunInputsClause2, r.SessionID)
-	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	defer rows.Close()
-	msgs := []Message{}
+	out := []protocol.Message{}
 	for rows.Next() {
-		m, e := scanMessage(rows)
-		if e != nil {
-			return nil, nil, e
+		var control protocol.SessionControl
+		var kind string
+		var answer sql.NullString
+		if err = rows.Scan(&control.ID, &control.ConversationID, &control.SessionID, &control.RunID, &kind, &control.RequestID, &answer); err != nil {
+			return nil, err
 		}
-		msgs = append(msgs, m)
+		if answer.Valid {
+			control.Answer = json.RawMessage(answer.String)
+		}
+		out = append(out, protocol.Message{Type: kind, Control: &control})
 	}
-	return msgs, tasks, rows.Err()
+	return out, rows.Err()
 }
-
-func (s *Service) ClaimRun(ctx context.Context, d Daemon, lease int64) (RunClaim, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return RunClaim{}, err
+func (s *Service) ConfirmControl(ctx context.Context, device, id, message string) error {
+	state := "delivered"
+	if message != "" {
+		state = "failed"
 	}
-	defer tx.Rollback()
-	if err = s.failUnavailableRuns(ctx, tx); err != nil {
-		return RunClaim{}, err
-	}
-	r, err := scanRun(tx.QueryRowContext(ctx, runCols+store.ClaimRunClause, d.ID))
-	if errors.Is(err, ErrNotFound) {
-		if e := tx.Commit(); e != nil {
-			return RunClaim{}, e
-		}
-		return RunClaim{}, ErrNotFound
-	}
-	if err != nil {
-		return RunClaim{}, err
-	}
-	r.Status = "running"
-	r.AttemptID = randomID("ra_")
-	until := s.unix() + lease
-	r.LeaseUntil = &until
-	if _, err = tx.ExecContext(ctx, store.ClaimRunUpdate, r.AttemptID, until, s.unix(), r.ID); err != nil {
-		return RunClaim{}, err
-	}
-	msgs, tasks, err := s.runInputs(ctx, tx, r)
-	if err != nil {
-		return RunClaim{}, err
-	}
-	if len(msgs) > 0 {
-		r.ContextSeq = msgs[len(msgs)-1].ID
-	}
-	if _, err = tx.ExecContext(ctx, store.ClaimRunUpdate2, r.ContextSeq, r.ID); err != nil {
-		return RunClaim{}, err
-	}
-	var input string
-	if err = tx.QueryRowContext(ctx, store.ClaimRunSelect, r.MessageID).Scan(&input); err != nil {
-		return RunClaim{}, err
-	}
-	cl := RunClaim{Run: r, Input: json.RawMessage(input), Messages: msgs, TaskMessageIDs: tasks}
-	ss, err := s.getSession(ctx, tx, User{Role: RoleAdmin}, r.SessionID)
-	if err != nil {
-		return cl, err
-	}
-	cl.WorkID = ss.WorkID
-	if err = tx.QueryRowContext(ctx, store.ClaimRunSelect2, ss.CreatedBy).Scan(&cl.Sender.ID, &cl.Sender.Name); err != nil {
-		return cl, err
-	}
-	if ss.WorkID != "" {
-		var agent sql.NullString
-		if err = tx.QueryRowContext(ctx, store.ClaimRunSelect3, ss.WorkID).Scan(&cl.Instructions, &agent); err != nil {
-			return cl, err
-		}
-		if ss.WorkRole == WorkCoordinator && agent.String == r.AgentID {
-			cl.Instructions = coordinatorInstructions(cl.Instructions)
-			cl.WorkToken = RandomToken("wt_")
-			if _, err = tx.ExecContext(ctx, store.ClaimRunInsert, HashSecret(cl.WorkToken), ss.WorkID, r.ID, r.AttemptID); err != nil {
-				return cl, err
-			}
-		}
-	}
-	if err = multiStatus(ctx, tx, r.SessionID, s.unix()); err != nil {
-		return cl, err
-	}
-	return cl, tx.Commit()
+	_, err := s.db.ExecContext(ctx, `UPDATE run_controls SET state=?,error=?,updated_at=? WHERE id=? AND daemon_id=?`, state, message, s.unix(), id, device)
+	return err
 }
-
-func (s *Service) failUnavailableRuns(ctx context.Context, tx *sql.Tx) error {
-	rows, err := tx.QueryContext(ctx, runCols+store.FailUnavailableRunsClause)
+func (s *Service) terminateDaemonRuns(ctx context.Context, tx *sql.Tx, id, reason string) error {
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT session_id FROM run_prompts WHERE daemon_id=? AND status='pending'`, id)
 	if err != nil {
 		return err
 	}
-	var pending []Run
+	var conversations []string
 	for rows.Next() {
-		r, e := scanRun(rows)
-		if e != nil {
+		var c string
+		if err = rows.Scan(&c); err != nil {
 			rows.Close()
-			return e
+			return err
 		}
-		pending = append(pending, r)
+		conversations = append(conversations, c)
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
 		return err
 	}
-	for _, r := range pending {
-		var reason error
-		if r.AgentID == "" {
-			reason = fmt.Errorf("agent 已删除")
-		} else {
-			reason = runRuntime(ctx, tx, Agent{DaemonID: r.DaemonID, Harness: r.Harness})
-		}
-		if reason == nil {
-			var n int
-			if err = tx.QueryRowContext(ctx, store.FailUnavailableRunsSelect, r.SessionID, r.DaemonID).Scan(&n); err != nil {
-				return err
-			}
-			if n > 0 {
-				reason = ErrAttachmentCapability
-			}
-		}
-		if reason != nil {
-			b, _ := json.Marshal(map[string]any{"ok": false, "error": reason.Error()})
-			if err = s.finishRun(ctx, tx, r, "failed", b, false); err != nil {
-				return err
-			}
+	if _, err = tx.ExecContext(ctx, `UPDATE run_prompts SET status='failed',error=?,updated_at=? WHERE daemon_id=? AND status='pending'`, reason, s.unix(), id); err != nil {
+		return err
+	}
+	for _, c := range conversations {
+		if err = multiStatus(ctx, tx, c, s.unix()); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func (s *Service) finishRun(ctx context.Context, tx *sql.Tx, r Run, status string, payload json.RawMessage, fallback bool) error {
-	now := s.unix()
-	var resultID any
-	if status != "cancelled" {
-		m, err := insertMessage(ctx, tx, r.SessionID, RoleAssistantMsg, payload, now)
-		if err != nil {
-			return err
-		}
-		resultID = m.ID
-		if _, err = tx.ExecContext(ctx, store.FinishRunInsert, m.ID, r.ID, r.AgentKey, r.AgentName); err != nil {
-			return err
-		}
-	}
-	var body struct {
-		Error string `json:"error"`
-	}
-	_ = json.Unmarshal(payload, &body)
-	if _, err := tx.ExecContext(ctx, store.FinishRunUpdate, status, resultID, body.Error, now, r.ID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, store.FinishRunDelete, r.ID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, store.FinishRunUpdate2, now, r.ID); err != nil {
-		return err
-	}
-	// Main tasks and confirmed steers finish with this run. Unreceived steers move to a follow-up.
-	if _, err := tx.ExecContext(ctx, store.FinishRunUpdate3, status, body.Error, r.ID, r.AttemptID, status); err != nil {
-		return err
-	}
-	pending, err := deliveries(ctx, tx, store.FinishRunClause, r.ID)
-	if err != nil {
-		return err
-	}
-	if !fallback || status == "cancelled" {
-		if _, err = tx.ExecContext(ctx, store.FinishRunUpdate4, status, body.Error, r.ID); err != nil {
-			return err
-		}
-	} else if len(pending) > 0 {
-		ss, e := s.getSession(ctx, tx, User{Role: RoleAdmin}, r.SessionID)
-		if e != nil {
-			return e
-		}
-		a, e := s.runAgent(ctx, tx, User{ID: ss.UserID}, ss, r.AgentID)
-		var next Run
-		if e == nil {
-			next, e = s.newRun(ctx, tx, ss, a, pending[0].MessageID)
-		}
-		if e != nil {
-			if _, err = tx.ExecContext(ctx, store.FinishRunUpdate5, e.Error(), r.ID); err != nil {
-				return err
-			}
-		} else {
-			if _, err = tx.ExecContext(ctx, store.FinishRunUpdate6, next.ID, r.ID); err != nil {
-				return err
-			}
-			if _, err = tx.ExecContext(ctx, store.FinishRunUpdate7, pending[0].ID); err != nil {
-				return err
-			}
-		}
-	}
-	if err = multiStatus(ctx, tx, r.SessionID, now); err != nil {
-		return err
-	}
-	return s.notifyRunMessages(ctx, tx, r.SessionID)
-}
+// Connection loss changes device presence only. Client result remains authoritative.
 
-func (s *Service) RunSteers(ctx context.Context, run string) ([]Delivery, error) {
-	return deliveries(ctx, s.db, store.RunSteersClause, run)
-}
-
-func (s *Service) RunTaskPrompt(ctx context.Context, messageID int64) (string, error) {
-	var b string
-	err := s.db.QueryRowContext(ctx, store.RunTaskPromptSelect, messageID).Scan(&b)
-	var p struct {
-		Prompt string `json:"prompt"`
-	}
-	_ = json.Unmarshal([]byte(b), &p)
-	return p.Prompt, err
-}
-
-func (s *Service) cancelRun(ctx context.Context, u User, session, id string) (Run, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return Run{}, err
-	}
-	defer tx.Rollback()
-	if _, err = s.getSession(ctx, tx, u, session); err != nil {
-		return Run{}, err
-	}
-	r, err := scanRun(tx.QueryRowContext(ctx, runCols+store.CancelRunClause, id, session))
-	if err != nil {
-		return r, err
-	}
-	if r.Status == "cancelled" {
-		return r, tx.Commit()
-	}
-	if r.Status != "pending" && r.Status != "running" && r.Status != "waiting" {
-		return r, ErrSessionState
-	}
-	b, _ := json.Marshal(map[string]string{"by": u.ID, "reason": "用户取消"})
-	if _, err = tx.ExecContext(ctx, store.CancelRunInsert, r.SessionID, r.ID, r.AttemptID, r.MessageID, r.DaemonID, r.ID, r.AttemptID, string(b), s.unix()); err != nil {
-		return r, err
-	}
-	if err = s.finishRun(ctx, tx, r, "cancelled", json.RawMessage(`{"error":"已取消"}`), false); err != nil {
-		return r, err
-	}
-	r.Status = "cancelled"
-	r.LeaseUntil = nil
-	return r, tx.Commit()
-}
-
-func (s *Service) RequeueRuns(ctx context.Context) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, store.RequeueRunsUpdate, s.unix(), s.unix())
-	if err != nil {
-		return err
-	}
-	var ids, sessions []string
-	for rows.Next() {
-		var id, ss string
-		if err = rows.Scan(&id, &ss); err != nil {
-			rows.Close()
-			return err
-		}
-		ids = append(ids, id)
-		sessions = append(sessions, ss)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	for i, id := range ids {
-		r, e := scanRun(tx.QueryRowContext(ctx, runCols+store.RequeueRunsClause, id))
-		if e != nil {
-			return e
-		}
-		if e = s.recoverRunAnswers(ctx, tx, r, `1=1`); e != nil {
-			return e
-		}
-		if _, err = tx.ExecContext(ctx, store.RequeueRunsUpdate2, id); err != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, store.RequeueRunsUpdate3, s.unix(), id); err != nil {
-			return err
-		}
-		if err = multiStatus(ctx, tx, sessions[i], s.unix()); err != nil {
-			return err
-		}
-	}
-	if err = s.failUnavailableRuns(ctx, tx); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func (s *Service) ReconcileRuns(ctx context.Context, daemon string, live map[string]string) ([]Run, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, runCols+store.ReconcileRunsClause, daemon)
-	if err != nil {
-		return nil, err
-	}
-	var runs []Run
-	for rows.Next() {
-		r, e := scanRun(rows)
-		if e != nil {
-			rows.Close()
-			return nil, e
-		}
-		runs = append(runs, r)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	valid := []Run{}
-	for _, r := range runs {
-		if live[r.ID] == r.AttemptID && r.LeaseUntil != nil && *r.LeaseUntil > s.unix() {
-			valid = append(valid, r)
-			continue
-		}
-		if err = s.recoverRunAnswers(ctx, tx, r, `1=1`); err != nil {
-			return nil, err
-		}
-		for _, q := range []string{store.ReconcileRunsUpdate, store.ReconcileRunsUpdate2, store.ReconcileRunsUpdate3, store.ReconcileRunsDelete} {
-			if _, err = tx.ExecContext(ctx, q, r.ID); err != nil {
-				return nil, err
-			}
-		}
-		if err = multiStatus(ctx, tx, r.SessionID, s.unix()); err != nil {
-			return nil, err
-		}
-	}
-	return valid, tx.Commit()
-}
-
-func (s *Service) PendingRunSteers(ctx context.Context) ([]Delivery, error) {
-	return deliveries(ctx, s.db, store.PendingRunSteersClause)
-}
-
-// Credential removal must revoke run-scoped work tokens in the same transaction.
-func (s *Service) terminateDaemonRuns(ctx context.Context, tx *sql.Tx, daemon, reason string) error {
-	for {
-		rows, err := tx.QueryContext(ctx, runCols+store.TerminateDaemonRunsClause, daemon)
-		if err != nil {
-			return err
-		}
-		var runs []Run
-		for rows.Next() {
-			r, e := scanRun(rows)
-			if e != nil {
-				rows.Close()
-				return e
-			}
-			runs = append(runs, r)
-		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
-			return err
-		}
-		if len(runs) == 0 {
-			return nil
-		}
-		for _, r := range runs {
-			if err = s.recoverRunAnswers(ctx, tx, r, `1=1`); err != nil {
-				return err
-			}
-			payload, _ := json.Marshal(map[string]any{"ok": false, "error": reason})
-			if err = s.finishRun(ctx, tx, r, "failed", payload, false); err != nil {
-				return err
-			}
-		}
-	}
+func runRuntime(ctx context.Context, q querier, a Agent) error {
+	return runtimeErr(ctx, q, a.DaemonID, a.Harness)
 }

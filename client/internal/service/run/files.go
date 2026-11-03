@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/memory-co/agentuse/internal/attachment"
-	"github.com/memory-co/agentuse/internal/protocol"
-	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/memory-co/agentuse/internal/attachment"
+	"github.com/memory-co/agentuse/internal/protocol"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 func openAttachmentDir(root *os.Root, name string) (*os.Root, error) {
@@ -25,9 +26,9 @@ func openAttachmentDir(root *os.Root, name string) (*os.Root, error) {
 	}
 	return root.OpenRoot(name)
 }
-func (d *endpointConnection) syncAttachments(ctx context.Context, m *protocol.Dispatch, dir string) error {
-	c := agentuse.Client{BaseURL: d.cfg.Server, Token: d.cfg.Key, RunID: m.RunID, AttemptID: m.AttemptID}
-	list, err := c.AllAttachments(ctx, "", m.SessionID)
+func (d *endpointConnection) syncAttachments(ctx context.Context, m *protocol.Prompt, dir string) error {
+	c := agentuse.Client{BaseURL: d.cfg.Server, Token: d.cfg.Key}
+	list, err := c.AllAttachments(ctx, "", m.ConversationID)
 	if err != nil {
 		return err
 	}
@@ -51,7 +52,7 @@ func (d *endpointConnection) syncAttachments(ctx context.Context, m *protocol.Di
 	defer cache.Close()
 	for _, a := range list {
 		name, e := attachment.Filename(a.Filename)
-		if e != nil || name != a.Filename || !attachment.ValidID(a.ID, "at_") || a.SessionID != m.SessionID {
+		if e != nil || name != a.Filename || !attachment.ValidID(a.ID, "at_") || a.SessionID != m.ConversationID {
 			return fmt.Errorf("服务返回不合法的附件元数据")
 		}
 		sub, e := openAttachmentDir(cache, a.ID)

@@ -40,9 +40,6 @@ func TestClientMultiEndpointFilesAndUI(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		if _, e = c.CreateHarness(ctx, "client-user", agentuse.CreateHarnessRequest{Name: "fake"}); e != nil {
-			t.Fatal(e)
-		}
 		cmd := exec.Command(cli, "register", "-server", server.URL, "-token", d.SetupToken, "-config", cfg)
 		cmd.Env = e2eutil.Env(home)
 		e2eutil.MustRun(t, cmd)
@@ -252,11 +249,11 @@ func TestClientNativeSessionsShareWorkspaceAndRunConcurrently(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(detail.Runs) != 2 {
-		t.Fatal("unexpected fallback run", detail.Runs)
+	if len(detail.Runs) != 3 {
+		t.Fatal("client native runs were merged or split", detail.Runs)
 	}
 	for _, r := range detail.Runs {
-		if r.Status != "succeeded" {
+		if r.Status != "completed" {
 			t.Fatal("parallel run failed", r)
 		}
 	}

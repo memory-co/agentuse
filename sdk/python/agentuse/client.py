@@ -35,31 +35,33 @@ class AttachmentPage(TypedDict):
 class Run(TypedDict, total=False):
     id: str
     session_id: str
-    message_id: int
+    first_message_id: int
     agent_id: str
-    agent_key: str
-    agent_name: str
     daemon_id: str
+    client_session_id: str
     harness: str
-    status: Literal["pending", "running", "waiting", "succeeded", "failed", "cancelled"]
-    attempt_id: str
-    lease_until: int
-    context_seq: int
+    harness_revision: str
+    status: Literal["running", "waiting", "completed", "failed", "cancelled"]
     result_message_id: int
+    output: str
     error: str
+    result: dict
     created_at: int
     updated_at: int
-
 
 class Delivery(TypedDict, total=False):
     id: int
     message_id: int
-    agent_key: str
+    session_id: str
+    agent_id: str
+    daemon_id: str
+    harness: str
+    content: dict
     run_id: str
-    kind: Literal["new_run", "steer"]
+    input_id: str
+    client_session_id: str
     status: str
     error: str
-
 
 class RunDetail(TypedDict):
     run: Run
@@ -130,14 +132,6 @@ class Client:
 
     def list_harnesses(self, user):
         return self._request("GET", "/api/harnesses", user)
-
-    def create_harness(self, user, name, display_name=None, description=None):
-        return self._request(
-            "POST", "/api/harnesses", user, _drop_none(name=name, display_name=display_name, description=description)
-        )
-
-    def delete_harness(self, user, name):
-        self._request("DELETE", f"/api/harnesses/{_q(name)}", user)
 
     # agents
 
@@ -269,14 +263,14 @@ class Client:
         return self._request("POST", f"/api/sessions/{_q(session_id)}/runs/{_q(run_id)}/cancel", user)
 
 
-    def answer_run_question(self, user, session_id, run_id, question_id, answers):
-        return self._request("POST", f"/api/sessions/{_q(session_id)}/runs/{_q(run_id)}/questions/{_q(question_id)}/answer", user, {"answers": answers})
+    def reply_run_request(self, user, session_id, run_id, request_id, answer):
+        return self._request("POST", f"/api/sessions/{_q(session_id)}/runs/{_q(run_id)}/requests/{_q(request_id)}/reply", user, {"answer": answer})
 
     def wait_run(self, user, session_id, run_id, interval=2, timeout=None, return_on_waiting=False) -> RunDetail:
         start = time.monotonic()
         while True:
             detail = self.get_run(user, session_id, run_id)
-            if detail["run"]["status"] in ("succeeded", "failed", "cancelled") or (return_on_waiting and detail["run"]["status"] == "waiting"):
+            if detail["run"]["status"] in ("completed", "failed", "cancelled") or (return_on_waiting and detail["run"]["status"] == "waiting"):
                 return detail
             if timeout is not None and time.monotonic() - start >= timeout:
                 raise TimeoutError("agentuse: wait_run timed out")
@@ -286,7 +280,7 @@ class Client:
         start = time.monotonic()
         while True:
             detail = self.get_session(user, session_id)
-            if all(d["status"] in ("succeeded", "failed", "cancelled") for d in detail.get("deliveries", []) if d["message_id"] == message_id):
+            if all(d["status"] in ("completed", "failed", "cancelled") for d in detail.get("deliveries", []) if d["message_id"] == message_id):
                 return detail
             if timeout is not None and time.monotonic() - start >= timeout:
                 raise TimeoutError("agentuse: wait_message_runs timed out")

@@ -69,8 +69,8 @@ func TestOpenFile(t *testing.T) {
 		t.Fatalf("reopen: %v %+v", err, got)
 	}
 	hs, _ := s.ListHarnesses(ctx)
-	if len(hs) != 2 {
-		t.Fatalf("builtin harnesses after reopen: %+v", hs)
+	if len(hs) != 0 {
+		t.Fatalf("unreported harnesses after reopen: %+v", hs)
 	}
 }
 

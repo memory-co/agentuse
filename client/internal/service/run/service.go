@@ -27,7 +27,6 @@ type Service struct {
 	FailOnEndpointError bool
 	Path                string
 	fileMu              sync.Mutex
-	serverPaths         map[string]string
 	Sessions            *session.Service
 	Settings            *setting.Service
 	mu                  sync.Mutex
@@ -54,7 +53,7 @@ func New(d Dependencies) *Service {
 	if d.Endpoints == nil {
 		d.Endpoints = &endpoint.Service{}
 	}
-	m := &Service{serverPaths: map[string]string{}, Path: d.Endpoints.Path, Endpoints: d.Endpoints, Settings: d.Settings, Sessions: d.Sessions, Harness: d.Harness, workers: map[string]*endpointWorker{}, slots: make(chan struct{}, min(8, max(2, runtime.NumCPU()))), log: log.Default()}
+	m := &Service{Path: d.Endpoints.Path, Endpoints: d.Endpoints, Settings: d.Settings, Sessions: d.Sessions, Harness: d.Harness, workers: map[string]*endpointWorker{}, slots: make(chan struct{}, min(8, max(2, runtime.NumCPU()))), log: log.Default()}
 	m.localCtx, m.localCancel = context.WithCancel(context.Background())
 	m.localRuns = map[string]*localExecution{}
 	m.Sessions.Protected = m.pendingConversation
@@ -65,13 +64,27 @@ func (s *Service) Snapshot() any {
 	defer s.mu.Unlock()
 	eps := []map[string]any{}
 	running := s.localActiveCount()
-	eps = append(eps, map[string]any{"endpoint_id": endpoint.LocalID, "state": endpoint.LocalID, "active_sessions": running})
+	localCount := 0
+	s.localMu.Lock()
+	for _, active := range s.localRuns {
+		if active.session.EndpointID == endpoint.LocalID {
+			localCount++
+		}
+	}
+	s.localMu.Unlock()
+	eps = append(eps, map[string]any{"endpoint_id": endpoint.LocalID, "state": endpoint.LocalID, "active_sessions": localCount})
 	for id, w := range s.workers {
 		w.run.mu.Lock()
-		n := len(w.run.running)
 		online := w.run.conn != nil
 		w.run.mu.Unlock()
-		running += n
+		n := 0
+		s.localMu.Lock()
+		for _, active := range s.localRuns {
+			if active.session.EndpointID == id {
+				n++
+			}
+		}
+		s.localMu.Unlock()
 		state := "offline"
 		if online {
 			state = "online"
@@ -113,7 +126,7 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 		id := ep.ID()
 		cfg := Config{ConfigPath: s.Path, Server: ep.ServerURL, DaemonID: ep.DeviceID, Key: ep.DeviceKey, EndpointID: id, Enabled: true, Settings: settings, RunService: s, Slots: s.slots, Sessions: s.Sessions, Harness: s.Harness}
-		connection, err := newConnection(cfg, nil, s.ServerForEndpoint(id))
+		connection, err := newConnection(cfg, nil)
 		if err != nil {
 			s.mu.Unlock()
 			return err

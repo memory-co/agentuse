@@ -2,38 +2,38 @@ package protocol
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
-// 线上格式是和 daemon 的约定，字段名、omitempty 改了旧版本 daemon 就对不上了。
-func TestMessageJSON(t *testing.T) {
-	for _, c := range []struct {
-		msg  Message
-		want string
-	}{
-		{Message{Type: TypeReady}, `{"type":"ready"}`},
-		{Message{Type: TypeHeartbeat, MessageID: 7}, `{"type":"heartbeat","message_id":7}`},
-		{Message{Type: TypeHello, Version: "v1", Harnesses: []Harness{{Name: "claude", Version: "2"}, {Name: "x"}}},
-			`{"type":"hello","harnesses":[{"name":"claude","version":"2"},{"name":"x"}],"version":"v1"}`},
-		{Message{Type: TypeEvent, MessageID: 1, Kind: "done", Payload: json.RawMessage(`{"ok":true}`)},
-			`{"type":"event","message_id":1,"kind":"done","payload":{"ok":true}}`},
-		{Message{Type: TypeRun, Run: &Dispatch{ID: 1, SessionID: "ss_1", Harness: "claude", Input: json.RawMessage(`{"prompt":"hi"}`)}},
-			`{"run":{"sender":{"id":"","name":""},"id":1,"session_id":"ss_1","harness":"claude","input":{"prompt":"hi"}},"type":"run"}`},
-	} {
-		b, err := json.Marshal(c.msg)
-		if err != nil || string(b) != c.want {
-			t.Errorf("got %s\nwant %s", b, c.want)
+func TestExecutionMessagesPreservePublicEventsAndOpaqueAnswers(t *testing.T) {
+	event := json.RawMessage(`{"type":"result","run_id":"550e8400-e29b-41d4-a716-446655440000","input_ids":["input"],"status":"completed","output":"中文","usage":{"input_tokens":7}}`)
+	messages := []Message{{Type: TypePrompt, Prompt: &Prompt{ID: 1, ConversationID: "conversation", AgentID: "agent", Harness: "client-label", Content: "input"}}, {Type: TypeEvent, ClientEvent: &ClientEvent{SessionID: "client-session", Seq: 99, Event: event}}, {Type: TypeReply, Control: &SessionControl{ID: "control", RequestID: "request", Answer: json.RawMessage(`{"q":["one","two"]}`)}}}
+	for _, message := range messages {
+		data, err := json.Marshal(message)
+		if err != nil {
+			t.Fatal(err)
 		}
-		var back Message
-		if err := json.Unmarshal(b, &back); err != nil || back.Type != c.msg.Type {
-			t.Errorf("round trip %s: %v", b, err)
+		for _, foreign := range []string{"attempt_id", "lease_until", "argv", "approvalPolicy", "sandbox"} {
+			if strings.Contains(string(data), foreign) {
+				t.Fatal("native execution detail leaked", foreign)
+			}
+		}
+		var roundtrip Message
+		if err = json.Unmarshal(data, &roundtrip); err != nil {
+			t.Fatal(err)
+		}
+		if roundtrip.Type != message.Type {
+			t.Fatal(roundtrip)
 		}
 	}
-}
-
-func TestHarnessInputJSON(t *testing.T) {
-	b, _ := json.Marshal(HarnessInput{SessionID: "ss_1", Input: json.RawMessage(`{"prompt":"hi"}`)})
-	if string(b) != `{"session_id":"ss_1","input":{"prompt":"hi"}}` {
-		t.Fatalf("%s", b)
+	var decoded Message
+	raw, _ := json.Marshal(messages[1])
+	json.Unmarshal(raw, &decoded)
+	var a, b any
+	json.Unmarshal(event, &a)
+	json.Unmarshal(decoded.ClientEvent.Event, &b)
+	if strings.TrimSpace(string(decoded.ClientEvent.Event)) != string(event) {
+		t.Fatal("public event was translated")
 	}
 }
