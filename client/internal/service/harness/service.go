@@ -195,7 +195,7 @@ func (s Service) Packages() (map[string]Adapter, error) {
 			if e = json.Unmarshal(data, &m); e != nil {
 				return nil, e
 			}
-			if m.Protocol != "harnessctl/2" || m.Entrypoint == "" || filepath.Base(m.Entrypoint) != m.Entrypoint {
+			if m.Protocol != "harnessctl/3" || m.Entrypoint == "" || filepath.Base(m.Entrypoint) != m.Entrypoint {
 				return nil, fmt.Errorf("invalid harnessctl package %s", dir)
 			}
 			disabled := false
@@ -246,7 +246,7 @@ func SaveCommandAdapters(root string, commands map[string]HarnessConfig) error {
 		if e = os.WriteFile(filepath.Join(dir, "harnessctl"), []byte("#!/bin/sh\nexec "+strings.Join(parts, " ")+" \"$@\"\n"), 0700); e != nil {
 			return e
 		}
-		m := map[string]any{"name": name, "version": "local", "protocol": "harnessctl/2", "entrypoint": "harnessctl", "commands": []string{"send", "cancel", "status", "reply"}, "requests": []string{"permission", "question"}}
+		m := map[string]any{"name": name, "version": "local", "protocol": "harnessctl/3", "entrypoint": "harnessctl", "commands": []string{"init", "send", "cancel", "status", "reply"}, "requests": []string{"permission", "question"}}
 		b, _ := json.Marshal(m)
 		if e = os.WriteFile(filepath.Join(dir, "manifest.json"), b, 0600); e != nil {
 			return e

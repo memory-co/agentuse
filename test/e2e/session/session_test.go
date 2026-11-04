@@ -139,7 +139,7 @@ func writeAdapterConfig(t *testing.T, path string, v map[string]any) {
 		} else {
 			script, _ := filepath.Abs("../../../harnessctl/tests/fake_adapter.py")
 			os.WriteFile(filepath.Join(dir, "harnessctl"), []byte(fmt.Sprintf("#!/bin/sh\nexec python3 %q %q \"$@\"\n", script, command)), 0700)
-			data, _ := json.Marshal(map[string]any{"name": name, "version": "fixture", "protocol": "harnessctl/2", "entrypoint": "harnessctl", "commands": []string{"send", "cancel", "status", "reply"}})
+			data, _ := json.Marshal(map[string]any{"name": name, "version": "fixture", "protocol": "harnessctl/3", "entrypoint": "harnessctl", "commands": []string{"init", "send", "cancel", "status", "reply"}})
 			os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0600)
 		}
 	}

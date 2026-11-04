@@ -12,8 +12,19 @@ def argv(config):
     return args
 
 
+def open_thread(r):
+    params = dict(cwd=r.config['cwd'], approvalPolicy='never', sandbox='danger-full-access')
+    if r.config['resources']['agents'] is not None:
+        from pathlib import Path
+        params['developerInstructions'] = (Path(r.config['resources_dir'])/'agents.md').read_text(encoding='utf8')
+    resume = r.config.get('resume')
+    if resume:
+        params['threadId'] = resume
+    r.request('thread/resume' if resume else 'thread/start', params)
+
+
 def initialize(r):
-    r.request('initialize', dict(clientInfo=dict(name='harnessctl', version='0.3.0'),
+    r.request('initialize', dict(clientInfo=dict(name='harnessctl', version='0.4.0'),
                                  capabilities=dict(experimentalApi=True)))
 
 
@@ -102,12 +113,22 @@ def frame(r, f):
         result = f.get('result', {})
         if method == 'initialize':
             r.write(dict(method='initialized', params={}))
-            # Set this on both creation and resume; do not inherit host defaults.
-            params = dict(cwd=r.config['cwd'], approvalPolicy='never', sandbox='danger-full-access')
-            resume = r.config.get('resume')
-            if resume:
-                params['threadId'] = resume
-            r.request('thread/resume' if resume else 'thread/start', params)
+            if r.config['resources']['skills']:
+                from pathlib import Path
+                r.request('skills/extraRoots/set', dict(extraRoots=[str(Path(r.config['resources_dir'])/'skills')]))
+            else:
+                open_thread(r)
+        elif method == 'skills/extraRoots/set':
+            r.request('skills/list', dict(cwds=[r.config['cwd']], forceReload=True))
+        elif method == 'skills/list':
+            from pathlib import Path
+            root = Path(r.config['resources_dir'])/'skills'
+            found = {skill['name'] for group in result.get('data', []) for skill in group.get('skills', [])
+                     if skill.get('enabled', True) and root in Path(skill.get('path', '')).parents}
+            expected = {skill['name'] for skill in r.config['resources']['skills']}
+            if not expected <= found:
+                raise RuntimeError('native Codex did not discover configured skills: '+','.join(sorted(expected-found)))
+            open_thread(r)
         elif method in ('thread/start', 'thread/resume'):
             r.thread = result['thread']['id']
             r.native_ready(f)

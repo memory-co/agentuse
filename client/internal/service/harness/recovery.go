@@ -76,7 +76,7 @@ func (s Service) resolveRevision(name, want string) (Adapter, error) {
 		if err = json.Unmarshal(data, &m); err != nil {
 			return Adapter{}, err
 		}
-		if m.Protocol != "harnessctl/2" || m.Entrypoint == "" || filepath.Base(m.Entrypoint) != m.Entrypoint {
+		if m.Protocol != "harnessctl/3" || m.Entrypoint == "" || filepath.Base(m.Entrypoint) != m.Entrypoint {
 			return Adapter{}, fmt.Errorf("invalid recovery adapter")
 		}
 		return Adapter{Name: name, Path: filepath.Join(dir, m.Entrypoint), PackageDir: dir, Revision: rev, Manifest: m}, nil

@@ -234,7 +234,10 @@ func (s Service) DriveSession(ctx context.Context, a Adapter, prompt string, dir
 		}
 		return result
 	}
-	if _, e = command(ctx, a, events, "send", prompt, "--cwd", dir); e != nil {
+	if _, e = command(ctx, a, events, "init", "", "--cwd", dir); e != nil {
+		return DriveResult{Error: e.Error()}
+	}
+	if _, e = command(ctx, a, events, "send", prompt); e != nil {
 		return fail(e)
 	}
 	// Native consumption can wait for a tool boundary. Keep observing events and
@@ -280,7 +283,7 @@ func (s Service) DriveSession(ctx context.Context, a Adapter, prompt string, dir
 			pendingSends = pendingSends[1:]
 			sendBusy = true
 			go func() {
-				_, err := command(sendCtx, a, events, "send", step.prompt, "--cwd", dir)
+				_, err := command(sendCtx, a, events, "send", step.prompt)
 				sendDone <- err
 			}()
 		}

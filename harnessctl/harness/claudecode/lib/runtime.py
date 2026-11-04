@@ -19,7 +19,7 @@ import uuid
 
 from events import validate_event
 
-PROTOCOL = 'harnessctl/2'
+PROTOCOL = 'harnessctl/3'
 IDLE_SECONDS = 60
 MAX_TEXT = 256 * 1024
 MAX_COMMAND = 2 * 1024 * 1024
@@ -129,7 +129,7 @@ def replay_critical(events):
 def rpc(events, command):
     try:
         with socket.socket(socket.AF_UNIX) as sock:
-            sock.settimeout(300 if command.get("verb") == "send" else 5)
+            sock.settimeout(300 if command.get('verb') == 'send' else 5)
             sock.connect(address(events))
             sock.sendall(json.dumps(command).encode() + b'\n')
             reply = sock.makefile('rb').readline(MAX_COMMAND + 1)
@@ -237,9 +237,9 @@ class Runtime:
 
     def snapshot(self):
         state = ('cancelling' if self.cancelling else 'awaiting_reply' if self.requests
-                 else 'running' if self.turn or self.starting or self.queued or any(not i.get('resolved') for i in self.inputs.values())
+                 else 'running' if self.turn or self.starting or self.queued
                  else 'failed' if self.failed else 'idle')
-        return dict(state=state, queued=len(self.queued) + sum(bool(i.get('native_queued')) and not i.get('resolved') for i in self.inputs.values()), requests=[v['public'] for v in self.requests.values()],
+        return dict(state=state, queued=len(self.queued), requests=[v['public'] for v in self.requests.values()],
                     native_session=self.thread if self.thread != 'pending' else None,
                     adapter=self.backend.NAME, pid=os.getpid(), live=True, run_id=self.active_run_id,
                     unresolved_inputs=[item['id'] for item in self.inputs.values() if not item.get('resolved')])
@@ -518,8 +518,7 @@ class Runtime:
                             except socket.timeout:
                                 pass
                             if (not self.turn and not self.starting and not self.queued and not self.requests
-                                    and not self.pending and not any(not i.get('resolved') for i in self.inputs.values())
-                                    and time.monotonic()-self.last_activity > IDLE_SECONDS):
+                                    and not self.pending and time.monotonic()-self.last_activity > IDLE_SECONDS):
                                 shutdown = open(self.directory / 'control.lock', 'a')
                                 try:
                                     fcntl.flock(shutdown, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -608,14 +607,17 @@ def public_status(state, config):
 
 
 def parser():
-    p = argparse.ArgumentParser(description='harnessctl/2: send, cancel, status, reply')
+    p = argparse.ArgumentParser(description='harnessctl/3: init, send, cancel, status, reply')
     sub = p.add_subparsers(dest='verb', required=True)
-    for verb in ('send', 'cancel', 'status', 'reply'):
+    for verb in ('init', 'send', 'cancel', 'status', 'reply'):
         sp = sub.add_parser(verb)
         sp.add_argument('events', type=Path)
-        if verb == 'send':
+        if verb == 'init':
             sp.add_argument('--cwd')
             sp.add_argument('--model')
+            sp.add_argument('--agents-md')
+            sp.add_argument('--skills-dir', action='append')
+        if verb == 'send':
             sp.add_argument('prompt', nargs='?', help='omitted: read UTF-8 stdin to EOF')
         if verb == 'reply':
             sp.add_argument('request_id')
@@ -714,6 +716,8 @@ def recycle(events):
 
 
 def launch(events, backend, config):
+    import resources
+    resources.validate(config)
     directory = Path(str(events) + '.d')
     native = directory / 'native.json'
     if backend_alive(directory):
@@ -740,6 +744,60 @@ def launch(events, backend, config):
     raise Rejected('runtime initialization timed out; inspect status before retrying')
 
 
+def initialize_session(events, backend, args):
+    import resources
+    import shutil
+    directory = Path(str(events)+'.d')
+    marker = directory/'initializing.json'
+    if marker.exists():
+        previous = json.loads(marker.read_text())
+        stage = previous.get('stage', '')
+        if not stage.startswith('.init-') or Path(stage).name != stage:
+            raise Rejected('invalid initialization recovery marker')
+        if events.exists() and (not events.is_file() or events.stat().st_size):
+            raise Rejected('initialization has unexpected history; refusing to overwrite it')
+        events.unlink(missing_ok=True)
+        shutil.rmtree(directory/stage, ignore_errors=True)
+        shutil.rmtree(directory/'resources', ignore_errors=True)
+        marker.unlink()
+    if events.exists() or (directory/'resources').exists():
+        raise Rejected('existing event file/resources have no adapter state; refusing to overwrite them', 2)
+    if args.model is not None and not args.model.strip():
+        raise Rejected('model must be nonempty', 2)
+    try:
+        cwd = Path(args.cwd or os.getcwd()).expanduser().resolve(strict=True)
+    except OSError as exc:
+        raise Rejected(str(exc), 2) from exc
+    if not cwd.is_dir():
+        raise Rejected('cwd must be a directory', 2)
+    stage = directory/('.init-'+identity())
+    write_json(marker, dict(stage=stage.name))
+    created = False
+    try:
+        snapshot = resources.prepare(args, stage, cwd, events)
+        fd = os.open(events, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.fsync(fd)
+        os.close(fd)
+        created = True
+        sync_directory(events.parent)
+        stage.rename(directory/'resources')
+        config = dict(protocol=PROTOCOL, adapter=backend.NAME, cwd=str(cwd), model=args.model,
+                      history_started=False, environment_hash=environment_hash(),
+                      resources_dir=str(directory/'resources'), resources=snapshot)
+        # This is the commit point. Other commands hold the same control lock.
+        write_json(directory/'config.json', config)
+        marker.unlink()
+        sync_directory(directory)
+    except (OSError, ValueError) as exc:
+        if not (directory/'config.json').exists():
+            if created:
+                events.unlink(missing_ok=True)
+                shutil.rmtree(directory/'resources', ignore_errors=True)
+            shutil.rmtree(stage, ignore_errors=True)
+            marker.unlink(missing_ok=True)
+        raise Rejected(str(exc), 2) from exc
+
+
 def main(backend):
     os.umask(0o077)
     try:
@@ -750,47 +808,42 @@ def main(backend):
             config = json.loads((directory / 'config.json').read_text())
             native = directory / 'native.json'
             config['resume'] = json.loads(native.read_text())['resume'] if native.exists() else None
+            import resources
+            resources.validate(config)
             Runtime(events, backend, config).run()
             return 0
         args = parser().parse_args()
         content = body(args.prompt) if args.verb == 'send' else body(args.answer) if args.verb == 'reply' else None
         events = args.events.expanduser().resolve()
         directory = Path(str(events) + '.d')
-        if not directory.exists() and args.verb != 'send':
-            raise Rejected('conversation does not exist', 4)
+        if not directory.exists() and args.verb != 'init':
+            raise Rejected('conversation does not exist; use init first', 4)
         directory.mkdir(mode=0o700, exist_ok=True)
-        # This lock serializes first creation, restarts, send and cancel; two
-        # concurrent first sends can never create two native contexts.
+        # Serializes init, recovery, and foreground commands for one event address.
         with open(directory / 'control.lock', 'a') as control:
             fcntl.flock(control, fcntl.LOCK_EX)
             path = directory / 'config.json'
-            if path.exists():
-                config = json.loads(path.read_text())
-                if not events.is_file():
-                    raise Rejected('event file is missing; refusing to silently recreate conversation history')
-                if config.get('protocol') != PROTOCOL:
-                    raise Rejected('event address uses an incompatible protocol; use a new event file', 2)
-                if config.get('adapter') != backend.NAME:
-                    raise Rejected('event file belongs to another adapter', 2)
-                if args.verb == 'send':
-                    if args.cwd is not None and str(Path(args.cwd).expanduser().resolve(strict=True)) != config['cwd']:
-                        raise Rejected('cwd is bound to this event path; use a different event file', 2)
-                    if args.model is not None and args.model != config.get('model'):
-                        raise Rejected('model is bound to this event path; use a different event file', 2)
-            else:
-                if args.verb != 'send':
-                    raise Rejected('conversation does not exist', 4)
-                cwd = str(Path(args.cwd or os.getcwd()).expanduser().resolve(strict=True))
-                if not Path(cwd).is_dir():
-                    raise Rejected('cwd must be a directory', 2)
+            if args.verb == 'init' and not path.exists():
+                initialize_session(events, backend, args)
+                return 0
+            if not path.exists():
+                raise Rejected('conversation does not exist; use init first', 4)
+            config = json.loads(path.read_text())
+            if not events.is_file():
+                raise Rejected('event file is missing; refusing to silently recreate conversation history')
+            if config.get('protocol') != PROTOCOL:
+                raise Rejected('event address uses an incompatible protocol; use a new event file', 2)
+            if config.get('adapter') != backend.NAME:
+                raise Rejected('event file belongs to another adapter', 2)
+            import resources
+            if args.verb in ('init', 'send'):
+                resources.validate(config)
+            if args.verb == 'init':
                 try:
-                    fd = os.open(events, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-                    os.close(fd)
-                    sync_directory(events.parent)
-                except FileExistsError as exc:
-                    raise Rejected('existing event file has no adapter state; refusing to overwrite it', 2) from exc
-                config = dict(protocol=PROTOCOL, adapter=backend.NAME, cwd=cwd, model=args.model, history_started=False, environment_hash=environment_hash())
-                write_json(path, config)
+                    resources.compare(config, args, events)
+                except (OSError, ValueError) as exc:
+                    raise Rejected(str(exc), 2) from exc
+                return 0
             state, live = inspect_state(events, config)
             if args.verb == 'status':
                 print(json.dumps(state, ensure_ascii=False))
@@ -805,10 +858,9 @@ def main(backend):
                     write_json(path, config)
                 if not live:
                     launch(events, backend, config)
-                # Receipt may wait for a native tool boundary. Keep cancel,
-                # reply and status usable while this send awaits consumption.
-                fcntl.flock(control, fcntl.LOCK_UN)
-                rpc(events, dict(verb='send', prompt=content))
+                # Acceptance may wait for a native consumption boundary. Release
+                # the process-control lock before waiting, so status/reply/cancel
+                # and other sends remain available.
             elif args.verb == 'cancel':
                 if live:
                     rpc(events, dict(verb='cancel'))
@@ -820,6 +872,8 @@ def main(backend):
                 if not live:
                     raise Rejected('request has expired', 4)
                 rpc(events, dict(verb='reply', request_id=args.request_id, answer=content))
+        if args.verb == 'send':
+            rpc(events, dict(verb='send', prompt=content))
         return 0
     except Rejected as exc:
         print(str(exc), file=sys.stderr)

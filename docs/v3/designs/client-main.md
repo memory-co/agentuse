@@ -12,7 +12,7 @@ Client 从输入来源接收文本，选择本机 session，调用 harnessctl，
 | settingService | 本机监听、工作根目录和 quota | setting.yaml 的启动快照 |
 | sessionService | session 选择、占用、共同工作目录和回收 | conversation 下的 session.yaml |
 | runService | 接收输入、驱动 session、登记实际 run、查询和控制 | runs/<run_id>.jsonl 引用及 events.jsonl |
-| harnessService | 安装和固定适配器，通过四个命令执行和读取公共事件 | ~/.agentuse/harness/ 下的启动快照 |
+| harnessService | 安装和固定适配器，通过 init 和四个交互命令执行、读取公共事件 | ~/.agentuse/harness/ 下的启动快照 |
 
 controller 处理本机 HTTP，通过 sessionService 和 runService 的只读查询接口获取页面数据。各 service 直接管理自己负责的 YAML / JSONL 文件；client 不设 store、repository、Ledger 或统一 Reader / Writer 层。fileutil 只提供路径检查、原子文件写入、YAML 编解码和进程文件锁，不包含业务实体、索引或恢复策略。原生 Codex RPC、Claude stream-json、权限策略和进程生命周期全部属于独立 harnessctl 包，client 不实现另一套原生协议。
 

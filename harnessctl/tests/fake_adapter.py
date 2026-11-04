@@ -18,9 +18,14 @@ def main():
     root = pathlib.Path(path+'.fixture'); root.mkdir(parents=True, exist_ok=True)
     pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
     def event(kind, run, **fields): append(path, dict(type=kind, run_id=run, **fields))
+    if verb == 'init':
+        cwd = args[args.index('--cwd')+1] if '--cwd' in args else os.getcwd()
+        (root/'config.json').write_text(json.dumps(dict(cwd=cwd)))
+        pathlib.Path(path).touch(exist_ok=True)
+        return
     if verb == 'send':
         prompt = sys.stdin.read(); run = str(uuid.uuid4()); iid = str(uuid.uuid4())
-        cwd = args[args.index('--cwd')+1] if '--cwd' in args else os.getcwd()
+        cwd = json.loads((root/'config.json').read_text())['cwd']
         event('accepted', run, input_id=iid, text=prompt)
         p = subprocess.Popen([sys.executable, __file__, backend, '_worker', path, run, iid, cwd], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         (root/(run+'.pid')).write_text(str(p.pid))

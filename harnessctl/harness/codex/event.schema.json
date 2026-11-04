@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "harnessctl/2 public event",
+  "title": "harnessctl public event",
   "oneOf": [
     {
       "$ref": "#/$defs/accepted"

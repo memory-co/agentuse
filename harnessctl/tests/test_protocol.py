@@ -72,6 +72,10 @@ class ProtocolTests(unittest.TestCase):
         event = event or self.root/(adapter+'.jsonl')
         self.sessions[event] = adapter
         argv = list(args)
+        if not Path(str(event)+'.d/config.json').exists():
+            result = self.call(adapter, 'init', event, *argv)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            argv = []
         if prompt is not None:
             argv.append(prompt)
         result = self.call(adapter, 'send', event, *argv, stdin=stdin)
@@ -114,11 +118,11 @@ class ProtocolTests(unittest.TestCase):
             self.stop(event)
         self.temp.cleanup()
 
-    def test_four_commands_only(self):
+    def test_five_commands_only(self):
         for adapter in ADAPTERS:
             result=self.call(adapter,'--help')
             self.assertEqual(result.returncode,0)
-            self.assertIn('{send,cancel,status,reply}',result.stdout)
+            self.assertIn('{init,send,cancel,status,reply}',result.stdout)
             for verb in ('start','doctor','close'):
                 self.assertEqual(self.call(adapter,verb,self.root/'absent').returncode,2)
             for flag in ('--delivery','--if-idle','--resume','--id','--backend-arg','--run-id'):
@@ -127,7 +131,10 @@ class ProtocolTests(unittest.TestCase):
     def test_first_send_stdin_continuation_and_binding(self):
         for adapter in ADAPTERS:
             text='literal $HOME `whoami` \\ "quote"\n中文\n'
-            event=self.send(adapter,None,'--cwd',str(self.root),'--model','test-model',stdin=text)
+            event=self.root/(adapter+'.jsonl')
+            initialized=self.call(adapter,'init',event,'--cwd',str(self.root),'--model','test-model')
+            self.assertEqual(initialized.returncode,0,initialized.stderr)
+            event=self.send(adapter,None,event=event,stdin=text)
             self.wait(event,'message',text=text)
             self.wait(event,'result',status='completed')
             state=self.status(adapter,event)
@@ -213,6 +220,7 @@ class ProtocolTests(unittest.TestCase):
     def test_concurrent_first_sends_have_one_runtime(self):
         event=self.root/'concurrent.jsonl'
         self.sessions[event]='codex'
+        self.assertEqual(self.call('codex','init',event).returncode,0)
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
             results=list(pool.map(lambda _:self.call('codex','send',event,'hold'),range(8)))
         self.assertTrue(all(x.returncode==0 for x in results),[x.stderr for x in results])
@@ -311,7 +319,8 @@ class ProtocolTests(unittest.TestCase):
         event=self.send('codex')
         self.assertEqual(self.call('claudecode','status',event).returncode,2)
         existing=self.root/'foreign.jsonl';existing.write_text('preserve\n')
-        self.assertEqual(self.call('codex','send',existing,'no').returncode,2)
+        self.assertEqual(self.call('codex','init',existing).returncode,2)
+        self.assertEqual(self.call('codex','send',existing,'no').returncode,4)
         self.assertEqual(existing.read_text(),'preserve\n')
         self.assertEqual(self.call('codex','status',self.root/'absent').returncode,4)
 
@@ -457,7 +466,7 @@ class ProtocolTests(unittest.TestCase):
             self.assertEqual(archive.read_bytes(),package.build(self.root/'build2',adapter).read_bytes())
             with tarfile.open(archive) as source:
                 self.assertTrue(all(x.name.startswith(adapter+'/') for x in source.getmembers()))
-                self.assertTrue({adapter+'/EVENT.md',adapter+'/event.schema.json',adapter+'/lib/events.py'}.issubset(source.getnames()))
+                self.assertTrue({adapter+'/EVENT.md',adapter+'/event.schema.json',adapter+'/lib/events.py',adapter+'/lib/resources.py'}.issubset(source.getnames()))
                 source.extractall(unpacked)
         shutil.rmtree(self.dist);self.dist=unpacked
         for adapter in ADAPTERS:

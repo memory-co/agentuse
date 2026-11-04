@@ -1,6 +1,6 @@
 # codex harnessctl 适配器
 
-> 本文命令示例为 harnessctl/3 的 init 设计稿；当前执行代码和 manifest 仍为 harnessctl/2，尚未实现 init 及资源配置。
+> 当前实现为 harnessctl/3（包版本 0.4.0）。必须先 init；send 不再接受配置参数，旧版命令协议不兼容。
 
 本目录是完整独立分发包，入口仅加载本目录 lib/。依赖 Linux、Python 3.9+ 标准库以及已安装并配置认证的原生 codex，不依赖父目录、其他适配器或 AgentUse。
 
@@ -16,9 +16,9 @@ printf '%s' "$prompt" | "$A" send /tmp/task.jsonl
 "$A" cancel /tmp/task.jsonl
 ```
 
-目标公开命令为 init、send、cancel、status、reply。init 绑定 cwd/model 和可选资源，保存快照，不启动原生执行进程、不调用模型、不产生 run；send 只接收事件地址和正文，不接受配置参数，未 init 返回 4。send/reply 省略正文参数时从 UTF-8 stdin 读取。事件文件路径是唯一会话身份；首次发送自动启动，空闲回收后自动恢复原生上下文。无需管理 start、投递策略、session ID 或进程生命周期。cancel 停止当前工作和待处理输入，保留对话历史。
+公开命令为 init、send、cancel、status、reply。init 绑定 cwd/model 和可选资源，保存快照，不启动原生执行进程、不调用模型、不产生 run；send 只接收事件地址和正文，不接受配置参数，未 init 返回 4。send/reply 省略正文参数时从 UTF-8 stdin 读取。事件文件路径是唯一会话身份；首次发送自动启动，空闲回收后自动恢复原生上下文。无需管理 start、投递策略、session ID 或进程生命周期。cancel 停止当前工作和待处理输入，保留对话历史。
 
-目标命令协议为 harnessctl/3，见 [完整协议规范](https://github.com/memory-co/agentuse/blob/main/harnessctl/README.md)。问题回复使用统一 question id 到文本/数组的 JSON 对象，适配器转换原生格式。能力和依赖见 manifest.json。运行状态保存在事件文件旁的 .d/，分发包按只读使用。
+命令协议为 harnessctl/3，见 [完整协议规范](https://github.com/memory-co/agentuse/blob/main/harnessctl/README.md)。问题回复使用统一 question id 到文本/数组的 JSON 对象，适配器转换原生格式。能力和依赖见 manifest.json。运行状态保存在事件文件旁的 .d/，分发包按只读使用。
 
 init 的 --agents-md 保存为私有快照，创建和恢复原生 thread 时以 developerInstructions 注入。--skills-dir 可重复，技能快照在创建 thread 前通过 skills/extraRoots/set 注册，并用 skills/list 确认发现。整个资源目录放在事件地址旁的 .d/resources/，不在 cwd 创建指令文件或技能目录，不改用户全局配置。原生进程重建时重新应用同一快照。
 

@@ -1,4 +1,4 @@
-# harnessctl/2：五种公共 JSONL 事件
+# harnessctl：五种公共 JSONL 事件
 
 事件只有 **accepted、message、request、result、log** 五种。前四种是关键消息：可靠落盘，不能通过丢日志的方式丢弃；log 只用于展示过程和诊断，可以丢弃、合并或限流。机器契约见 [event.schema.json](event.schema.json)。每个独立适配器包携带相同文档、Schema 和标准库校验器，所有写入均校验。
 

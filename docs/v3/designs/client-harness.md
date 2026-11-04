@@ -17,18 +17,22 @@ harnessService 只接收准备好的 UTF-8 文本、工作目录、适配器和�
 
 AgentUse 来源注册名沿用 codex、claude，独立包分别为 codex、claudecode。每个独立包可单独分发，不依赖 AgentUse Go 模块。当前内置包需要 Linux、Python 3.9+ 和已配置的原生 CLI。
 
-## 四个命令
+## 五个命令（harnessctl/3）
 
 ```text
-harnessctl send <events.jsonl> [--cwd DIR] [--model MODEL]
+harnessctl init <events.jsonl> [--cwd DIR] [--model MODEL]
+                [--agents-md FILE] [--skills-dir DIR ...]
+harnessctl send <events.jsonl>
 harnessctl reply <events.jsonl> <request_id>
 harnessctl cancel <events.jsonl>
 harnessctl status <events.jsonl>
 ```
 
-send 的正文和 reply 的答案通过 stdin 传递，不通过 shell 拼接。首次 send 自动建立原生上下文；后续 send 自动复用。client 不调用 start、resume、steer 或 queue。
+init 绑定配置并持久化资源快照，不启动原生进程或模型。驱动先调用 init --cwd，再通过 stdin 向 send 提交正文；reply 的答案也走 stdin，不通过 shell 拼接。首次 send 自动建立原生上下文；后续 send 自动复用。client 不调用 start、resume、steer 或 queue。
 
-Client 的 session API 使用 send/reply/cancel，status API 返回公开状态。旧 server 中叫 steer/answer 的消息，只在输入边界转换为这些操作；该名字不进入 client 的控制 API。
+Client 的 session API 使用 send/reply/cancel，status API 返回公开状态。Server 的 prompt/reply/cancel 只传业务输入与控制，不选择原生投递策略。
+
+外部指令和技能由适配器的 init 统一接收：--agents-md 指令快照、可重复的 --skills-dir 技能根目录保存在 events.jsonl.d/resources/，不写入共享 workspace。原始资源删除后仍可恢复相同快照；改配置使用新的事件地址。完整约定见 [harnessctl 协议](../../../harnessctl/README.md)。当前 client 自动调用 init --cwd；CLI 资源配置可直接在独立适配器使用，本次未增加 client UI 的资源配置入口。
 
 ## 五种公共事件
 

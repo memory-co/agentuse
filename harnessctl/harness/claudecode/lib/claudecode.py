@@ -18,6 +18,12 @@ def argv(config):
     args = [BINARY, '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
             '--verbose', '--replay-user-messages', '--permission-mode', 'bypassPermissions',
             '--permission-prompt-tool', 'stdio']
+    from pathlib import Path
+    resources = Path(config['resources_dir'])
+    if config['resources']['agents'] is not None:
+        args += ['--append-system-prompt-file', str(resources/'agents.md')]
+    if config['resources']['skills']:
+        args += ['--plugin-dir', str(resources/'native')]
     if config['resume']:
         args += ['--resume', config['resume']]
     if config['model']:

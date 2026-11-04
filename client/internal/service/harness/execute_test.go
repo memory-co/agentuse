@@ -61,7 +61,7 @@ func TestHarnessctlExecutionAndEnvironmentRefresh(t *testing.T) {
 	for _, name := range []string{"codex", "claude"} {
 		t.Run(name, func(t *testing.T) {
 			service, adapter, workspace := fixture(t, name)
-			for _, id := range []string{"first-attempt", "second-attempt"} {
+			for _, id := range []string{"first-environment", "second-environment"} {
 				adapter.Env = []string{"AGENTUSE_RUN=" + id}
 				result := service.DriveSession(context.Background(), adapter, dispatch("environment"), workspace, NewInput(time.Second), nil)
 				if !result.OK || result.Output != id || len(result.RunIDs) != 1 {
@@ -167,7 +167,7 @@ func TestPackageProtocolAndNoNativeSpecification(t *testing.T) {
 		t.Fatal(e)
 	}
 	for name, adapter := range packages {
-		if adapter.Manifest.Protocol != "harnessctl/2" || filepath.Base(adapter.Path) != "harnessctl" {
+		if adapter.Manifest.Protocol != "harnessctl/3" || filepath.Base(adapter.Path) != "harnessctl" {
 			t.Fatal(name, adapter)
 		}
 	}
@@ -204,7 +204,10 @@ func TestRecoveryCancelsBeforeReleasingSession(t *testing.T) {
 	cwd := t.TempDir()
 	events := filepath.Join(cwd, "events.jsonl")
 	var err error
-	if _, err = command(context.Background(), adapter, events, "send", "hold", "--cwd", cwd); err != nil {
+	if _, err = command(context.Background(), adapter, events, "init", "", "--cwd", cwd); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = command(context.Background(), adapter, events, "send", "hold"); err != nil {
 		t.Fatal(err)
 	}
 	if err = service.Recover(context.Background(), []RecoverySession{{Harness: adapter.Name, Revision: adapter.Revision, EventsPath: events}}); err != nil {

@@ -1,6 +1,6 @@
 # Server 与 Client 的 WebSocket 协议
 
-本文记录**当前实现**的 `harnessctl-events-v1`，覆盖连接、领取输入、上报执行事实、回复请求、取消和断线恢复。它与适配器本地的 `harnessctl/2` 是两层协议：WebSocket 负责 server/client 通信，harnessctl 负责 client/适配器交互。公共执行事件复用 [harnessctl/EVENT.md](../../../harnessctl/EVENT.md)，不再另定义一套事件格式。
+本文记录**当前实现**的 `harnessctl-events-v1`，覆盖连接、领取输入、上报执行事实、回复请求、取消和断线恢复。它与适配器本地的 `harnessctl/3` 是两层协议：WebSocket 负责 server/client 通信，harnessctl 负责 client/适配器交互。公共执行事件复用 [harnessctl/EVENT.md](../../../harnessctl/EVENT.md)，不再另定义一套事件格式。
 
 Server 分配消息输入、准备业务上下文，client 调用本地适配器执行。**实际 run UUID、输入归属和执行结果由适配器决定，经 client 上报。** Server 负责身份、关联和一致性校验，不解释 Codex/Claude Code 的原生交互。
 

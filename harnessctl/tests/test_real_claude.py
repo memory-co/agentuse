@@ -88,7 +88,9 @@ class RealClaudeSteerTests(unittest.TestCase):
 
             pending = None
             try:
-                initial = command('send', 'Run the tool, then answer.', '--cwd', str(root))
+                initialized = command('init', '--cwd', str(root))
+                self.assertEqual(initialized.returncode, 0, initialized.stderr)
+                initial = command('send', 'Run the tool, then answer.')
                 self.assertEqual(initial.returncode, 0, initial.stderr)
                 wait(lambda rows: any(e['type']=='log' and e['topic']=='tool.started' for e in rows))
                 pending = subprocess.Popen([str(adapter), 'send', str(event), 'STEER_MARKER focus on the additional instruction'], env=env, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

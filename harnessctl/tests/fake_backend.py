@@ -18,6 +18,7 @@ claude = os.path.basename(sys.argv[0]) == 'claude'
 turn = None
 count = 0
 initialized = False
+extra_roots = []
 last_output = ""
 claude_inputs = []
 claude_gated = False
@@ -125,6 +126,12 @@ for line in sys.stdin:
         method = f.get('method')
         if method == 'initialize':
             emit(dict(id=f['id'], result={}))
+        elif method == 'skills/extraRoots/set':
+            extra_roots = f['params']['extraRoots']
+            emit(dict(id=f['id'], result={}))
+        elif method == 'skills/list':
+            skills = [dict(name=p.parent.name, path=str(p), enabled=True) for root in extra_roots for p in Path(root).glob('*/SKILL.md')]
+            emit(dict(id=f['id'], result=dict(data=[dict(cwd=f['params']['cwds'][0], skills=skills, errors=[])])))
         elif method in ('thread/start','thread/resume'):
             emit(dict(id=f['id'], result=dict(thread=dict(id='native-session'))))
         elif method == 'turn/start':

@@ -1,6 +1,6 @@
-# harnessctl/3：本机 Harness CLI 协议（设计稿）
+# harnessctl/3：本机 Harness CLI 协议
 
-> 本文描述新增 init 后的目标命令协议，尚未修改执行代码。当前 runtime 和 manifest 仍为 harnessctl/2，只支持四个命令。实现时同步升级命令协议和 manifest，不兼容旧的 send 配置参数。五种公共事件的格式保持不变，本次不修改事件 Schema。
+> 当前实现为 harnessctl/3：必须先 init，send 只提交正文，不兼容旧版 send 的配置参数。两个独立包版本为 0.4.0。五种公共事件及其字段保持不变。
 
 上层先用 init 将工作目录、模型和可选资源绑定到一个事件文件地址，之后只向该地址发送消息、取消执行、查询状态和回复请求。原生首次启动、运行中补充输入、排队、上下文恢复以及后台进程回收，全部由适配器决定。
 
@@ -30,7 +30,7 @@ harnessctl/
 
 **每个 `harness/<name>/` 目录就是一个分发包。** 单独复制其中一个目录即可运行，不依赖父目录、其他适配器、AgentUse 模块或服务。入口只加载包内 lib，不使用包外符号链接或运行时下载补齐依赖。包按只读使用，运行状态保存在调用方的事件文件旁边。
 
-当前依赖 Linux、Python 3.9+ 标准库以及用户安装并配置认证的原生 codex 或 claude。无 Go/Node.js 包依赖。原生 CLI 自身的依赖仍需满足。目标 manifest 声明 harnessctl/3、五个命令、stdin 支持、平台、基础依赖和实测后端版本，不让上层选择原生传输或投递策略。认证沿用原生 CLI 的配置和继承环境，不通过本协议传密钥。
+当前依赖 Linux、Python 3.9+ 标准库以及用户安装并配置认证的原生 codex 或 claude。无 Go/Node.js 包依赖。原生 CLI 自身的依赖仍需满足。manifest 声明 harnessctl/3、五个命令、stdin 支持、平台、基础依赖和实测后端版本，不让上层选择原生传输或投递策略。认证沿用原生 CLI 的配置和继承环境，不通过本协议传密钥。
 
 ## 2. 公开命令
 
@@ -101,7 +101,7 @@ init 不启动守护进程或原生会话，不写 accepted/result，不分配 r
 - 已有事件文件但缺少有效配置、资源快照或匹配的适配器状态时明确报错，不截断文件，也不猜测并重建历史。
 - cwd/model 和资源参数全部从 send 移除，不保留旧参数形式，也不在首次 send 时隐式初始化。
 
-配置和资源完整提交后，对源文件的后续修改不影响该会话。恢复使用私有快照；不依赖原始路径继续存在。重复 init 未显式指定资源时不重新扫描来源目录。
+配置和资源完整提交后，对源文件的后续修改不影响该会话。恢复使用私有快照；不依赖原始路径继续存在。快照丢失或损坏时拒绝新输入和恢复，不从来源目录静默重建；status 和 cancel 仍可查询及停止已运行任务。重复 init 未显式指定资源时不重新扫描来源目录。
 
 ### 4.3 外部指令与技能资源
 
@@ -254,11 +254,11 @@ python3 -m unittest discover -s harnessctl/tests -v
 python3 harnessctl/package.py
 python3 harnessctl/package.py --adapter claudecode
 cd harnessctl/dist
-sha256sum -c harnessctl-codex-0.3.0-linux.tar.gz.sha256
-sha256sum -c harnessctl-claudecode-0.3.0-linux.tar.gz.sha256
+sha256sum -c harnessctl-codex-0.4.0-linux.tar.gz.sha256
+sha256sum -c harnessctl-claudecode-0.4.0-linux.tar.gz.sha256
 ```
 
-每个压缩包只包含对应的独立适配器目录，使用固定时间和属主元数据，可重复构建。安装/解压不自动执行代码。目标测试仅复制独立目录到仓库外，并隐藏其他适配器；除现有 stdin、忙时补充、取消、回复、失联和独立归档验证外，还必须覆盖：
+每个压缩包只包含对应的独立适配器目录，使用固定时间和属主元数据，可重复构建。安装/解压不自动执行代码。测试仅复制独立目录到仓库外，并隐藏其他适配器；除现有 stdin、忙时补充、取消、回复、失联和独立归档验证外，还必须覆盖：
 
 - send 不接受 cwd/model/资源参数，未 init 返回 4；init 后未启动任何原生执行进程，事件文件为空且 status 为 idle。
 - 并发 init 和 init/send 不暴露半完成配置；重复相同配置不改历史，冲突绑定明确失败。
@@ -267,7 +267,21 @@ sha256sum -c harnessctl-claudecode-0.3.0-linux.tar.gz.sha256
 - 两个事件地址共享 cwd、使用不同指令和技能，资源互不覆盖；cwd 中没有新增指令文件、技能目录或软链接，用户全局配置也未被改写。
 - 指令与技能确实进入原生加载入口，保留按需加载行为；不仅检查适配器启动参数，也验证原生发现及执行效果。
 
-上面的测试和打包命令适用于当前仓库工具；本次仅更新设计，新增 init 验收项尚未实现，现有测试通过不能视为新协议已经落地。
+真实原生 CLI 与本地模拟 API 的插话测试：
+
+```sh
+HARNESSCTL_REAL_CLAUDE=1 python3 -m unittest discover -s harnessctl/tests -p test_real_claude.py -v
+```
+
+调用真实模型验证外部资源与恢复：
+
+```sh
+HARNESSCTL_REAL_LLM=1 python3 -m unittest discover -s harnessctl/tests -p test_real_resources.py -v
+```
+
+真实模型测试沿用本机 Codex/Claude 的认证和 provider 配置，会产生实际调用。测试在首次 send 前删除原始资源，让两个 skill 各执行脚本产生独立证据；停止原生进程后恢复同一上下文，再次验证指令、脚本执行及空 cwd。报告和事件保留在测试输出标示的临时目录，不将凭据写入报告。
+
+已在 Codex 0.165.0、Claude Code 2.1.316 完成上述真实模型验证：各两次交互、同一原生上下文恢复、两个 skill 的脚本各执行两次，资源来源删除后仍正常工作，cwd 保持为空。
 
 ## 默认执行权限
 
