@@ -1,8 +1,10 @@
-# harnessctl/2：本机 Harness CLI 协议
+# harnessctl/3：本机 Harness CLI 协议（设计稿）
 
-上层只需要向一个事件文件地址发送消息、取消执行、查询状态和回复请求。首次启动、运行中补充输入、排队、原生会话恢复以及后台进程回收，全部由适配器决定。
+> 本文描述新增 init 后的目标命令协议，尚未修改执行代码。当前 runtime 和 manifest 仍为 harnessctl/2，只支持四个命令。实现时同步升级命令协议和 manifest，不兼容旧的 send 配置参数。五种公共事件的格式保持不变，本次不修改事件 Schema。
 
-协议参考 [agentctl 的设计](https://twwy.net/blog/agent-cli-protocol/)，但公开接口收敛为 **send、cancel、status、reply**。本版取代原 harnessctl/0 和 harnessctl/1，不保留 start、doctor、close、delivery、if-idle、resume、backend-arg 或调用方指定 input ID 等接口。
+上层先用 init 将工作目录、模型和可选资源绑定到一个事件文件地址，之后只向该地址发送消息、取消执行、查询状态和回复请求。原生首次启动、运行中补充输入、排队、上下文恢复以及后台进程回收，全部由适配器决定。
+
+协议参考 [agentctl 的设计](https://twwy.net/blog/agent-cli-protocol/)，公开接口为 **init、send、cancel、status、reply**。本版取代先前命令协议，不保留 start、doctor、close、delivery、if-idle、resume、backend-arg 或调用方指定 input ID 等接口。
 
 ## 1. 独立分发包
 
@@ -28,22 +30,28 @@ harnessctl/
 
 **每个 `harness/<name>/` 目录就是一个分发包。** 单独复制其中一个目录即可运行，不依赖父目录、其他适配器、AgentUse 模块或服务。入口只加载包内 lib，不使用包外符号链接或运行时下载补齐依赖。包按只读使用，运行状态保存在调用方的事件文件旁边。
 
-当前依赖 Linux、Python 3.9+ 标准库以及用户安装并配置认证的原生 codex 或 claude。无 Go/Node.js 包依赖。原生 CLI 自身的依赖仍需满足。manifest 声明协议版本、四个命令、stdin 支持、平台、基础依赖和实测后端版本，不让上层选择原生传输或投递策略。认证沿用原生 CLI 的配置和继承环境，不通过本协议传密钥。
+当前依赖 Linux、Python 3.9+ 标准库以及用户安装并配置认证的原生 codex 或 claude。无 Go/Node.js 包依赖。原生 CLI 自身的依赖仍需满足。目标 manifest 声明 harnessctl/3、五个命令、stdin 支持、平台、基础依赖和实测后端版本，不让上层选择原生传输或投递策略。认证沿用原生 CLI 的配置和继承环境，不通过本协议传密钥。
 
 ## 2. 公开命令
 
 ```text
-harnessctl send   <events.jsonl> [--cwd DIR] [--model MODEL] [<prompt>]
+harnessctl init   <events.jsonl> [--cwd DIR] [--model MODEL]
+                  [--agents-md FILE] [--skills-dir DIR ...]
+harnessctl send   <events.jsonl> [<prompt>]
 harnessctl cancel <events.jsonl>
 harnessctl status <events.jsonl>
 harnessctl reply  <events.jsonl> <request_id> [<answer>]
 ```
 
+--skills-dir 可重复出现，每次指定一个查找根目录，例如 `--skills-dir /skills/common --skills-dir /skills/reviewer`。send 不接受 cwd、model 或资源配置参数；未初始化的地址必须先 init。
+
 入口按包路径选择，例如 `/opt/harness/claudecode/harnessctl`。多个入口同名，不把不同适配器目录同时加入 PATH。
+
+init 成功时 stdout 为空，表示配置和资源快照已持久化，不启动原生执行进程、不调用模型、不生成 run。
 
 send、cancel、reply 是动作命令，受理后快速返回，成功时 stdout 为空，错误信息写 stderr；不等待模型或执行完成。status 返回一行 JSON。send 需要启动本地运行进程时，可能等待几秒完成本机就绪握手，但不等待模型回答。
 
-退出码：0 已受理或查询成功；1 运行、文件、后端或恢复错误；2 参数、输入或绑定冲突；4 地址不存在、请求已过期/已回复或失效。退出码 0 不保证模型已消费输入，也不表示执行成功。超时/连接中断可能发生在受理之后，因此不能据此盲目重发；本版不提供调用方幂等键，不自动重放不确定输入。
+退出码：0 初始化、受理或查询成功；1 运行、文件、后端或恢复错误；2 参数、输入或绑定冲突；4 地址不存在、请求已过期/已回复或失效。退出码 0 不保证模型已消费输入，也不表示执行成功。超时/连接中断可能发生在受理之后，因此不能据此盲目重发；本版不提供调用方幂等键，不自动重放不确定输入。
 
 ## 3. stdin 输入
 
@@ -51,7 +59,10 @@ send 省略 prompt、reply 省略 answer 时，从 stdin 读取 UTF-8 内容直�
 
 ```sh
 A=/path/to/claudecode/harnessctl
-printf '%s' "$prompt" | "$A" send /tmp/review.jsonl --cwd /path/to/repo
+"$A" init /tmp/review.jsonl --cwd /path/to/repo \
+  --agents-md /configs/reviewer/AGENTS.md \
+  --skills-dir /skills/common --skills-dir /skills/reviewer
+printf '%s' "$prompt" | "$A" send /tmp/review.jsonl
 "$A" send /tmp/review.jsonl < prompt.txt
 "$A" send /tmp/review.jsonl '重点检查错误处理'
 
@@ -63,19 +74,77 @@ printf '%s' '{"q1":"Go"}' | "$A" reply /tmp/review.jsonl req-2
 
 ## 4. 唯一会话身份与配置绑定
 
-**规范化后的绝对事件文件路径就是会话的唯一身份。** 相对路径以命令的 cwd 解析，并消解 `..` 和符号链接。没有单独的公开 session ID，也不要求调用方获取或传入原生 session/thread ID。
+**规范化后的绝对事件文件路径就是会话的唯一身份。** 事件地址、--cwd、--agents-md 和 --skills-dir 的相对路径均以调用进程的 cwd 解析，并消解 `..` 和符号链接；--cwd 不改变其他参数的解析基准。没有单独的公开 session ID，也不要求调用方获取或传入原生 session/thread ID。
 
-第一次 send 自动创建事件文件与私有状态，事件文件父目录必须存在。不会截断已有数据：已有事件文件但缺少匹配的适配器状态时明确报错。一个地址绑定一个适配器，不允许 Codex 和 Claude Code 交叉使用同一个地址。
+init 创建空事件文件与匹配的私有状态，事件文件父目录必须存在。一个地址绑定一个适配器，不允许 Codex 和 Claude Code 交叉使用同一个地址。send、cancel、status、reply 不创建地址；地址未初始化时返回 4。
 
-- cwd 首次采用 `--cwd`，省略则采用调用进程的 cwd；解析为绝对真实路径后绑定此地址。
-- model 首次采用 `--model`，省略则使用原生 CLI 的默认配置。
-- 后续省略 cwd/model 表示沿用绑定值；显式提供相同值可以，不同值报错。切换工作区或显式模型应使用新的事件地址。
+### 4.1 init：配置绑定
+
+| 参数 | 规则 |
+|---|---|
+| --cwd DIR | 绑定原生工作目录；首次省略则采用调用进程的 cwd。解析为绝对真实目录，必须已存在 |
+| --model MODEL | 绑定显式模型；省略则保存默认选择，由原生 CLI 采用其默认配置。init 不调用模型验证可用性 |
+| --agents-md FILE | 可选的单个 UTF-8 指令文件，文件名不要求真的叫 AGENTS.md；初始化时读取并保存内容快照 |
+| --skills-dir DIR | 可重复的 skills 查找根目录；按参数顺序发现技能，并保存完整技能资源快照 |
+
+初始化的配置属于事件地址，不属于 cwd。同一个 cwd 可以被多个事件地址使用，各自绑定不同模型、指令和技能。两种适配器也可以共享 cwd，但不能共享同一个事件地址。
+
+init 不启动守护进程或原生会话，不写 accepted/result，不分配 run_id/input_id。初始化成功后 status 返回 idle、run_id=null、queued=0、requests=[]；配置中的 cwd/model 正常返回。原生会话在后续首次 send 时才建立。
+
+初始化必须串行并完整提交，不能让并发 send 看到一半配置或未完成的资源快照。文件不存在、编码无效、技能资源非法或快照失败时返回错误，不留下可执行的半成品；只有初始化事务提交后地址才可使用。失败重试可清理明确属于该次初始化的临时文件，不能覆盖未知历史。
+
+### 4.2 固定配置与重复初始化
+
+- 已初始化地址再执行 init，只确认既有绑定；省略的参数沿用原绑定，不使用本次进程 cwd 或默认值覆盖。
+- 显式提供的 cwd/model 必须与绑定一致。显式提供指令或 skills 列表时，规范来源路径、顺序和内容摘要也须一致；相同配置允许重复调用，但不重写历史或运行状态。
+- 修改 cwd、显式模型、指令内容或技能集合都必须使用新的事件地址。运行中不支持资源热更新；cancel 不解除绑定，空闲回收也不解除绑定。
+- 已有事件文件但缺少有效配置、资源快照或匹配的适配器状态时明确报错，不截断文件，也不猜测并重建历史。
+- cwd/model 和资源参数全部从 send 移除，不保留旧参数形式，也不在首次 send 时隐式初始化。
+
+配置和资源完整提交后，对源文件的后续修改不影响该会话。恢复使用私有快照；不依赖原始路径继续存在。重复 init 未显式指定资源时不重新扫描来源目录。
+
+### 4.3 外部指令与技能资源
+
+--agents-md 表示附加会话指令。适配器读取其快照并交给原生指令入口，不把它当作普通用户消息或每次 send 的文本前缀。它不是原生目录继承规则的替代品：原生程序仍可正常读取 cwd/父目录中原本存在的项目指令。
+
+每个 --skills-dir 都是包含若干技能子目录的根目录：
+
+```text
+/skills/common/
+  review/
+    SKILL.md
+    references/
+    scripts/
+  testing/
+    SKILL.md
+```
+
+适配器发现直接子目录中的 SKILL.md，校验技能名称和描述，并保留整个技能目录及相对资源布局。不把所有 SKILL.md 正文拼进系统提示词；原生程序发现技能目录、获得技能清单，再按需读取具体技能和脚本。
+
+多个根目录按声明顺序处理；同一规范根路径只保留第一次。不同来源出现同名技能时 init 明确报错，并报告冲突来源，不在两个后端上悄悄采用不同覆盖规则。根目录为空或技能缺少必需清单/资源时明确报错；指向技能目录之外的资源符号链接使 init 明确报错，不静默丢弃资源。
+
+所有指令快照、技能目录和原生接入所需的临时目录都位于 events.jsonl.d/resources/ 内。适配器不在 cwd 创建或覆盖 AGENTS.md、CLAUDE.md、.agents/skills、.claude/skills，也不在 cwd 建这些资源的软链接，不修改用户全局指令或技能目录。声明指令或技能资源时，事件地址必须放在 cwd 之外；规范化后的 .d/ 如果位于 cwd 内，init 明确报错，避免资源快照又落回工作目录。
+
+资源快照需要在进程回收、重启恢复和原生上下文恢复后保持一致。这里只冻结显式提供的指令与技能资源，不声称隔离原生已有的用户配置、项目技能、认证或外部服务。
+
+### 4.4 两个适配器如何对接
+
+| 能力 | Codex | Claude Code |
+|---|---|---|
+| 指令文件 | 读取快照，通过 thread/start、thread/resume 的 developerInstructions 附加注入，保留原生基础指令 | 用 --append-system-prompt-file 指向快照，保留默认系统提示词 |
+| 外部 skills | 在原生会话建立前通过 skills/extraRoots/set 注册私有技能根目录，并通过 skills/list 确认发现结果 | 在私有 resources/ 中生成只含技能的插件目录，通过 --plugin-dir 加载；插件命名空间由适配器管理 |
+| cwd | 仍为 init 绑定的实际工作目录 | 仍为 init 绑定的实际工作目录 |
+| 原生进程重建 | 重新注册同一技能快照，再创建或恢复上下文并应用相同指令 | 重新传入相同提示词文件和插件路径，再创建或恢复上下文 |
+
+注册 Codex 技能根目录只作用于本适配器管理的原生进程；不能改其他会话的全局技能配置。Claude 的插件是适配器生成的技能容器，不执行来源目录中的插件安装器或额外 hook。原生能力不足时明确报错，不退化为把资源写进 cwd 或仅拼接一段“请自行查找技能”的提示词。
+
+两端统一的是附加指令和可发现的技能集合，不强求原生指令优先级、技能展示名称或目录继承行为完全一致。恢复必须继续使用初始化时的资源；不在同一原生会话中尝试替换历史系统提示词。
 
 适配器内部会持久化原生恢复标识，但不在公开状态中提供另一个会话 ID。路径与其 `.d/` 状态需要一起保留。只复制 JSONL 而丢失私有恢复信息，不保证能继续原生上下文，也不能默默当成新会话执行。
 
 ## 5. send：由适配器决定如何投递
 
-首次 send 自动启动所需进程并建立原生上下文。空闲时继续该上下文；忙碌时尽量向当前执行追加输入，不可直接追加时由适配器保留后续处理。调用方不选择 start、steer、queue 或 interrupt。
+地址必须已完成 init。首次 send 自动启动所需进程并建立原生上下文。空闲时继续该上下文；忙碌时尽量向当前执行追加输入，不可直接追加时由适配器保留后续处理。调用方不选择 start、steer、queue 或 interrupt。
 
 Codex 适配器在内部使用 app-server RPC，原生回执确认插入当前交互后才公开该输入的 run_id；遇到交互刚结束的竞态，则内部安排下一次交互并分配新 UUID。Claude Code 忙时通过 stream-json 的 priority=next 直接提交输入，在工具轮次之间消费；适配器以 command_lifecycle.started 或 user_message_uuids 确认当前交互归属，而不是用 stdin 写成功或 user replay 猜测。已验证 Claude Code 2.1.316。原生协议不同，不保证两家在完全相同的时机消费补充输入。Claude send 的受理确认可能等待工具边界，期间不会锁住 status/reply/cancel；若消费发生在上一轮 result 之后，仍生成新 run_id。
 
@@ -128,6 +197,8 @@ request_id 只定位一项待回复请求，不是会话身份；由适配器分
 {"state":"awaiting_reply","run_id":"550e8400-e29b-41d4-a716-446655440000","queued":0,"requests":[{"run_id":"550e8400-e29b-41d4-a716-446655440000","request_id":"req-1","state":"pending","kind":"permission","message":"执行测试？"}],"cwd":"/path/to/repo","model":null}
 ```
 
+init 后尚未执行任何输入时，status 为 idle，run_id=null；这不表示曾调用过模型。
+
 state 为 idle、running、awaiting_reply、cancelling 或 failed；queued 仅统计适配器可确认的待处理输入数，requests 是统一的待回复请求。公开结果不返回 PID、原生 session/thread ID 或要求上层关联的 turn ID。
 
 运行进程已被正常回收时仍可返回 idle；运行进程存在也可能是 idle。status 本身不启动模型或创建新原生会话，不根据快照中一个 PID 就认定进程活着。失联检测通过本机 IPC 和独占锁完成；确认失联后记录失败、过期待回复请求，不把未确认输入重新执行。事件地址不存在返回 4。
@@ -159,20 +230,24 @@ run_id 由适配器使用 UUID 分配，使用方不能指定。插话归属以�
 ```text
 review.jsonl
 review.jsonl.d/
-├── config.json              已绑定的适配器、cwd 和 model
+├── config.json              协议、适配器、cwd/model、规范来源路径和资源摘要
+├── resources/               初始化时固定的资源；原始路径删除后仍可恢复
+│   ├── agents.md            可选指令快照
+│   ├── skills/              完整技能目录快照，保留相对资源结构
+│   └── native/              适配器生成的技能加载结构，例如 Claude 插件
 ├── native.json              适配器私有恢复信息
 ├── status.json              最近状态快照
 ├── process.json             私有进程诊断
-├── control.lock             创建、恢复与动作串行化
+├── control.lock             init、恢复与动作串行化
 ├── runtime.lock             运行进程独占锁与失联检测
 ├── events.lock              事件写入锁
 ├── runtime.stderr.log
 └── backend.stderr.log
 ```
 
-新建目录/文件默认为 0700/0600。包内不保存运行状态，不覆盖工作区 AGENTS.md/CLAUDE.md。事件和状态不自动删除或轮转，容量管理由调用方完成；删除时须确保原生执行已停止。
+新建目录/文件默认为 0700/0600；技能中需要执行的脚本保留用户执行位，其余用户以外的权限清除。包内不保存运行状态，不覆盖工作区 AGENTS.md/CLAUDE.md。事件和状态不自动删除或轮转，容量管理由调用方完成；删除时须确保原生执行已停止。
 
-## 11. 验证与打包
+## 11. 实现验收与打包
 
 ```sh
 python3 -m unittest discover -s harnessctl/tests -v
@@ -183,7 +258,16 @@ sha256sum -c harnessctl-codex-0.3.0-linux.tar.gz.sha256
 sha256sum -c harnessctl-claudecode-0.3.0-linux.tar.gz.sha256
 ```
 
-每个压缩包只包含对应的独立适配器目录，使用固定时间和属主元数据，可重复构建。安装/解压不自动执行代码。测试仅复制独立目录到仓库外，并隐藏其他适配器；覆盖 stdin、配置绑定、并发首次 send、忙时补充、取消与恢复、统一回复、失联与空闲回收、独立归档。
+每个压缩包只包含对应的独立适配器目录，使用固定时间和属主元数据，可重复构建。安装/解压不自动执行代码。目标测试仅复制独立目录到仓库外，并隐藏其他适配器；除现有 stdin、忙时补充、取消、回复、失联和独立归档验证外，还必须覆盖：
+
+- send 不接受 cwd/model/资源参数，未 init 返回 4；init 后未启动任何原生执行进程，事件文件为空且 status 为 idle。
+- 并发 init 和 init/send 不暴露半完成配置；重复相同配置不改历史，冲突绑定明确失败。
+- 多个外部技能根目录能被原生发现；同名冲突、非法来源和资源快照错误在 init 时失败。
+- 修改或删除原始指令/技能文件后，首次启动、空闲回收、进程重启和上下文恢复仍使用同一快照。
+- 两个事件地址共享 cwd、使用不同指令和技能，资源互不覆盖；cwd 中没有新增指令文件、技能目录或软链接，用户全局配置也未被改写。
+- 指令与技能确实进入原生加载入口，保留按需加载行为；不仅检查适配器启动参数，也验证原生发现及执行效果。
+
+上面的测试和打包命令适用于当前仓库工具；本次仅更新设计，新增 init 验收项尚未实现，现有测试通过不能视为新协议已经落地。
 
 ## 默认执行权限
 
