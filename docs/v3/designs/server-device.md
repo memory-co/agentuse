@@ -21,7 +21,7 @@ device 是一台用户的执行设备，client 是设备上运行的程序。dev
 | 开关 harness | 修改 enabled；重新开启后通知派活 |
 | 删除/重置 | 失败未领取输入，撤销凭据后关闭连接，不伪造原生执行结果 |
 
-agentService 读取设备归属和运行能力，runService 根据设备选择可领取任务。探测由 client 本地 harnessService 读取 YAML 完成；deviceService 保存上报的 harness 标识、接入包版本、程序版本及业务能力。Server 不保存全局 harnesses 定义或 YAML，也不向设备发送探测命令。
+agentService 发布版本时检查设备归属和运行能力，runService 根据输入固定的 agent 版本选择可领取任务。设备删除只改变可用性，不 UPDATE 历史 agent_versions.device_id；用户选择新设备时需发布新 agent 版本。探测由 client 本地 harnessService 读取 YAML 完成；deviceService 保存上报的 harness 标识、接入包版本、程序版本及业务能力。Server 不保存全局 harnesses 定义或 YAML，也不向设备发送探测命令。
 
 状态为 pending（未注册）、offline、online。在线状态表示连接状态，不代表设备当前空闲；是否可以领取由 client 的 ready 和 runService 的领取规则共同决定。
 

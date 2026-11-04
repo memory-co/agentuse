@@ -35,15 +35,15 @@
 <text x="718" y="463" font-size="15" fill="#475569">设备、上报能力与本地版本</text>
 <rect x="350" y="510" width="305" height="80" rx="12" fill="#f1f5f9" stroke="#cbd5e1"/>
 <text x="368" y="539" font-size="19" fill="#0f172a" font-weight="600">agentService</text>
-<text x="368" y="568" font-size="15" fill="#475569">任务角色与 device/harness 选择</text>
+<text x="368" y="568" font-size="15" fill="#475569">Agent/Skill 版本与固定依赖</text>
 <rect x="700" y="510" width="305" height="80" rx="12" fill="#f1f5f9" stroke="#cbd5e1"/>
 <text x="718" y="539" font-size="19" fill="#0f172a" font-weight="600">fileService</text>
-<text x="718" y="568" font-size="15" fill="#475569">Conversation 文件：本地 / S3</text>
+<text x="718" y="568" font-size="15" fill="#475569">业务命名空间：对话文件 / Skill ZIP</text>
 <rect x="350" y="615" width="655" height="80" rx="12" fill="#f1f5f9" stroke="#cbd5e1"/>
 <text x="368" y="644" font-size="19" fill="#0f172a" font-weight="600">workService</text>
 <text x="368" y="673" font-size="15" fill="#475569">工作配置、协调 conversation、线程及结果汇总</text>
 <rect x="350" y="750" width="655" height="95" rx="12" fill="#ecfdf5" stroke="#cbd5e1"/>
-<text x="368" y="779" font-size="19" fill="#0f172a" font-weight="600">store · 14 张业务表</text>
+<text x="368" y="779" font-size="19" fill="#0f172a" font-weight="600">store · 业务元数据与不可变版本表</text>
 <text x="368" y="808" font-size="15" fill="#475569">不含 harnesses 或 files 表；不保存 YAML / execution_spec</text>
 <path d="M300 255 H350" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
 <path d="M300 520 H325 V385 H855 V405" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>

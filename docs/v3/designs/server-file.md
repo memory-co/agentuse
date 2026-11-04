@@ -1,55 +1,80 @@
-# fileService：Conversation 文件空间
+# fileService：按命名空间存储文件
 
-> v3 目标设计，尚未据此修改代码或存储。fileService 不使用数据库表。
+> 本文为目标设计，尚未替换当前附件数据库和 API。fileService 不使用数据库表，不绑定 conversation、agent 或 skill 的业务模型。
 
 ## 职责
 
-fileService 为每个 conversation 提供一个独立的文件空间，支持上传和下载。同一 conversation 下的用户与 agent 共享这些文件，不为不同 run 再复制一套。
+fileService 统一封装本地文件系统与 S3 协议存储。调用方提供**命名空间、相对路径和文件流**；fileService 负责完整写入、读取、列举及删除，业务 service 负责对象归属、授权、版本和清理时机。
 
-文件的内容和存在性以存储后端为准，不建立 attachments 或 files 表，不记录上传人、来源 run、摘要、配额等数据库元数据。文件以 conversation_id 和相对路径定位，不另生成附件 ID。messages.attachments 保存这些相对路径的 JSON 数组，例如 `["inputs/data.csv","report.pdf"]`；run_prompts 可复制这份路径列表作为执行输入，fileService 本身仍不记录数据库。
+```text
+Put(namespace, path, stream)          普通完整写入，可按业务要求覆盖
+PutIfAbsent(namespace, path, stream)  创建新对象，已有路径不覆盖
+Get(namespace, path)                  返回文件流
+List(namespace, prefix)               列举某一前缀
+Delete(namespace, path)               删除一个对象
+DeletePrefix(namespace, prefix)       清理一个业务空间
+```
 
-## 两种存储形态
+不新增全局 files/attachments 元数据表。存储后端是字节内容和存在性的事实来源。AgentUse 不用一个 conversation_id 参数硬套所有文件，更不把 skill 包伪装为某个 conversation 的附件。
 
-服务端配置选择一种后端，对调用方提供相同的上传、下载接口。
+## 命名空间与目录
 
-| 后端 | Conversation 文件空间 | 文件位置示例 |
-|---|---|---|
-| 本地文件系统 | `<root>/<conversation_id>/` | `/data/files/550e8400-e29b-41d4-a716-446655440000/report.pdf` |
-| S3 协议的对象存储 | 指定 bucket 下的 `<prefix>/<conversation_id>/` | `conversations/550e8400-e29b-41d4-a716-446655440000/report.pdf` |
+| 命名空间 | 业务拥有者 | 相对路径 | 写入约束 |
+|---|---|---|---|
+| conversations | conversationService | `<conversation_id>/<file_path>` | 对话文件可按相同路径覆盖 |
+| agent-skills | agentService | `<skill_id>/<skill_version_id>/skill.zip` | 每个版本一个独立路径，发布后只读 |
 
-本地创建实际目录；S3 使用对象 key 的前缀表示目录，不需要专门创建目录对象。S3 配置包含 endpoint、bucket、凭据和可选 prefix；本地配置只需 root。凭据由 server 持有，client 不需要区分后端。
+本地后端：
 
-## 上传和下载
+```text
+<root>/
+  conversations/<conversation_id>/inputs/data.csv
+  conversations/<conversation_id>/reports/result.pdf
+  agent-skills/<skill_id>/<skill_version_id>/skill.zip
+```
 
-| 操作 | 行为 |
+S3 后端：相同 key 前加可选 prefix，存入配置的 bucket；例如 `agentuse/agent-skills/<skill_id>/<skill_version_id>/skill.zip`。命名空间来自 server 业务代码，不由上传请求随意指定以越权访问其他空间。
+
+本地 root、S3 endpoint/bucket/prefix/凭据属于部署配置。业务表只存命名空间内的相对路径，client 使用业务下载 API，不感知实际后端或持有存储凭据。
+
+## 文件能力与业务规则
+
+| FileService 负责 | 业务 Service 负责 |
 |---|---|
-| 上传 | 指定 conversation 和文件相对路径，接收文件流，写入对应目录或对象 key |
-| 下载 | 按相同 conversation 和路径读取文件，以流返回；不存在则返回 404 |
+| 流式存储、读取及后端差异 | 谁能上传、下载哪个业务对象 |
+| 普通写入和不存在时创建 | 哪些路径可覆盖，哪些版本发布后不可变 |
+| 原子可见的完整对象；失败不暴露半个文件 | Skill ZIP 校验、SHA-256、版本号和依赖关系 |
+| 路径边界及文件系统链接限制 | Conversation 删除、skill 版本保留、无引用对象清理 |
 
-建议接口：
+路径不接受绝对路径、.. 或通过符号链接越出指定空间。本地写入先写临时文件并完成落盘后提交；S3 只有完整上传成功才发布对象。PutIfAbsent 必须保留“已存在则不覆盖”的语义，不能用不受保护的先查后写冒充。
+
+fileService 不解析 SKILL.md，不解压技能包，不知道 agent 当前版本，也不决定一个旧文件是否可删除。压缩包摘要和大小存于 skill_versions，是 agentService 的版本校验信息，不是 fileService 新建的元数据账本。
+
+## HTTP 入口由业务对象定义
 
 ```text
 PUT /api/conversations/{conversation_id}/files/{path...}
 GET /api/conversations/{conversation_id}/files/{path...}
+
+POST /api/skills
+POST /api/skills/{skill_id}/versions
+GET /api/skills/{skill_id}/versions/{version_id}/package
 ```
 
-例如，向 `550e8400-e29b-41d4-a716-446655440000` 上传 `report.pdf` 后，用同一路径下载。重复上传相同路径覆盖原文件；本地通过临时文件写完后替换，S3 完成对象上传后生效，失败不把半个文件当作成功结果。
+Conversation 入口先经 conversationService 校验归属，再操作 conversations 空间；messages.attachments 继续保存该对话空间内的相对路径数组，如 `["inputs/data.csv"]`。
 
-允许 conversation 目录中的相对子路径，例如 `inputs/data.csv`。路径必须限制在当前 conversation 文件空间内，不接受绝对路径、`..` 或通过符号链接越出目录。
+Skill 上传经 agentService 校验、分配不可变版本路径，并调用 fileService。下载同样由 agentService 校验用户或已分配输入的设备权限，然后返回文件流；不开放任意覆盖已发布 skill 包的通用 PUT 接口。
 
-## 与其他 Service 的关系
+## 发布、删除与异常清理
 
-- controller 接收 HTTP 文件流、返回下载响应。
-- conversationService 校验 conversation 存在及当前身份的访问权，然后交给 fileService 操作文件。
-- client 执行 run 时，通过相同接口上传和下载该 conversation 的文件；设备或工作令牌的访问范围分别由 runService、workService 校验。
-- conversation 删除后，由 conversationService 调用 fileService 清理对应目录或对象前缀。文件操作不加入 SQLite 事务，不能把数据库删除当作存储清理完成。
+上传 Skill 时先写新对象，确认完整后再提交版本表。SQLite 与文件后端没有跨系统事务；数据库提交失败时删除本次候选对象，异常中断可能留下未引用文件，需要后续清理。
 
-fileService 只处理 conversation 文件空间；文件如何用于 prompt、怎样交给 harness，由执行端负责。
+删除 conversation 只清理 conversations 下该 conversation 的前缀，不清理 agent-skills。软删除 agent/skill 不删除已发布且仍被版本引用的包。Skill 清理必须由 agentService 检查全部历史版本和正在发布的对象后进行，不能只保留 latest。没有显式版本淘汰流程时，只清理确认未发布且无版本记录引用的孤立对象，不删除任何已发布 skill_version 对应的包。
+
+文件删除与 SQLite 删除不能当成一件原子操作。业务 service 保留错误、重试或补偿清理的责任，fileService 提供可重复执行的删除原语，不维护另一套业务数据库。
 
 ## 表结构
 
-无。文件直接存本地目录或 S3 对象存储，不新增文件数据库表。
+无。新增命名空间不需要新增 fileService 表；业务元数据由拥有它的 service 管理。
 
-## 相关设计
-
-[Server 总览](server-main.md) · [conversationService](server-conversation.md) · [runService](server-run.md) · [workService](server-work.md)
+[Server 总览](server-main.md) · [agentService](server-agent.md) · [conversationService](server-conversation.md) · [runService](server-run.md)

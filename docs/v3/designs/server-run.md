@@ -19,6 +19,23 @@ accepted(run_id=R1,input_id=I2) → P3 也绑定 R1：真实插话
 
 一个 message 对多个 run，一个 run 可以消费多条 message。关系以 accepted 为准，不根据“上一个 run 尚未结束”提前合并。first_message_id 来自该 UUID 第一条 accepted 对应的消息。输入分配 ID 只用于传输关联，不是另一个执行身份。
 
+## Agent 版本化扩展（目标，尚未实现）
+
+当前实际 SQL 仍见后文；新增版本字段不能视为已经部署。版本定义见 [agentService](server-agent.md)。
+
+| 数据 | 目标新增关联 | 固定时机 |
+|---|---|---|
+| run_prompts | agent_version_id | 保存消息并为目标建立输入时，与消息在同一事务固定当前版本 |
+| runs | agent_version_id | 第一条 accepted 从对应 prompt 复制；同 run 后续输入只能来自相同版本 |
+
+两列均为非空版本 UUID，不存可变化的 latest，不冗余名称或版本配置。Agent 版本指向固定 device/harness/model/指令和 skill_versions；显示版本号时关联 agent_versions 查询。
+
+Claim 使用固定版本生成 dispatch，不在领取时再查当前 head。重连仍重发原 dispatch。下行增加 agent_version_id、model、agent_instructions 和 skill 包版本清单，详情见 [protocol.md 的目标扩展](protocol.md#agent-versioning)。Server 只准备版本化业务资源，不生成 harness 命令。
+
+Client 活动流必须按 conversation/agent/agent_version 匹配；容量不足时，新版本不能因为旧 agent 仍在执行就被当成可插话输入。新版使用新 session/events 并 init，旧版本可以继续完成。同一个 native run UUID 不能接收跨 agent_version 的输入；server 校验业务版本归属，不替适配器决定实际 run UUID。
+
+最终 agent 回复同时记录 author_agent_id 与 author_agent_version_id，仍通过 reply_to_message_id 回复首条 message，messages 不增加 run_id。具体目标消息结构见 [conversationService](server-conversation.md)。
+
 ## 与其他 Service 的关系
 
 conversationService 保存共享历史并建立输入分配；agentService 提供执行设备和 harness 标签；deviceService 管连接和上报能力。runService 在领取时准备共享历史、附件引用和业务指令。workService 提供工作说明、协调规则和授权。所有这些都是 server 业务，client 不推断角色。

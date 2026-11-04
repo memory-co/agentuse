@@ -131,3 +131,7 @@ Server 与 client 使用 harnessctl-events-v1。Server 下发输入分配，clie
 输入收据、源 ACK 游标和控制收据位于 session/.server/；执行事实仍只在 events.jsonl，不再有旧版 run/attempt、租约或结果汇总层。详见 client-run.md。
 
 配置修改一律重启生效。运行中任务输入、答案、取消和来源重连属于正常运行行为，不是配置热更新。
+
+## Server Agent 版本接入（目标，尚未实现）
+
+Server 固定输入的 agent_version_id 和 skill 包版本。runService 下载、校验并解包；sessionService 按 agent 版本选择独立 session/events，继续使用同 conversation 的 workspace；harnessService 将准备好的资源交给 init/send。旧版本输入和执行不跟随最新配置变化，local 也走相同版本快照和初始化流程。详见 [server-agent.md](server-agent.md)、[client-session.md](client-session.md) 和 [目标通信扩展](protocol.md#agent-versioning)。

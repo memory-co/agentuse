@@ -432,3 +432,65 @@ sequenceDiagram
 ```
 
 [Server 总览](server-main.md) · [Client 总览](client-main.md) · [Server runService](server-run.md) · [Client runService](client-run.md) · [公共事件格式](../../../harnessctl/EVENT.md)
+
+<a id="agent-versioning"></a>
+
+## Agent 版本化扩展（目标，尚未实现）
+
+前文是当前 harnessctl-events-v1 的实际报文。本节描述 [Agent/Skill 版本化](server-agent.md) 所需的后续协议，目标版本为 **harnessctl-events-v2**；当前代码尚未实现，也不接受这一版本。后续需 server/client 同步升级并严格握手，不允许旧 client 忽略版本与资源字段后照常执行。
+
+### 输入与实际执行的版本关联
+
+| 信封 | 新增/扩展字段 | 作用 |
+|---|---|---|
+| hello、welcome | protocol 与 capabilities 使用 harnessctl-events-v2 | 确认双方支持不可变资源版本，不沿用 v1 降级执行 |
+| prompt | agent_version_id | 输入入队时固定的 agent_versions UUID，后续重发不变 |
+| prompt | model | 固定模型；null 表示采用原生默认选择 |
+| prompt | agent_instructions | 固定版本指令，用于准备 init 的外部指令文件，不混进每次 send 的正文 |
+| prompt | skills | 有序的固定 skill 版本及 ZIP 下载清单；空数组表示无技能 |
+| claim.active_streams[] | agent_version_id | 只有同 conversation/agent/version 的活动流可以继续接收输入 |
+| client_event | agent_version_id | 由本地 session 的固定元数据提供；与被分配 prompt、原生 run 的版本关联一致 |
+
+目标 prompt 示例：
+
+```json
+{
+  "type": "prompt",
+  "claim_id": "next",
+  "prompt": {
+    "id": 17,
+    "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
+    "message_id": 42,
+    "agent_id": "reviewer",
+    "agent_version_id": "dcfa65a0-00fb-4e71-a0a8-4fad5ed6ec72",
+    "harness": "codex",
+    "model": null,
+    "agent_instructions": "你负责代码评审。先验证事实，再给出结论。",
+    "skills": [
+      {
+        "skill_id": "9f4aa676-990d-4e2a-9846-35c47846511a",
+        "skill_version_id": "2e85ce35-008a-48da-b30e-0cda862352ea",
+        "name": "review",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "size_bytes": 4096,
+        "download_path": "/api/skills/9f4aa676-990d-4e2a-9846-35c47846511a/versions/2e85ce35-008a-48da-b30e-0cda862352ea/package"
+      }
+    ],
+    "content": "Server 准备的共享历史、业务说明与本次评审任务"
+  }
+}
+```
+
+version_id 引用不可变配置，不使用 latest。skill name 必须与 ZIP 内 SKILL.md 一致；skill_version_id 必须属于给定 skill_id，大小和摘要必须与下载内容一致。下载使用当前 endpoint 的相对 API 路径，文件本体不走 WebSocket。
+
+现有 prompt.instructions 继续表示 Work/本次输入的业务说明，已包含在 content 中；新增 agent_instructions 才是固定版本的初始化资源。两者不能互相覆盖或由 client 重新推断角色。
+
+### Client 初始化与容量匹配
+
+Client 首次收到某个 endpoint/conversation/agent/agent_version/harness_revision 组合时，创建新的本地 session/events 地址，准备 ZIP 和指令文件，再调用 init。之后使用同一绑定 send；即使 cwd 相同，agent_version_id 不同也不能复用旧事件地址。
+
+free_sessions 为零时，active_streams 的版本必须与待领取输入相同。只有旧版本在运行不代表 client 能接收新版输入；server 不能据此把新版当成旧 run 的插话。旧版实际执行继续按原版本上报，不因 agent head 变化而失败。
+
+Server 收到 accepted 时，从对应 prompt 固定 runs.agent_version_id，后续同 run 只能接收相同 agent 版本的输入；报文声称的版本必须与其业务归属一致。run UUID 仍完全由适配器决定，公共五种事件的 Schema 不增加 server 版本字段。
+
+Skill 包下载、校验、解包或 init 失败时，上报 prompt_error，不生成执行 UUID。重连重发完整原 dispatch，client 仍按同一版本收据去重；不会因为新版发布而重写旧收据或重复发送旧输入。

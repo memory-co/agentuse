@@ -19,7 +19,7 @@ conversationService 管理 conversation、message 和共享历史，并编排消
 
 发送链路是 `controller → conversationService → runService`：先检查权限，在一个事务中写一条 message 和每个目标 agent 的 run_prompts，提交后通知 client 领取。任一目标失败则整体回滚。空目标只保存备注。
 
-此时只分配输入，run_id 为空。Server 不能根据某个 agent 仍在执行，就认定新消息一定属于它当前的 run。
+此时只分配输入，run_id 为空。新增 Agent 版本设计要求在这一事务内为每条 run_prompts 固定 agent_version_id，后续领取不追随 latest；此版本关联尚未实现。Server 不能根据某个 agent 仍在执行，就认定新消息一定属于它当前的 run。
 
 ```text
 M1 @coder @reviewer → P1(coder)、P2(reviewer)
@@ -84,7 +84,7 @@ CREATE INDEX conversations_created_by
 
 ### messages
 
-共享对话的原始消息。`content` 统一保存对话正文；`author_role` 为 user/agent；`author_user_id`、`author_agent_id` 按作者类型二选一。作者名称分别实时关联 users/agents 读取，不保存 agent_key、agent_name 快照。`run_agent_ids` 保存原始 @ 目标数组，即使执行分配变化，对话仍能显示当时 @ 了谁。
+共享对话的原始消息。`content` 统一保存对话正文；`author_role` 为 user/agent；`author_user_id`、`author_agent_id` 按作者类型二选一。Agent 回复还记录 `author_agent_version_id`，关联具体不可变版本读取当时名称；用户名称关联 users，不保存 agent_key、agent_name 字符串快照。`run_agent_ids` 保存原始 @ 目标数组，即使执行分配变化，对话仍能显示当时 @ 了谁。
 
 `attachments` 是 JSON 字符串数组，保存相对于当前 conversation 文件空间的路径，用户消息和 agent 回复都可以携带。例如：
 
@@ -94,7 +94,7 @@ CREATE INDEX conversations_created_by
 
 文件先通过 fileService 上传，再在消息中引用；没有附件时为 `[]`。不保存绝对路径、URL、bucket 或本地根目录。service 校验数组元素为合法相对路径，读取时由 fileService 按 conversation 和路径定位文件。这只是消息上的文件引用，不新增文件元数据表。
 
-service 写入时保证 user 消息只填 author_user_id，agent 消息只填 author_agent_id。读取作者用 LEFT JOIN；agent 改名后历史消息展示当前名称，已删除的作者保留原 ID 并显示已删除状态，不清空消息中的作者 ID。
+service 写入时保证 user 消息只填 author_user_id，agent 消息填写 author_agent_id 和 author_agent_version_id，并检查版本属于该 agent。读取作者用 LEFT JOIN；角色选择器展示当前版本名称，历史 agent 回复按作者版本展示，不受后来改名影响。软删除不清空消息作者或已发布版本。
 
 message 永远回复另一条 message，不回复 run。`reply_to_message_id` 表示被回复的消息，字段保存被回复消息的 UUID，开头的根消息为空；后续用户消息、agent 回复都可以引用同 conversation 中已有的消息。messages 不保存 run_id，也不以 run 为对话层级。
 
@@ -119,6 +119,7 @@ CREATE TABLE messages (
     attachments TEXT NOT NULL DEFAULT '[]',
     author_user_id TEXT,
     author_agent_id TEXT,
+    author_agent_version_id TEXT,
     run_agent_ids TEXT NOT NULL DEFAULT '[]',
     reply_to_message_id TEXT,
     created_at INTEGER NOT NULL
@@ -132,7 +133,7 @@ CREATE INDEX messages_replies ON messages(conversation_id,reply_to_message_id,se
 | 原表 | v3 处理 |
 |---|---|
 | message_formats | 不再建表，也不保留 format 字段；消息与执行副本均保存正文 |
-| message_authors | 不再建表，作者只保存在 messages.author_role、author_user_id、author_agent_id；名称实时关联读取；回复关系使用 reply_to_message_id，执行关联留在 runs |
+| message_authors | 不再建表，作者保存在 messages.author_role、author_user_id、author_agent_id、author_agent_version_id；名称关联用户或固定 agent 版本读取；回复关系使用 reply_to_message_id，执行关联留在 runs |
 
 这些信息仍有作用，但都是一条消息自身的属性，不需要再各拆一张 1:1 的表。
 

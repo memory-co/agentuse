@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="850" viewBox="0 0 1360 850" font-family="sans-serif" role="img" aria-labelledby="title desc">
+<title id="title">Agent 和 Skill 的版本固定与 Client 初始化</title>
+<desc id="desc">稳定 agent 身份关联不可变版本，各版本固定 skill ZIP 版本。输入入队时固定 agent 版本，client 为新版本创建新 session 并 init，同一 conversation 的 workspace 继续共享。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#64748b"/></marker></defs>
+<rect width="1360" height="850" fill="#f8fafc"/>
+<g fill="#0f172a"><text x="35" y="43" font-size="25">Agent 版本固定配置，Skill 版本固定字节，Client 按版本 init</text></g>
+<rect x="35" y="85" width="1290" height="340" rx="14" fill="white" stroke="#cbd5e1"/>
+<text x="55" y="118" font-size="19" fill="#334155">Server · agentService 管版本，fileService 管字节</text>
+<rect x="55" y="160" width="280" height="115" rx="10" fill="#eef2ff" stroke="#94a3b8"/>
+<text x="75" y="196" font-size="21">Agent reviewer</text><text x="75" y="232" font-size="16">稳定 ID；当前指向 v2</text>
+<rect x="420" y="150" width="400" height="105" rx="10" fill="#f1f5f9" stroke="#94a3b8"/>
+<text x="440" y="184" font-size="20">Agent v1 · 不可变</text><text x="440" y="222" font-size="16">指令 A + Skill review v3</text>
+<rect x="420" y="290" width="400" height="105" rx="10" fill="#ecfdf5" stroke="#94a3b8"/>
+<text x="440" y="324" font-size="20">Agent v2 · 不可变</text><text x="440" y="362" font-size="16">指令 B + Skill review v4</text>
+<rect x="910" y="150" width="390" height="105" rx="10" fill="#fffbeb" stroke="#94a3b8"/>
+<text x="930" y="184" font-size="20">Skill review v3</text><text x="930" y="222" font-size="16">独立 skill.zip + SHA-256</text>
+<rect x="910" y="290" width="390" height="105" rx="10" fill="#fffbeb" stroke="#94a3b8"/>
+<text x="930" y="324" font-size="20">Skill review v4</text><text x="930" y="362" font-size="16">新路径；不覆盖 v3 的 ZIP</text>
+<g fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"><path d="M335 200H420"/><path d="M335 245H370V342H420"/><path d="M820 202H910"/><path d="M820 342H910"/></g>
+<rect x="35" y="460" width="1290" height="340" rx="14" fill="#f0fdf4" stroke="#cbd5e1"/>
+<text x="55" y="496" font-size="19" fill="#334155">输入入队固定版本 → Client 保留同一 workspace，使用不同原生上下文</text>
+<rect x="55" y="535" width="335" height="110" rx="10" fill="white" stroke="#94a3b8"/>
+<text x="75" y="571" font-size="20">旧输入 P1 固定 Agent v1</text><text x="75" y="611" font-size="16">旧 session / events；继续完成</text>
+<rect x="470" y="535" width="335" height="110" rx="10" fill="white" stroke="#94a3b8"/>
+<text x="490" y="571" font-size="20">新输入 P2 固定 Agent v2</text><text x="490" y="611" font-size="16">下载 v4 ZIP，校验并解包</text>
+<rect x="885" y="535" width="415" height="110" rx="10" fill="white" stroke="#94a3b8"/>
+<text x="905" y="571" font-size="20">新 session / events</text><text x="905" y="611" font-size="16">init 指令 B 和固定技能 → send</text>
+<path d="M805 590H885" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="55" y="703" font-size="17" fill="#334155">两版共享 conversation/workspace；v2 不插入 v1 的原生上下文，实际 run UUID 仍由适配器决定。</text>
+<text x="55" y="748" font-size="17" fill="#334155">存储：conversations/... 保存对话文件；agent-skills/... 保存版本包，删除对话不删除技能。</text>
+<text x="35" y="832" font-size="16" fill="#64748b">版本化与通用 fileService 为目标设计，尚未在运行代码中实现。</text>
+</svg>

@@ -64,3 +64,9 @@ local 和远端调用完全相同的 sessionService、harnessService 与 runServ
 ## 实现归属
 
 native_runs.go 管引用与查询，views.go 定义公开视图，reconcile.go 管启动恢复，server_connection.go 管中心连接、输入收据、事件游标和控制传输。没有 store、执行 attempt、结果副本或旧协议兼容层。sessionService 管目录与会话元数据，fileutil 仅提供通用文件操作。
+
+## Server Agent 版本衔接（目标，尚未实现）
+
+远端输入携带 agent_version_id、model、agent_instructions 和固定 skill 包版本清单。runService 按已分配输入下载资源、校验 SHA-256/大小并安全解包，调用 sessionService 选择同版本会话，再由 harnessService 调用 init/send。下载只使用当前 endpoint 的相对 API 路径，不把设备密钥发到其他域。
+
+活动输入匹配加入 agent_version_id，不能把新版消息塞入旧版驱动窗口；同版本补充输入仍由适配器裁定 run 归属。ClientEvent 信封和本地 run 引用记录该版本关联，公共 accepted/message/request/result/log 的 Schema 不变。详情见 [client-session.md](client-session.md) 与 [目标通信扩展](protocol.md#agent-versioning)。

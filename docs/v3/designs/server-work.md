@@ -18,11 +18,17 @@ workService 将多个 conversation 组织成一项工作。一个 work 有一个
 
 汇总使用 run_notifications 去重：记录“该线程消息已汇报”与向协调 conversation 发汇总消息，必须在同一事务完成。不能只收到 run 结束事件就汇总，因为最终回复可能还没消费入库；需要等回复落库通知，并能通过持久化消息/run_prompts 扫描补偿。
 
+## Agent 版本衔接（目标）
+
+Work 仍选择稳定的 coordinator_agent_id。每条协调输入和线程输入在入队时固定目标 agent_version_id；发布新 agent 或 skill 版本不改已有排队输入，也不自动改写正在工作的协调原生上下文。下一条使用新版的输入绑定新的 client session 并执行 init，workspace 和 server 共享历史仍属于原 conversation。
+
+Work 说明和协调者业务规则仍由 server 随输入准备，不混入可变的 agent 初始化快照。Skill 依赖来自该输入固定的 agent_version；WorkToken 仅授权对应输入及其引用的资源，不授予任意技能库访问权。
+
 ## 工作令牌
 
 领取输入时签发限定 work/prompt 的令牌；此时实际 run 可能还不存在。每次使用检查输入状态为 sent 或 accepted，以及 work 范围。输入完成后授权失效，不把令牌当作长期用户身份。
 
-协调者职责、派活规则及工作说明由 server 在领取 run 时组织到 Instructions，再随任务下发。只有协调 conversation 当前指定的协调 agent 获得协调者指令；线程和其他 agent 只收到共享工作说明。client 不根据 WorkToken 推断角色或生成协调策略，只透传凭据和已准备的指令。
+协调者职责、派活规则及工作说明由 server 在领取输入时组织到 Instructions，再随任务下发。只有协调 conversation 当前指定的协调 agent 获得协调者指令；线程和其他 agent 只收到共享工作说明。client 不根据 WorkToken 推断角色或生成协调策略，只透传凭据和已准备的指令。
 
 `coordinator_id` 是协调 conversation 的 UUID；`conversations.work_id` 是对话归属。两者仅以标识关联，由 workService 在创建/删除事务里保证一致，不声明外键。
 
