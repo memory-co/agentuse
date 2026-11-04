@@ -1,5 +1,7 @@
 # Client 总览：以 harnessctl 为执行模型
 
+Server/client WebSocket 报文、字段和恢复规则见 [protocol.md](protocol.md)。
+
 Client 从输入来源接收文本，选择本机 session，调用 harnessctl，并读取该 session 的 events.jsonl。执行身份只有适配器公布的 run_id；client 不预分配 run_id，也没有执行 attempt。Server 的业务编排和调度设计不在本文扩展。
 
 ## 五个 service

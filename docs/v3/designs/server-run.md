@@ -1,5 +1,7 @@
 # runService：输入分配与执行事实
 
+完整 WebSocket 报文、字段和恢复规则见 [protocol.md](protocol.md)。
+
 Server 分配输入，client 执行并报告事实。**run_id 只由适配器的 accepted 事件产生**。Server 不生成执行 UUID，不创建 attempt、租约或原生执行状态，也不推断一次输入应该 start、steer 还是 queue。
 
 ## 消息、输入与 Run

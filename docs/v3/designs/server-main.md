@@ -1,5 +1,7 @@
 # Server 设计
 
+Server/client WebSocket 报文、字段和恢复规则见 [protocol.md](protocol.md)。
+
 > 本文定义 v3 的目标业务划分。service 名称和 device 命名是设计约定，现有源码、表和接口尚未全部按此调整。本稿先说明业务关系，不逐文件展开实现。Client 整体职责见 [client-main.md](client-main.md)。
 
 Conversation 表示共享对话，由 conversationService 管理；原 session 业务整体改用此名称，session 专指 client 对应 Codex/Claude Code 的原生执行会话，见 [client-session.md](client-session.md)；server 不增加 sessionService 或 sessions 表。
