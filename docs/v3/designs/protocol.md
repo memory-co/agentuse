@@ -481,7 +481,7 @@ sequenceDiagram
 }
 ```
 
-version_id 引用不可变配置，不使用 latest。skill name 必须与 ZIP 内 SKILL.md 一致；skill_version_id 必须属于给定 skill_id，大小和摘要必须与下载内容一致。下载使用当前 endpoint 的相对 API 路径，文件本体不走 WebSocket。
+Agent 版本由 agentService 发布，Skill 版本由 [skillService](server-skill.md) 独立发布；agent_version_skills 只关联具体版本。version_id 引用不可变配置，不使用 latest。Skill 下载接口由 skillService 授权并复用 fileService 的 skills 命名空间。skill name 必须与 ZIP 内 SKILL.md 一致；skill_version_id 必须属于给定 skill_id，大小和摘要必须与下载内容一致。下载使用当前 endpoint 的相对 API 路径，文件本体不走 WebSocket。
 
 现有 prompt.instructions 继续表示 Work/本次输入的业务说明，已包含在 content 中；新增 agent_instructions 才是固定版本的初始化资源。两者不能互相覆盖或由 client 重新推断角色。
 

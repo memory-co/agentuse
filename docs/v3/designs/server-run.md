@@ -28,7 +28,7 @@ accepted(run_id=R1,input_id=I2) → P3 也绑定 R1：真实插话
 | run_prompts | agent_version_id | 保存消息并为目标建立输入时，与消息在同一事务固定当前版本 |
 | runs | agent_version_id | 第一条 accepted 从对应 prompt 复制；同 run 后续输入只能来自相同版本 |
 
-两列均为非空版本 UUID，不存可变化的 latest，不冗余名称或版本配置。Agent 版本指向固定 device/harness/model/指令和 skill_versions；显示版本号时关联 agent_versions 查询。
+两列均为非空版本 UUID，不存可变化的 latest，不冗余名称或版本配置。Agent 版本指向固定 device/harness/model/指令；agentService 拥有关联，skillService 提供其固定 skill_versions 的元数据和下载授权。显示版本号时关联 agent_versions 查询。
 
 Claim 使用固定版本生成 dispatch，不在领取时再查当前 head。重连仍重发原 dispatch。下行增加 agent_version_id、model、agent_instructions 和 skill 包版本清单，详情见 [protocol.md 的目标扩展](protocol.md#agent-versioning)。Server 只准备版本化业务资源，不生成 harness 命令。
 
@@ -38,7 +38,7 @@ Client 活动流必须按 conversation/agent/agent_version 匹配；容量不足
 
 ## 与其他 Service 的关系
 
-conversationService 保存共享历史并建立输入分配；agentService 提供执行设备和 harness 标签；deviceService 管连接和上报能力。runService 在领取时准备共享历史、附件引用和业务指令。workService 提供工作说明、协调规则和授权。所有这些都是 server 业务，client 不推断角色。
+conversationService 保存共享历史并建立输入分配；agentService 提供执行设备和 harness 标签；skillService 管独立的技能包版本；deviceService 管连接和上报能力。runService 在领取时准备共享历史、附件引用和业务指令。workService 提供工作说明、协调规则和授权。所有这些都是 server 业务，client 不推断角色。
 
 Client 的 harnessService 管适配器 YAML、进程、原生协议、hook、skill、自动授权及插话策略。Server 不导入这些实现，不保存全局 harness 配置。设备上报的名称、版本、revision 用作选择和历史展示。
 

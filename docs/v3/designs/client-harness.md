@@ -32,7 +32,7 @@ init 绑定配置并持久化资源快照，不启动原生进程或模型。驱
 
 Client 的 session API 使用 send/reply/cancel，status API 返回公开状态。Server 的 prompt/reply/cancel 只传业务输入与控制，不选择原生投递策略。
 
-外部指令和技能由适配器的 init 统一接收：--agents-md 指令快照、可重复的 --skills-dir 技能根目录保存在 events.jsonl.d/resources/，不写入共享 workspace。原始资源删除后仍可恢复相同快照；改配置使用新的事件地址。完整约定见 [harnessctl 协议](../../../harnessctl/README.md)。当前 client 自动调用 init --cwd；CLI 资源配置可直接在独立适配器使用，尚未增加 client UI 的资源配置入口。后续 server Agent 版本接入是目标设计：runService 负责下载和解包固定 skill 版本，sessionService 按 agent_version_id 选择新事件地址，harnessService 接收准备好的指令路径、模型和技能目录后调用 init，不理解 skill 发布或 latest。
+外部指令和技能由适配器的 init 统一接收：--agents-md 指令快照、可重复的 --skills-dir 技能根目录保存在 events.jsonl.d/resources/，不写入共享 workspace。原始资源删除后仍可恢复相同快照；改配置使用新的事件地址。完整约定见 [harnessctl 协议](../../../harnessctl/README.md)。当前 client 自动调用 init --cwd；CLI 资源配置可直接在独立适配器使用，尚未增加 client UI 的资源配置入口。后续 server Agent 版本接入是目标设计：runService 从 server skillService 的版本下载接口获取并解包固定 skill 包，sessionService 按 agent_version_id 选择新事件地址，harnessService 接收准备好的指令路径、模型和技能目录后调用 init，不理解 skill 发布或 latest。
 
 ## 五种公共事件
 

@@ -16,7 +16,7 @@ Server 保存对话、组织任务并跟踪执行。用户的一台执行设备�
 
 其他章节中的 conversation/device 为业务目标名称。现有 HTTP /sessions、/daemons 和部分元数据物理表仍保留原名；消息 UUID、文件目录/S3 等目标不能视作本次执行改造已经实现。
 
-新增 Agent/Skill 版本化能力仍为目标设计，见 [server-agent.md](server-agent.md)：agent 的每次有效配置变更发布新版本，固定引用不可变 skill 包；排队输入固定版本，client 首次使用该版本时创建新初始化绑定。通用命名空间 fileService 和相应通信扩展尚未实现，不表示当前部署已经支持 server 管理这些资源。
+新增 Agent/Skill 版本化能力仍为目标设计，分别见 [agentService](server-agent.md) 与 [skillService](server-skill.md)：agent 的每次有效配置变更发布新版本，固定引用不可变 skill 包；排队输入固定版本，client 首次使用该版本时创建新初始化绑定。通用命名空间 fileService 和相应通信扩展尚未实现，不表示当前部署已经支持 server 管理这些资源。
 
 ## 一、整体关系
 
@@ -36,7 +36,8 @@ Server 分为三层：
 |---|---|---|
 | [userService](server-user.md) | 用户、角色、访问令牌和身份校验 | `users` |
 | [deviceService](server-device.md) | 执行设备的登记、凭据、在线状态、可用 harness 和执行能力 | `devices`、`device_harnesses`、`device_capabilities` |
-| [agentService](server-agent.md) | Agent 的不可变配置版本、Skill 包版本和固定依赖；复用 fileService 存储字节 | `agents`、`agent_versions`、`skills`、`skill_versions`、`agent_version_skills` |
+| [agentService](server-agent.md) | Agent 身份、不可变配置版本，以及具体 Skill 版本的固定关联 | `agents`、`agent_versions`、`agent_version_skills` |
+| [skillService](server-skill.md) | 共享 Skill 身份、ZIP 版本发布与校验、权限和下载；复用 fileService | `skills`、`skill_versions` |
 | [conversationService](server-conversation.md) | 清晰、持续的对话：创建对话、保存消息、读取共享历史；调用 runService 分配任务，接收结果事件并保存回复 | `conversations`、`messages` |
 | [runService](server-run.md) | 分配消息输入、接收实际 run、原样保存公共事件、转发回答和取消 | `runs`、`run_prompts`、`run_events`、`run_requests`、`run_controls` |
 | [fileService](server-file.md) | 按业务命名空间封装本地/S3；conversation 文件与 agent skill 包分目录 | 本地目录或 S3 对象前缀，无数据库表 |
@@ -60,6 +61,10 @@ conversationService 负责发送消息的业务编排，调用 runService 建立
 - 输入入队时固定 agent_version_id；发布新版不改写排队输入或已有 run，client 新版绑定新 session/events 并执行 init。
 
 **Device 是执行位置，agent 是任务角色，harness 是执行方式。** 三者不能合并成一个概念。
+
+### Agent 与 Skill 的独立版本
+
+agentService 管角色配置和 agent_version_skills，skillService 管共享技能和 skill_versions；两者各自发布版本，只通过具体版本 ID 关联。agentService 在发布事务中调用 skillService 校验选中的版本，skillService 再复用 fileService 保存包，不反向更新 agent。升级 Skill 不会自动改变任何 Agent 版本；需要使用新版时，显式发布新的 Agent 版本。
 
 ### 2.2 Client 的 harnessService
 
@@ -87,7 +92,7 @@ Server 只认识设备上报的 harness 标识、版本和能力，不设 harnes
 
 ### 2.4 fileService、workService
 
-fileService 统一按命名空间存储字节，不绑定 conversation。conversations 空间保存共享对话文件；agent-skills 空间保存独立的 skill 版本 ZIP。conversationService 和 agentService 分别校验业务权限与清理时机。fileService 不写文件数据库记录；skill 包摘要和路径属于 agentService 的版本元数据。
+fileService 统一按命名空间存储字节，不绑定 conversation。conversations 空间保存共享对话文件；skills 空间保存独立的 skill 版本 ZIP。conversationService 和 skillService 分别校验业务权限与清理时机。fileService 不写文件数据库记录；skill 包摘要和路径属于 skillService 的版本元数据。
 
 Work 是多个 conversation 的组织方式。workService 维护协调 conversation、工作线程和协调 agent，在线程任务完成后汇总结果，再经 conversationService 给协调 conversation 发消息。它复用同一套消息与 run 机制，不另建一种执行模型。
 

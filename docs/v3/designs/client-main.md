@@ -134,4 +134,4 @@ Server 与 client 使用 harnessctl-events-v1。Server 下发输入分配，clie
 
 ## Server Agent 版本接入（目标，尚未实现）
 
-Server 固定输入的 agent_version_id 和 skill 包版本。runService 下载、校验并解包；sessionService 按 agent 版本选择独立 session/events，继续使用同 conversation 的 workspace；harnessService 将准备好的资源交给 init/send。旧版本输入和执行不跟随最新配置变化，local 也走相同版本快照和初始化流程。详见 [server-agent.md](server-agent.md)、[client-session.md](client-session.md) 和 [目标通信扩展](protocol.md#agent-versioning)。
+Server 的 agentService/skillService 分别发布不可变版本，输入只关联固定的 agent_version_id 和 skill 包版本。runService 下载、校验并解包；sessionService 按 agent 版本选择独立 session/events，继续使用同 conversation 的 workspace；harnessService 将准备好的资源交给 init/send。旧版本输入和执行不跟随最新配置变化，local 也走相同版本快照和初始化流程。详见 [server-agent.md](server-agent.md)、[client-session.md](client-session.md) 和 [目标通信扩展](protocol.md#agent-versioning)。

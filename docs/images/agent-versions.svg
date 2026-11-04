@@ -5,7 +5,7 @@
 <rect width="1360" height="850" fill="#f8fafc"/>
 <g fill="#0f172a"><text x="35" y="43" font-size="25">Agent 版本固定配置，Skill 版本固定字节，Client 按版本 init</text></g>
 <rect x="35" y="85" width="1290" height="340" rx="14" fill="white" stroke="#cbd5e1"/>
-<text x="55" y="118" font-size="19" fill="#334155">Server · agentService 管版本，fileService 管字节</text>
+<text x="55" y="118" font-size="19" fill="#334155">Server · agentService 管角色版本；skillService 管技能版本；fileService 管字节</text>
 <rect x="55" y="160" width="280" height="115" rx="10" fill="#eef2ff" stroke="#94a3b8"/>
 <text x="75" y="196" font-size="21">Agent reviewer</text><text x="75" y="232" font-size="16">稳定 ID；当前指向 v2</text>
 <rect x="420" y="150" width="400" height="105" rx="10" fill="#f1f5f9" stroke="#94a3b8"/>
@@ -27,6 +27,6 @@
 <text x="905" y="571" font-size="20">新 session / events</text><text x="905" y="611" font-size="16">init 指令 B 和固定技能 → send</text>
 <path d="M805 590H885" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
 <text x="55" y="703" font-size="17" fill="#334155">两版共享 conversation/workspace；v2 不插入 v1 的原生上下文，实际 run UUID 仍由适配器决定。</text>
-<text x="55" y="748" font-size="17" fill="#334155">存储：conversations/... 保存对话文件；agent-skills/... 保存版本包，删除对话不删除技能。</text>
+<text x="55" y="748" font-size="17" fill="#334155">存储：conversations/... 保存对话文件；skills/... 保存版本包，删除对话不删除技能。</text>
 <text x="35" y="832" font-size="16" fill="#64748b">版本化与通用 fileService 为目标设计，尚未在运行代码中实现。</text>
 </svg>

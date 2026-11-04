@@ -47,7 +47,7 @@ cancel 取消 session 当前和排队工作，保留原生上下文；reply 使�
 
 ## Agent 版本绑定（目标，尚未实现）
 
-Server agent 版本设计见 [server-agent.md](server-agent.md)。session.yaml 增加 `agent_version_id`，它是来源提供的不可变配置身份，不是原生 session ID 或 run UUID。选择和复用的完整键变为 endpoint/conversation/agent/agent_version/harness/适配器 revision。
+Server agent 版本设计见 [server-agent.md](server-agent.md)，共享技能的独立发布和包格式见 [server-skill.md](server-skill.md)。session.yaml 增加 `agent_version_id`，它是来源提供的不可变配置身份，不是原生 session ID 或 run UUID。选择和复用的完整键变为 endpoint/conversation/agent/agent_version/harness/适配器 revision。
 
 同一 agent 发布新版本后，不改旧 session.yaml 的版本字段，也不向旧 events.jsonl 重新 init。下一条新版输入创建新的本地 session 目录及事件地址，按该版资源初始化；旧版工作继续结束，两版仍使用同一 `<conversation>/workspace/`。不存在自动搬迁或拼接原生上下文，新的上下文由 server 共享历史随输入提供。
 
