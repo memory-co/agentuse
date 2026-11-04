@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"strings"
 	"testing"
 )
@@ -40,34 +41,31 @@ func TestAgents(t *testing.T) {
 	if b, err := s.CreateAgent(ctx, bob.ID, "", "写代码", bobPC.ID, "codex", ""); err != nil || !strings.HasPrefix(b.ID, "ag_") {
 		t.Fatalf("same name for another user / generated id: %v %+v", err, b)
 	}
-	// 但只有主人能改、删 agent
-	bobName := "bob 的"
-	if _, err := s.UpdateAgent(ctx, bob, ag.ID, AgentPatch{Name: &bobName}); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("bob update: %v", err)
+	// Only the owner may publish a full immutable configuration.
+	config := agentuse.AgentConfig{Name: ag.Name, DaemonID: desktop.ID, Harness: "codex"}
+	if _, err := s.PublishAgentVersion(ctx, bob, ag.ID, ag.CurrentVersionID, config); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("bob publish: %v", err)
 	}
-
-	// 切换运行时:daemon 和 harness 一起换，只给一个不行;老会话不变，新会话用新的
-	codex, desktopID := "codex", desktop.ID
-	if _, err := s.UpdateAgent(ctx, alice, ag.ID, AgentPatch{Harness: &codex}); err == nil {
-		t.Fatal("harness alone should fail")
-	}
-	if ag, err = s.UpdateAgent(ctx, alice, ag.ID, AgentPatch{DaemonID: &desktopID, Harness: &codex}); err != nil ||
-		ag.DaemonID != desktop.ID || ag.Harness != "codex" || ag.Name != "写代码" {
+	old := ag.CurrentVersionID
+	if ag, err = s.PublishAgentVersion(ctx, alice, ag.ID, old, config); err != nil || ag.DaemonID != desktop.ID || ag.Harness != "codex" || ag.Version != 2 {
 		t.Fatalf("switch runtime: %v %+v", err, ag)
 	}
-	claude := "claude"
-	if _, err := s.UpdateAgent(ctx, alice, ag.ID, AgentPatch{DaemonID: &desktopID, Harness: &claude}); err == nil {
-		t.Fatal("harness not on that daemon should fail")
+	previous, err := s.GetAgentVersion(ctx, alice, ag.ID, old)
+	if err != nil || previous.DaemonID != laptop.ID || previous.Harness != "claude" {
+		t.Fatalf("old version changed: %+v %v", previous, err)
 	}
-	// 有 agent 用着的 harness 不能删
+	config.Harness = "claude"
+	if _, err := s.PublishAgentVersion(ctx, alice, ag.ID, ag.CurrentVersionID, config); err == nil {
+		t.Fatal("unreported harness accepted")
+	}
 	s.DaemonConnected(ctx, desktop, []ReportedHarness{{Name: "codex"}, {Name: "mine"}})
 	s.SetDaemonHarnessEnabled(ctx, alice, desktop.ID, "mine", true)
-	mine := "mine"
-	if _, err := s.UpdateAgent(ctx, alice, ag.ID, AgentPatch{DaemonID: &desktopID, Harness: &mine}); err != nil {
+	config.Harness = "mine"
+	if _, err := s.PublishAgentVersion(ctx, alice, ag.ID, ag.CurrentVersionID, config); err != nil {
 		t.Fatal(err)
 	}
 
-	// 删 agent:会话还在,agent_id 变空
+	// Soft deletion retains immutable history.
 	if err := s.DeleteAgent(ctx, bob, ag.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("bob delete: %v", err)
 	}

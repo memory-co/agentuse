@@ -35,6 +35,8 @@ type Manifest struct {
 	Requests []string `json:"requests"`
 }
 type Adapter struct {
+	OnInitialized                                                      func()
+	InitArgs                                                           []string
 	Name, Path, Revision, Version, PackageDir, HistoryPath, EventsPath string
 	Manifest                                                           Manifest
 	Disabled                                                           bool

@@ -19,7 +19,7 @@ fmt.Println(d.SetupCommand)
 // 电脑上线后打开 claude
 _, err = c.SetDaemonHarness(ctx, uid, d.ID, "claude", true)
 
-// 建一个 agent,运行时是这台电脑上的 claude;以后 UpdateAgent 切换运行时,agent 不变
+// 建一个 agent,运行时是这台电脑上的 claude;以后 PublishAgentVersion 发布完整新配置，agent 身份不变
 a, err := c.CreateAgent(ctx, uid, agentuse.CreateAgentRequest{ID: "code-helper", Name: "写代码", DaemonID: d.ID, Harness: "claude"})
 
 // 用这个 agent 发起任务，等它回完(用 ctx 控制超时)

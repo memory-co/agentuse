@@ -23,6 +23,7 @@ import (
 // Run is exactly one adapter-owned interaction. There is no client attempt ID
 // or caller-assigned run identity. All execution facts come from events.jsonl.
 type Run struct {
+	AgentVersionID  string     `json:"agent_version_id"`
 	EndpointID      string     `json:"endpoint_id"`
 	ConversationID  string     `json:"conversation_id"`
 	SessionID       string     `json:"session_id"`
@@ -42,6 +43,7 @@ type Run struct {
 	Events          []Event    `json:"events,omitempty"`
 }
 type nativeReceipt struct {
+	AgentVersionID  string `json:"agent_version_id"`
 	Type            string `json:"type"`
 	At              int64  `json:"at"`
 	RunID           string `json:"run_id"`
@@ -71,7 +73,7 @@ func (l *Service) AcceptNative(ctx context.Context, s session.Session, id string
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	receipt := nativeReceipt{Type: "reference", At: time.Now().UnixMilli(), RunID: id, EndpointID: s.EndpointID, ConversationID: s.ConversationID, SessionID: s.ID, AgentID: s.AgentID, Harness: s.Harness, HarnessRevision: s.HarnessRevision}
+	receipt := nativeReceipt{Type: "reference", At: time.Now().UnixMilli(), RunID: id, EndpointID: s.EndpointID, ConversationID: s.ConversationID, SessionID: s.ID, AgentID: s.AgentID, AgentVersionID: s.AgentVersionID, Harness: s.Harness, HarnessRevision: s.HarnessRevision}
 	return fileutil.Atomic(path, append(raw(receipt), '\n'))
 }
 func (r *Service) Detail(ctx context.Context, endpoint, conversation, session, id string) (Run, error) {
@@ -98,7 +100,7 @@ func (r *Service) Detail(ctx context.Context, endpoint, conversation, session, i
 		return result, fmt.Errorf("native run identity mismatch")
 	}
 
-	result = Run{EndpointID: endpoint, ConversationID: conversation, SessionID: session, RunID: id, AgentID: receipt.AgentID, Harness: receipt.Harness, HarnessRevision: receipt.HarnessRevision, Status: "running", ReceivedAt: receipt.At}
+	result = Run{EndpointID: endpoint, ConversationID: conversation, SessionID: session, RunID: id, AgentID: receipt.AgentID, AgentVersionID: receipt.AgentVersionID, Harness: receipt.Harness, HarnessRevision: receipt.HarnessRevision, Status: "running", ReceivedAt: receipt.At}
 	source := filepath.Join(filepath.Dir(filepath.Dir(path)), "events.jsonl")
 	if _, err = fileutil.SafePath(filepath.Dir(source), filepath.Base(source)); err != nil {
 		return result, err

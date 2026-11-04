@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
+
 	"github.com/memory-co/agentuse/internal/protocol"
 	"github.com/memory-co/agentuse/server/internal/service"
 )
@@ -216,18 +218,12 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		DaemonID    string `json:"daemon_id"`
-		Harness     string `json:"harness"`
-		Description string `json:"description"`
-	}
+	var req agentuse.CreateAgentRequest
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a, err := s.service.CreateAgent(r.Context(), currentUser(r).ID, req.ID, req.Name, req.DaemonID, req.Harness, req.Description)
+	a, err := s.service.CreateConfiguredAgent(r.Context(), currentUser(r).ID, req.ID, agentuse.AgentConfig{Name: req.Name, DaemonID: req.DaemonID, Harness: req.Harness, Description: req.Description, Model: req.Model, Instructions: req.Instructions, Skills: req.Skills})
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -237,27 +233,6 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 	a, err := s.service.GetAgent(r.Context(), currentUser(r), r.PathValue("id"))
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, a)
-}
-
-// handleUpdateAgent 改名字、切换运行时(daemon_id + harness 一起给)、改说明;没给的字段不变。
-func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name        *string `json:"name"`
-		DaemonID    *string `json:"daemon_id"`
-		Harness     *string `json:"harness"`
-		Description *string `json:"description"`
-	}
-	if err := readJSON(r, &req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	a, err := s.service.UpdateAgent(r.Context(), currentUser(r), r.PathValue("id"),
-		service.AgentPatch{Name: req.Name, DaemonID: req.DaemonID, Harness: req.Harness, Description: req.Description})
 	if err != nil {
 		s.storeErr(w, err)
 		return

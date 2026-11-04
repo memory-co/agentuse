@@ -37,6 +37,7 @@ class Run(TypedDict, total=False):
     session_id: str
     first_message_id: int
     agent_id: str
+    agent_version_id: str
     daemon_id: str
     client_session_id: str
     harness: str
@@ -54,6 +55,7 @@ class Delivery(TypedDict, total=False):
     message_id: int
     session_id: str
     agent_id: str
+    agent_version_id: str
     daemon_id: str
     harness: str
     content: dict
@@ -138,20 +140,32 @@ class Client:
     def list_agents(self, user):
         return self._request("GET", "/api/agents", user)
 
-    def create_agent(self, user, name, daemon_id, harness, description=None, id=None):
+    def create_agent(self, user, name, daemon_id, harness, description=None, id=None, model=None, instructions="", skills=None):
         """id 全局唯一，不传时服务生成 ag_xxx。"""
         return self._request(
-            "POST", "/api/agents", user, _drop_none(id=id, name=name, daemon_id=daemon_id, harness=harness, description=description)
+            "POST", "/api/agents", user, _drop_none(id=id, name=name, daemon_id=daemon_id, harness=harness, description=description, model=model, instructions=instructions, skills=skills or [])
         )
 
     def get_agent(self, user, agent_id):
         return self._request("GET", f"/api/agents/{_q(agent_id)}", user)
 
-    def update_agent(self, user, agent_id, name=None, daemon_id=None, harness=None, description=None):
-        """改名字、切换运行时(daemon_id 和 harness 一起给)、改说明;None 不改。切换运行时只影响之后新建的会话。"""
-        return self._request(
-            "PATCH", f"/api/agents/{_q(agent_id)}", user, _drop_none(name=name, daemon_id=daemon_id, harness=harness, description=description)
-        )
+    def publish_agent_version(self, user, agent_id, config):
+        return self._request("POST", f"/api/agents/{_q(agent_id)}/versions", user, config)
+
+    def list_agent_versions(self, user, agent_id):
+        return self._request("GET", f"/api/agents/{_q(agent_id)}/versions", user)
+
+    def get_agent_version(self, user, agent_id, version_id):
+        return self._request("GET", f"/api/agents/{_q(agent_id)}/versions/{_q(version_id)}", user)
+
+    def list_skills(self, user):
+        return self._request("GET", "/api/skills", user)
+
+    def list_skill_versions(self, user, skill_id):
+        return self._request("GET", f"/api/skills/{_q(skill_id)}/versions", user)
+
+    def delete_skill(self, user, skill_id):
+        return self._request("DELETE", f"/api/skills/{_q(skill_id)}", user)
 
     def delete_agent(self, user, agent_id):
         self._request("DELETE", f"/api/agents/{_q(agent_id)}", user)
@@ -193,6 +207,33 @@ class Client:
             except ValueError:
                 msg = raw.decode(errors="replace") or e.reason
             raise AgentuseError(e.code, msg) from None
+
+    def get_skill(self, user, skill_id):
+        return self._request("GET", f"/api/skills/{_q(skill_id)}", user)
+
+    def get_skill_version(self, user, skill_id, version_id):
+        return self._request("GET", f"/api/skills/{_q(skill_id)}/versions/{_q(version_id)}", user)
+
+    def publish_skill(self, user, skill_id, base_version_id, stream):
+        """Create when skill_id is None; otherwise publish against base_version_id."""
+        boundary = "agentuse-" + secrets.token_hex(24)
+        def body():
+            yield (f'--{boundary}\r\nContent-Disposition: form-data; name="base_version_id"\r\n\r\n'
+                   f'{base_version_id or ""}\r\n--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="skill.zip"\r\n'
+                   'Content-Type: application/zip\r\n\r\n').encode()
+            while True:
+                chunk = stream.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+            yield f'\r\n--{boundary}--\r\n'.encode()
+        path = f"/api/skills/{_q(skill_id)}/versions" if skill_id else "/api/skills"
+        with self._attachment_request("POST", path, user, body(), f"multipart/form-data; boundary={boundary}") as resp:
+            return json.load(resp)
+
+    def download_skill_package(self, user, skill_id, version_id):
+        """Returns a response stream that the caller must close."""
+        return self._attachment_request("GET", f"/api/skills/{_q(skill_id)}/versions/{_q(version_id)}/package", user)
 
     def upload_attachment(self, user, session_id, filename, stream) -> Attachment:
         """Stream a binary file object without buffering it in memory."""

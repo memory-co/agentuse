@@ -209,6 +209,11 @@ func (s *Service) deleteDaemon(ctx context.Context, u User, id string) error {
 		return err
 	}
 
+	for _, query := range []string{`DELETE FROM daemon_harnesses WHERE daemon_id=?`, `DELETE FROM daemon_capabilities WHERE daemon_id=?`, `UPDATE attachments SET daemon_id=NULL WHERE daemon_id=?`} {
+		if _, err := tx.ExecContext(ctx, query, id); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, q, args...); err != nil {
 		return err
 	}

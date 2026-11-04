@@ -27,7 +27,7 @@ func TestRunAPIUsesClientIdentityAndGenericReply(t *testing.T) {
 	run := uuid.NewString()
 	report := func(seq int64, event any) {
 		data, _ := json.Marshal(event)
-		if err := f.e.st.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.session.ID, SessionID: "native", AgentID: f.agent, Harness: p.Harness, Revision: "reported", PromptID: p.ID, Seq: seq, Event: data}); err != nil {
+		if err := f.e.st.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.session.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: p.AgentVersionID, Harness: p.Harness, Revision: "reported", PromptID: p.ID, Seq: seq, Event: data}); err != nil {
 			t.Fatal(err)
 		}
 	}

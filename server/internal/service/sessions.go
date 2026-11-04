@@ -117,7 +117,11 @@ func (s *Service) DeleteSession(ctx context.Context, u User, id string) error {
 	if _, err := tx.ExecContext(ctx, store.DeleteSessionDelete, id); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.cleanupConversationFiles(ctx, id)
+	return nil
 }
 
 func (s *Service) Messages(ctx context.Context, sessionID string) ([]Message, error) {

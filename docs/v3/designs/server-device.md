@@ -25,7 +25,7 @@ agentService 发布版本时检查设备归属和运行能力，runService 根�
 
 状态为 pending（未注册）、offline、online。在线状态表示连接状态，不代表设备当前空闲；是否可以领取由 client 的 ready 和 runService 的领取规则共同决定。
 
-执行协议仅声明 harnessctl-events-v1。Server 接受 client 上报的自定义 harness 标签，不要求先注册全局目录，不按 codex/claudecode 分支。harness 列表接口是设备上报结果的只读视图，没有创建或编辑 YAML 的 API。
+执行协议仅声明 harnessctl-events-v2。Server 接受 client 上报的自定义 harness 标签，不要求先注册全局目录，不按 codex/claudecode 分支。harness 列表接口是设备上报结果的只读视图，没有创建或编辑 YAML 的 API。
 
 ## 表结构
 
@@ -75,7 +75,7 @@ CREATE INDEX device_harnesses_user_harness
 
 设备支持的 run 业务协议版本与能力，例如任务领取、标准事件、文件操作。每次上线以上报内容替换旧集合，不把进程流、JSON-RPC 或原生 hook 等 client 内部实现当成 server 指令集。
 
-device_harnesses.harness_revision 是本地接入包版本，连接 capability 声明公共传输协议 harnessctl-events-v1，不通过 steer/question/plan 等原生能力分支调度。Client 升级接入包后重新探测并上报，不用 server 编译配置。
+device_harnesses.harness_revision 是本地接入包版本，连接 capability 声明公共传输协议 harnessctl-events-v2，不通过 steer/question/plan 等原生能力分支调度。Client 升级接入包后重新探测并上报，不用 server 编译配置。
 
 ```sql
 CREATE TABLE device_capabilities (

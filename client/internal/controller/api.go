@@ -118,9 +118,12 @@ type createConversationBody struct {
 	Title string `json:"title" doc:"任意 conversation 标题，非空，最多 4096 字节"`
 }
 type startRunBody struct {
-	Harness string `json:"harness" doc:"已安装的 harness 名称"`
-	Prompt  string `json:"prompt,omitempty" doc:"未提供 input 时必填"`
-	Input   any    `json:"input,omitempty" doc:"自定义 harness 原生 JSON 输入；优先于 prompt，最多 256 KiB"`
+	Model             string   `json:"model,omitempty"`
+	AgentInstructions string   `json:"agent_instructions,omitempty"`
+	SkillPackages     []string `json:"skill_packages,omitempty"`
+	Harness           string   `json:"harness" doc:"已安装的 harness 名称"`
+	Prompt            string   `json:"prompt,omitempty" doc:"未提供 input 时必填"`
+	Input             any      `json:"input,omitempty" doc:"自定义 harness 原生 JSON 输入；优先于 prompt，最多 256 KiB"`
 }
 type controlRunBody struct {
 	Prompt    string `json:"prompt,omitempty"`

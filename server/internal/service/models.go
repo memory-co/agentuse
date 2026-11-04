@@ -7,7 +7,6 @@ import (
 )
 
 type Agent = store.Agent
-type AgentPatch = store.AgentPatch
 
 const agentCols = store.AgentCols
 

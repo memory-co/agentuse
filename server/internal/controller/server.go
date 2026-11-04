@@ -11,11 +11,15 @@ import (
 	"strings"
 
 	"github.com/memory-co/agentuse/server/internal/service"
+	fileservice "github.com/memory-co/agentuse/server/internal/service/file"
+	skillservice "github.com/memory-co/agentuse/server/internal/service/skill"
 
 	"github.com/memory-co/agentuse/internal/protocol"
 )
 
 type Config struct {
+	FileStore                 *fileservice.Service
+	FilesDir                  string
 	DaemonHandler             http.Handler
 	AttachmentsDir            string
 	AttachmentMaxBytes        int64
@@ -57,6 +61,22 @@ func New(st *service.Service, cfg Config) *Server {
 	if s.cfg.DaemonHandler == nil {
 		s.cfg.DaemonHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeErr(w, 503, "daemon transport not configured") })
 	}
+	if st != nil {
+		files := cfg.FileStore
+		if files == nil {
+			dir := cfg.FilesDir
+			if dir == "" {
+				home, _ := os.UserHomeDir()
+				dir = filepath.Join(home, ".agentuse", "files")
+			}
+			var err error
+			files, err = fileservice.NewLocal(dir)
+			if err != nil {
+				cfg.Logger.Printf("file storage: %v", err)
+			}
+		}
+		st.ConfigureFiles(files)
+	}
 	s.routes()
 	return s
 }
@@ -79,8 +99,20 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/agents", s.workAuth(s.handleListAgents))
 	s.mux.HandleFunc("POST /api/agents", s.auth(s.handleCreateAgent))
 	s.mux.HandleFunc("GET /api/agents/{id}", s.auth(s.handleGetAgent))
-	s.mux.HandleFunc("PATCH /api/agents/{id}", s.auth(s.handleUpdateAgent))
+	s.mux.HandleFunc("POST /api/agents/{id}/versions", s.auth(s.handlePublishAgentVersion))
+	s.mux.HandleFunc("GET /api/agents/{id}/versions", s.auth(s.handleAgentVersions))
+	s.mux.HandleFunc("GET /api/agents/{id}/versions/{version_id}", s.auth(s.handleAgentVersion))
 	s.mux.HandleFunc("DELETE /api/agents/{id}", s.auth(s.handleDeleteAgent))
+	s.mux.HandleFunc("GET /api/skills", s.auth(s.handleListSkills))
+	s.mux.HandleFunc("POST /api/skills", s.auth(s.handlePublishSkill))
+	s.mux.HandleFunc("GET /api/skills/{id}", s.auth(s.handleGetSkill))
+	s.mux.HandleFunc("DELETE /api/skills/{id}", s.auth(s.handleDeleteSkill))
+	s.mux.HandleFunc("POST /api/skills/{id}/versions", s.auth(s.handlePublishSkill))
+	s.mux.HandleFunc("GET /api/skills/{id}/versions", s.auth(s.handleSkillVersions))
+	s.mux.HandleFunc("GET /api/skills/{id}/versions/{version_id}", s.auth(s.handleSkillVersion))
+	s.mux.HandleFunc("GET /api/skills/{id}/versions/{version_id}/package", s.handleSkillPackage)
+	s.mux.HandleFunc("GET /api/conversations/{id}/files/{path...}", s.sessionReadAuth(s.handleConversationFile))
+	s.mux.HandleFunc("PUT /api/conversations/{id}/files/{path...}", s.sessionReadAuth(s.handleConversationFile))
 	s.mux.HandleFunc("GET /api/daemons", s.auth(s.handleListDaemons))
 	s.mux.HandleFunc("POST /api/daemons", s.auth(s.handleCreateDaemon))
 	s.mux.HandleFunc("DELETE /api/daemons/{id}", s.auth(s.handleDeleteDaemon))
@@ -150,11 +182,11 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 }
 
 func (s *Server) storeErr(w http.ResponseWriter, err error) {
-	if errors.Is(err, service.ErrNotFound) {
+	if errors.Is(err, service.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 		writeErr(w, http.StatusNotFound, "不存在")
 		return
 	}
-	if errors.Is(err, service.ErrStaleMessage) || errors.Is(err, service.ErrSessionBusy) || errors.Is(err, service.ErrQuestionClosed) || errors.Is(err, service.ErrSessionState) {
+	if errors.Is(err, skillservice.ErrConflict) || errors.Is(err, service.ErrStaleMessage) || errors.Is(err, service.ErrSessionBusy) || errors.Is(err, service.ErrQuestionClosed) || errors.Is(err, service.ErrSessionState) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}

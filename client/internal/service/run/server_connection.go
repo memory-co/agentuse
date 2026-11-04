@@ -158,7 +158,7 @@ func (d *endpointConnection) session(ctx context.Context) error {
 					d.cfg.RunService.localMu.Lock()
 					for _, active := range d.cfg.RunService.localRuns {
 						if active.session.EndpointID == d.cfg.EndpointID {
-							message.ActiveStreams = append(message.ActiveStreams, protocol.StreamRef{ConversationID: active.session.ConversationID, AgentID: active.session.AgentID})
+							message.ActiveStreams = append(message.ActiveStreams, protocol.StreamRef{ConversationID: active.session.ConversationID, AgentID: active.session.AgentID, AgentVersionID: active.session.AgentVersionID})
 						}
 					}
 					d.cfg.RunService.localMu.Unlock()
@@ -292,7 +292,7 @@ func (d *endpointConnection) receivePrompt(ctx context.Context, p protocol.Promp
 	}
 	var saved promptReceipt
 	var path string
-	request := Request{Harness: p.Harness, Prompt: p.Content, agentID: p.AgentID, environment: []string{"AGENTUSE_SERVER=" + d.cfg.Server, "AGENTUSE_TOKEN=" + d.cfg.Key, "AGENTUSE_CONFIG=" + d.cfg.ConfigPath, "AGENTUSE_WORK=" + p.WorkToken, "AGENTUSE_SESSION=" + p.ConversationID, "AGENTUSE_CONVERSATION=" + p.ConversationID, "AGENTUSE_AGENT=" + p.AgentID, "AGENTUSE_PROMPT=" + strconv.FormatInt(p.ID, 10), "AGENTUSE_RUN=", "AGENTUSE_ATTEMPT="}}
+	request := Request{Harness: p.Harness, Prompt: p.Content, agentID: p.AgentID, agentVersionID: p.AgentVersionID, Model: p.Model, AgentInstructions: p.AgentInstructions, skills: p.Skills, environment: []string{"AGENTUSE_SERVER=" + d.cfg.Server, "AGENTUSE_TOKEN=" + d.cfg.Key, "AGENTUSE_CONFIG=" + d.cfg.ConfigPath, "AGENTUSE_WORK=" + p.WorkToken, "AGENTUSE_SESSION=" + p.ConversationID, "AGENTUSE_CONVERSATION=" + p.ConversationID, "AGENTUSE_AGENT=" + p.AgentID, "AGENTUSE_PROMPT=" + strconv.FormatInt(p.ID, 10), "AGENTUSE_RUN=", "AGENTUSE_ATTEMPT="}}
 	if exe, err := os.Executable(); err == nil {
 		request.environment = append(request.environment, "PATH="+filepath.Dir(exe)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
@@ -448,7 +448,7 @@ func (d *endpointConnection) flushEvents(ctx context.Context) error {
 			if readErr != nil {
 				return readErr
 			}
-			envelope := protocol.ClientEvent{ConversationID: c.ID, AgentID: metadata.AgentID, SessionID: metadata.ID, Harness: metadata.Harness, Revision: metadata.HarnessRevision, Seq: cursor.Offset + int64(len(line)), Event: json.RawMessage(strings.TrimSuffix(string(line), "\n"))}
+			envelope := protocol.ClientEvent{ConversationID: c.ID, AgentID: metadata.AgentID, AgentVersionID: metadata.AgentVersionID, SessionID: metadata.ID, Harness: metadata.Harness, Revision: metadata.HarnessRevision, Seq: cursor.Offset + int64(len(line)), Event: json.RawMessage(strings.TrimSuffix(string(line), "\n"))}
 			var event harness.Event
 			if err = json.Unmarshal(line, &event); err != nil {
 				return err

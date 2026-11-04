@@ -19,7 +19,7 @@ conversationService 管理 conversation、message 和共享历史，并编排消
 
 发送链路是 `controller → conversationService → runService`：先检查权限，在一个事务中写一条 message 和每个目标 agent 的 run_prompts，提交后通知 client 领取。任一目标失败则整体回滚。空目标只保存备注。
 
-此时只分配输入，run_id 为空。新增 Agent 版本设计要求在这一事务内为每条 run_prompts 固定 agent_version_id，后续领取不追随 latest；此版本关联尚未实现。Server 不能根据某个 agent 仍在执行，就认定新消息一定属于它当前的 run。
+此时只分配输入，run_id 为空。这一事务内为每条 run_prompts 固定 agent_version_id，后续领取不追随 latest。Server 不能根据某个 agent 仍在执行，就认定新消息一定属于它当前的 run。
 
 ```text
 M1 @coder @reviewer → P1(coder)、P2(reviewer)
@@ -53,7 +53,7 @@ UUID 只用于标识，不承担消息排序。目标结构用 messages.seq 保�
 
 ## 目标元数据与当前实现
 
-本文下列 SQL 定义元数据的目标命名和字段。当前已实现的执行关系以本文发送链路和 [server-run.md](server-run.md) 为准；物理对话表仍名为 sessions，HTTP 入口仍为 /api/sessions。当前 conversation ID 为 UUID，messages.id 与 reply_to_message_id 仍为 INTEGER，messages.seq 由 ID 投影。消息 UUID、author_role、独立 attachments 列以及目录/S3 fileService 仍是目标设计，不表示已部署。执行表的实际 SQL 见 server-run.md。
+本文下列 SQL 定义元数据的目标命名和字段。当前已实现的执行关系以本文发送链路和 [server-run.md](server-run.md) 为准；物理对话表仍名为 sessions，HTTP 入口仍为 /api/sessions。当前 conversation ID 为 UUID，messages.id 与 reply_to_message_id 仍为 INTEGER，messages.seq 由 ID 投影。消息 UUID、author_role、独立 attachments 列及旧附件链路迁移仍是目标设计；通用 fileService 的目录/S3 后端已实现，不表示已部署。执行表的实际 SQL 见 server-run.md。
 
 ## 表结构
 

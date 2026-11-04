@@ -66,7 +66,7 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 			return false
 		}
 		for _, cap := range ds[0].Capabilities {
-			if cap == "harnessctl-events-v1" {
+			if cap == "harnessctl-events-v2" {
 				return true
 			}
 		}

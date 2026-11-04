@@ -17,6 +17,7 @@ import (
 )
 
 type Session struct {
+	AgentVersionID  string `json:"agent_version_id" yaml:"agent_version_id"`
 	ID              string `json:"id" yaml:"id"`
 	EndpointID      string `json:"endpoint_id" yaml:"endpoint_id"`
 	ConversationID  string `json:"conversation_id" yaml:"conversation_id"`
@@ -123,13 +124,16 @@ func (l *Service) SaveSession(s Session) error {
 	s.UpdatedAt = time.Now().UnixMilli()
 	return fileutil.WriteYAML(p, s)
 }
-func (l *Service) Acquire(ctx context.Context, endpoint, conversation, agent, harness, revision string) (Session, string, error) {
+func (l *Service) Acquire(ctx context.Context, endpoint, conversation, agent, harness, revision, version string) (Session, string, error) {
 	if _, err := l.Reclaim(ctx); err != nil {
 		return Session{}, "", err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var out Session
+	if version == "" {
+		return out, "", fileutil.ErrInvalid
+	}
 	workspace, e := fileutil.SafePath(l.Root, endpoint, conversation, "workspace")
 	if e != nil {
 		return out, "", e
@@ -153,7 +157,7 @@ func (l *Service) Acquire(ctx context.Context, endpoint, conversation, agent, ha
 	}
 	sort.Slice(ss, func(i, j int) bool { return ss[i].LastUsedAt > ss[j].LastUsedAt })
 	for _, s := range ss {
-		if s.AgentID == agent && s.Harness == harness && s.HarnessRevision == revision {
+		if s.AgentID == agent && s.AgentVersionID == version && s.Harness == harness && s.HarnessRevision == revision {
 			if s.Status == "running" {
 				return out, "", fmt.Errorf("session is busy")
 			}
@@ -165,7 +169,7 @@ func (l *Service) Acquire(ctx context.Context, endpoint, conversation, agent, ha
 	}
 	now := time.Now().UnixMilli()
 	if out.ID == "" {
-		out = Session{ID: uuid.NewString(), EndpointID: endpoint, ConversationID: conversation, AgentID: agent, Harness: harness, HarnessRevision: revision, CreatedAt: now}
+		out = Session{ID: uuid.NewString(), EndpointID: endpoint, ConversationID: conversation, AgentID: agent, AgentVersionID: version, Harness: harness, HarnessRevision: revision, CreatedAt: now}
 	}
 	out.Status = "running"
 	out.LastUsedAt = now

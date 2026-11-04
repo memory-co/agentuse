@@ -4,29 +4,43 @@ import "encoding/json"
 
 // ExecutionProtocol transports business inputs and unchanged harnessctl events.
 // A prompt identifies a server message delivery; only the client assigns run_id.
-const ExecutionProtocol = "harnessctl-events-v1"
+const ExecutionProtocol = "harnessctl-events-v2"
 const TypePrompt = "prompt"
 const TypePromptError = "prompt_error"
 const TypePromptErrorAck = "prompt_error_ack"
 const TypeReply = "reply"
 const TypeControlAck = "control_ack"
 
+type SkillResource struct {
+	SkillID        string `json:"skill_id"`
+	SkillVersionID string `json:"skill_version_id"`
+	Name           string `json:"name"`
+	SHA256         string `json:"sha256"`
+	SizeBytes      int64  `json:"size_bytes"`
+	DownloadPath   string `json:"download_path"`
+}
+
 type Prompt struct {
-	Attachments    []LocalAttachment `json:"attachments,omitempty"`
-	ID             int64             `json:"id"`
-	ConversationID string            `json:"conversation_id"`
-	MessageID      int64             `json:"message_id"`
-	AgentID        string            `json:"agent_id"`
-	Harness        string            `json:"harness"`
-	Content        string            `json:"content"`
-	Instructions   string            `json:"instructions,omitempty"`
-	Context        json.RawMessage   `json:"context,omitempty"`
-	ContextSeq     int64             `json:"context_seq,omitempty"`
-	WorkID         string            `json:"work_id,omitempty"`
-	WorkToken      string            `json:"work_token,omitempty"`
+	AgentVersionID    string            `json:"agent_version_id"`
+	Model             string            `json:"model,omitempty"`
+	AgentInstructions string            `json:"agent_instructions"`
+	Skills            []SkillResource   `json:"skills"`
+	Attachments       []LocalAttachment `json:"attachments,omitempty"`
+	ID                int64             `json:"id"`
+	ConversationID    string            `json:"conversation_id"`
+	MessageID         int64             `json:"message_id"`
+	AgentID           string            `json:"agent_id"`
+	Harness           string            `json:"harness"`
+	Content           string            `json:"content"`
+	Instructions      string            `json:"instructions,omitempty"`
+	Context           json.RawMessage   `json:"context,omitempty"`
+	ContextSeq        int64             `json:"context_seq,omitempty"`
+	WorkID            string            `json:"work_id,omitempty"`
+	WorkToken         string            `json:"work_token,omitempty"`
 }
 
 type ClientEvent struct {
+	AgentVersionID string `json:"agent_version_id"`
 	ConversationID string `json:"conversation_id"`
 	AgentID        string `json:"agent_id"`
 	SessionID      string `json:"session_id"`
@@ -48,6 +62,7 @@ type SessionControl struct {
 }
 
 type StreamRef struct {
+	AgentVersionID string `json:"agent_version_id"`
 	ConversationID string `json:"conversation_id"`
 	AgentID        string `json:"agent_id"`
 }

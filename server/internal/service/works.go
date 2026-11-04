@@ -161,7 +161,13 @@ func (s *Service) DeleteWork(ctx context.Context, u User, id string) error {
 	if _, err := tx.ExecContext(ctx, store.DeleteWorkDelete2, w.ID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		s.cleanupConversationFiles(ctx, id)
+	}
+	return nil
 }
 
 // ResolveSession 把 idle 的会话标记为已完成;已经是已完成的直接返回。协调者不能标记。

@@ -117,7 +117,11 @@ func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversatio
 			return err
 		}
 		payload, _ := json.Marshal(map[string]string{"prompt": fmt.Sprintf("[线程 %s「%s」回复了]\n%s", ss.ID, ss.Title, summary.String())})
-		if _, err = s.sendMultiTx(ctx, tx, User{ID: w.UserID}, coord, payload, []string{w.CoordinatorAgentID}, ""); err != nil {
+		targets := []string{}
+		if w.CoordinatorAgentID != "" {
+			targets = append(targets, w.CoordinatorAgentID)
+		}
+		if _, err = s.sendMultiTx(ctx, tx, User{ID: w.UserID}, coord, payload, targets, ""); err != nil {
 			return err
 		}
 	}

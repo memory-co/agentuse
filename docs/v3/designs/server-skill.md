@@ -1,6 +1,6 @@
 # skillService：共享 Skill 与不可变包版本
 
-> 本文为独立 skillService 的目标设计，尚未修改运行代码或数据库。SQL 表示目标结构，表之间不声明数据库外键。
+> 独立 skillService 已实现，拥有 skills 和 skill_versions，表之间不声明数据库外键；ZIP 字节使用通用 fileService。
 
 ## 职责与关系
 
@@ -83,7 +83,7 @@ download_path 是当前 server 的相对 API 路径。skillService 校验业务�
 
 软删除的 skill 不可用于发布新的 agent 版本，但已有配置、已入队输入和执行历史仍能按固定版本读取。删除 agent 只删除/隐藏角色选择，不删除共享 skill；删除 conversation 只回收该对话的文件，不回收 skills 空间。
 
-当前目标保留全部已发布 skill_versions 及其 ZIP，不提供覆盖或删除单个已发布版本的 API。没有显式版本淘汰设计前，只清理确认未发布、无 skill_versions 记录引用且不在上传中的孤立对象，不把“没有当前 agent 引用”当成删除旧包的理由。清理由 skillService 编排，fileService 执行字节删除。
+当前实现保留全部已发布 skill_versions 及其 ZIP，不提供覆盖或删除单个已发布版本的 API。没有显式版本淘汰设计前，只清理确认未发布、无 skill_versions 记录引用且不在上传中的孤立对象，不把“没有当前 agent 引用”当成删除旧包的理由。清理由 skillService 编排，fileService 执行字节删除。
 
 ## 表结构
 
@@ -122,3 +122,11 @@ package_path 是 skills 命名空间内的相对路径，如 `<skill_id>/<skill_
 agent_version_skills 不在本 service 重复定义或写入，其完整 SQL 见 [server-agent.md](server-agent.md)。
 
 [Server 总览](server-main.md) · [agentService](server-agent.md) · [fileService](server-file.md) · [runService](server-run.md) · [通信协议](protocol.md)
+
+## 实现约束
+
+上传 multipart 的文件字段为 `file`，发布新版本另带 `base_version_id`。单 ZIP 最多 50 MiB、解压最多 200 MiB、最多 4096 个条目。根 SKILL.md 的 name/description 必须是字符串；name 为 1–64 个 ASCII 字母、数字、下划线或连字符，首字符为字母或数字。重复路径按不区分大小写检查，拒绝原生插件清单目录。
+
+Server 前端 Skills 页面支持上传、发布、查看历史、下载和软删除；Agent 页面选择明确的 skill 版本。Go SDK 提供 PublishSkill、ListSkillVersions 和 DownloadSkillPackage 等方法。
+
+正常事务失败会补偿删除候选 ZIP；进程异常退出可能留下未发布对象。当前没有自动扫描孤立对象的后台任务，也没有已发布版本的淘汰 API。

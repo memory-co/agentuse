@@ -8,6 +8,7 @@ import (
 
 // Run is one client-reported harnessctl interaction; its ID is adapter-owned.
 type Run struct {
+	AgentVersionID  string          `json:"agent_version_id"`
 	ID              string          `json:"id"`
 	SessionID       string          `json:"session_id"`
 	FirstMessageID  int64           `json:"first_message_id"`
@@ -27,6 +28,7 @@ type Run struct {
 
 // Delivery exists before a client accepts input. RunID is empty until accepted.
 type Delivery struct {
+	AgentVersionID  string          `json:"agent_version_id"`
 	ID              int64           `json:"id"`
 	MessageID       int64           `json:"message_id"`
 	SessionID       string          `json:"session_id"`

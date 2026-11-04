@@ -6,8 +6,6 @@ import (
 
 type Agent = agentuse.Agent
 
-type AgentPatch = agentuse.UpdateAgentRequest
-
 // AttachmentAccess is revalidated inside the upload transaction, including credentials.
 type AttachmentAccess struct {
 	User                    User

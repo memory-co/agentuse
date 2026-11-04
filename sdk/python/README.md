@@ -21,7 +21,7 @@ print(d["setup_command"])
 # 电脑上线后打开 claude
 agentuse.set_daemon_harness(uid, d["id"], "claude", True)
 
-# 建一个 agent,运行时是这台电脑上的 claude;以后 update_agent 切换运行时,agent 不变
+# 建一个 agent,运行时是这台电脑上的 claude;以后 publish_agent_version 发布完整新配置，agent 身份不变
 a = agentuse.create_agent(uid, "写代码", d["id"], "claude", id="code-helper")
 
 # 用这个 agent 发起任务，等它回完

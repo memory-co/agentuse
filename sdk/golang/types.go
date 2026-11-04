@@ -33,30 +33,30 @@ type Harness struct {
 }
 
 type Agent struct {
-	ID          string `json:"id"`
-	UserID      string `json:"user_id"`
-	Name        string `json:"name"`
-	DaemonID    string `json:"daemon_id,omitempty"` // 运行时 = DaemonID + Harness;daemon 被删后为空
-	Harness     string `json:"harness"`
-	Description string `json:"description"`
-	CreatedAt   int64  `json:"created_at"`
-	UpdatedAt   int64  `json:"updated_at"`
+	CurrentVersionID string     `json:"current_version_id"`
+	Version          int        `json:"version"`
+	Model            string     `json:"model,omitempty"`
+	Instructions     string     `json:"instructions"`
+	Skills           []SkillRef `json:"skills"`
+	ID               string     `json:"id"`
+	UserID           string     `json:"user_id"`
+	Name             string     `json:"name"`
+	DaemonID         string     `json:"daemon_id,omitempty"` // 运行时 = DaemonID + Harness;daemon 被删后为空
+	Harness          string     `json:"harness"`
+	Description      string     `json:"description"`
+	CreatedAt        int64      `json:"created_at"`
+	UpdatedAt        int64      `json:"updated_at"`
 }
 
 type CreateAgentRequest struct {
-	ID          string `json:"id,omitempty"` // 全局唯一;空 = 服务生成 ag_xxx
-	Name        string `json:"name"`
-	DaemonID    string `json:"daemon_id"` // 运行时：自己的某台 daemon + 它上报过的某个 harness
-	Harness     string `json:"harness"`
-	Description string `json:"description,omitempty"`
-}
-
-// UpdateAgentRequest 里切换运行时要 DaemonID 和 Harness 一起给。
-type UpdateAgentRequest struct {
-	Name        *string `json:"name,omitempty"`
-	DaemonID    *string `json:"daemon_id,omitempty"`
-	Harness     *string `json:"harness,omitempty"`
-	Description *string `json:"description,omitempty"`
+	Model        string     `json:"model,omitempty"`
+	Instructions string     `json:"instructions"`
+	Skills       []SkillRef `json:"skills"`
+	ID           string     `json:"id,omitempty"` // 全局唯一;空 = 服务生成 ag_xxx
+	Name         string     `json:"name"`
+	DaemonID     string     `json:"daemon_id"` // 运行时：自己的某台 daemon + 它上报过的某个 harness
+	Harness      string     `json:"harness"`
+	Description  string     `json:"description,omitempty"`
 }
 
 type Daemon struct {
@@ -97,19 +97,21 @@ type Session struct {
 }
 
 type Message struct {
-	Seq            int64           `json:"seq"`
-	AgentKey       string          `json:"agent_key,omitempty"`
-	AgentName      string          `json:"agent_name,omitempty"`
-	RunID          string          `json:"run_id,omitempty"`
-	TargetAgentIDs []string        `json:"target_agent_ids,omitempty"`
-	ID             int64           `json:"id"`
-	SessionID      string          `json:"session_id"`
-	Role           string          `json:"role"` // user / assistant
-	Content        json.RawMessage `json:"content"`
-	CreatedAt      int64           `json:"created_at"`
+	AuthorAgentVersionID string          `json:"author_agent_version_id,omitempty"`
+	Seq                  int64           `json:"seq"`
+	AgentKey             string          `json:"agent_key,omitempty"`
+	AgentName            string          `json:"agent_name,omitempty"`
+	RunID                string          `json:"run_id,omitempty"`
+	TargetAgentIDs       []string        `json:"target_agent_ids,omitempty"`
+	ID                   int64           `json:"id"`
+	SessionID            string          `json:"session_id"`
+	Role                 string          `json:"role"` // user / assistant
+	Content              json.RawMessage `json:"content"`
+	CreatedAt            int64           `json:"created_at"`
 }
 
 type SessionEvent struct {
+	AgentVersionID  string          `json:"agent_version_id"`
 	ID              int64           `json:"id"`
 	SessionID       string          `json:"session_id"`
 	ClientSessionID string          `json:"client_session_id"`

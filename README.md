@@ -117,7 +117,7 @@ agentuse harnesses                                      # 本机检测到的 har
 
 ## 从源码构建
 
-需要 Go 1.24+ 和 Node 18+:
+需要 Go 1.25+ 和 Node 18+:
 
 ```bash
 make build dist                          # bin/agentuse、bin/agentuse-server + dist/ 下各平台 agentuse

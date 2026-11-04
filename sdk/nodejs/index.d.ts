@@ -18,6 +18,7 @@ export interface Harness {
 }
 
 export interface Agent {
+ current_version_id:string;version:number;model?:string;instructions:string;skills:SkillRef[];
   id: string;
   user_id: string;
   name: string;
@@ -67,6 +68,7 @@ export interface Session {
 }
 
 export interface Message {
+ author_agent_version_id?:string;
  seq?:number;run_id?:string;agent_key?:string;agent_name?:string;target_agent_ids?:string[];
   id: number;
   session_id: string;
@@ -98,8 +100,10 @@ export interface SessionEvent {
 }
 
 export interface Question {delivery_error?:string;request_id:string;session_id:string;run_id:string;state:"pending"|"replied"|"expired";payload:unknown;answer?:unknown;answered_by?:string;created_at:number}
-export interface Run {id:string;session_id:string;first_message_id:number;agent_id:string;daemon_id:string;client_session_id:string;harness:string;harness_revision:string;status:"running"|"waiting"|"completed"|"failed"|"cancelled";result_message_id?:number;output?:string;error?:string;result?:unknown;created_at:number;updated_at:number}
-export interface Delivery {id:number;message_id:number;session_id:string;agent_id:string;daemon_id:string;harness:string;content:unknown;run_id?:string;input_id?:string;client_session_id?:string;status:string;error?:string}
+export interface Run {
+ agent_version_id:string;id:string;session_id:string;first_message_id:number;agent_id:string;daemon_id:string;client_session_id:string;harness:string;harness_revision:string;status:"running"|"waiting"|"completed"|"failed"|"cancelled";result_message_id?:number;output?:string;error?:string;result?:unknown;created_at:number;updated_at:number}
+export interface Delivery {
+ agent_version_id:string;id:number;message_id:number;session_id:string;agent_id:string;daemon_id:string;harness:string;content:unknown;run_id?:string;input_id?:string;client_session_id?:string;status:string;error?:string}
 export interface RunDetail { run:Run;events:SessionEvent[] }
 export interface MultiReply { message:Message;runs:Run[];deliveries:Delivery[] }
 export interface WaitOptions { interval?:number;timeout?:number;returnOnWaiting?:boolean }
@@ -148,9 +152,18 @@ export declare class Client {
   listHarnesses(user: UserId): Promise<Harness[]>;
 
   listAgents(user: UserId): Promise<Agent[]>;
-  createAgent(user: UserId, agent: { id?: string; name: string; daemon_id: string; harness: string; description?: string }): Promise<Agent>;
+  createAgent(user: UserId, agent: { id?: string; name: string; daemon_id: string; harness: string; description?: string;model?:string;instructions?:string;skills?:SkillRef[] }): Promise<Agent>;
   getAgent(user: UserId, agentId: string): Promise<Agent>;
-  updateAgent(user: UserId, agentId: string, patch: { name?: string; daemon_id?: string; harness?: string; description?: string }): Promise<Agent>;
+  publishAgentVersion(user:UserId,agentId:string,config:AgentConfig & {base_version_id:string}):Promise<AgentVersion>;
+  listAgentVersions(user:UserId,agentId:string):Promise<AgentVersion[]>;
+  getAgentVersion(user:UserId,agentId:string,versionId:string):Promise<AgentVersion>;
+  listSkills(user:UserId):Promise<Skill[]>;
+  getSkill(user:UserId,skillId:string):Promise<Skill>;
+  listSkillVersions(user:UserId,skillId:string):Promise<SkillVersion[]>;
+  getSkillVersion(user:UserId,skillId:string,versionId:string):Promise<SkillVersion>;
+  publishSkill(user:UserId,skillId:string|null,baseVersionId:string|null,stream:AsyncIterable<Uint8Array>|Blob):Promise<Skill>;
+  downloadSkillPackage(user:UserId,skillId:string,versionId:string):Promise<Response>;
+  deleteSkill(user:UserId,skillId:string):Promise<void>;
   deleteAgent(user: UserId, agentId: string): Promise<void>;
 
   listDaemons(user: UserId): Promise<Daemon[]>;
@@ -176,3 +189,9 @@ export declare class Client {
   listWorkSessions(user: UserId, workId: string): Promise<Session[]>;
   waitSession(user: UserId, sessionId: string, opts?: WaitOptions): Promise<SessionDetail>;
 }
+
+export interface SkillRef {skill_id:string;skill_version_id:string}
+export interface AgentConfig {name:string;description:string;daemon_id:string;harness:string;model?:string;instructions:string;skills:SkillRef[]}
+export interface AgentVersion extends AgentConfig {id:string;agent_id:string;version:number;created_at:number}
+export interface SkillVersion {id:string;skill_id:string;version:number;name:string;description:string;sha256:string;size_bytes:number;download_path:string;created_at:number}
+export interface Skill {id:string;user_id:string;current_version_id:string;current_version:SkillVersion;created_at:number;updated_at:number}

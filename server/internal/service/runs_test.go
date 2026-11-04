@@ -29,7 +29,7 @@ func acceptedEvent(run, input, text string) map[string]any {
 func reportNative(t *testing.T, s *Service, d Daemon, p protocol.Prompt, session string, seq int64, event map[string]any) protocol.ClientEvent {
 	t.Helper()
 	raw, _ := json.Marshal(event)
-	e := protocol.ClientEvent{ConversationID: p.ConversationID, AgentID: p.AgentID, Harness: p.Harness, Revision: "client-revision", SessionID: session, Seq: seq, PromptID: p.ID, Event: raw}
+	e := protocol.ClientEvent{ConversationID: p.ConversationID, AgentID: p.AgentID, AgentVersionID: p.AgentVersionID, Harness: p.Harness, Revision: "client-revision", SessionID: session, Seq: seq, PromptID: p.ID, Event: raw}
 	if err := s.ReportClientEvent(context.Background(), d.ID, e); err != nil {
 		t.Fatal(err)
 	}

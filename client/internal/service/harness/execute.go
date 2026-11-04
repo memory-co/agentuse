@@ -234,8 +234,11 @@ func (s Service) DriveSession(ctx context.Context, a Adapter, prompt string, dir
 		}
 		return result
 	}
-	if _, e = command(ctx, a, events, "init", "", "--cwd", dir); e != nil {
+	if _, e = command(ctx, a, events, "init", "", append([]string{"--cwd", dir}, a.InitArgs...)...); e != nil {
 		return DriveResult{Error: e.Error()}
+	}
+	if a.OnInitialized != nil {
+		a.OnInitialized()
 	}
 	if _, e = command(ctx, a, events, "send", prompt); e != nil {
 		return fail(e)

@@ -60,7 +60,12 @@ export class Client {
   createAgent(user, agent) { return this._request("POST", "/api/agents", user, agent); }
   getAgent(user, agentId) { return this._request("GET", `/api/agents/${q(agentId)}`, user); }
   // 改名字、切换运行时、改说明:{ name?, daemon_id?, harness?, description? };daemon_id 和 harness 一起给。切换运行时只影响之后新建的会话。
-  updateAgent(user, agentId, patch) { return this._request("PATCH", `/api/agents/${q(agentId)}`, user, patch); }
+  publishAgentVersion(user, agentId, config) { return this._request("POST", `/api/agents/${q(agentId)}/versions`, user, config); }
+  listAgentVersions(user, agentId) { return this._request("GET", `/api/agents/${q(agentId)}/versions`, user); }
+  getAgentVersion(user, agentId, versionId) { return this._request("GET", `/api/agents/${q(agentId)}/versions/${q(versionId)}`, user); }
+  listSkills(user) { return this._request("GET", "/api/skills", user); }
+  listSkillVersions(user, skillId) { return this._request("GET", `/api/skills/${q(skillId)}/versions`, user); }
+  deleteSkill(user, skillId) { return this._request("DELETE", `/api/skills/${q(skillId)}`, user); }
   async deleteAgent(user, agentId) { await this._request("DELETE", `/api/agents/${q(agentId)}`, user); }
 
   // daemons
@@ -84,6 +89,20 @@ export class Client {
     }
     return res;
   }
+  async publishSkill(user, skillId, baseVersionId, stream) {
+    const boundary = "agentuse-" + randomBytes(24).toString("hex");
+    async function* body() {
+      yield Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="base_version_id"\r\n\r\n${baseVersionId || ""}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="skill.zip"\r\nContent-Type: application/zip\r\n\r\n`);
+      const source = typeof stream.stream === "function" ? stream.stream() : stream;
+      for await (const chunk of source) yield chunk;
+      yield Buffer.from(`\r\n--${boundary}--\r\n`);
+    }
+    const path = skillId ? `/api/skills/${q(skillId)}/versions` : "/api/skills";
+    return (await this._attachmentRequest("POST", path, user, body(), `multipart/form-data; boundary=${boundary}`)).json();
+  }
+  getSkill(user, skillId) { return this._request("GET", `/api/skills/${q(skillId)}`, user); }
+  getSkillVersion(user, skillId, versionId) { return this._request("GET", `/api/skills/${q(skillId)}/versions/${q(versionId)}`, user); }
+  downloadSkillPackage(user, skillId, versionId) { return this._attachmentRequest("GET", `/api/skills/${q(skillId)}/versions/${q(versionId)}/package`, user); }
   async uploadAttachment(user, sessionId, filename, stream) {
     const boundary = "agentuse-" + randomBytes(24).toString("hex");
     async function* body() {

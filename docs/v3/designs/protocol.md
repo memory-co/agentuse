@@ -1,6 +1,6 @@
 # Server 与 Client 的 WebSocket 协议
 
-本文记录**当前实现**的 `harnessctl-events-v1`，覆盖连接、领取输入、上报执行事实、回复请求、取消和断线恢复。它与适配器本地的 `harnessctl/3` 是两层协议：WebSocket 负责 server/client 通信，harnessctl 负责 client/适配器交互。公共执行事件复用 [harnessctl/EVENT.md](../../../harnessctl/EVENT.md)，不再另定义一套事件格式。
+本文记录**当前实现**的 `harnessctl-events-v2`，覆盖连接、领取输入、上报执行事实、回复请求、取消和断线恢复。它与适配器本地的 `harnessctl/3` 是两层协议：WebSocket 负责 server/client 通信，harnessctl 负责 client/适配器交互。公共执行事件复用 [harnessctl/EVENT.md](../../../harnessctl/EVENT.md)，不再另定义一套事件格式。
 
 Server 分配消息输入、准备业务上下文，client 调用本地适配器执行。**实际 run UUID、输入归属和执行结果由适配器决定，经 client 上报。** Server 负责身份、关联和一致性校验，不解释 Codex/Claude Code 的原生交互。
 
@@ -64,9 +64,9 @@ Client 连接后必须先发送 hello。harnesses 只包含本地探测可用且
 ```json
 {
   "type": "hello",
-  "protocol": "harnessctl-events-v1",
+  "protocol": "harnessctl-events-v2",
   "version": "client-build-version",
-  "capabilities": ["harnessctl-events-v1", "session-attachments-v1"],
+  "capabilities": ["harnessctl-events-v2", "session-attachments-v1"],
   "harnesses": [
     {"name": "codex", "version": "installed-cli-version", "revision": "adapter-package-revision"},
     {"name": "claude", "version": "installed-cli-version", "revision": "adapter-package-revision"}
@@ -76,7 +76,7 @@ Client 连接后必须先发送 hello。harnesses 只包含本地探测可用且
 
 | 字段 | 含义 |
 |---|---|
-| protocol | 必须为 harnessctl-events-v1；不匹配直接结束连接，不降级 |
+| protocol | 必须为 harnessctl-events-v2；不匹配直接结束连接，不降级 |
 | version | Client 程序构建版本，不是原生 CLI 版本 |
 | capabilities | 连接的业务协议能力；session-attachments-v1 表示当前附件接入能力 |
 | harnesses[].name | Client 对外报告的标签，也允许自定义名称 |
@@ -88,7 +88,7 @@ Server 更新设备在线状态、能力和 harness 报告。available 来自本
 ```json
 {
   "type": "welcome",
-  "protocol": "harnessctl-events-v1",
+  "protocol": "harnessctl-events-v2",
   "daemon_id": "dm_example",
   "name": "my-device"
 }
@@ -143,7 +143,10 @@ ready 不携带任务，也不是要求 client 直接执行的指令。当前 cl
     "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
     "message_id": 42,
     "agent_id": "coder",
+    "agent_version_id": "dcfa65a0-00fb-4e71-a0a8-4fad5ed6ec72",
     "harness": "codex",
+    "agent_instructions": "",
+    "skills": [],
     "content": "Server 已准备好的完整输入文本",
     "instructions": "Server 准备的工作说明和业务指令",
     "context": [],
@@ -156,6 +159,8 @@ ready 不携带任务，也不是要求 client 直接执行的指令。当前 cl
 |---|---|---|
 | id | integer | 输入分配 ID，首次交付和重发保持不变 |
 | conversation_id、agent_id | string | 对话与目标 agent；client 用于选择本地执行会话 |
+| agent_version_id | string | 入队时固定的不可变 agent 版本 UUID |
+| model、agent_instructions、skills | string / array | 固定 init 资源；model 可省略，其余为空时分别为字符串和数组 |
 | message_id | integer | 原始共享消息 ID |
 | harness | string | 目标执行标签；没有原生命令或 YAML |
 | content | string | 已合并业务指令、共享历史和本次任务的最终文本，client 原样交给 harnessctl send |
@@ -181,6 +186,7 @@ Client 从 session 的 events.jsonl 按源顺序读取完整行，把该行 JSON
   "client_event": {
     "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
     "agent_id": "coder",
+    "agent_version_id": "dcfa65a0-00fb-4e71-a0a8-4fad5ed6ec72",
     "session_id": "c2e50b80-79cd-4bdb-92ab-5a2ab40783db",
     "harness": "codex",
     "revision": "adapter-package-revision",
@@ -200,7 +206,8 @@ Client 从 session 的 events.jsonl 按源顺序读取完整行，把该行 JSON
 | client_event 字段 | 含义 |
 |---|---|
 | conversation_id、agent_id | 输入所属业务范围，server 根据已交付输入校验设备权限 |
-| session_id | Client 本地会话 ID；同一设备上不能改绑到另一个 conversation/agent |
+| agent_version_id | 本地 session 固定的版本 UUID，必须与 prompt 和 run 一致 |
+| session_id | Client 本地会话 ID；同一设备上不能改绑到另一个 conversation/agent/version |
 | harness、revision | 本次实际执行报告；作为历史事实保存，不由 server 推测 |
 | seq | 对应完整源行结束后的字节位置，包含该行换行；示例中的数字仅示意位置 |
 | prompt_id | accepted 必须关联原始输入分配；其余类型不需要 |
@@ -226,6 +233,7 @@ Client 从 session 的 events.jsonl 按源顺序读取完整行，把该行 JSON
   "client_event": {
     "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
     "agent_id": "coder",
+    "agent_version_id": "dcfa65a0-00fb-4e71-a0a8-4fad5ed6ec72",
     "session_id": "c2e50b80-79cd-4bdb-92ab-5a2ab40783db",
     "harness": "codex",
     "revision": "adapter-package-revision",
@@ -280,6 +288,7 @@ send 在适配器 accepted 之前失败，client 报告 prompt_error；不得为
     "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
     "message_id": 42,
     "agent_id": "coder",
+    "agent_version_id": "dcfa65a0-00fb-4e71-a0a8-4fad5ed6ec72",
     "harness": "codex",
     "content": "Server 已准备好的完整输入文本"
   },
@@ -298,6 +307,7 @@ prompt 携带该次下发的原输入快照，上例省略了可选字段；实�
     "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
     "message_id": 42,
     "agent_id": "coder",
+    "agent_version_id": "dcfa65a0-00fb-4e71-a0a8-4fad5ed6ec72",
     "harness": "codex",
     "content": "Server 已准备好的完整输入文本"
   }
@@ -435,9 +445,9 @@ sequenceDiagram
 
 <a id="agent-versioning"></a>
 
-## Agent 版本化扩展（目标，尚未实现）
+## Agent 与 Skill 的固定版本资源
 
-前文是当前 harnessctl-events-v1 的实际报文。本节描述 [Agent/Skill 版本化](server-agent.md) 所需的后续协议，目标版本为 **harnessctl-events-v2**；当前代码尚未实现，也不接受这一版本。后续需 server/client 同步升级并严格握手，不允许旧 client 忽略版本与资源字段后照常执行。
+本节补充 [Agent/Skill 版本化](server-agent.md) 的资源准备和版本校验规则。全文协议均为 **harnessctl-events-v2**；server/client 必须同步升级，严格握手，不向旧协议降级。
 
 ### 输入与实际执行的版本关联
 
@@ -445,13 +455,13 @@ sequenceDiagram
 |---|---|---|
 | hello、welcome | protocol 与 capabilities 使用 harnessctl-events-v2 | 确认双方支持不可变资源版本，不沿用 v1 降级执行 |
 | prompt | agent_version_id | 输入入队时固定的 agent_versions UUID，后续重发不变 |
-| prompt | model | 固定模型；null 表示采用原生默认选择 |
+| prompt | model | 固定模型；省略或空字符串表示原生默认选择 |
 | prompt | agent_instructions | 固定版本指令，用于准备 init 的外部指令文件，不混进每次 send 的正文 |
 | prompt | skills | 有序的固定 skill 版本及 ZIP 下载清单；空数组表示无技能 |
 | claim.active_streams[] | agent_version_id | 只有同 conversation/agent/version 的活动流可以继续接收输入 |
 | client_event | agent_version_id | 由本地 session 的固定元数据提供；与被分配 prompt、原生 run 的版本关联一致 |
 
-目标 prompt 示例：
+完整资源 prompt 示例：
 
 ```json
 {
@@ -464,7 +474,7 @@ sequenceDiagram
     "agent_id": "reviewer",
     "agent_version_id": "dcfa65a0-00fb-4e71-a0a8-4fad5ed6ec72",
     "harness": "codex",
-    "model": null,
+    "model": "固定模型",
     "agent_instructions": "你负责代码评审。先验证事实，再给出结论。",
     "skills": [
       {

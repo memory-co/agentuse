@@ -5,10 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"reflect"
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	skillservice "github.com/memory-co/agentuse/server/internal/service/skill"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // agent id 全局唯一，建好后不能改。
@@ -23,24 +27,6 @@ func cleanAgentName(name string) (string, error) {
 		return "", errors.New("agent 名字最长 64 个字")
 	}
 	return name, nil
-}
-
-// checkRuntime 确认 (daemonID, harness) 是 userID 自己的 daemon 上报过、而且现在可用并开启的 harness。
-func (s *Service) checkRuntime(ctx context.Context, userID, daemonID, harness string) error {
-	if daemonID == "" || harness == "" {
-		return errors.New("daemon_id 和 harness 必填")
-	}
-	var one int
-	err := s.db.QueryRowContext(ctx,
-		store.CheckRuntimeSelect,
-		daemonID, harness, userID).Scan(&one)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("daemon %q 上没有 harness %q(daemon 要是自己的，并且上报过这个 harness)", daemonID, harness)
-	}
-	if err != nil {
-		return err
-	}
-	return runtimeErr(ctx, s.db, daemonID, harness)
 }
 
 // runtimeErr 检查运行时 (daemonID, harness) 现在能不能派活:这台 daemon 上报过这个 harness、最近一次上报里有、用户开启了。
@@ -77,117 +63,280 @@ func agentWriteErr(err error, id, name, harness string) error {
 	return err
 }
 
-// CreateAgent 给用户建一个 agent。id 由调用方传入、全局唯一，不传时生成 ag_xxx;
-// 同一用户下名字不能重复;运行时 (daemonID, harness) 必须是这个用户自己的 daemon 上报过的 harness。
-func (s *Service) CreateAgent(ctx context.Context, userID, id, name, daemonID, harness, description string) (Agent, error) {
+// CreateAgent is the internal convenience form for a version-one configuration.
+func (s *Service) CreateAgent(ctx context.Context, user, id, name, device, harness, description string) (Agent, error) {
+	return s.CreateConfiguredAgent(ctx, user, id, agentuse.AgentConfig{Name: name, DaemonID: device, Harness: harness, Description: description})
+}
+func (s *Service) validateAgentConfig(ctx context.Context, tx *sql.Tx, user, id string, c *agentuse.AgentConfig) error {
+	var err error
+	c.Name, err = cleanAgentName(c.Name)
+	if err != nil {
+		return err
+	}
+	c.DaemonID = strings.TrimSpace(c.DaemonID)
+	c.Harness = strings.TrimSpace(c.Harness)
+	c.Model = strings.TrimSpace(c.Model)
+	var one int
+	if err = tx.QueryRowContext(ctx, store.CheckRuntimeSelect, c.DaemonID, c.Harness, user).Scan(&one); err != nil {
+		return fmt.Errorf("device/harness is not registered for this user")
+	}
+	if err = runtimeErr(ctx, tx, c.DaemonID, c.Harness); err != nil {
+		return err
+	}
+	var count int
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM agents a JOIN agent_versions v ON v.id=a.current_version_id WHERE a.user_id=? AND a.deleted_at IS NULL AND a.id<>? AND v.name=?`, user, id, c.Name).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return fmt.Errorf("已经有叫 %q 的 agent", c.Name)
+	}
+	if c.Skills == nil {
+		c.Skills = []agentuse.SkillRef{}
+	}
+	if len(c.Skills) > 64 {
+		return fmt.Errorf("too many skills (maximum 64)")
+	}
+	names, ids := map[string]bool{}, map[string]bool{}
+	for _, ref := range c.Skills {
+		v, e := s.Skills.Version(ctx, tx, User{ID: user}, ref.SkillID, ref.SkillVersionID, true)
+		if e != nil {
+			return e
+		}
+		key := strings.ToLower(v.Name)
+		if names[key] || ids[ref.SkillID] {
+			return fmt.Errorf("duplicate skill or native skill name %q", v.Name)
+		}
+		names[key] = true
+		ids[ref.SkillID] = true
+	}
+	return nil
+}
+func (s *Service) writeAgentVersion(ctx context.Context, tx *sql.Tx, v agentuse.AgentVersion) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO agent_versions(id,agent_id,version,name,description,device_id,harness,model,instructions,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, v.ID, v.AgentID, v.Version, v.Name, v.Description, v.DaemonID, v.Harness, nullIfEmpty(v.Model), v.Instructions, v.CreatedAt)
+	if err != nil {
+		return err
+	}
+	for i, ref := range v.Skills {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO agent_version_skills(agent_version_id,skill_id,skill_version_id,position) VALUES(?,?,?,?)`, v.ID, ref.SkillID, ref.SkillVersionID, i); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func projection(id, user string, created, updated int64, v agentuse.AgentVersion) Agent {
+	return Agent{ID: id, UserID: user, CurrentVersionID: v.ID, Version: v.Version, Name: v.Name, Description: v.Description, DaemonID: v.DaemonID, Harness: v.Harness, Model: v.Model, Instructions: v.Instructions, Skills: v.Skills, CreatedAt: created, UpdatedAt: updated}
+}
+func (s *Service) CreateConfiguredAgent(ctx context.Context, user, id string, c agentuse.AgentConfig) (Agent, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		id = randomID("ag_")
 	} else if !agentIDRe.MatchString(id) {
 		return Agent{}, errors.New("agent id 只能用小写字母、数字、- 和 _,最长 64 个字符")
 	}
-	name, err := cleanAgentName(name)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Agent{}, err
 	}
-	daemonID, harness = strings.TrimSpace(daemonID), strings.TrimSpace(harness)
-	if err := s.checkRuntime(ctx, userID, daemonID, harness); err != nil {
+	defer tx.Rollback()
+	if err = s.validateAgentConfig(ctx, tx, user, id, &c); err != nil {
 		return Agent{}, err
 	}
 	now := s.unix()
-	a := Agent{ID: id, UserID: userID, Name: name, DaemonID: daemonID, Harness: harness, Description: description, CreatedAt: now, UpdatedAt: now}
-	_, err = s.db.ExecContext(ctx,
-		store.CreateAgentInsert,
-		a.ID, a.UserID, a.Name, a.DaemonID, a.Harness, a.Description, now, now)
-	if err != nil {
-		return Agent{}, agentWriteErr(err, id, name, harness)
+	v := agentuse.AgentVersion{ID: newUUID(), AgentID: id, Version: 1, AgentConfig: c, CreatedAt: now}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO agents(id,user_id,current_version_id,created_at,updated_at) VALUES(?,?,?,?,?)`, id, user, v.ID, now, now); err != nil {
+		return Agent{}, agentWriteErr(err, id, c.Name, c.Harness)
 	}
-	return a, nil
+	if err = s.writeAgentVersion(ctx, tx, v); err != nil {
+		return Agent{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Agent{}, err
+	}
+	return projection(id, user, now, now, v), nil
 }
-
-// UpdateAgent 改名字、切换运行时或改说明，只有主人(或 admin)能改。
-// 切换运行时 DaemonID 和 Harness 要一起给;已有会话不受影响，只对之后新建的会话生效。
-func (s *Service) UpdateAgent(ctx context.Context, u User, id string, p AgentPatch) (Agent, error) {
-	a, err := s.GetAgent(ctx, u, id)
+func agentVersion(ctx context.Context, q skillservice.Querier, id string) (agentuse.AgentVersion, error) {
+	var v agentuse.AgentVersion
+	err := q.QueryRowContext(ctx, `SELECT id,agent_id,version,name,description,device_id,harness,COALESCE(model,''),instructions,created_at FROM agent_versions WHERE id=?`, id).Scan(&v.ID, &v.AgentID, &v.Version, &v.Name, &v.Description, &v.DaemonID, &v.Harness, &v.Model, &v.Instructions, &v.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = ErrNotFound
+	}
+	if err != nil {
+		return v, err
+	}
+	rows, err := q.QueryContext(ctx, `SELECT skill_id,skill_version_id FROM agent_version_skills WHERE agent_version_id=? ORDER BY position`, id)
+	if err != nil {
+		return v, err
+	}
+	defer rows.Close()
+	v.Skills = []agentuse.SkillRef{}
+	for rows.Next() {
+		var ref agentuse.SkillRef
+		if err = rows.Scan(&ref.SkillID, &ref.SkillVersionID); err != nil {
+			return v, err
+		}
+		v.Skills = append(v.Skills, ref)
+	}
+	return v, rows.Err()
+}
+func (s *Service) GetAgentVersion(ctx context.Context, u User, id, version string) (agentuse.AgentVersion, error) {
+	var owner string
+	err := s.db.QueryRowContext(ctx, `SELECT user_id FROM agents WHERE id=?`, id).Scan(&owner)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = ErrNotFound
+	}
+	if err != nil {
+		return agentuse.AgentVersion{}, err
+	}
+	if !u.IsAdmin() && owner != u.ID {
+		return agentuse.AgentVersion{}, ErrNotFound
+	}
+	v, err := agentVersion(ctx, s.db, version)
+	if err == nil && v.AgentID != id {
+		err = ErrNotFound
+	}
+	return v, err
+}
+func (s *Service) AgentVersions(ctx context.Context, u User, id string) ([]agentuse.AgentVersion, error) {
+	if _, err := s.GetAgent(ctx, u, id); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM agent_versions WHERE agent_id=? ORDER BY version DESC`, id)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	out := []agentuse.AgentVersion{}
+	for _, id := range ids {
+		v, e := agentVersion(ctx, s.db, id)
+		if e != nil {
+			return nil, e
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+func (s *Service) PublishAgentVersion(ctx context.Context, u User, id, base string, c agentuse.AgentConfig) (Agent, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Agent{}, err
 	}
-	if p.Name != nil {
-		if a.Name, err = cleanAgentName(*p.Name); err != nil {
-			return Agent{}, err
-		}
+	defer tx.Rollback()
+	var owner, head string
+	var created, updated int64
+	err = tx.QueryRowContext(ctx, `SELECT user_id,current_version_id,created_at,updated_at FROM agents WHERE id=? AND deleted_at IS NULL`, id).Scan(&owner, &head, &created, &updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = ErrNotFound
 	}
-	if (p.DaemonID == nil) != (p.Harness == nil) {
-		return Agent{}, errors.New("切换运行时要 daemon_id 和 harness 一起给")
-	}
-	if p.DaemonID != nil {
-		a.DaemonID, a.Harness = strings.TrimSpace(*p.DaemonID), strings.TrimSpace(*p.Harness)
-		if err := s.checkRuntime(ctx, a.UserID, a.DaemonID, a.Harness); err != nil {
-			return Agent{}, err
-		}
-	}
-	if p.Description != nil {
-		a.Description = *p.Description
-	}
-	a.UpdatedAt = s.unix()
-	_, err = s.db.ExecContext(ctx,
-		store.UpdateAgentUpdate,
-		a.Name, nullIfEmpty(a.DaemonID), a.Harness, a.Description, a.UpdatedAt, a.ID)
 	if err != nil {
-		return Agent{}, agentWriteErr(err, a.ID, a.Name, a.Harness)
+		return Agent{}, err
 	}
-	return a, nil
+	if !u.IsAdmin() && u.ID != owner {
+		return Agent{}, ErrNotFound
+	}
+	if base == "" || base != head {
+		return Agent{}, skillservice.ErrConflict
+	}
+	if err = s.validateAgentConfig(ctx, tx, owner, id, &c); err != nil {
+		return Agent{}, err
+	}
+	old, err := agentVersion(ctx, tx, head)
+	if err != nil {
+		return Agent{}, err
+	}
+	if reflect.DeepEqual(c, old.AgentConfig) {
+		return projection(id, owner, created, updated, old), nil
+	}
+	now := s.unix()
+	v := agentuse.AgentVersion{ID: newUUID(), AgentID: id, Version: old.Version + 1, AgentConfig: c, CreatedAt: now}
+	if err = s.writeAgentVersion(ctx, tx, v); err != nil {
+		return Agent{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE agents SET current_version_id=?,updated_at=? WHERE id=?`, v.ID, now, id); err != nil {
+		return Agent{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Agent{}, err
+	}
+	return projection(id, owner, created, now, v), nil
 }
 
-// DeleteAgent 删除 agent。用过它的会话保留，会话的 agent_id 变空。
 func (s *Service) DeleteAgent(ctx context.Context, u User, id string) error {
-	q := store.DeleteAgentDelete
-	args := []any{id}
-	if !u.IsAdmin() {
-		q += store.DeleteAgentClause
-		args = append(args, u.ID)
+	if _, err := s.GetAgent(ctx, u, id); err != nil {
+		return err
 	}
-	res, err := s.db.ExecContext(ctx, q, args...)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `UPDATE agents SET deleted_at=?,updated_at=? WHERE id=?`, s.unix(), s.unix(), id); err != nil {
+		return err
 	}
-	return nil
+	if _, err = tx.ExecContext(ctx, `UPDATE works SET coordinator_agent_id=NULL WHERE coordinator_agent_id=?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
-
 func (s *Service) GetAgent(ctx context.Context, u User, id string) (Agent, error) {
-	q := agentCols + store.GetAgentClause
+	q := agentCols + ` WHERE id=?`
 	args := []any{id}
 	if !u.IsAdmin() {
-		q += store.GetAgentClause2
+		q += ` AND user_id=?`
 		args = append(args, u.ID)
 	}
-	return scanAgent(s.db.QueryRowContext(ctx, q, args...))
+	a, err := scanAgent(s.db.QueryRowContext(ctx, q, args...))
+	if err != nil {
+		return a, err
+	}
+	v, err := agentVersion(ctx, s.db, a.CurrentVersionID)
+	a.Skills = v.Skills
+	return a, err
 }
-
-// ListAgents 列 agent,按名字排序;admin 看所有人的。
 func (s *Service) ListAgents(ctx context.Context, u User) ([]Agent, error) {
 	q := agentCols
-	var args []any
+	args := []any{}
 	if !u.IsAdmin() {
-		q += store.ListAgentsClause
+		q += ` WHERE user_id=?`
 		args = append(args, u.ID)
 	}
-	q += store.ListAgentsClause2
+	q += ` ORDER BY name,id`
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := []Agent{}
 	for rows.Next() {
-		a, err := scanAgent(rows)
-		if err != nil {
-			return nil, err
+		a, e := scanAgent(rows)
+		if e != nil {
+			rows.Close()
+			return nil, e
 		}
 		out = append(out, a)
 	}
-	return out, rows.Err()
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		v, e := agentVersion(ctx, s.db, out[i].CurrentVersionID)
+		if e != nil {
+			return nil, e
+		}
+		out[i].Skills = v.Skills
+	}
+	return out, nil
 }

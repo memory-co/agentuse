@@ -19,7 +19,7 @@
 | 「连接我的电脑」 | `create_daemon` / `createDaemon` / `CreateDaemon`,把返回的 `setup_command` 给用户复制 |
 | 看电脑在不在线 | `list_daemons` / `listDaemons` / `ListDaemons` |
 | 开关某台电脑上的 harness | `set_daemon_harness` / `setDaemonHarness` / `SetDaemonHarness` |
-| 建一个 agent(起名字，绑定运行时：某台电脑上的某个 harness,以后可以切换) | `create_agent` / `createAgent` / `CreateAgent`;切换运行时用 `update_agent` / `updateAgent` / `UpdateAgent` |
+| 建一个 agent(起名字，绑定运行时：某台电脑上的某个 harness,以后可以切换) | `create_agent` / `createAgent` / `CreateAgent`;修改配置用 `publish_agent_version` / `publishAgentVersion` / `PublishAgentVersion`，提交完整配置与 `base_version_id` |
 | 用某个 agent 发起一次任务 | `create_session` / `createSession` / `CreateSession` |
 | 接着回复 | `send_message` / `sendMessage` / `SendMessage`(harness 还没回时 409) |
 | 看进度和结果 | `get_session` / `getSession` / `GetSession`,或 `wait_session` 轮询到 `idle` |
@@ -49,3 +49,5 @@
 创建时显式传 mode=multi_agent，不传 agent_id。发送消息带 target_agent_ids，返回 message、runs、deliveries；先建立输入分配，实际 run 由 client accepted 决定。目标省略只保存笔记，不默认调用上次 agent。
 
 三个 SDK 增加 get/cancel/wait run、wait message runs、reply run request 方法。等待一条消息完成要跟踪 deliveries（accepted 前 run_id 为空），不能只等最初返回的新 runs。WaitSession 对新模式默认等全部执行结束；returnOnWaiting / return_on_waiting / Go WaitOptions 可选择在提问时返回。
+
+Agent 和共享 skill 独立版本化：创建 agent 会发布 v1，后续配置修改调用版本发布 API，旧版本不可变。先上传根目录含 SKILL.md 的 ZIP，再在 agent 配置的 skills 中固定 skill_id 与 skill_version_id；skill 发布新版本不会自动升级 agent。各 SDK 均提供版本查询、skill 上传和固定版本下载方法。完整规则见 [agentService](../docs/v3/designs/server-agent.md) 和 [skillService](../docs/v3/designs/server-skill.md)。

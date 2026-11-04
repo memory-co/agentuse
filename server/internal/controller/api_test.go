@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"net/http"
 	"testing"
 
@@ -199,17 +200,20 @@ func TestAgentsAPI(t *testing.T) {
 	if c := e.code(bobTok, "GET", "/api/agents/coder", nil); c != http.StatusNotFound {
 		t.Fatalf("bob get: %d", c)
 	}
-	// PATCH:没给的字段不变
-	if r := e.req(aliceTok, "PATCH", "/api/agents/coder", map[string]string{"description": "新说明"}, &a); r.StatusCode != 200 || a.Name != "写代码" || a.Description != "新说明" {
-		t.Fatalf("patch description: %d %+v", r.StatusCode, a)
+	base := a.CurrentVersionID
+	var v agentuse.AgentVersion
+	body := map[string]any{"base_version_id": base, "name": a.Name, "description": "新说明", "daemon_id": d.ID, "harness": "claude", "skills": []any{}}
+	if r := e.req(aliceTok, "POST", "/api/agents/coder/versions", body, &v); r.StatusCode != 201 || v.Version != 2 || v.Description != "新说明" {
+		t.Fatalf("publish: %d %+v", r.StatusCode, v)
 	}
-	if c := e.code(aliceTok, "PATCH", "/api/agents/coder", map[string]string{"harness": "codex"}); c != http.StatusBadRequest {
-		t.Fatalf("harness alone: %d", c)
+	if c := e.code(aliceTok, "POST", "/api/agents/coder/versions", body); c != http.StatusConflict {
+		t.Fatalf("stale base: %d", c)
 	}
-	if r := e.req(aliceTok, "PATCH", "/api/agents/coder", map[string]string{"daemon_id": d.ID, "harness": "codex"}, &a); r.StatusCode != 200 || a.Harness != "codex" {
-		t.Fatalf("switch runtime: %d %+v", r.StatusCode, a)
+	body["base_version_id"], body["harness"] = v.ID, "codex"
+	if r := e.req(aliceTok, "POST", "/api/agents/coder/versions", body, &v); r.StatusCode != 201 || v.Version != 3 || v.Harness != "codex" {
+		t.Fatalf("runtime: %d %+v", r.StatusCode, v)
 	}
-	if c := e.code(aliceTok, "PATCH", "/api/agents/coder", "x"); c != http.StatusBadRequest {
+	if c := e.code(aliceTok, "POST", "/api/agents/coder/versions", "x"); c != http.StatusBadRequest {
 		t.Fatalf("bad json: %d", c)
 	}
 	var list []service.Agent

@@ -87,6 +87,7 @@ type Usage = {
   cache_write_tokens: number;
 };
 type Run = {
+ agent_version_id: string;
   run_id: string;
   conversation_id: string;
   session_id: string;
@@ -655,6 +656,9 @@ function LocalTaskPanel({
     refetchOnWindowFocus: false,
   });
   const [harness, setHarness] = useState("");
+  const [model,setModel] = useState("");
+  const [agentInstructions,setAgentInstructions] = useState("");
+  const [skillPaths,setSkillPaths] = useState("");
   const [prompt, setPrompt] = useState("");
   const [raw, setRaw] = useState(false);
   const [inputError, setInputError] = useState("");
@@ -686,10 +690,11 @@ function LocalTaskPanel({
         onSubmit={(e) => {
           e.preventDefault();
           setInputError("");
-          let body: unknown = { harness, prompt };
+          const resources = {model:model.trim(),agent_instructions:agentInstructions,skill_packages:skillPaths.split("\n").map(p=>p.trim()).filter(Boolean)};
+          let body: unknown = { harness, prompt, ...resources };
           if (raw) {
             try {
-              body = { harness, input: JSON.parse(prompt) };
+              body = { harness, input: JSON.parse(prompt), ...resources };
             } catch {
               setInputError("请输入合法 JSON");
               return;
@@ -721,6 +726,12 @@ function LocalTaskPanel({
             ))}
           </select>
         </label>
+        <details className="rounded-lg border p-3 text-sm"><summary className="cursor-pointer">初始化配置 · Model / AGENTS.md / Skills</summary><div className="mt-3 grid gap-3">
+          <label className="grid gap-1">Model（可选）<input className="rounded-md border bg-background p-2" value={model} onChange={e=>setModel(e.target.value)}/></label>
+          <label className="grid gap-1">AGENTS.md 内容<textarea className="min-h-24 rounded-md border bg-background p-2 font-mono" value={agentInstructions} onChange={e=>setAgentInstructions(e.target.value)}/></label>
+          <label className="grid gap-1">本机 Skill ZIP 路径（每行一个绝对路径）<textarea className="rounded-md border bg-background p-2 font-mono" value={skillPaths} onChange={e=>setSkillPaths(e.target.value)} placeholder="/path/to/review.zip"/></label>
+          <p className="text-xs text-muted-foreground">配置或包内容变化会创建新的 Session；同一 Conversation 继续共用工作目录。</p>
+        </div></details>
         <label className="grid gap-2 text-xs text-muted-foreground">
           任务输入
           <textarea

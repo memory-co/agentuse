@@ -37,7 +37,7 @@ id 只是目录定位用的 client UUID，不传给原生 CLI 充当其 session 
 
 ## 选择、占用与控制
 
-当前实现按 endpoint/conversation/agent/harness/revision 选择最近的有效空闲 session；版本化目标会进一步加入 agent_version_id，见后文。显式向指定 session send 时使用该地址；不能因其忙碌就换成另一个 session 或自行决定新 run ID。
+当前实现按 endpoint/conversation/agent/agent_version/harness/revision 选择最近的有效空闲 session。显式向指定 session send 时使用该地址；不能因其忙碌就换成另一个 session 或自行决定新 run ID。
 
 同一个受管 session 由一个驱动处理 send/reply/cancel，追加输入交给适配器裁定插话或排队。全部输入有结果并确认前台工作停止后，session 才恢复 idle。活动阶段为 running，问题是否等待回答从公共事件或 status 获取，不维护重复的问题账本。
 
@@ -45,7 +45,7 @@ id 只是目录定位用的 client UUID，不传给原生 CLI 充当其 session 
 
 cancel 取消 session 当前和排队工作，保留原生上下文；reply 使用公开 request_id。Native status 返回 state、当前 run_id、queued 和公开 requests。Client 不读取 .d/ 的 PID、锁或 native.json 来替代这些命令。
 
-## Agent 版本绑定（目标，尚未实现）
+## Agent 版本绑定（已实现）
 
 Server agent 版本设计见 [server-agent.md](server-agent.md)，共享技能的独立发布和包格式见 [server-skill.md](server-skill.md)。session.yaml 增加 `agent_version_id`，它是来源提供的不可变配置身份，不是原生 session ID 或 run UUID。选择和复用的完整键变为 endpoint/conversation/agent/agent_version/harness/适配器 revision。
 
@@ -58,7 +58,6 @@ sessions/<client_session_id>/
   session.yaml                     固定 agent_id、agent_version_id
   init-resources/                  准备期间的临时资源
     AGENTS.md
-    packages/<skill_version_id>.zip
     skills/<skill_name>/SKILL.md
     skills/<skill_name>/scripts/...
   events.jsonl
@@ -66,11 +65,11 @@ sessions/<client_session_id>/
   runs/<native_run_id>.jsonl
 ```
 
-Client 下载并校验指定 ZIP，解包到技能根目录，然后把指令文件、模型和技能根目录交给 harnessctl init；空指令/空 skills/默认模型分别省略对应参数。成功后可以删除 init-resources，后续 send 和原生进程恢复依赖适配器快照，不重新读取 server 的 latest。初始化失败不发送正文，不假造 run。
+Client 下载并校验指定 ZIP，解包到技能根目录，然后把指令文件、模型和技能根目录交给 harnessctl init；空指令/空 skills/默认模型分别省略对应参数。init 成功后立即删除 init-resources，后续 send 和原生进程恢复依赖适配器快照，不重新读取 server 的 latest。初始化失败不发送正文，不假造 run。
 
 已存在的 session 只能复用同一 agent_version_id。重启后通过公开 status/init 确认绑定；若需要重新准备资源，只从原输入固定的版本恢复，不能换成当前 head。历史包不可读或校验失败时明确失败。
 
-Local 模式也使用相同的不可变配置和 ZIP 准备流程；由本地输入边界形成版本快照与本地 agent_version_id，其余 session 选择、init、send、校验和恢复规则与远端一致，不绕开版本机制。
+Local 模式的 agent_version_id 是 harness、model、指令及有序 ZIP 摘要的确定性 UUID，不受 ZIP 文件路径变化影响。Local 模式也使用相同的不可变配置和 ZIP 准备流程；由本地输入边界形成版本快照与本地 agent_version_id，其余 session 选择、init、send、校验和恢复规则与远端一致，不绕开版本机制。
 
 ## 生命周期和回收
 

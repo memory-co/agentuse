@@ -11,12 +11,12 @@ import (
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
-const nativeRunCols = `SELECT id,session_id,first_message_id,agent_id,daemon_id,client_session_id,harness,harness_revision,status,result_message_id,output,error,result,created_at,updated_at FROM runs`
+const nativeRunCols = `SELECT id,session_id,first_message_id,agent_id,agent_version_id,daemon_id,client_session_id,harness,harness_revision,status,result_message_id,output,error,result,created_at,updated_at FROM runs`
 
 func scanNativeRun(row scanner) (Run, error) {
 	var r Run
 	var raw sql.NullString
-	err := row.Scan(&r.ID, &r.SessionID, &r.FirstMessageID, &r.AgentID, &r.DaemonID, &r.ClientSessionID, &r.Harness, &r.HarnessRevision, &r.Status, &r.ResultMessageID, &r.Output, &r.Error, &raw, &r.CreatedAt, &r.UpdatedAt)
+	err := row.Scan(&r.ID, &r.SessionID, &r.FirstMessageID, &r.AgentID, &r.AgentVersionID, &r.DaemonID, &r.ClientSessionID, &r.Harness, &r.HarnessRevision, &r.Status, &r.ResultMessageID, &r.Output, &r.Error, &raw, &r.CreatedAt, &r.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return r, ErrNotFound
 	}
@@ -51,12 +51,12 @@ func runs(ctx context.Context, q rowsQuerier, conversation string) ([]Run, error
 	return out, rows.Err()
 }
 
-const promptCols = `SELECT id,message_id,session_id,agent_id,daemon_id,harness,content,status,run_id,input_id,client_session_id,error FROM run_prompts`
+const promptCols = `SELECT id,message_id,session_id,agent_id,agent_version_id,daemon_id,harness,content,status,run_id,input_id,client_session_id,error FROM run_prompts`
 
 func scanPrompt(row scanner) (Delivery, error) {
 	var d Delivery
 	var content string
-	err := row.Scan(&d.ID, &d.MessageID, &d.SessionID, &d.AgentID, &d.DaemonID, &d.Harness, &content, &d.Status, &d.RunID, &d.InputID, &d.ClientSessionID, &d.Error)
+	err := row.Scan(&d.ID, &d.MessageID, &d.SessionID, &d.AgentID, &d.AgentVersionID, &d.DaemonID, &d.Harness, &content, &d.Status, &d.RunID, &d.InputID, &d.ClientSessionID, &d.Error)
 	d.Content = json.RawMessage(content)
 	if err == sql.ErrNoRows {
 		err = ErrNotFound
@@ -154,6 +154,9 @@ func (s *Service) sendMultiTx(ctx context.Context, tx *sql.Tx, u User, ss Sessio
 		if err != nil {
 			return MultiReply{}, err
 		}
+		if a.UserID != ss.UserID {
+			return MultiReply{}, ErrNotFound
+		}
 		if err = runtimeErr(ctx, tx, a.DaemonID, a.Harness); err != nil {
 			return MultiReply{}, err
 		}
@@ -168,7 +171,7 @@ func (s *Service) sendMultiTx(ctx context.Context, tx *sql.Tx, u User, ss Sessio
 		return MultiReply{}, err
 	}
 	for _, a := range agents {
-		if _, err = tx.ExecContext(ctx, `INSERT INTO run_prompts(session_id,message_id,agent_id,daemon_id,harness,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, ss.ID, m.ID, a.ID, a.DaemonID, a.Harness, string(input), s.unix(), s.unix()); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO run_prompts(session_id,message_id,agent_id,agent_version_id,daemon_id,harness,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, ss.ID, m.ID, a.ID, a.CurrentVersionID, a.DaemonID, a.Harness, string(input), s.unix(), s.unix()); err != nil {
 			return MultiReply{}, err
 		}
 	}
@@ -198,6 +201,7 @@ func deleteConversationExecution(ctx context.Context, tx *sql.Tx, id string) err
 		`DELETE FROM run_notifications WHERE message_id IN (SELECT id FROM messages WHERE session_id=?)`,
 		`DELETE FROM run_controls WHERE session_id=?`, `DELETE FROM run_requests WHERE session_id=?`,
 		`DELETE FROM run_events WHERE session_id=?`, `DELETE FROM runs WHERE session_id=?`, `DELETE FROM run_prompts WHERE session_id=?`,
+		`DELETE FROM attachments WHERE session_id=?`, `DELETE FROM messages WHERE session_id=?`,
 	} {
 		if _, err := tx.ExecContext(ctx, query, id); err != nil {
 			return err

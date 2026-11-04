@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/memory-co/agentuse/internal/protocol"
+	fileservice "github.com/memory-co/agentuse/server/internal/service/file"
+	skillservice "github.com/memory-co/agentuse/server/internal/service/skill"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
@@ -19,6 +21,8 @@ type Notifier interface {
 }
 
 type Service struct {
+	Files        *fileservice.Service
+	Skills       *skillservice.Service
 	attachments  AttachmentConfig
 	attachmentMu sync.RWMutex
 	log          *log.Logger
@@ -29,7 +33,9 @@ type Service struct {
 }
 
 func New(st *store.Store) *Service {
-	return &Service{log: log.Default(), repository: st, db: st.Connection(), now: time.Now, Notifier: discardNotifier{}}
+	s := &Service{log: log.Default(), repository: st, db: st.Connection(), now: time.Now, Notifier: discardNotifier{}}
+	s.Skills = &skillservice.Service{DB: s.db, Now: func() time.Time { return s.now() }}
+	return s
 }
 func Open(path string) (*Service, error) {
 	st, e := store.Open(path)
@@ -53,3 +59,5 @@ func (discardNotifier) KickUser(string)                  {}
 func (discardNotifier) PushRun(string, protocol.Message) {}
 
 func (discardNotifier) Disconnect(string) {}
+
+func (s *Service) ConfigureFiles(files *fileservice.Service) { s.Files = files; s.Skills.Files = files }

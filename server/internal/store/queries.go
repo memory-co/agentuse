@@ -5,22 +5,10 @@ const CheckRuntimeSelect = `SELECT 1 FROM daemon_harnesses WHERE daemon_id = ? A
 
 const RuntimeErrSelect = `SELECT available, enabled FROM daemon_harnesses WHERE daemon_id = ? AND harness = ?`
 
-const CreateAgentInsert = `INSERT INTO agents (id, user_id, name, daemon_id, harness, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-
-const UpdateAgentUpdate = `UPDATE agents SET name = ?, daemon_id = ?, harness = ?, description = ?, updated_at = ? WHERE id = ?`
-
-const DeleteAgentDelete = `DELETE FROM agents WHERE id = ?`
-
-const DeleteAgentClause = ` AND user_id = ?`
-
-const AgentCols = `SELECT id, user_id, name, daemon_id, harness, description, created_at, updated_at FROM agents`
-
+const AgentCols = `SELECT id,user_id,name,daemon_id,harness,description,created_at,updated_at,current_version_id,version,COALESCE(model,''),instructions FROM (SELECT a.id,a.user_id,v.name,v.device_id AS daemon_id,v.harness,v.description,a.created_at,a.updated_at,a.current_version_id,v.version,v.model,v.instructions FROM agents a JOIN agent_versions v ON v.id=a.current_version_id WHERE a.deleted_at IS NULL)`
 const GetAgentClause = ` WHERE id = ?`
-
 const GetAgentClause2 = ` AND user_id = ?`
-
 const ListAgentsClause = ` WHERE user_id = ?`
-
 const ListAgentsClause2 = ` ORDER BY name, id`
 
 const AttachmentSessionSelect = `SELECT user_id FROM daemons WHERE id=? AND key_hash=?`
@@ -109,16 +97,16 @@ const CreateMultiWorkInsert = `INSERT INTO works(id,user_id,name,instructions,co
 
 const CreateMultiWorkUpdate = `UPDATE works SET coordinator_id=? WHERE id=?`
 
-const InsertMultiInsert = `INSERT INTO sessions(id,user_id,created_by,work_id,title,status,created_at,updated_at,mode) VALUES(?,?,?,?,?,'idle',?,?,'multi_agent')`
+const InsertMultiInsert = `INSERT INTO sessions(id,user_id,created_by,work_id,title,status,created_at,updated_at) VALUES(?,?,?,?,?,'idle',?,?)`
 
 const InsertMessageInsert = `INSERT INTO messages (session_id, role, content, created_at) VALUES (?, ?, ?, ?)`
 
 // work_role 是算出来的：工作的 coordinator_id 指着它就是协调者，否则在工作里就是线程。
 const SessionCols = `SELECT id,user_id,created_by,work_id,
  CASE WHEN work_id IS NULL THEN '' WHEN EXISTS(SELECT 1 FROM works w WHERE w.coordinator_id=sessions.id) THEN 'coordinator' ELSE 'thread' END,
- title,status,created_at,updated_at,mode FROM sessions`
+ title,status,created_at,updated_at,'multi_agent' FROM sessions`
 
-const MessageCols = `SELECT id,session_id,role,content,created_at,'',COALESCE(author_agent_id,''),COALESCE((SELECT name FROM agents WHERE agents.id=messages.author_agent_id),''),run_agent_ids FROM messages`
+const MessageCols = `SELECT id,session_id,role,content,created_at,'',COALESCE(author_agent_id,''),COALESCE((SELECT name FROM agent_versions WHERE id=messages.author_agent_version_id),''),run_agent_ids,COALESCE(author_agent_version_id,'') FROM messages`
 
 const GetSessionClause = ` WHERE id = ?`
 
@@ -172,7 +160,7 @@ const UpdateWorkUpdate2 = `UPDATE sessions SET title = ? WHERE id = ?`
 
 const UpdateWorkUpdate3 = `UPDATE works SET name = ?, instructions = ?, updated_at = ? WHERE id = ?`
 
-const DeleteWorkSelect = `SELECT COUNT(*) FROM sessions WHERE work_id = ? AND (status IN ('running', 'waiting') OR (mode='multi_agent' AND status='pending'))`
+const DeleteWorkSelect = `SELECT COUNT(*) FROM sessions WHERE work_id = ? AND (status IN ('running', 'waiting') OR status='pending')`
 
 const DeleteWorkDelete = `DELETE FROM sessions WHERE work_id = ?`
 

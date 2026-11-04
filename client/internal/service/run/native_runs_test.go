@@ -18,7 +18,7 @@ func TestNativeIndexesComeOnlyFromAdapterAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, cwd, err := files.Sessions.Acquire(ctx, "local", conversation.ID, "agent", "codex", "v")
+	session, cwd, err := files.Sessions.Acquire(ctx, "local", conversation.ID, "agent", "codex", "v", "agent-version")
 	if err != nil {
 		t.Fatal(err)
 	}

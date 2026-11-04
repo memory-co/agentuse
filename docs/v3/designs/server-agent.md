@@ -1,6 +1,6 @@
 # agentService：不可变 Agent 版本与 Skill 版本关联
 
-> 本文是新增版本化能力的目标设计，尚未修改代码或数据库。当前部署仍允许直接修改 agent，也尚未把 server 的资源版本交给 client init。所有下列 SQL 都是目标结构，不是线上迁移脚本；表之间不声明数据库外键。
+> 版本化链路已实现，使用数据库 schema 3 和 harnessctl-events-v2。表之间不声明数据库外键。当前 HTTP/DTO 仍使用 daemon_id 表示 device；agent_versions 的物理列为 device_id。
 
 ## 职责与对象关系
 
@@ -62,7 +62,7 @@ Agent 指令是版本固定的 init 资源。Work 说明、协调者规则、共
 | GET | /api/agents/{id}/versions/{version_id} | 读取不可变配置和固定 skill 清单 |
 | DELETE | /api/agents/{id} | 软删除身份，保留版本和历史引用 |
 
-原来的直接 PATCH agent 配置模式在目标 API 中移除。Owner/admin 可发布 agent 版本；引用技能的可用性由 skillService 校验，技能包的下载授权也归 skillService，见其独立设计。
+原来的直接 PATCH agent 配置模式已移除。Owner/admin 可发布 agent 版本；引用技能的可用性由 skillService 校验，技能包的下载授权也归 skillService，见其独立设计。
 
 ## 表结构
 
@@ -125,3 +125,24 @@ agentService 通过 skillService 检查版本归属、权限和发布状态；�
 - client sessionService 固定 agent_version_id 与事件地址；harnessService 只接收已准备好的资源路径并调用 init。
 
 [Server 总览](server-main.md) · [skillService](server-skill.md) · [fileService](server-file.md) · [runService](server-run.md) · [Client sessionService](client-session.md) · [通信协议](protocol.md)
+
+## 管理入口与发布请求
+
+Server 前端的 Agent 页面提供完整配置编辑、固定 skill 版本多选、历史版本查看，以及“以此配置发布新版本”。回退也是一次新发布。
+
+`POST /api/agents/{id}/versions` 接收完整配置，返回 AgentVersion；`GET /api/agents/{id}` 返回当前版本的扁平投影和 current_version_id，字段不再作为可直接 PATCH 的可变配置。
+
+```json
+{
+  "base_version_id": "当前版本 UUID",
+  "name": "Reviewer",
+  "description": "代码评审",
+  "daemon_id": "device-id",
+  "harness": "codex",
+  "model": "可选模型",
+  "instructions": "AGENTS.md 内容",
+  "skills": [{"skill_id": "技能 UUID", "skill_version_id": "技能版本 UUID"}]
+}
+```
+
+同一配置最多选 64 个 skill。同名校验不区分大小写。同内容且 base 正确时以 HTTP 200 返回已有版本（新发布为 201）；base 过期返回 409，调用方读取最新配置后再决定是否发布。

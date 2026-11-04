@@ -28,8 +28,8 @@ func (s *Service) ClaimPrompt(ctx context.Context, d Daemon, capacity ...protoco
 			if i > 0 {
 				query += ` OR `
 			}
-			query += `(session_id=? AND agent_id=?)`
-			args = append(args, stream.ConversationID, stream.AgentID)
+			query += `(session_id=? AND agent_id=? AND agent_version_id=?)`
+			args = append(args, stream.ConversationID, stream.AgentID, stream.AgentVersionID)
 		}
 		query += `)`
 	}
@@ -67,6 +67,24 @@ func (s *Service) preparePrompt(ctx context.Context, tx *sql.Tx, p Delivery) (pr
 		input.Prompt = string(p.Content)
 	}
 	out := protocol.Prompt{ID: p.ID, ConversationID: p.SessionID, MessageID: p.MessageID, AgentID: p.AgentID, Harness: p.Harness, Content: input.Prompt, Context: raw, WorkID: ss.WorkID}
+	version, err := agentVersion(ctx, tx, p.AgentVersionID)
+	if err != nil {
+		return out, err
+	}
+	if version.AgentID != p.AgentID {
+		return out, ErrNotFound
+	}
+	out.AgentVersionID = version.ID
+	out.Model = version.Model
+	out.AgentInstructions = version.Instructions
+	out.Skills = []protocol.SkillResource{}
+	for _, ref := range version.Skills {
+		resource, e := s.Skills.Version(ctx, tx, User{Role: RoleAdmin}, ref.SkillID, ref.SkillVersionID, false)
+		if e != nil {
+			return out, e
+		}
+		out.Skills = append(out.Skills, protocol.SkillResource{SkillID: resource.SkillID, SkillVersionID: resource.ID, Name: resource.Name, SHA256: resource.SHA256, SizeBytes: resource.SizeBytes, DownloadPath: resource.DownloadPath})
+	}
 	if len(history) > 0 {
 		out.ContextSeq = history[len(history)-1].Seq
 	}

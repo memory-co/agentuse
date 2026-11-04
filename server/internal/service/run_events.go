@@ -13,7 +13,7 @@ import (
 // ReportClientEvent stores the public event unchanged. Only envelope ownership,
 // ordering and the five common types are server concerns, never native frames.
 func (s *Service) ReportClientEvent(ctx context.Context, device string, envelope protocol.ClientEvent) error {
-	if envelope.Seq <= 0 || envelope.SessionID == "" || envelope.AgentID == "" || !json.Valid(envelope.Event) {
+	if envelope.Seq <= 0 || envelope.SessionID == "" || envelope.AgentID == "" || envelope.AgentVersionID == "" || !json.Valid(envelope.Event) {
 		return fmt.Errorf("invalid client event")
 	}
 	var event struct {
@@ -41,10 +41,10 @@ func (s *Service) ReportClientEvent(ctx context.Context, device string, envelope
 		}
 	}
 	return s.repository.Tx(ctx, func(tx *sql.Tx) error {
-		var existing, existingConversation, existingAgent string
-		err := tx.QueryRowContext(ctx, `SELECT payload,session_id,agent_id FROM run_events WHERE daemon_id=? AND client_session_id=? AND event_seq=?`, device, envelope.SessionID, envelope.Seq).Scan(&existing, &existingConversation, &existingAgent)
+		var existing, existingConversation, existingAgent, existingVersion string
+		err := tx.QueryRowContext(ctx, `SELECT payload,session_id,agent_id,agent_version_id FROM run_events WHERE daemon_id=? AND client_session_id=? AND event_seq=?`, device, envelope.SessionID, envelope.Seq).Scan(&existing, &existingConversation, &existingAgent, &existingVersion)
 		if err == nil {
-			if existing != string(envelope.Event) || existingConversation != envelope.ConversationID || existingAgent != envelope.AgentID {
+			if existing != string(envelope.Event) || existingConversation != envelope.ConversationID || existingAgent != envelope.AgentID || existingVersion != envelope.AgentVersionID {
 				return fmt.Errorf("event sequence conflict")
 			}
 			return nil
@@ -53,14 +53,14 @@ func (s *Service) ReportClientEvent(ctx context.Context, device string, envelope
 			return err
 		}
 		var authorized int
-		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM run_prompts WHERE daemon_id=? AND session_id=? AND agent_id=? AND status IN ('sent','accepted','completed','failed','cancelled')`, device, envelope.ConversationID, envelope.AgentID).Scan(&authorized); err != nil {
+		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM run_prompts WHERE daemon_id=? AND session_id=? AND agent_id=? AND agent_version_id=? AND status IN ('sent','accepted','completed','failed','cancelled')`, device, envelope.ConversationID, envelope.AgentID, envelope.AgentVersionID).Scan(&authorized); err != nil {
 			return err
 		}
 		if authorized == 0 {
 			return ErrNotFound
 		}
 		var rebound int
-		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM run_events WHERE daemon_id=? AND client_session_id=? AND (session_id<>? OR agent_id<>?)`, device, envelope.SessionID, envelope.ConversationID, envelope.AgentID).Scan(&rebound); err != nil {
+		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM run_events WHERE daemon_id=? AND client_session_id=? AND (session_id<>? OR agent_id<>? OR agent_version_id<>?)`, device, envelope.SessionID, envelope.ConversationID, envelope.AgentID, envelope.AgentVersionID).Scan(&rebound); err != nil {
 			return err
 		}
 		if rebound > 0 {
@@ -81,31 +81,31 @@ func (s *Service) ReportClientEvent(ctx context.Context, device string, envelope
 			if envelope.PromptID <= 0 || event.InputID == "" {
 				return fmt.Errorf("accepted requires prompt and input identity")
 			}
-			prompt, err := scanPrompt(tx.QueryRowContext(ctx, promptCols+` WHERE id=? AND daemon_id=? AND session_id=? AND agent_id=?`, envelope.PromptID, device, envelope.ConversationID, envelope.AgentID))
+			prompt, err := scanPrompt(tx.QueryRowContext(ctx, promptCols+` WHERE id=? AND daemon_id=? AND session_id=? AND agent_id=? AND agent_version_id=?`, envelope.PromptID, device, envelope.ConversationID, envelope.AgentID, envelope.AgentVersionID))
 			if err != nil {
 				return err
 			}
-			if prompt.Status != "sent" && prompt.Status != "accepted" {
+			if prompt.AgentVersionID != envelope.AgentVersionID || (prompt.Status != "sent" && prompt.Status != "accepted") {
 				return fmt.Errorf("prompt is not awaiting acceptance")
 			}
 			if prompt.RunID != "" && (prompt.RunID != event.RunID || prompt.InputID != event.InputID) {
 				return fmt.Errorf("prompt already bound to another accepted input")
 			}
-			if _, err = tx.ExecContext(ctx, `INSERT INTO runs(id,session_id,first_message_id,agent_id,daemon_id,client_session_id,harness,harness_revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, event.RunID, envelope.ConversationID, prompt.MessageID, envelope.AgentID, device, envelope.SessionID, envelope.Harness, envelope.Revision, now, now); err != nil {
+			if _, err = tx.ExecContext(ctx, `INSERT INTO runs(id,session_id,first_message_id,agent_id,agent_version_id,daemon_id,client_session_id,harness,harness_revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, event.RunID, envelope.ConversationID, prompt.MessageID, envelope.AgentID, envelope.AgentVersionID, device, envelope.SessionID, envelope.Harness, envelope.Revision, now, now); err != nil {
 				return err
 			}
 			r, err := scanNativeRun(tx.QueryRowContext(ctx, nativeRunCols+` WHERE id=?`, event.RunID))
 			if err != nil {
 				return err
 			}
-			if r.DaemonID != device || r.ClientSessionID != envelope.SessionID || r.SessionID != envelope.ConversationID || r.AgentID != envelope.AgentID || r.Status == "completed" || r.Status == "failed" || r.Status == "cancelled" {
+			if r.DaemonID != device || r.ClientSessionID != envelope.SessionID || r.SessionID != envelope.ConversationID || r.AgentID != envelope.AgentID || r.AgentVersionID != envelope.AgentVersionID || r.Status == "completed" || r.Status == "failed" || r.Status == "cancelled" {
 				return fmt.Errorf("accepted run ownership or lifecycle conflict")
 			}
 			if _, err = tx.ExecContext(ctx, `UPDATE run_prompts SET status='accepted',run_id=?,input_id=?,client_session_id=?,updated_at=? WHERE id=?`, event.RunID, event.InputID, envelope.SessionID, now, prompt.ID); err != nil {
 				return err
 			}
 		} else if event.Type != "log" {
-			r, err := scanNativeRun(tx.QueryRowContext(ctx, nativeRunCols+` WHERE id=? AND daemon_id=? AND client_session_id=? AND session_id=? AND agent_id=?`, event.RunID, device, envelope.SessionID, envelope.ConversationID, envelope.AgentID))
+			r, err := scanNativeRun(tx.QueryRowContext(ctx, nativeRunCols+` WHERE id=? AND daemon_id=? AND client_session_id=? AND session_id=? AND agent_id=? AND agent_version_id=?`, event.RunID, device, envelope.SessionID, envelope.ConversationID, envelope.AgentID, envelope.AgentVersionID))
 			if err != nil {
 				return err
 			}
@@ -166,7 +166,7 @@ func (s *Service) ReportClientEvent(ctx context.Context, device string, envelope
 					if err != nil {
 						return err
 					}
-					if _, err = tx.ExecContext(ctx, `UPDATE messages SET author_agent_id=?,reply_to_message_id=? WHERE id=?`, r.AgentID, r.FirstMessageID, message.ID); err != nil {
+					if _, err = tx.ExecContext(ctx, `UPDATE messages SET author_agent_id=?,author_agent_version_id=?,reply_to_message_id=? WHERE id=?`, r.AgentID, r.AgentVersionID, r.FirstMessageID, message.ID); err != nil {
 						return err
 					}
 					if _, err = tx.ExecContext(ctx, `UPDATE runs SET result_message_id=? WHERE id=?`, message.ID, r.ID); err != nil {
@@ -178,7 +178,7 @@ func (s *Service) ReportClientEvent(ctx context.Context, device string, envelope
 				}
 			}
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO run_events(session_id,client_session_id,run_id,agent_id,daemon_id,event_seq,kind,payload,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, envelope.ConversationID, envelope.SessionID, event.RunID, envelope.AgentID, device, envelope.Seq, event.Type, string(envelope.Event), now); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO run_events(session_id,client_session_id,run_id,agent_id,agent_version_id,daemon_id,event_seq,kind,payload,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, envelope.ConversationID, envelope.SessionID, event.RunID, envelope.AgentID, envelope.AgentVersionID, device, envelope.Seq, event.Type, string(envelope.Event), now); err != nil {
 			return err
 		}
 		return multiStatus(ctx, tx, envelope.ConversationID, now)
@@ -188,7 +188,7 @@ func (s *Service) RunEvents(ctx context.Context, conversation string) ([]Session
 	return runEvents(ctx, s.db, conversation)
 }
 func runEvents(ctx context.Context, q rowsQuerier, conversation string) ([]SessionEvent, error) {
-	rows, err := q.QueryContext(ctx, `SELECT id,session_id,client_session_id,run_id,agent_id,daemon_id,event_seq,kind,payload,created_at FROM run_events WHERE session_id=? ORDER BY id`, conversation)
+	rows, err := q.QueryContext(ctx, `SELECT id,session_id,client_session_id,run_id,agent_id,agent_version_id,daemon_id,event_seq,kind,payload,created_at FROM run_events WHERE session_id=? ORDER BY id`, conversation)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +197,7 @@ func runEvents(ctx context.Context, q rowsQuerier, conversation string) ([]Sessi
 	for rows.Next() {
 		var e SessionEvent
 		var raw string
-		if err = rows.Scan(&e.ID, &e.SessionID, &e.ClientSessionID, &e.RunID, &e.AgentID, &e.DaemonID, &e.EventSeq, &e.Kind, &raw, &e.CreatedAt); err != nil {
+		if err = rows.Scan(&e.ID, &e.SessionID, &e.ClientSessionID, &e.RunID, &e.AgentID, &e.AgentVersionID, &e.DaemonID, &e.EventSeq, &e.Kind, &raw, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		e.Payload = json.RawMessage(raw)

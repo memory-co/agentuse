@@ -12,11 +12,11 @@ Server 保存对话、组织任务并跟踪执行。用户的一台执行设备�
 
 ## 当前实现与目标命名
 
-执行协议已采用 harnessctl-events-v1：server 不预创建 run，只有 client 的 accepted 创建实际 UUID；五种公共事件原样入库，没有 attempt、租约、原生能力分支或 server harnessService。详细协议、实际 SQL、重连规则及 schema 2 升级约束见 [server-run.md](server-run.md)。
+执行协议已采用 harnessctl-events-v2：server 不预创建 run，只有 client 的 accepted 创建实际 UUID；五种公共事件原样入库，没有 attempt、租约、原生能力分支或 server harnessService。详细协议、实际 SQL、重连规则及 schema 3 升级约束见 [server-run.md](server-run.md)。
 
-其他章节中的 conversation/device 为业务目标名称。现有 HTTP /sessions、/daemons 和部分元数据物理表仍保留原名；消息 UUID、文件目录/S3 等目标不能视作本次执行改造已经实现。
+其他章节中的 conversation/device 为业务目标名称。现有 HTTP /sessions、/daemons 和部分元数据物理表仍保留原名；消息 UUID 和旧附件链路迁移仍为独立目标；通用 fileService 的本地/S3 后端已实现。
 
-新增 Agent/Skill 版本化能力仍为目标设计，分别见 [agentService](server-agent.md) 与 [skillService](server-skill.md)：agent 的每次有效配置变更发布新版本，固定引用不可变 skill 包；排队输入固定版本，client 首次使用该版本时创建新初始化绑定。通用命名空间 fileService 和相应通信扩展尚未实现，不表示当前部署已经支持 server 管理这些资源。
+Agent/Skill 版本化已实现，分别见 [agentService](server-agent.md) 与 [skillService](server-skill.md)：有效配置变更发布不可变版本；输入入队时固定版本，client 首次使用该版本时创建新的 session/init 绑定。共享 ZIP 经 fileService 的 skills 命名空间保存，通过 HTTP 下载，不在 WebSocket 发送文件或原生命令。
 
 ## 一、整体关系
 
@@ -45,7 +45,7 @@ Server 分为三层：
 
 这里的“拥有”指主要维护职责，不表示其他 service 不能读取。跨业务修改通过所属 service 完成；由编排操作统一事务，不能把各次调用做成互不相关的独立提交。
 
-各 service 的详细职责和表结构见上表。runService 文档给出已实现的执行层结构；其他元数据表和 fileService 仍包含目标设计。device 等元数据命名仍是目标设计；输入分配、client 执行身份和原样事件上报已实现。
+各 service 的详细职责和表结构见上表。runService 文档给出已实现的执行层结构；Agent/Skill 版本表和 fileService 已实现，其他元数据仍包含目标设计。device 等元数据命名仍是目标设计；输入分配、client 执行身份和原样事件上报已实现。
 
 所有表不声明数据库外键，只保存关联 ID。创建/修改时由 service 检查目标存在、归属和状态；删除时协调相关 service 显式清理或清空关联字段，并在同一事务提交。数据库保留主键、唯一索引和必要的 CHECK 约束，不依赖自动级联。
 

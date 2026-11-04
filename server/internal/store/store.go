@@ -29,7 +29,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_token ON users(token_hash);
 
 CREATE TABLE IF NOT EXISTS daemons (
   id           TEXT PRIMARY KEY,
-  user_id      TEXT NOT NULL REFERENCES users(id),
+  user_id      TEXT NOT NULL,
   name         TEXT NOT NULL,
   key_hash     TEXT,
   setup_token  TEXT,
@@ -41,8 +41,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS daemons_key ON daemons(key_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS daemons_setup_token ON daemons(setup_token);
 
 CREATE TABLE IF NOT EXISTS daemon_harnesses (
-  daemon_id  TEXT NOT NULL REFERENCES daemons(id) ON DELETE CASCADE,
-  user_id    TEXT NOT NULL REFERENCES users(id),
+  daemon_id  TEXT NOT NULL,
+  user_id    TEXT NOT NULL,
   harness    TEXT NOT NULL,
   version    TEXT,
   revision   TEXT NOT NULL DEFAULT '',
@@ -53,26 +53,13 @@ CREATE TABLE IF NOT EXISTS daemon_harnesses (
 );
 CREATE INDEX IF NOT EXISTS daemon_harnesses_user_harness ON daemon_harnesses(user_id, harness);
 
-CREATE TABLE IF NOT EXISTS agents (
-  id          TEXT PRIMARY KEY,
-  user_id     TEXT NOT NULL REFERENCES users(id),
-  name        TEXT NOT NULL,
-  daemon_id   TEXT REFERENCES daemons(id) ON DELETE SET NULL,
-  harness     TEXT NOT NULL,
-  description TEXT,
-  created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS agents_user_name ON agents(user_id, name);
-
 CREATE TABLE IF NOT EXISTS sessions (
   id                 TEXT PRIMARY KEY,
-  user_id            TEXT NOT NULL REFERENCES users(id),
-  created_by         TEXT NOT NULL REFERENCES users(id),
-  work_id            TEXT REFERENCES works(id),
+  user_id            TEXT NOT NULL,
+  created_by         TEXT NOT NULL,
+  work_id            TEXT,
   title              TEXT NOT NULL DEFAULT '',
   status             TEXT NOT NULL DEFAULT 'idle',
-  mode TEXT NOT NULL DEFAULT 'multi_agent' CHECK(mode='multi_agent'),
   created_at         INTEGER NOT NULL,
   updated_at         INTEGER NOT NULL
 );
@@ -83,11 +70,11 @@ CREATE INDEX IF NOT EXISTS sessions_created_by ON sessions(created_by, updated_a
 
 CREATE TABLE IF NOT EXISTS works (
   id             TEXT PRIMARY KEY,
-  user_id        TEXT NOT NULL REFERENCES users(id),
+  user_id        TEXT NOT NULL,
   name           TEXT NOT NULL,
   instructions   TEXT NOT NULL DEFAULT '',
   coordinator_id TEXT NOT NULL UNIQUE,
-  coordinator_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+  coordinator_agent_id TEXT,
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
 );
@@ -95,10 +82,10 @@ CREATE INDEX IF NOT EXISTS works_user ON works(user_id, updated_at);
 
 CREATE TABLE IF NOT EXISTS messages (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL,
   role       TEXT NOT NULL,
   content    TEXT NOT NULL,
-  author_user_id TEXT, author_agent_id TEXT, run_agent_ids TEXT NOT NULL DEFAULT '[]', reply_to_message_id INTEGER,
+  author_user_id TEXT, author_agent_id TEXT, run_agent_ids TEXT NOT NULL DEFAULT '[]', reply_to_message_id INTEGER, author_agent_version_id TEXT,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_session ON messages(session_id, id);
@@ -132,11 +119,11 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if existing > 0 && revision != 2 {
+	if existing > 0 && revision != 3 {
 		db.Close()
 		return nil, errors.New("unsupported database schema: reset the database before starting this version")
 	}
-	if _, err := db.Exec(schema + attachmentSchema + runSchema + "PRAGMA user_version=2;"); err != nil {
+	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=3;"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("store: initialize: %w", err)
 	}

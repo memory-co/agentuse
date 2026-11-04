@@ -24,7 +24,7 @@ func TestRemoteOutboxWaitsForCommitAckAndReplaysSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	metadata, _, err := files.Sessions.Acquire(ctx, "https---example.com", "conversation", "agent", "custom", "v1")
+	metadata, _, err := files.Sessions.Acquire(ctx, "https---example.com", "conversation", "agent", "custom", "v1", "agent-version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestRecoverRemoteReceiptUsesOnlyCompleteAcceptedRecords(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			files, _ := openFileServices(t.TempDir())
-			metadata, _, err := files.Sessions.Acquire(context.Background(), "https---example.com", "conversation", "agent", "custom", "v")
+			metadata, _, err := files.Sessions.Acquire(context.Background(), "https---example.com", "conversation", "agent", "custom", "v", "agent-version")
 			if err != nil {
 				t.Fatal(err)
 			}

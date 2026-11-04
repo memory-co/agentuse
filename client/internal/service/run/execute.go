@@ -18,13 +18,19 @@ import (
 var ErrLocalBusy = errors.New("session execution is busy or no longer active")
 
 type Request struct {
-	Harness     string          `json:"harness"`
-	Prompt      string          `json:"prompt"`
-	Input       json.RawMessage `json:"input,omitempty"`
-	agentID     string
-	environment []string
-	beforeSend  func(session.Session) error
-	accepted    func(harness.Acceptance) error
+	Model             string   `json:"model,omitempty"`
+	AgentInstructions string   `json:"agent_instructions,omitempty"`
+	SkillPackages     []string `json:"skill_packages,omitempty"`
+	agentVersionID    string
+	skills            []protocol.SkillResource
+	localPackages     [][]byte
+	Harness           string          `json:"harness"`
+	Prompt            string          `json:"prompt"`
+	Input             json.RawMessage `json:"input,omitempty"`
+	agentID           string
+	environment       []string
+	beforeSend        func(session.Session) error
+	accepted          func(harness.Acceptance) error
 }
 type localExecution struct {
 	cancel  context.CancelFunc
@@ -73,6 +79,13 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 	if !json.Valid(input) || len(input) > 256<<10 {
 		return Run{}, fileutil.ErrInvalid
 	}
+	if id == "local" {
+		if err := normalizeLocalResources(&request); err != nil {
+			return Run{}, err
+		}
+	} else if request.agentVersionID == "" {
+		return Run{}, fmt.Errorf("agent version is required")
+	}
 	adapter, err := s.Harness.Resolve(request.Harness)
 	if err != nil {
 		return Run{}, err
@@ -85,7 +98,7 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 	// A further send to the same active session is automatically steered/queued
 	// by the adapter. Neither the UI nor this service chooses that policy.
 	for _, active := range s.localRuns {
-		if active.session.EndpointID == id && active.session.ConversationID == conversation && active.session.Harness == request.Harness && (request.agentID == "" || active.session.AgentID == request.agentID) && (target == "" || active.session.ID == target) {
+		if active.session.EndpointID == id && active.session.ConversationID == conversation && active.session.AgentVersionID == request.agentVersionID && active.session.Harness == request.Harness && (request.agentID == "" || active.session.AgentID == request.agentID) && (target == "" || active.session.ID == target) {
 			var pi protocol.PromptInput
 			text := string(input)
 			if json.Unmarshal(input, &pi) == nil && pi.Prompt != "" {
@@ -132,13 +145,22 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 	var metadata session.Session
 	var cwd string
 	if target == "" {
-		metadata, cwd, err = s.Sessions.Acquire(ctx, id, conversation, agentID, adapter.Name, adapter.Revision)
+		metadata, cwd, err = s.Sessions.Acquire(ctx, id, conversation, agentID, adapter.Name, adapter.Revision, request.agentVersionID)
 	} else {
 		metadata, cwd, err = s.Sessions.AcquireExistingSession(ctx, id, conversation, target, adapter.Revision)
 	}
 	if err != nil {
 		<-s.slots
 		s.localMu.Unlock()
+		return Run{}, err
+	}
+	if err == nil && metadata.AgentVersionID != request.agentVersionID {
+		err = fmt.Errorf("session belongs to a different agent version")
+	}
+	if err != nil {
+		<-s.slots
+		s.localMu.Unlock()
+		_ = s.Sessions.Release(metadata, true)
 		return Run{}, err
 	}
 	if request.beforeSend != nil {
@@ -187,7 +209,15 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 				accepted <- harness.Acceptance{RunID: event.RunID, InputID: event.InputID}
 			}
 		}
-		result := s.Harness.DriveSession(execCtx, adapter, requestText(input), cwd, execution.in, report)
+		cleanup, prepareErr := s.prepareResources(execCtx, metadata, request, &adapter)
+		defer cleanup()
+		adapter.OnInitialized = cleanup
+		var result harness.DriveResult
+		if prepareErr != nil {
+			result = harness.DriveResult{Error: prepareErr.Error()}
+		} else {
+			result = s.Harness.DriveSession(execCtx, adapter, requestText(input), cwd, execution.in, report)
+		}
 		if !result.CleanupPending {
 			_ = s.Sessions.Release(metadata, result.OK || execCtx.Err() == context.Canceled)
 		}
@@ -238,6 +268,7 @@ func (s *Service) controlSession(ctx context.Context, id, conversation, session,
 		}
 		request.Harness = metadata.Harness
 		request.agentID = metadata.AgentID
+		request.agentVersionID = metadata.AgentVersionID
 		return s.startSession(ctx, id, conversation, request, session)
 	}
 	s.localMu.Lock()

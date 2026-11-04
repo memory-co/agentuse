@@ -19,18 +19,18 @@ accepted(run_id=R1,input_id=I2) → P3 也绑定 R1：真实插话
 
 一个 message 对多个 run，一个 run 可以消费多条 message。关系以 accepted 为准，不根据“上一个 run 尚未结束”提前合并。first_message_id 来自该 UUID 第一条 accepted 对应的消息。输入分配 ID 只用于传输关联，不是另一个执行身份。
 
-## Agent 版本化扩展（目标，尚未实现）
+## Agent 版本关联
 
-当前实际 SQL 仍见后文；新增版本字段不能视为已经部署。版本定义见 [agentService](server-agent.md)。
+当前实现及 SQL 见后文；部署需 server/client 同步升级。版本定义见 [agentService](server-agent.md)。
 
-| 数据 | 目标新增关联 | 固定时机 |
+| 数据 | 固定关联 | 固定时机 |
 |---|---|---|
 | run_prompts | agent_version_id | 保存消息并为目标建立输入时，与消息在同一事务固定当前版本 |
 | runs | agent_version_id | 第一条 accepted 从对应 prompt 复制；同 run 后续输入只能来自相同版本 |
 
 两列均为非空版本 UUID，不存可变化的 latest，不冗余名称或版本配置。Agent 版本指向固定 device/harness/model/指令；agentService 拥有关联，skillService 提供其固定 skill_versions 的元数据和下载授权。显示版本号时关联 agent_versions 查询。
 
-Claim 使用固定版本生成 dispatch，不在领取时再查当前 head。重连仍重发原 dispatch。下行增加 agent_version_id、model、agent_instructions 和 skill 包版本清单，详情见 [protocol.md 的目标扩展](protocol.md#agent-versioning)。Server 只准备版本化业务资源，不生成 harness 命令。
+Claim 使用固定版本生成 dispatch，不在领取时再查当前 head。重连仍重发原 dispatch。下行增加 agent_version_id、model、agent_instructions 和 skill 包版本清单，详情见 [protocol.md 的版本字段](protocol.md#agent-versioning)。Server 只准备版本化业务资源，不生成 harness 命令。
 
 Client 活动流必须按 conversation/agent/agent_version 匹配；容量不足时，新版本不能因为旧 agent 仍在执行就被当成可插话输入。新版使用新 session/events 并 init，旧版本可以继续完成。同一个 native run UUID 不能接收跨 agent_version 的输入；server 校验业务版本归属，不替适配器决定实际 run UUID。
 
@@ -44,7 +44,7 @@ Client 的 harnessService 管适配器 YAML、进程、原生协议、hook、ski
 
 ## WebSocket 协议
 
-版本为 harnessctl-events-v1，旧协议不能接入。hello 报告可用 harness；claim 带空闲 session 数和仍可接收输入的 conversation/agent，server 返回 prompt 或 no_task。
+版本为 harnessctl-events-v2，旧协议不能接入。hello 报告可用 harness；claim 带空闲 session 数和仍可接收输入的 conversation/agent，server 返回 prompt 或 no_task。
 
 下行 prompt 包含分配 ID、conversation、message、agent、harness 标签、准备好的文本、共享上下文及附件引用；不含原生命令或 attempt。补充输入仍是 prompt。reply 携带 request_id 与不透明 JSON answer；cancel 针对 client session，并携带目标 run_id 防止延迟取消作用于后续交互。
 
@@ -72,14 +72,14 @@ Client 以 events.jsonl 为持久化 outbox，一次发送完整行，只有 ser
 
 ## 表结构
 
-以下为当前执行层实际 SQL。物理 session_id 指 server conversation，daemon_id 指 device；公共 API 的 /sessions、/daemons 及旧元数据命名尚未整体更名。client_session_id 才是本地原生会话。message_id 目前仍为 INTEGER；消息 UUID 和文件存储改造属于独立的元数据设计，不能把本文当作已经完成它们。新执行表没有数据库外键。
+以下为当前执行层实际 SQL。物理 session_id 指 server conversation，daemon_id 指 device；公共 API 的 /sessions、/daemons 及旧元数据命名尚未整体更名。client_session_id 才是本地原生会话。message_id 目前仍为 INTEGER；消息 UUID 和旧附件链路迁移属于独立的元数据设计，不能把本文当作已经完成它们。新执行表没有数据库外键。
 
 ```sql
 -- A prompt is a server-side message delivery, not an execution.
 CREATE TABLE IF NOT EXISTS run_prompts (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  session_id TEXT NOT NULL, message_id INTEGER NOT NULL,
- agent_id TEXT NOT NULL, daemon_id TEXT NOT NULL, harness TEXT NOT NULL,
+ agent_id TEXT NOT NULL, agent_version_id TEXT NOT NULL, daemon_id TEXT NOT NULL, harness TEXT NOT NULL,
  content TEXT NOT NULL, dispatch TEXT, status TEXT NOT NULL DEFAULT 'pending',
  run_id TEXT NOT NULL DEFAULT '', input_id TEXT NOT NULL DEFAULT '',
  client_session_id TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
@@ -91,7 +91,7 @@ CREATE INDEX IF NOT EXISTS prompts_run ON run_prompts(run_id,input_id);
 -- IDs and terminal facts come exclusively from authenticated client reports.
 CREATE TABLE IF NOT EXISTS runs (
  id TEXT PRIMARY KEY, session_id TEXT NOT NULL, first_message_id INTEGER NOT NULL,
- agent_id TEXT NOT NULL, daemon_id TEXT NOT NULL, client_session_id TEXT NOT NULL,
+ agent_id TEXT NOT NULL, agent_version_id TEXT NOT NULL, daemon_id TEXT NOT NULL, client_session_id TEXT NOT NULL,
  harness TEXT NOT NULL, harness_revision TEXT NOT NULL,
  status TEXT NOT NULL DEFAULT 'running', result_message_id INTEGER,
  output TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
@@ -101,7 +101,7 @@ CREATE INDEX IF NOT EXISTS runs_conversation ON runs(session_id,created_at,id);
 CREATE TABLE IF NOT EXISTS run_events (
  id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
  client_session_id TEXT NOT NULL, run_id TEXT NOT NULL DEFAULT '',
- agent_id TEXT NOT NULL, daemon_id TEXT NOT NULL,
+ agent_id TEXT NOT NULL, agent_version_id TEXT NOT NULL, daemon_id TEXT NOT NULL,
  event_seq INTEGER NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL,
  created_at INTEGER NOT NULL, UNIQUE(daemon_id,client_session_id,event_seq)
 );
@@ -129,4 +129,4 @@ work_run_tokens 绑定输入分配，而不是尚不存在的 run；有效性由
 
 ## 升级
 
-数据库 schema 版本为 2。旧执行表和旧 WebSocket 协议不兼容；现有数据库会被拒绝启动，需按部署流程备份后使用新数据库，并同步更新 client。代码不会在启动时自动清空历史或重放旧输入。
+数据库 schema 版本为 3。旧执行表和旧 WebSocket 协议不兼容；现有数据库会被拒绝启动，需按部署流程备份后使用新数据库，并同步更新 client。代码不会在启动时自动清空历史或重放旧输入。

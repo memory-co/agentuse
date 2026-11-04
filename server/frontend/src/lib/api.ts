@@ -9,8 +9,8 @@ export class ApiError extends Error {
 export async function api<T = unknown>(path: string, opts: { method?: string; body?: unknown;headers?:Record<string,string> } = {}): Promise<T> {
   const r = await fetch(path, {
     method: opts.method || 'GET',
-    headers: { ...actAsHeaders(path),...opts.headers, ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    headers: { ...actAsHeaders(path),...opts.headers, ...(opts.body !== undefined && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}) },
+    body: opts.body instanceof FormData ? opts.body : opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
   if (r.status === 204) return null as T;
   const data = await r.json().catch(() => ({}));

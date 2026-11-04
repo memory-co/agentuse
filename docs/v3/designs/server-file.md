@@ -1,14 +1,14 @@
 # fileService：按命名空间存储文件
 
-> 本文为目标设计，尚未替换当前附件数据库和 API。fileService 不使用数据库表，不绑定 conversation、agent 或 skill 的业务模型。
+> 通用 fileService、本地/S3 后端及下列文件入口已实现。fileService 不使用数据库表，不绑定 conversation、agent 或 skill 的业务模型。旧 /api/sessions/.../attachments 接口和 attachments 表仍独立存在，尚未迁移到这里；不能将新 fileService 理解为已完成旧附件链路替换。
 
 ## 职责
 
 fileService 统一封装本地文件系统与 S3 协议存储。调用方提供**命名空间、相对路径和文件流**；fileService 负责完整写入、读取、列举及删除，业务 service 负责对象归属、授权、版本和清理时机。
 
 ```text
-Put(namespace, path, stream)          普通完整写入，可按业务要求覆盖
-PutIfAbsent(namespace, path, stream)  创建新对象，已有路径不覆盖
+Put(namespace, path, stream, false)  普通完整写入，可按业务要求覆盖
+Put(namespace, path, stream, true)   不存在时创建，已有路径不覆盖
 Get(namespace, path)                  返回文件流
 List(namespace, prefix)               列举某一前缀
 Delete(namespace, path)               删除一个对象
@@ -61,13 +61,13 @@ POST /api/skills/{skill_id}/versions
 GET /api/skills/{skill_id}/versions/{version_id}/package
 ```
 
-Conversation 入口先经 conversationService 校验归属，再操作 conversations 空间；messages.attachments 继续保存该对话空间内的相对路径数组，如 `["inputs/data.csv"]`。
+Conversation 入口先经 conversationService 校验归属，再操作 conversations 空间；messages.attachments 的相对路径数组是 conversation 元数据目标设计，旧附件消息引用仍由现有附件链路处理。
 
 Skill 上传经 skillService 校验、分配不可变版本路径，并调用 fileService。下载同样由 skillService 校验用户或已分配输入的设备权限，然后返回文件流；不开放任意覆盖已发布 skill 包的通用 PUT 接口。
 
 ## 发布、删除与异常清理
 
-上传 Skill 时先写新对象，确认完整后再提交版本表。SQLite 与文件后端没有跨系统事务；数据库提交失败时删除本次候选对象，异常中断可能留下未引用文件，需要后续清理。
+上传 Skill 时先写新对象，确认完整后再提交版本表。SQLite 与文件后端没有跨系统事务；数据库提交失败时删除本次候选对象，异常中断可能留下未引用文件。当前未启用自动孤立对象清理。
 
 删除 conversation 只清理 conversations 下该 conversation 的前缀，不清理 skills。软删除 agent/skill 不删除已发布且仍被版本引用的包。Skill 清理必须由 skillService 检查全部历史版本和正在发布的对象后进行，不能只保留 latest。没有显式版本淘汰流程时，只清理确认未发布且无版本记录引用的孤立对象，不删除任何已发布 skill_version 对应的包。
 
@@ -78,3 +78,19 @@ Skill 上传经 skillService 校验、分配不可变版本路径，并调用 fi
 无。新增命名空间不需要新增 fileService 表；业务元数据由拥有它的 service 管理。
 
 [Server 总览](server-main.md) · [skillService](server-skill.md) · [agentService](server-agent.md) · [conversationService](server-conversation.md) · [runService](server-run.md)
+
+## 启动配置
+
+默认使用本地 `~/.agentuse/files`，支持 `-files-dir` / `AGENTUSE_FILES_DIR`。选择 S3：
+
+```bash
+agentuse-server start -files-backend s3 \
+  -s3-endpoint https://s3.example.com -s3-bucket agentuse \
+  -s3-region us-east-1 -s3-prefix production
+```
+
+凭据读取 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY；参数对应 AGENTUSE_FILES_BACKEND、AGENTUSE_S3_ENDPOINT、AGENTUSE_S3_BUCKET、AGENTUSE_S3_REGION、AGENTUSE_S3_PREFIX 环境变量。部署配置在启动时读取，修改后重启。S3 兼容后端须支持条件 PutObject（If-None-Match: *）；不支持时发布失败，不降级覆盖。
+
+Conversation 删除提交后清理对应文件前缀；失败写入 server 日志，当前由运维重试清理，不提供另一份文件元数据账本。Skills 前缀不随 conversation 删除。
+
+实现使用 Go 1.25 的 os.Root 原子 Link/Rename，在限定根目录内发布文件；项目最低 Go 版本相应为 1.25。

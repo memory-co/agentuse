@@ -21,7 +21,7 @@ console.log(d.setup_command);
 // 电脑上线后打开 claude
 await agentuse.setDaemonHarness(uid, d.id, "claude", true);
 
-// 建一个 agent,运行时是这台电脑上的 claude;以后 updateAgent 切换运行时,agent 不变
+// 建一个 agent,运行时是这台电脑上的 claude;以后 publishAgentVersion 发布完整新配置，agent 身份不变
 const agent = await agentuse.createAgent(uid, { id: "code-helper", name: "写代码", daemon_id: d.id, harness: "claude" });
 
 // 用这个 agent 发起任务，等它回完

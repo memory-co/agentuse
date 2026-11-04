@@ -7,6 +7,7 @@ import (
 	"github.com/memory-co/agentuse/internal/command"
 	"github.com/memory-co/agentuse/server/internal/hub"
 	"github.com/memory-co/agentuse/server/internal/service"
+	fileservice "github.com/memory-co/agentuse/server/internal/service/file"
 	"log"
 	"net"
 	"net/http"
@@ -63,6 +64,12 @@ func runStart(args []string) error {
 	dist := fs.String("dist", command.EnvOr("AGENTUSE_DIST", defaultDist()), "各平台 agentuse 二进制所在目录(agentuse-<os>-<arch>)")
 	home, _ := os.UserHomeDir()
 	attachmentsDir := fs.String("attachments-dir", command.EnvOr("AGENTUSE_ATTACHMENTS_DIR", filepath.Join(home, ".agentuse", "attachments")), "附件存储目录")
+	filesDir := fs.String("files-dir", command.EnvOr("AGENTUSE_FILES_DIR", filepath.Join(home, ".agentuse", "files")), "fileService 本地存储目录")
+	filesBackend := fs.String("files-backend", command.EnvOr("AGENTUSE_FILES_BACKEND", "local"), "fileService 后端: local|s3")
+	s3Endpoint := fs.String("s3-endpoint", os.Getenv("AGENTUSE_S3_ENDPOINT"), "S3 兼容服务地址")
+	s3Bucket := fs.String("s3-bucket", os.Getenv("AGENTUSE_S3_BUCKET"), "S3 bucket")
+	s3Region := fs.String("s3-region", command.EnvOr("AGENTUSE_S3_REGION", "us-east-1"), "S3 region")
+	s3Prefix := fs.String("s3-prefix", os.Getenv("AGENTUSE_S3_PREFIX"), "S3 对象前缀")
 	envInt := func(key string, def int64) int64 {
 		v := os.Getenv(key)
 		if v == "" {
@@ -79,6 +86,19 @@ func runStart(args []string) error {
 	resetAdmin := fs.Bool("reset-admin-token", false, "启动时给管理员换一个新令牌并打印(令牌丢了用)")
 	if err := command.Parse(fs, args); err != nil {
 		return err
+	}
+	var files *fileservice.Service
+	var fileErr error
+	switch *filesBackend {
+	case "local":
+		files, fileErr = fileservice.NewLocal(*filesDir)
+	case "s3":
+		files, fileErr = fileservice.NewS3(fileservice.S3Config{Endpoint: *s3Endpoint, Region: *s3Region, Bucket: *s3Bucket, Prefix: *s3Prefix, AccessKey: os.Getenv("AWS_ACCESS_KEY_ID"), SecretKey: os.Getenv("AWS_SECRET_ACCESS_KEY")})
+	default:
+		return errors.New("files-backend 必须是 local 或 s3")
+	}
+	if fileErr != nil {
+		return fileErr
 	}
 	if *maxBytes <= 0 || *sessionMax <= 0 || *maxBytes > (1<<63-1)-(1<<20) {
 		return errors.New("附件容量必须是有效正整数")
@@ -122,7 +142,7 @@ func runStart(args []string) error {
 	svc := st
 	transport := hub.New(svc, log.Default())
 	svc.SetNotifier(transport)
-	srv := server.New(st, server.Config{DaemonHandler: transport, PublicURL: *publicURL, DistDir: *dist, AttachmentsDir: *attachmentsDir, AttachmentMaxBytes: *maxBytes, AttachmentSessionMaxBytes: *sessionMax})
+	srv := server.New(st, server.Config{FileStore: files, DaemonHandler: transport, PublicURL: *publicURL, DistDir: *dist, AttachmentsDir: *attachmentsDir, AttachmentMaxBytes: *maxBytes, AttachmentSessionMaxBytes: *sessionMax})
 	go svc.Run(ctx)
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 	go func() {

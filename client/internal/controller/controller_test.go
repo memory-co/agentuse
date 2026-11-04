@@ -18,7 +18,7 @@ func TestScopedFileAPIAndAuthentication(t *testing.T) {
 	root := t.TempDir()
 	l, _ := openFileServices(root)
 	ctx := context.Background()
-	s, _, e := l.Sessions.Acquire(ctx, "http---localhost%3A8090", "c", "coder", "codex", "v1")
+	s, _, e := l.Sessions.Acquire(ctx, "http---localhost%3A8090", "c", "coder", "codex", "v1", "agent-version")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -162,8 +162,8 @@ func TestTokenFile(t *testing.T) {
 func TestPaginationCursorIsBoundToParent(t *testing.T) {
 	ctx := context.Background()
 	l, _ := openFileServices(t.TempDir())
-	l.Sessions.Acquire(ctx, "ep", "c", "a", "codex", "v")
-	l.Sessions.Acquire(ctx, "ep", "c", "b", "claude", "v")
+	l.Sessions.Acquire(ctx, "ep", "c", "a", "codex", "v", "agent-version")
+	l.Sessions.Acquire(ctx, "ep", "c", "b", "claude", "v", "agent-version")
 	token := strings.Repeat("x", 64)
 	ui, _ := New(l.Sessions, l, "localhost:7801", token)
 	call := func(path string) *httptest.ResponseRecorder {

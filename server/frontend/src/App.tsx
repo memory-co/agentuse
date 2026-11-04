@@ -21,6 +21,7 @@ import { Daemons } from '@/pages/Daemons';
 import { Conversation, NewSession, STATUS_TONE, statusLabel, useSessions, useWorkSessions } from '@/pages/Sessions';
 import { NewWork, WorkPage, useWorks } from '@/pages/Works';
 import { Agents } from '@/pages/Agents';
+import { Skills } from '@/pages/Skills';
 import { Harnesses } from '@/pages/Harnesses';
 import { Users } from '@/pages/Users';
 import { getLocale, setLocale, useT } from '@/lib/i18n';
@@ -37,9 +38,10 @@ export function App() {
   return <ShellProvider><Shell me={me.data} /></ShellProvider>;
 }
 
-type PageKey = 'agents' | 'daemons' | 'harnesses' | 'users';
+type PageKey = 'skills' | 'agents' | 'daemons' | 'harnesses' | 'users';
 const PAGES: { key: PageKey; label: `nav.${PageKey}`; icon: ComponentType; Page: ComponentType<{ me: User }>; admin?: boolean }[] = [
   { key: 'agents', label: 'nav.agents', icon: Bot, Page: Agents },
+  { key: 'skills', label: 'nav.skills', icon: Boxes, Page: Skills },
   { key: 'daemons', label: 'nav.daemons', icon: MonitorSmartphone, Page: Daemons },
   { key: 'harnesses', label: 'nav.harnesses', icon: Boxes, Page: Harnesses, admin: true },
   { key: 'users', label: 'nav.users', icon: UsersIcon, Page: Users, admin: true },
