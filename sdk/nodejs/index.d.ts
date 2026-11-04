@@ -10,7 +10,7 @@ export interface UserToken { user: User; token: string; login_url: string; }
 
 export interface Harness {
   name: string;
-  kind: "builtin" | "custom";
+  kind: "reported";
   display_name: string;
   description: string;
   owner_id: string;
@@ -29,6 +29,7 @@ export interface Agent {
 }
 
 export interface DaemonHarness {
+  revision: string;
   daemon_id: string;
   user_id: string;
   harness: string;

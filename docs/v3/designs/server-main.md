@@ -40,7 +40,7 @@ Server 分为三层：
 
 这里的“拥有”指主要维护职责，不表示其他 service 不能读取。跨业务修改通过所属 service 完成；由编排操作统一事务，不能把各次调用做成互不相关的独立提交。
 
-各 service 的详细职责和表结构见上表。runService 文档给出已实现的执行层结构；其他元数据表和 fileService 仍包含目标设计。表结构中的 device 命名，以及设备运行能力、执行身份与结果关联都是目标设计，尚未应用到运行中的数据库。
+各 service 的详细职责和表结构见上表。runService 文档给出已实现的执行层结构；其他元数据表和 fileService 仍包含目标设计。device 等元数据命名仍是目标设计；输入分配、client 执行身份和原样事件上报已实现。
 
 所有表不声明数据库外键，只保存关联 ID。创建/修改时由 service 检查目标存在、归属和状态；删除时协调相关 service 显式清理或清空关联字段，并在同一事务提交。数据库保留主键、唯一索引和必要的 CHECK 约束，不依赖自动级联。
 
@@ -77,7 +77,7 @@ Server 只认识设备上报的 harness 标识、版本和能力，不设 harnes
 - **conversationService 管对话与消息编排**：保存用户消息，调用 runService 分配任务；接收结果事件，把最终回复追加到同一 conversation。
 - **runService 管任务执行**：哪些消息交给哪个 agent，在哪个 device 上执行，目前执行到哪一步。
 
-发送消息时，conversationService 统一事务，消息与任务分配一并提交。结束任务时，runService 保存执行终态和待处理的结果事件，由 conversationService 消费；runService 在事务内检查并绑定 runs.result_message_id 来去重，确保重试通知不会重复追加；messages 不保存 run_id。
+发送消息时，conversationService 统一事务，消息与任务分配一并提交。收到 client result 时，原始事件、执行状态、最终回复、runs.result_message_id 和对话状态在同一事务提交；重复上报不会重复追加回复。messages 不保存 run_id。
 
 进度、计划、问题和插话确认属于 run 的执行记录；需要作为最终回复展示的结果进入 messages。读取对话时可以组合这些数据，但不能把执行事件全当作普通聊天消息。
 

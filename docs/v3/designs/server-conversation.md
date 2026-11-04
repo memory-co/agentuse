@@ -1,6 +1,6 @@
 # conversationService：共享对话与消息编排
 
-> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。表之间只保留关联字段，不声明数据库外键；引用校验和关联清理由 service 在事务内完成。
+> 执行关系已采用 client 公共事件协议。本文的 conversation/device 是业务名称，后面的元数据 SQL 仍为目标结构，不是当前数据库迁移脚本；实际命名及尚未落地的字段在“目标元数据与当前实现”中单独说明。目标表不声明数据库外键，关联校验和清理由 service 完成。
 
 ## 职责
 
@@ -9,7 +9,7 @@ Conversation 是原共享对话概念的新名称，不新增另一层 conversat
 conversationService 管理 conversation、message 和共享历史，并编排消息分配。一个 conversation 包含若干 message 和若干 run；message 与 run 的任务输入关系是 **N:M**，由 runService 的 run_prompts 连接。
 
 - 创建/读取/删除对话，维护标题、归属和共享历史。
-- 接收消息，调用 runService 为目标 agent 分配任务；对话原文只保存一次，每个目标 run 另存一份 run_prompts。
+- 接收消息，调用 runService 为目标 agent 分配任务；对话原文只保存一次，每个目标 agent 另存一份 run_prompts，等待 accepted 关联实际 run。
 - 消费执行结果事件，把最终回复写为 agent message，并记录作者和被回复的 message。
 - 读取对话时组合对话、run、run_prompts、事件和问题的统一快照。
 
@@ -17,32 +17,43 @@ conversationService 管理 conversation、message 和共享历史，并编排消
 
 ## 发送和回复
 
-发送链路是 `controller → conversationService → runService`：先检查权限，在一个事务中写一条 message 和全部目标 run 的 run_prompts，最后提交并通知设备。任一目标失败则整体回滚。空目标允许只保存一条备注。
+发送链路是 `controller → conversationService → runService`：先检查权限，在一个事务中写一条 message 和每个目标 agent 的 run_prompts，提交后通知 client 领取。任一目标失败则整体回滚。空目标只保存备注。
+
+此时只分配输入，run_id 为空。Server 不能根据某个 agent 仍在执行，就认定新消息一定属于它当前的 run。
 
 ```text
-M1 @coder @reviewer → P1 / R1，P2 / R2
-M2 @coder          → P3 / R1（R1 仍活跃，补充输入）
+M1 @coder @reviewer → P1(coder)、P2(reviewer)
+client accepted P1：run_id=R1，input_id=I1
+client accepted P2：run_id=R2，input_id=I2
+M2 @coder → P3(coder)
+client accepted P3：
+  run_id=R1 → 同一次交互的补充输入
+  run_id=R3 → 后续一次交互
 ```
 
-M1 对应两个 run，R1 处理两条消息；conversation 不绑定 agent，没有 conversation_participant 或每个 agent 独立的上下文。
+P3 最终关联哪个 run，由适配器决定，并通过 accepted 上报。message 与 run 的 N:M 关系由此建立，输入分配 ID 只用于关联消息，不是执行身份。conversation 不绑定 agent，不设置参与者表或每个 agent 独立的共享历史。
 
-runService 先持久化终态与结果事件；conversationService 消费后，在同一事务写带作者和 reply_to_message_id 的 agent message、更新 runs.result_message_id 和对话状态投影。runService 根据结果关联去重，messages 不保存 run_id。设备进度不直接变成普通聊天消息；取消可以只更新状态，不生成回复。
+收到 client result 后，在**同一事务**保存原始事件、更新 run 与输入状态、写入 agent message、绑定 runs.result_message_id，并重算对话状态。最终回复的 reply_to_message_id 指向 first_message_id；messages 不保存 run_id。事务提交后才确认源事件位置，重复上报直接确认已有记录，不重复写回复或触发 Work 汇总。
 
-结果关联由 runService 提供事务内绑定操作完成，不要求 conversationService 直接改 runs。结果事件未消费时，run 可以已经结束、最终回复尚未写入；快照必须明确保留这个区别。恢复时可扫描终态 run 的持久化终态事件，由 runService 检查 runs.result_message_id 判断是否需要补写，不依赖一次性的内存通知。
+message、request、log 是执行记录，不能都变成普通聊天消息。cancel 入队和送达只表示控制传输，断线也只改变设备连接状态；这些操作都不生成执行结果。只有 client result 决定 completed/failed/cancelled，cancelled 可以没有最终回复。
 
 ## 状态和删除
 
-Conversation 状态是实际 run 与未完成输入的聚合投影，优先 waiting、running、pending，再到 idle；resolved 是用户的完成标记。投影由 conversationService 通过 runService 查询当前状态后更新，run 状态变化和最终结果事件都触发重算；重算读取当前 run 集合，不用旧事件直接覆盖投影。idle 不表示历史任务全部成功。
+Conversation 状态是实际 run 与未完成输入的聚合投影，优先 waiting、running、pending，再到 idle；resolved 是用户的完成标记。投影由 conversationService 通过 runService 查询当前状态后更新，run 状态变化和最终结果事件都触发重算；重算读取当前实际 run 和未完成输入集合，不用旧事件直接覆盖投影。idle 不表示历史任务全部成功。
 
-有活跃 run 时拒绝删除，检查与删除共用事务；回复消费前也要重新检查对话是否存在，已删除的对话不恢复创建。删除对话由 conversationService 协调相关 service，在同一事务内清理消息、run、run_prompts、事件、问题及辅助记录；本地目录或 S3 对象前缀由 fileService 清理。Work 的协调对话和线程归属由 workService 决定。
+有活跃 run 或待领取/待受理输入时拒绝删除，检查与删除共用事务；回复消费前也要重新检查对话是否存在，已删除的对话不恢复创建。删除对话由 conversationService 协调相关 service，在同一事务内清理消息、run、run_prompts、事件、问题及辅助记录；本地目录或 S3 对象前缀由 fileService 清理。Work 的协调对话和线程归属由 workService 决定。
 
 ## 标识和消息顺序
 
 conversations.id 和 messages.id 均为 server 生成的 UUID，SQLite 中使用 TEXT 保存。所有 conversation_id、message_id、reply_to_message_id 等关联字段使用相同的 UUID 字符串。
 
-UUID 只用于标识，不承担消息排序。messages.seq 是 conversation 内的递增顺序号，由 conversationService 在写消息的同一事务中分配；历史按 seq 读取，run.context_seq 表示已经读取到的消息顺序上界。
+UUID 只用于标识，不承担消息排序。目标结构用 messages.seq 保存 conversation 内的递增顺序号。领取时 server 将共享历史和顺序边界放入 prompt，并保存完整 dispatch 快照；重连重发同一快照，不使用 run 的历史游标或重新组织上下文。
 
 发送请求不做去重：每次成功发送创建新的 message UUID，不需要请求 key 或内容摘要字段。
+
+## 目标元数据与当前实现
+
+本文下列 SQL 定义元数据的目标命名和字段。当前已实现的执行关系以本文发送链路和 [server-run.md](server-run.md) 为准；物理对话表仍名为 sessions，HTTP 入口仍为 /api/sessions。当前 conversation ID 为 UUID，messages.id 与 reply_to_message_id 仍为 INTEGER，messages.seq 由 ID 投影。消息 UUID、author_role、独立 attachments 列以及目录/S3 fileService 仍是目标设计，不表示已部署。执行表的实际 SQL 见 server-run.md。
 
 ## 表结构
 
@@ -128,9 +139,3 @@ CREATE INDEX messages_replies ON messages(conversation_id,reply_to_message_id,se
 ## 相关设计
 
 [Server 总览](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [Client harnessService](client-harness.md) · [runService](server-run.md) · [fileService](server-file.md) · [workService](server-work.md)
-
-## 执行身份补充
-
-发送消息只生成各目标的 run_prompts，不生成执行 UUID。消息与实际 run 的 N:M 关系在 client accepted 后建立；后续输入是否加入当前 run 完全由适配器决定。一次 send 不等于一次新 run。详情见 server-run.md。
-
-result 与最终回复一起提交，回复关联 first_message_id。断线、取消入队、控制送达不会生成 assistant 结果；结果重放不会重复写回复。

@@ -243,7 +243,7 @@ class Client:
         )
 
     def get_session(self, user, session_id):
-        """返回 {"session": …, "messages": […], "steers": […], "questions": […], "events": […]}。"""
+        """返回 {"session": …, "messages": […], "runs": […], "deliveries": […], "questions": […], "events": […]}。"""
         return self._request("GET", f"/api/sessions/{_q(session_id)}", user)
 
     def delete_session(self, user, session_id):

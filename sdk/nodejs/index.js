@@ -112,7 +112,7 @@ export class Client {
   // 回复:{ prompt? , input? }。会话不是 idle 时抛 AgentuseError(409)。
   // 会话 idle 时返回 message;忙时是插话，返回 steer。
   sendMessage(user, sessionId, req, {idempotencyKey} = {}) { return this._request("POST", `/api/sessions/${q(sessionId)}/messages`, user, req, idempotencyKey ? {"Idempotency-Key": idempotencyKey} : {}); }
-  // → { session, messages, steers, questions, events }
+  // → { session, messages, runs, deliveries, questions, events }
   getSession(user, sessionId) { return this._request("GET", `/api/sessions/${q(sessionId)}`, user); }
   // 回答 harness 的提问(会话 waiting 时):answers 是 { 问题: 答案 },多选用 ", " 拼起来。已答过或过期抛 409。
   async deleteSession(user, sessionId) { await this._request("DELETE", `/api/sessions/${q(sessionId)}`, user); }

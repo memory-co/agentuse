@@ -30,7 +30,7 @@ export function NewWork({ me, onCreated }: { me: User; onCreated: (id: string) =
   const [instructions, setInstructions] = useState('');
   const options = (agents.data || []).filter(a => a.user_id === me.id).map(a => {
     const d = daemons.data?.find(d => d.id === a.daemon_id);
-    const ok = !!d?.capabilities.includes("session-runs-v1") && !!d?.harnesses.some(h => h.harness === a.harness && h.available && h.enabled);
+    const ok = !!d?.capabilities.includes("harnessctl-events-v1") && !!d?.harnesses.some(h => h.harness === a.harness && h.available && h.enabled);
     return { id: a.id, ok, label: `${a.name} · ${d?.name ?? '?'} · ${a.harness}${!ok ? t('agents.unavailable') : d?.status === 'online' ? '' : t('agents.offline')}` };
   });
   useEffect(() => { if (!agent && daemons.data) { const o = options.find(o => o.ok); if (o) setAgent(o.id); } }, [agent, daemons.data, options]);
