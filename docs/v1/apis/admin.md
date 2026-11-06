@@ -1,19 +1,19 @@
 # admin API
 
-实例主人的只读查询。hub.json 配了 `admin_key` 才开:
+實例主人的只讀查詢。hub.json 配了 `admin_key` 纔開:
 
 ```
 Authorization: Bearer <admin_key>
 ```
 
-没配或密钥不对 → 401 `unauthorized`。命令行:`agentuse admin …`,见 [cli.md](cli.md#实例主人)。
+沒配或密鑰不對 → 401 `unauthorized`。命令行:`agentuse admin …`,見 [cli.md](cli.md#實例主人)。
 
 ## GET /v1/admin/sessions
 
-| 参数 | 说明 |
+| 參數 | 說明 |
 |---|---|
-| `platform` | 只看这个平台 |
-| `limit` | 最多几条,默认 100 |
+| `platform` | 只看這個平臺 |
+| `limit` | 最多幾條,默認 100 |
 
 按最近更新倒序:
 
@@ -23,15 +23,15 @@ Authorization: Bearer <admin_key>
 
 ## GET /v1/admin/runs
 
-| 参数 | 说明 |
+| 參數 | 說明 |
 |---|---|
-| `platform` | 只看这个平台 |
-| `session` | 只看这个会话 |
+| `platform` | 只看這個平臺 |
+| `session` | 只看這個會話 |
 | `status` | `queued` / `claimed` / `succeeded` / `failed` |
-| `limit` | 最多几条,默认 100 |
+| `limit` | 最多幾條,默認 100 |
 
-按入队倒序:`{"runs": [Run, …]}`,字段见 [structs/models.md#run](../structs/models.md#run)。
+按入隊倒序:`{"runs": [Run, …]}`,字段見 [structs/models.md#run](../structs/models.md#run)。
 
 ## GET /v1/admin/runs/{run}
 
-一条 [Run](../structs/models.md#run);不存在 → 404 `not_found`。
+一條 [Run](../structs/models.md#run);不存在 → 404 `not_found`。

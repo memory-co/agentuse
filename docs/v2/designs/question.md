@@ -1,9 +1,9 @@
-# 执行中的提问
+# 執行中的提問
 
-harness 回报 question 事件，服务记录 run_questions 并将对应 run 设为 waiting。问题属于 run 和 attempt，多个 agent 可以同时在同一个 session 提问。
+harness 回報 question 事件，服務記錄 run_questions 並將對應 run 設爲 waiting。問題屬於 run 和 attempt，多個 agent 可以同時在同一個 session 提問。
 
-用户经 `POST /api/sessions/{id}/runs/{run_id}/questions/{qid}/answer` 提交 answers，服务将答案送到对应执行；收到 answered 事件后恢复 running。过期问题不能再次回答。
+用戶經 `POST /api/sessions/{id}/runs/{run_id}/questions/{qid}/answer` 提交 answers，服務將答案送到對應執行；收到 answered 事件後恢復 running。過期問題不能再次回答。
 
-执行被回收时，尚未送达的答案进入共享消息，下一次执行可读取；旧 attempt 的提问与答案不能影响新执行。
+執行被回收時，尚未送達的答案進入共享消息，下一次執行可讀取；舊 attempt 的提問與答案不能影響新執行。
 
-见 [Sessions API](../apis/sessions.md) 与 [共享 session](session-mentions.md)。
+見 [Sessions API](../apis/sessions.md) 與 [共享 session](session-mentions.md)。

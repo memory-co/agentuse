@@ -1,35 +1,35 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="790" viewBox="0 0 1200 790" font-family="sans-serif" role="img" aria-labelledby="title desc">
-<title id="title">Conversation、输入分配和适配器 Run</title>
-<desc id="desc">共享消息先按目标 agent 分配输入。Client 的 accepted 确定 run UUID，补充输入可以属于同一 run，也可以形成后续 run。原始事件提交后确认源位置，重连不重新执行输入。</desc>
+<title id="title">Conversation、輸入分配和適配器 Run</title>
+<desc id="desc">共享消息先按目標 agent 分配輸入。Client 的 accepted 確定 run UUID，補充輸入可以屬於同一 run，也可以形成後續 run。原始事件提交後確認源位置，重連不重新執行輸入。</desc>
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#64748b"/></marker></defs>
 <rect width="1200" height="790" fill="#f8fafc"/>
-<text x="35" y="43" font-size="24" fill="#0f172a">共享对话 → 输入分配 → Client 接受事实 → 实际 Run</text>
+<text x="35" y="43" font-size="24" fill="#0f172a">共享對話 → 輸入分配 → Client 接受事實 → 實際 Run</text>
 <rect x="370" y="80" width="460" height="110" rx="12" fill="#eef2ff" stroke="#94a3b8"/>
 <text x="395" y="116" font-size="22">Conversation</text>
-<text x="395" y="150" font-size="16">共享消息、多个 agent、多个实际 run</text>
+<text x="395" y="150" font-size="16">共享消息、多個 agent、多個實際 run</text>
 <rect x="35" y="260" width="500" height="150" rx="12" fill="white" stroke="#94a3b8"/>
 <text x="60" y="296" font-size="22">Message</text>
-<text x="60" y="332" font-size="16">一条消息可 @ 多个 agent，也可只保存备注</text>
-<text x="60" y="367" font-size="16">回复只指向 message，不以 run 为对话层级</text>
+<text x="60" y="332" font-size="16">一條消息可 @ 多個 agent，也可只保存備註</text>
+<text x="60" y="367" font-size="16">回覆只指向 message，不以 run 爲對話層級</text>
 <rect x="665" y="260" width="500" height="150" rx="12" fill="white" stroke="#94a3b8"/>
 <text x="690" y="296" font-size="22">Run</text>
-<text x="690" y="332" font-size="16">UUID 来自适配器 accepted.run_id</text>
-<text x="690" y="367" font-size="16">同一 UUID 可以接受多条输入；结果来自 result</text>
+<text x="690" y="332" font-size="16">UUID 來自適配器 accepted.run_id</text>
+<text x="690" y="367" font-size="16">同一 UUID 可以接受多條輸入；結果來自 result</text>
 <rect x="35" y="490" width="500" height="155" rx="12" fill="#ecfdf5" stroke="#94a3b8"/>
 <text x="60" y="526" font-size="22">run_prompts</text>
-<text x="60" y="562" font-size="16">一条 message × 一个目标 agent</text>
-<text x="60" y="597" font-size="16">先入队，accepted 后绑定 run_id / input_id</text>
+<text x="60" y="562" font-size="16">一條 message × 一個目標 agent</text>
+<text x="60" y="597" font-size="16">先入隊，accepted 後綁定 run_id / input_id</text>
 <rect x="665" y="490" width="500" height="155" rx="12" fill="#fffbeb" stroke="#94a3b8"/>
 <text x="690" y="526" font-size="22">Client session / events.jsonl</text>
-<text x="690" y="562" font-size="16">同一 session 包含多个适配器 run</text>
-<text x="690" y="597" font-size="16">原始公共事件逐行上报，提交后确认源位置</text>
+<text x="690" y="562" font-size="16">同一 session 包含多個適配器 run</text>
+<text x="690" y="597" font-size="16">原始公共事件逐行上報，提交後確認源位置</text>
 <g fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)">
 <path d="M450 190V225H285V260"/><path d="M750 190V225H915V260"/>
 <path d="M285 410V490"/><path d="M535 565H665"/><path d="M915 490V410"/>
 <path d="M535 335H665"/>
 </g>
-<g font-size="15" fill="#475569"><text x="295" y="454">按目标生成输入分配</text>
+<g font-size="15" fill="#475569"><text x="295" y="454">按目標生成輸入分配</text>
 <text x="545" y="551">send</text><text x="925" y="454">accepted</text><text x="547" y="322">N:M</text>
-<text x="35" y="705">M1 @coder @reviewer → P1、P2；accepted 后分别绑定 R1、R2。</text>
-<text x="35" y="743">M2 @coder → P3；适配器决定 P3 属于 R1 或新 R3，server 不预判。</text></g>
+<text x="35" y="705">M1 @coder @reviewer → P1、P2；accepted 後分別綁定 R1、R2。</text>
+<text x="35" y="743">M2 @coder → P3；適配器決定 P3 屬於 R1 或新 R3，server 不預判。</text></g>
 </svg>

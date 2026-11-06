@@ -7,57 +7,57 @@
   </defs>
   <rect width="1500" height="1040" fill="#fff"/>
   <g font-family="sans-serif" fill="#0f172a">
-    <text x="45" y="48" font-size="30">Client：五个 Service，文件是唯一持久化事实</text>
+    <text x="45" y="48" font-size="30">Client：五個 Service，文件是唯一持久化事實</text>
     <rect x="45" y="85" width="1410" height="95" rx="14" fill="#f8fafc" stroke="#94a3b8"/>
-    <text x="65" y="119" font-size="23">CLI / 本机页面</text>
-    <text x="65" y="152" font-size="17">services.go 装配五个 service；平台记录只读，local 通过 runService 调试本机适配器。</text>
+    <text x="65" y="119" font-size="23">CLI / 本機頁面</text>
+    <text x="65" y="152" font-size="17">services.go 裝配五個 service；平臺記錄只讀，local 通過 runService 調試本機適配器。</text>
     <rect x="45" y="225" width="420" height="135" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
     <text x="65" y="259" font-size="23">endpointService</text>
-    <text x="65" y="292" font-size="17">内置 local 与平台注册 / device 身份与凭据</text>
-    <text x="65" y="319" font-size="17">统一提供 local / 平台模式，不连接、不领任务</text>
+    <text x="65" y="292" font-size="17">內置 local 與平臺註冊 / device 身份與憑據</text>
+    <text x="65" y="319" font-size="17">統一提供 local / 平臺模式，不連接、不領任務</text>
     <rect x="535" y="225" width="430" height="135" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
     <text x="555" y="259" font-size="23">settingService</text>
-    <text x="555" y="292" font-size="17">本机端口、session 默认父目录</text>
-    <text x="555" y="319" font-size="17">声明 quota 即自动清理，无独立清理配置</text>
+    <text x="555" y="292" font-size="17">本機端口、session 默認父目錄</text>
+    <text x="555" y="319" font-size="17">聲明 quota 即自動清理，無獨立清理配置</text>
     <rect x="1035" y="225" width="420" height="135" rx="14" fill="#fff7ed" stroke="#94a3b8"/>
-    <text x="1055" y="259" font-size="23">Server（多个 endpoint）</text>
+    <text x="1055" y="259" font-size="23">Server（多個 endpoint）</text>
     <text x="1055" y="292" font-size="17">conversation / run / fileService</text>
-    <text x="1055" y="319" font-size="17">只交换业务协议，不下发执行命令</text>
+    <text x="1055" y="319" font-size="17">只交換業務協議，不下發執行命令</text>
     <rect x="45" y="440" width="420" height="170" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
     <text x="65" y="474" font-size="23">runService</text>
-    <text x="65" y="507" font-size="17">连接、心跳、领取、全局容量与上报</text>
-    <text x="65" y="534" font-size="17">管理原生 run 引用、事件查询和计量</text>
-    <text x="65" y="561" font-size="17">读取 endpointService / settingService</text>
+    <text x="65" y="507" font-size="17">連接、心跳、領取、全局容量與上報</text>
+    <text x="65" y="534" font-size="17">管理原生 run 引用、事件查詢和計量</text>
+    <text x="65" y="561" font-size="17">讀取 endpointService / settingService</text>
     <rect x="535" y="440" width="430" height="170" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
     <text x="555" y="474" font-size="23">sessionService</text>
-    <text x="555" y="507" font-size="17">原生 Session 复用；统一分配共享目录</text>
-    <text x="555" y="534" font-size="17">按 Conversation 推导与回收工作区</text>
-    <text x="555" y="561" font-size="17">直接管理 session.yaml、目录和 quota</text>
+    <text x="555" y="507" font-size="17">原生 Session 複用；統一分配共享目錄</text>
+    <text x="555" y="534" font-size="17">按 Conversation 推導與回收工作區</text>
+    <text x="555" y="561" font-size="17">直接管理 session.yaml、目錄和 quota</text>
     <rect x="1035" y="440" width="420" height="170" rx="14" fill="#eff6ff" stroke="#94a3b8"/>
     <text x="1055" y="474" font-size="23">harnessService</text>
-    <text x="1055" y="507" font-size="17">安装与固定独立 harnessctl 包</text>
-    <text x="1055" y="534" font-size="17">调用 send / reply / cancel / status</text>
-    <text x="1055" y="561" font-size="17">只读公共事件，不处理原生 RPC / hook</text>
+    <text x="1055" y="507" font-size="17">安裝與固定獨立 harnessctl 包</text>
+    <text x="1055" y="534" font-size="17">調用 send / reply / cancel / status</text>
+    <text x="1055" y="561" font-size="17">只讀公共事件，不處理原生 RPC / hook</text>
     <path d="M255,360 L255,440" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
     <path d="M750,360 L750,440" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
     <path d="M1245,360 L1245,395 L350,395 L350,440" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
     <path d="M465,530 L535,530" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
     <path d="M965,530 L1035,530" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
     <rect x="45" y="690" width="920" height="170" rx="14" fill="#ecfdf5" stroke="#94a3b8"/>
-    <text x="65" y="724" font-size="23">~/.agentuse/：配置与状态文件</text>
+    <text x="65" y="724" font-size="23">~/.agentuse/：配置與狀態文件</text>
     <text x="65" y="757" font-size="17">endpoints.yaml → endpointService      setting.yaml → settingService</text>
-    <text x="65" y="784" font-size="17">session.yaml → sessionService；路径由配置及 ID 推导</text>
-    <text x="65" y="811" font-size="17">conversation 下 sessions/&lt;session&gt;/runs/&lt;run&gt;.jsonl；执行事实读取 events.jsonl</text>
+    <text x="65" y="784" font-size="17">session.yaml → sessionService；路徑由配置及 ID 推導</text>
+    <text x="65" y="811" font-size="17">conversation 下 sessions/&lt;session&gt;/runs/&lt;run&gt;.jsonl；執行事實讀取 events.jsonl</text>
     <rect x="1035" y="690" width="420" height="170" rx="14" fill="#ecfdf5" stroke="#94a3b8"/>
-    <text x="1055" y="724" font-size="23">Conversation：workspace/ 与 sessions/</text>
-    <text x="1055" y="757" font-size="17">所有 Codex、Claude Code 从 workspace/ 启动</text>
-    <text x="1055" y="784" font-size="17">任一 Session 在用时整个目录受保护</text>
-    <text x="1055" y="811" font-size="17">空闲 Conversation 目录整体回收</text>
+    <text x="1055" y="724" font-size="23">Conversation：workspace/ 與 sessions/</text>
+    <text x="1055" y="757" font-size="17">所有 Codex、Claude Code 從 workspace/ 啓動</text>
+    <text x="1055" y="784" font-size="17">任一 Session 在用時整個目錄受保護</text>
+    <text x="1055" y="811" font-size="17">空閒 Conversation 目錄整體回收</text>
     <path d="M255,610 L255,690" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
     <path d="M750,610 L750,690" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
     <path d="M1245,610 L1245,690" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" fill="none"/>
     <rect x="45" y="910" width="1410" height="95" rx="14" fill="#f8fafc" stroke="#94a3b8"/>
-    <text x="65" y="944" font-size="23">各 service 直接管理文件，fileutil 仅提供通用操作</text>
-    <text x="65" y="977" font-size="17">原子替换、排他写入；内存索引可重建；不设 SQLite。重启确认取消、恢复元数据和引用，不能凭旧 running 自动重跑。</text>
+    <text x="65" y="944" font-size="23">各 service 直接管理文件，fileutil 僅提供通用操作</text>
+    <text x="65" y="977" font-size="17">原子替換、排他寫入；內存索引可重建；不設 SQLite。重啓確認取消、恢復元數據和引用，不能憑舊 running 自動重跑。</text>
   </g>
 </svg>

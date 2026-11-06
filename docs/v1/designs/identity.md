@@ -1,45 +1,45 @@
 # 身份三段式
 
-> 代码:[`pkg/signature/`](../../../pkg/signature/)、[`internal/services/token/`](../../../internal/services/token/)、[`internal/services/callback/`](../../../internal/services/callback/)
+> 代碼:[`pkg/signature/`](../../../pkg/signature/)、[`internal/services/token/`](../../../internal/services/token/)、[`internal/services/callback/`](../../../internal/services/callback/)
 
-平台不接触 agent 令牌,agent 不直接访问平台。身份分三段,每段只验自己该验的(用户电脑怎么拿到自己的设备密钥是另一条线,见 [connect.md](connect.md#4-安全)):
+平臺不接觸 agent 令牌,agent 不直接訪問平臺。身份分三段,每段只驗自己該驗的(用戶電腦怎麼拿到自己的設備密鑰是另一條線,見 [connect.md](connect.md#4-安全)):
 
 ```
-平台 ──(平台签名)──▶ hub ──(运行令牌)──▶ agent ──▶ hub ──(hub 签名)──▶ 平台
-       进来:验签不认人      中间:线程级、动作级           出去:平台只验 hub
+平臺 ──(平臺簽名)──▶ hub ──(運行令牌)──▶ agent ──▶ hub ──(hub 簽名)──▶ 平臺
+       進來:驗籤不認人      中間:線程級、動作級           出去:平臺只驗 hub
 ```
 
-## 1. 进来:平台签名
+## 1. 進來:平臺簽名
 
-平台用与 hub 约定的密钥,对「线程、作者(id / 名字 / 角色)、内容」整个请求体签名。hub **只验签,不认识用户本人**——这是 Disqus SSO(`remote_auth_s3`)那一套:角色由平台担保,hub 不维护用户表。
+平臺用與 hub 約定的密鑰,對「線程、作者(id / 名字 / 角色)、內容」整個請求體簽名。hub **只驗籤,不認識用戶本人**——這是 Disqus SSO(`remote_auth_s3`)那一套:角色由平臺擔保,hub 不維護用戶表。
 
-- 算法:`HMAC-SHA256(secret, timestamp + "." + body)`,hex 编码,前缀 `v1=`。
-- 头:`X-AgentUse-Timestamp`(unix 秒)、`X-AgentUse-Signature`。
-- 时间戳偏差超过 5 分钟拒绝,防重放。
-- 细节见 [apis/platform.md](../apis/platform.md#签名)。
+- 算法:`HMAC-SHA256(secret, timestamp + "." + body)`,hex 編碼,前綴 `v1=`。
+- 頭:`X-AgentUse-Timestamp`(unix 秒)、`X-AgentUse-Signature`。
+- 時間戳偏差超過 5 分鐘拒絕,防重放。
+- 細節見 [apis/platform.md](../apis/platform.md#簽名)。
 
-## 2. 中间:运行令牌
+## 2. 中間:運行令牌
 
-daemon 领取运行时,hub 为这次运行签发一枚令牌:
+daemon 領取運行時,hub 爲這次運行簽發一枚令牌:
 
-- 形态 `aut_<claims>.<sig>`,hub 自己的 `token_key` 签,claims 见 [structs/models.md](../structs/models.md#runtoken)。
-- **范围**:一个平台的一个线程、一次运行。
-- **动作**:只限策略里的 `actions`(如博客只有 `reply`,工单有 `reply` + `status`)。
-- **时效**:最长 24 小时;运行 complete 后立刻失效(hub 检查运行状态)。
-- **领取次数**:claims 里带 `attempt`。运行租约过期被回收、别的 daemon 重领后,上一次领取的令牌作废。
-- daemon 把它注入 `AGENTUSE_TOKEN`,agent 用 `agentuse reply` / `agentuse status` 调 hub。
+- 形態 `aut_<claims>.<sig>`,hub 自己的 `token_key` 籤,claims 見 [structs/models.md](../structs/models.md#runtoken)。
+- **範圍**:一個平臺的一個線程、一次運行。
+- **動作**:只限策略裏的 `actions`(如博客只有 `reply`,工單有 `reply` + `status`)。
+- **時效**:最長 24 小時;運行 complete 後立刻失效(hub 檢查運行狀態)。
+- **領取次數**:claims 裏帶 `attempt`。運行租約過期被回收、別的 daemon 重領後,上一次領取的令牌作廢。
+- daemon 把它注入 `AGENTUSE_TOKEN`,agent 用 `agentuse reply` / `agentuse status` 調 hub。
 
-写回时线程、运行 id、回复对象都**以令牌和运行为准**,agent 在请求体里自带的 `thread` 一律忽略,所以一枚令牌写不到别的线程。
+寫回時線程、運行 id、回覆對象都**以令牌和運行爲準**,agent 在請求體裏自帶的 `thread` 一律忽略,所以一枚令牌寫不到別的線程。
 
-## 3. 出去:hub 签名
+## 3. 出去:hub 簽名
 
-hub 校验令牌后,用同一套签名(该平台的 `secret`)回调平台的 `callback_url`。平台只需要验 hub 的签名,然后把 `reply` 写成 agent 应用用户的评论、把 `status` 写回对象。
+hub 校驗令牌後,用同一套簽名(該平臺的 `secret`)回調平臺的 `callback_url`。平臺只需要驗 hub 的簽名,然後把 `reply` 寫成 agent 應用用戶的評論、把 `status` 寫回對象。
 
-平台配置里可以给回调单独一把 `callback_secret`:notify 用 `secret` 验,回调用 `callback_secret` 签;不配则两个方向共用 `secret`。拆开之后,平台泄露其中一把,攻击者也只能冒充一个方向。hub 用非对称签名(平台只存公钥)见 [roadmap.md](roadmap.md)。
+平臺配置裏可以給回調單獨一把 `callback_secret`:notify 用 `secret` 驗,回調用 `callback_secret` 籤;不配則兩個方向共用 `secret`。拆開之後,平臺泄露其中一把,攻擊者也只能冒充一個方向。hub 用非對稱簽名(平臺只存公鑰)見 [roadmap.md](roadmap.md)。
 
-## 4. agent 在平台里是谁
+## 4. agent 在平臺裏是誰
 
-平台在用户表里加一个代表 agent 的**应用用户**(参考 Linear 的 `actor=app`),它:
+平臺在用戶表裏加一個代表 agent 的**應用用戶**(參考 Linear 的 `actor=app`),它:
 
-- 是 `@claude` 能提到的名字(策略里的 `agent_name`);
-- 是 agent 回复的作者;它的 id 写进策略的 `agent_user_id`,hub 据此忽略 agent 自己的评论。
+- 是 `@claude` 能提到的名字(策略裏的 `agent_name`);
+- 是 agent 回覆的作者;它的 id 寫進策略的 `agent_user_id`,hub 據此忽略 agent 自己的評論。

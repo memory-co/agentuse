@@ -1,46 +1,46 @@
-# 接入与通信
+# 接入與通信
 
-怎么把一台电脑接成 daemon,以及 daemon 和服务之间说什么。
+怎麼把一臺電腦接成 daemon,以及 daemon 和服務之間說什麼。
 
-## 接入一台电脑
+## 接入一臺電腦
 
 ```
-页面「添加 daemon」 ──▶ daemons 新增一行(status=pending,带一次性 setup_token)
+頁面「添加 daemon」 ──▶ daemons 新增一行(status=pending,帶一次性 setup_token)
         │
-        ▼ 页面展示安装命令
-curl -fsSL "https://<服务>/setup.sh" -o setup.sh && TOKEN="st_xxx" bash setup.sh
+        ▼ 頁面展示安裝命令
+curl -fsSL "https://<服務>/setup.sh" -o setup.sh && TOKEN="st_xxx" bash setup.sh
         │
-        ▼ setup.sh 在用户电脑上
-1. 从 <服务>/download/agentuse-<os>-<arch> 下载二进制到 ~/.agentuse/bin/agentuse
-2. agentuse register:用 TOKEN 换长期密钥(dk_xxx),写进 ~/.agentuse/daemon.json
-3. 装成后台服务并启动:macOS 用 launchd,Linux 有 systemd --user 就用它，否则 nohup
+        ▼ setup.sh 在用戶電腦上
+1. 從 <服務>/download/agentuse-<os>-<arch> 下載二進制到 ~/.agentuse/bin/agentuse
+2. agentuse register:用 TOKEN 換長期密鑰(dk_xxx),寫進 ~/.agentuse/daemon.json
+3. 裝成後臺服務並啓動:macOS 用 launchd,Linux 有 systemd --user 就用它，否則 nohup
         │
         ▼
-daemon 连上 WebSocket,上报本机 harness ──▶ 页面上出现这台电脑和它的 harness 开关
+daemon 連上 WebSocket,上報本機 harness ──▶ 頁面上出現這臺電腦和它的 harness 開關
 ```
 
-- 安装令牌只能用一次，注册后作废;要换电脑或重装，在页面上「重新生成安装命令」,旧密钥同时失效。
-- 二进制从服务的 `-dist` 目录取(`make dist` 交叉编译 linux/darwin × amd64/arm64)。目录里缺平台时 `agentuse-server start` 会警告。
-- 用户在页面上为每台 daemon 选择开启哪些 harness,默认都关闭。
+- 安裝令牌只能用一次，註冊後作廢;要換電腦或重裝，在頁面上「重新生成安裝命令」,舊密鑰同時失效。
+- 二進制從服務的 `-dist` 目錄取(`make dist` 交叉編譯 linux/darwin × amd64/arm64)。目錄裏缺平臺時 `agentuse-server start` 會警告。
+- 用戶在頁面上爲每臺 daemon 選擇開啓哪些 harness,默認都關閉。
 
-## 认证
+## 認證
 
-| 谁 | 凭据 | 怎么带 |
+| 誰 | 憑據 | 怎麼帶 |
 |---|---|---|
-| 用户(网页 / 脚本) | 登录令牌 `ut_` | 网页 cookie;脚本 `Authorization: Bearer ut_…` |
-| daemon 注册 | 安装令牌 `st_` | `POST /api/daemon/register` 的 body |
-| daemon 长连接 | 密钥 `dk_` | WebSocket 握手 `Authorization: Bearer dk_…` |
+| 用戶(網頁 / 腳本) | 登錄令牌 `ut_` | 網頁 cookie;腳本 `Authorization: Bearer ut_…` |
+| daemon 註冊 | 安裝令牌 `st_` | `POST /api/daemon/register` 的 body |
+| daemon 長連接 | 密鑰 `dk_` | WebSocket 握手 `Authorization: Bearer dk_…` |
 
-库里只存哈希(安装令牌除外，见 [daemons](../tables/daemons.md))。
+庫裏只存哈希(安裝令牌除外，見 [daemons](../tables/daemons.md))。
 
 ## 消息
 
-注册接口和 WebSocket 消息的完整格式见 [apis/daemon](../apis/daemon.md)。
+註冊接口和 WebSocket 消息的完整格式見 [apis/daemon](../apis/daemon.md)。
 
-## 派活与本机执行
+## 派活與本機執行
 
-服务领取 pending run，按本次执行的 daemon/harness 快照派发。一台 daemon 发 ready 后才接下一次执行。租约过期或重连时没有对应执行，服务重新排队并产生新的 attempt；旧 attempt 的事件和文件操作失效。
+服務領取 pending run，按本次執行的 daemon/harness 快照派發。一臺 daemon 發 ready 後才接下一次執行。租約過期或重連時沒有對應執行，服務重新排隊併產生新的 attempt；舊 attempt 的事件和文件操作失效。
 
-每次执行读取同一个 session 的共享消息和附件，在 `~/.agentuse/work/<session_id>/` 启动新的原生会话。agent、harness、机器可以在后续 run 中更换，没有原生续接状态。
+每次執行讀取同一個 session 的共享消息和附件，在 `~/.agentuse/work/<session_id>/` 啓動新的原生會話。agent、harness、機器可以在後續 run 中更換，沒有原生續接狀態。
 
-本机 CLI 路径与参数由 `~/.agentuse/daemon.json` 的 harnesses 配置决定，内置命令定义见 [harness](harness.md)。协议见 [daemon API](../apis/daemon.md)，执行语义见 [共享 session](session-mentions.md)。
+本機 CLI 路徑與參數由 `~/.agentuse/daemon.json` 的 harnesses 配置決定，內置命令定義見 [harness](harness.md)。協議見 [daemon API](../apis/daemon.md)，執行語義見 [共享 session](session-mentions.md)。

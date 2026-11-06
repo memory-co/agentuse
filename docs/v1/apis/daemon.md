@@ -1,6 +1,6 @@
 # daemon API
 
-daemon → hub。每个请求带:
+daemon → hub。每個請求帶:
 
 ```
 X-AgentUse-Daemon: alice-mbp
@@ -9,28 +9,28 @@ Authorization: Bearer <daemon key>
 
 ## GET /v1/daemon/connect
 
-WebSocket 推送连接(`transport: ws`,默认)。连上之后:
+WebSocket 推送連接(`transport: ws`,默認)。連上之後:
 
-| 方向 | 消息 | 说明 |
+| 方向 | 消息 | 說明 |
 |---|---|---|
-| daemon → hub | `{"type": "ready"}` | 我空闲了。每跑完一条再发一次 |
-| hub → daemon | `{"type": "run", "claimed": {run, session, token}}` | 已经替你领好的一条运行,内容同下面 claim 的 200 |
-| hub → daemon | WebSocket ping | 空闲等待期间每 15 秒一次;daemon 读的时候自动回 pong,不通即断开 |
+| daemon → hub | `{"type": "ready"}` | 我空閒了。每跑完一條再發一次 |
+| hub → daemon | `{"type": "run", "claimed": {run, session, token}}` | 已經替你領好的一條運行,內容同下面 claim 的 200 |
+| hub → daemon | WebSocket ping | 空閒等待期間每 15 秒一次;daemon 讀的時候自動回 pong,不通即斷開 |
 
-连接上只有这两种消息;心跳和交回走下面的 HTTP 接口。推出去的运行如果 daemon 没收到(连接正好断了),租约过期后回收重排。
+連接上只有這兩種消息;心跳和交回走下面的 HTTP 接口。推出去的運行如果 daemon 沒收到(連接正好斷了),租約過期後回收重排。
 
 ## POST /v1/daemon/claim
 
-轮询领取(`transport: poll`)。原子地领取最早排队、且所属线程没有进行中运行的一条:标为 `claimed`,`attempts + 1`,设租约。请求体为空。
+輪詢領取(`transport: poll`)。原子地領取最早排隊、且所屬線程沒有進行中運行的一條:標爲 `claimed`,`attempts + 1`,設租約。請求體爲空。
 
-- **204** 队列空。
+- **204** 隊列空。
 - **200**:
 
 ```json
 {
   "run": {
     "id": "r_…", "session_id": "s_…", "platform": "shop", "thread": "issue:MUL-42",
-    "trigger": {"id": "c_1001", "author": {"id": "u_bob", "name": "bob", "role": "member"}, "text": "@claude 退款金额算错了"},
+    "trigger": {"id": "c_1001", "author": {"id": "u_bob", "name": "bob", "role": "member"}, "text": "@claude 退款金額算錯了"},
     "context": [{"comment": {"…": "…"}, "trusted": false}],
     "actions": ["reply", "status"], "workspace_mode": "readwrite",
     "status": "claimed", "attempts": 1, "daemon_id": "alice-mbp",
@@ -41,18 +41,18 @@ WebSocket 推送连接(`transport: ws`,默认)。连上之后:
 }
 ```
 
-`token` 只给这次运行,daemon 注入 `AGENTUSE_TOKEN` 交给 agent,自己不用它。
+`token` 只給這次運行,daemon 注入 `AGENTUSE_TOKEN` 交給 agent,自己不用它。
 
 ## POST /v1/runs/{run}/heartbeat
 
-跑运行期间每 15 秒一次,把租约续到 `now + lease_seconds`。
+跑運行期間每 15 秒一次,把租約續到 `now + lease_seconds`。
 
 ```json
 {"attempt": 1}
 ```
 
-- **200** 交回更新后的运行。
-- **409** `run_state`:这次领取已经不归你了(租约过期被回收,或运行已结束)。daemon 应立刻停掉 agent。
+- **200** 交回更新後的運行。
+- **409** `run_state`:這次領取已經不歸你了(租約過期被回收,或運行已結束)。daemon 應立刻停掉 agent。
 
 ## POST /v1/runs/{run}/complete
 
@@ -64,5 +64,5 @@ WebSocket 推送连接(`transport: ws`,默认)。连上之后:
 {"attempt": 1, "succeeded": false, "error": "git worktree add: …"}
 ```
 
-- **200** 交回更新后的运行。`agent_session_id` 非空时回填到会话,之后的运行用它续接;同一线程排着的下一条此时才能被领取。
-- **409** `run_state`:运行不在 claimed,不是这个 daemon 领的,或 attempt 对不上(已被回收重领)。
+- **200** 交回更新後的運行。`agent_session_id` 非空時回填到會話,之後的運行用它續接;同一線程排着的下一條此時才能被領取。
+- **409** `run_state`:運行不在 claimed,不是這個 daemon 領的,或 attempt 對不上(已被回收重領)。

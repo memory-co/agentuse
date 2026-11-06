@@ -1,18 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1100" height="1030" viewBox="0 0 1100 1030" role="img" aria-labelledby="title desc">
-<title id="title">输入分配与 Client 执行事实</title><desc id="desc">Server 分配输入，Client accepted 决定实际 run；事件提交后确认源位置，断线重传而不重执行。</desc>
+<title id="title">輸入分配與 Client 執行事實</title><desc id="desc">Server 分配輸入，Client accepted 決定實際 run；事件提交後確認源位置，斷線重傳而不重執行。</desc>
 <rect width="1100" height="1030" fill="#f8fafc"/>
-<g font-family="sans-serif"><text x="50" y="48" font-size="25" fill="#0f172a">消息 → 输入分配 → 适配器 Run → 原样事件</text>
-<rect x="50" y="80" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="113" font-size="20" fill="#1d4ed8">1. HTTP message</text><text x="75" y="149" font-size="17" fill="#334155">验证身份与 conversation 权限；保存一条共享消息。</text>
+<g font-family="sans-serif"><text x="50" y="48" font-size="25" fill="#0f172a">消息 → 輸入分配 → 適配器 Run → 原樣事件</text>
+<rect x="50" y="80" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="113" font-size="20" fill="#1d4ed8">1. HTTP message</text><text x="75" y="149" font-size="17" fill="#334155">驗證身份與 conversation 權限；保存一條共享消息。</text>
 <path d="M550 180v20" stroke="#64748b" stroke-width="2"/>
-<rect x="50" y="205" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="238" font-size="20" fill="#1d4ed8">2. run_prompts</text><text x="75" y="274" font-size="17" fill="#334155">每个 @agent 一条输入分配；尚无 run UUID。</text>
+<rect x="50" y="205" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="238" font-size="20" fill="#1d4ed8">2. run_prompts</text><text x="75" y="274" font-size="17" fill="#334155">每個 @agent 一條輸入分配；尚無 run UUID。</text>
 <path d="M550 305v20" stroke="#64748b" stroke-width="2"/>
-<rect x="50" y="330" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="363" font-size="20" fill="#1d4ed8">3. claim → prompt</text><text x="75" y="399" font-size="17" fill="#334155">按设备上报的容量领取；server 准备上下文、附件与业务指令。</text>
+<rect x="50" y="330" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="363" font-size="20" fill="#1d4ed8">3. claim → prompt</text><text x="75" y="399" font-size="17" fill="#334155">按設備上報的容量領取；server 準備上下文、附件與業務指令。</text>
 <path d="M550 430v20" stroke="#64748b" stroke-width="2"/>
-<rect x="50" y="455" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="488" font-size="20" fill="#1d4ed8">4. client → harnessctl send</text><text x="75" y="524" font-size="17" fill="#334155">统一执行路径；适配器决定 start / steer / queue。</text>
+<rect x="50" y="455" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="488" font-size="20" fill="#1d4ed8">4. client → harnessctl send</text><text x="75" y="524" font-size="17" fill="#334155">統一執行路徑；適配器決定 start / steer / queue。</text>
 <path d="M550 555v20" stroke="#64748b" stroke-width="2"/>
-<rect x="50" y="580" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="613" font-size="20" fill="#1d4ed8">5. accepted → runs</text><text x="75" y="649" font-size="17" fill="#334155">适配器 UUID 与 input_id 上报；server 只建立事实关联。</text>
+<rect x="50" y="580" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="613" font-size="20" fill="#1d4ed8">5. accepted → runs</text><text x="75" y="649" font-size="17" fill="#334155">適配器 UUID 與 input_id 上報；server 只建立事實關聯。</text>
 <path d="M550 680v20" stroke="#64748b" stroke-width="2"/>
-<rect x="50" y="705" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="738" font-size="20" fill="#1d4ed8">6. message / request / log</text><text x="75" y="774" font-size="17" fill="#334155">保存完整公共事件；reply/cancel 只转发，不合成执行结果。</text>
+<rect x="50" y="705" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="738" font-size="20" fill="#1d4ed8">6. message / request / log</text><text x="75" y="774" font-size="17" fill="#334155">保存完整公共事件；reply/cancel 只轉發，不合成執行結果。</text>
 <path d="M550 805v20" stroke="#64748b" stroke-width="2"/>
-<rect x="50" y="830" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="863" font-size="20" fill="#1d4ed8">7. result → 事务提交 → ACK</text><text x="75" y="899" font-size="17" fill="#334155">保存真实终态和一次最终回复；Work 汇总去重；确认源 JSONL 字节位置。</text>
-<text x="50" y="1000" font-size="17" fill="#475569">断线不制造终态；重连重传同一输入/源位置；没有 attempt 或租约。</text></g></svg>
+<rect x="50" y="830" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="863" font-size="20" fill="#1d4ed8">7. result → 事務提交 → ACK</text><text x="75" y="899" font-size="17" fill="#334155">保存真實終態和一次最終回覆；Work 彙總去重；確認源 JSONL 字節位置。</text>
+<text x="50" y="1000" font-size="17" fill="#475569">斷線不製造終態；重連重傳同一輸入/源位置；沒有 attempt 或租約。</text></g></svg>

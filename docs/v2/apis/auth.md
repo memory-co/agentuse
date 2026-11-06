@@ -1,10 +1,10 @@
 # auth
 
-用户用登录令牌(`ut_` 开头)登录。服务第一次启动时自动建管理员 `admin`,在日志里打印登录链接;其他用户由管理员在 [users](users.md) 里创建。管理员可以用 [`POST /api/users/{id}/token`](users.md#post-apiusersidtoken) 或 `agentuse-server user token <用户 id>` 给别人重置令牌;管理员自己的令牌丢了，用 `agentuse-server start -reset-admin-token` 重启服务找回。
+用戶用登錄令牌(`ut_` 開頭)登錄。服務第一次啓動時自動建管理員 `admin`,在日誌裏打印登錄鏈接;其他用戶由管理員在 [users](users.md) 裏創建。管理員可以用 [`POST /api/users/{id}/token`](users.md#post-apiusersidtoken) 或 `agentuse-server user token <用戶 id>` 給別人重置令牌;管理員自己的令牌丟了，用 `agentuse-server start -reset-admin-token` 重啓服務找回。
 
 ## GET /login?token=ut_…
 
-登录链接。令牌有效就写 cookie 并 302 到 `/`;无效就 302 到 `/?login=invalid`。
+登錄鏈接。令牌有效就寫 cookie 並 302 到 `/`;無效就 302 到 `/?login=invalid`。
 
 ## POST /api/login
 
@@ -12,7 +12,7 @@
 { "token": "ut_…" }
 ```
 
-成功返回 200 和[用户](users.md#用户对象),同时写 cookie `agentuse_token`(HttpOnly,一年有效;服务地址是 https 时带 Secure)。令牌无效返回 401。
+成功返回 200 和[用戶](users.md#用戶對象),同時寫 cookie `agentuse_token`(HttpOnly,一年有效;服務地址是 https 時帶 Secure)。令牌無效返回 401。
 
 ## POST /api/logout
 
@@ -20,4 +20,4 @@
 
 ## GET /api/me
 
-返回当前登录的[用户](users.md#用户对象)。
+返回當前登錄的[用戶](users.md#用戶對象)。

@@ -1,15 +1,15 @@
 # sessions
 
-Session 是共享消息与附件的容器，不绑定 agent 或执行运行时。
+Session 是共享消息與附件的容器，不綁定 agent 或執行運行時。
 
-| 字段 | 含义 |
+| 字段 | 含義 |
 |---|---|
-| id | ss_ 会话 ID |
-| user_id / created_by | 创建者及归属 |
-| work_id | 可空，所属工作 |
-| title | 标题 |
-| status | idle / pending / running / waiting / resolved，由活动 run 聚合 |
+| id | ss_ 會話 ID |
+| user_id / created_by | 創建者及歸屬 |
+| work_id | 可空，所屬工作 |
+| title | 標題 |
+| status | idle / pending / running / waiting / resolved，由活動 run 聚合 |
 | mode | 固定 multi_agent |
 | created_at / updated_at | Unix 秒 |
 
-执行者、daemon、harness、attempt 和 lease 位于 [session_runs](session_runs.md)。每次执行读取同一个 session 当前内容并启动新的原生会话。
+執行者、daemon、harness、attempt 和 lease 位於 [session_runs](session_runs.md)。每次執行讀取同一個 session 當前內容並啓動新的原生會話。

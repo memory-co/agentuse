@@ -1,58 +1,58 @@
 # daemon
 
-> 代码:[`client/internal/service/`](../../../client/internal/service)
+> 代碼:[`client/internal/service/`](../../../client/internal/service)
 
-daemon 是用户电脑上的常驻进程,负责博客里与平台无关六件事中的三件:**连接、驱动 CLI、现场**。
+daemon 是用戶電腦上的常駐進程,負責博客裏與平臺無關六件事中的三件:**連接、驅動 CLI、現場**。
 
-## 1. 连接
+## 1. 連接
 
-daemon **主动连出** hub,所以用户电脑在 NAT 后面也没关系,平台和 hub 都不需要能访问用户电脑。
+daemon **主動連出** hub,所以用戶電腦在 NAT 後面也沒關係,平臺和 hub 都不需要能訪問用戶電腦。
 
-两种传输,daemon.json 的 `transport` 选:
+兩種傳輸,daemon.json 的 `transport` 選:
 
-| transport | 怎么领 | 适合 |
+| transport | 怎麼領 | 適合 |
 |---|---|---|
-| `ws`(默认) | 一条出站 WebSocket `GET /v1/daemon/connect`。空闲时发 `ready`,hub 有运行就替它领好推过来;空闲期间 hub 每 15 秒 ping。连接断了退避 5 秒重连 | 正常使用,评论一来马上开工 |
-| `poll` | `POST /v1/daemon/claim`,有运行 200,队列空 204,空了等 5 秒再问 | 中间有不支持 WebSocket 的代理 |
+| `ws`(默認) | 一條出站 WebSocket `GET /v1/daemon/connect`。空閒時發 `ready`,hub 有運行就替它領好推過來;空閒期間 hub 每 15 秒 ping。連接斷了退避 5 秒重連 | 正常使用,評論一來馬上開工 |
+| `poll` | `POST /v1/daemon/claim`,有運行 200,隊列空 204,空了等 5 秒再問 | 中間有不支持 WebSocket 的代理 |
 
-**心跳和交回总是走 HTTP**(`/v1/runs/{run}/heartbeat`、`/complete`):它们幂等、可重试,不依赖推送连接还在。推送连接只负责「有活马上推」;如果推出去的一瞬间连接断了,那条运行靠租约过期回收。
+**心跳和交回總是走 HTTP**(`/v1/runs/{run}/heartbeat`、`/complete`):它們冪等、可重試,不依賴推送連接還在。推送連接只負責「有活馬上推」;如果推出去的一瞬間連接斷了,那條運行靠租約過期回收。
 
-daemon 用 `X-AgentUse-Daemon: <id>` + `Authorization: Bearer <key>` 认证。现在 id 与 key 在 hub.json 的 `daemon_keys` 里手工登记;改成平台侧实例之后,它们换成**设备 id + 设备密钥**,由用户跑安装命令时自动登记,不再有人手写([connect.md](connect.md))。领取时 hub 只给这台设备上绑定的 agent 的运行([accounts.md §4](accounts.md#4-运行只派给主人的设备))。
+daemon 用 `X-AgentUse-Daemon: <id>` + `Authorization: Bearer <key>` 認證。現在 id 與 key 在 hub.json 的 `daemon_keys` 裏手工登記;改成平臺側實例之後,它們換成**設備 id + 設備密鑰**,由用戶跑安裝命令時自動登記,不再有人手寫([connect.md](connect.md))。領取時 hub 只給這臺設備上綁定的 agent 的運行([accounts.md §4](accounts.md#4-運行只派給主人的設備))。
 
-## 2. 现场
+## 2. 現場
 
-每个会话一个 git worktree:
+每個會話一個 git worktree:
 
-- 位置:`<worktree 根>/<platform>/<session id>`,根默认 `~/.agentuse/worktrees`;
-- 仓库:现在是 daemon.json 里 `workspaces[platform].repo`,如 `~/work/shop-api`;改成平台侧实例之后,是 agent 接入时绑定的那个目录(用户跑安装命令的目录),记在 hub 的 agent 上,daemon.json 不用手写;
-- 分支:会话的 `branch`(`agent/claude/MUL-42`),第一次从 `base_ref`(默认 `main`)切出;
-- 同一会话的后续运行复用同一个 worktree,现场接着上次;
-- 没配仓库的平台(如博客问答)给一个空目录。
+- 位置:`<worktree 根>/<platform>/<session id>`,根默認 `~/.agentuse/worktrees`;
+- 倉庫:現在是 daemon.json 裏 `workspaces[platform].repo`,如 `~/work/shop-api`;改成平臺側實例之後,是 agent 接入時綁定的那個目錄(用戶跑安裝命令的目錄),記在 hub 的 agent 上,daemon.json 不用手寫;
+- 分支:會話的 `branch`(`agent/claude/MUL-42`),第一次從 `base_ref`(默認 `main`)切出;
+- 同一會話的後續運行復用同一個 worktree,現場接着上次;
+- 沒配倉庫的平臺(如博客問答)給一個空目錄。
 
-## 3. 驱动 CLI
+## 3. 驅動 CLI
 
-`Driver` 接口把交互式 agent CLI 变成可被程序调用的。现在只有 Claude Code:
+`Driver` 接口把交互式 agent CLI 變成可被程序調用的。現在只有 Claude Code:
 
 ```
-claude -p <提示词> --output-format stream-json --verbose \
+claude -p <提示詞> --output-format stream-json --verbose \
        --allowedTools 'Bash(agentuse *)' --permission-mode <plan|acceptEdits> [--resume <agent_session_id>]
 ```
 
-- 环境变量注入 `AGENTUSE_URL`、`AGENTUSE_TOKEN`;
-- 从 stream-json 里读 `session_id`,complete 时交回 hub 回填到会话;
-- 提示词的写法见 [wake-and-trust.md §4](wake-and-trust.md#4-提示词里怎么摆)。
+- 環境變量注入 `AGENTUSE_URL`、`AGENTUSE_TOKEN`;
+- 從 stream-json 裏讀 `session_id`,complete 時交回 hub 回填到會話;
+- 提示詞的寫法見 [wake-and-trust.md §4](wake-and-trust.md#4-提示詞裏怎麼擺)。
 
-Codex(app-server)等其它驱动按同一接口加。
+Codex(app-server)等其它驅動按同一接口加。
 
-## 4. 循环
+## 4. 循環
 
 ```
 for {
-  next(ws 等推送 / poll 轮询)
-  → 准备 worktree → 驱动 agent(同时每 15 秒 heartbeat)→ complete(attempt + 成功 / 失败 + agent_session_id)
+  next(ws 等推送 / poll 輪詢)
+  → 準備 worktree → 驅動 agent(同時每 15 秒 heartbeat)→ complete(attempt + 成功 / 失敗 + agent_session_id)
 }
 ```
 
-- 一次只跑一条运行。要并行就在同一台或多台机器上多起几个 daemon(不同 id);同一线程的运行由 hub 保证串行。
-- 心跳收到 409(运行被回收给了别人,或已经结束)→ 立刻停掉 agent,结果不交。
-- 交回失败(网络)→ 不重试,等租约过期 hub 回收重排;重排后的运行会 `--resume` 同一个 agent 会话、复用同一个 worktree,现场接着上次。
+- 一次只跑一條運行。要並行就在同一臺或多臺機器上多起幾個 daemon(不同 id);同一線程的運行由 hub 保證串行。
+- 心跳收到 409(運行被回收給了別人,或已經結束)→ 立刻停掉 agent,結果不交。
+- 交回失敗(網絡)→ 不重試,等租約過期 hub 回收重排;重排後的運行會 `--resume` 同一個 agent 會話、複用同一個 worktree,現場接着上次。

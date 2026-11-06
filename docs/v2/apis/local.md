@@ -1,5 +1,5 @@
-# 本机只读页面与 API
+# 本機只讀頁面與 API
 
-本机 client 已采用 v3 的 YAML/JSON 文件存储与分级目录查询。当前 API、认证与目录说明以 [client-main.md](../../v3/designs/client-main.md#九api-设计) 为准。
+本機 client 已採用 v3 的 YAML/JSON 文件存儲與分級目錄查詢。當前 API、認證與目錄說明以 [client-main.md](../../v3/designs/client-main.md#九api-設計) 爲準。
 
-`agentuse start` 启动 client，`agentuse ui -open` 打开页面。旧版 SQLite 账本、全局 `/api/runs` 和 `/api/stats` 接口已移除。
+`agentuse start` 啓動 client，`agentuse ui -open` 打開頁面。舊版 SQLite 賬本、全局 `/api/runs` 和 `/api/stats` 接口已移除。

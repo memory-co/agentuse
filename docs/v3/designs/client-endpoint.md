@@ -1,6 +1,6 @@
-# Client endpointService：启动时固定的输入来源
+# Client endpointService：啓動時固定的輸入來源
 
-endpointService 管理 endpoints.yaml，向 client 提供已注册来源的身份。它不创建连接、不领取任务、不选择 native run_id，也不维护在线状态或执行尝试。
+endpointService 管理 endpoints.yaml，向 client 提供已註冊來源的身份。它不創建連接、不領取任務、不選擇 native run_id，也不維護在線狀態或執行嘗試。
 
 ## 文件
 
@@ -13,28 +13,28 @@ endpoints:
     device_key: device-credential
 ```
 
-endpoint_id 从规范化地址推导，不写入 YAML：例如 https://company.example.com 对应 https---company.example.com。:// 使用 ---，其他不安全路径字节编码，端口、路径等均参与标识，不能只按 host 区分。
+endpoint_id 從規範化地址推導，不寫入 YAML：例如 https://company.example.com 對應 https---company.example.com。:// 使用 ---，其他不安全路徑字節編碼，端口、路徑等均參與標識，不能只按 host 區分。
 
-来源地址和设备凭据在启动时校验并固定。运行中修改、注册、启停、移除或换凭据不改变当前进程；必须重启。不发送重读通知或定期扫描，不根据磁盘差异动态创建/销毁连接。
+來源地址和設備憑據在啓動時校驗並固定。運行中修改、註冊、啓停、移除或換憑據不改變當前進程；必須重啓。不發送重讀通知或定期掃描，不根據磁盤差異動態創建/銷燬連接。
 
-注册 CLI 可以原子更新文件，但不会修改已运行 client 的快照。文件缺失表示没有远端注册，仍可使用 local。保存前检查地址合法、凭据完整及规范化地址不重复。
+註冊 CLI 可以原子更新文件，但不會修改已運行 client 的快照。文件缺失表示沒有遠端註冊，仍可使用 local。保存前檢查地址合法、憑據完整及規範化地址不重複。
 
-## 内置 local
+## 內置 local
 
-local 始终存在，不声明在 endpoints.yaml 中，不连接中心。它提供本机输入入口，使用同一 sessionService、harnessService、公共事件和 native run 查询；不创建 local 专用的 run/attempt、结果账本或执行协议。
+local 始終存在，不聲明在 endpoints.yaml 中，不連接中心。它提供本機輸入入口，使用同一 sessionService、harnessService、公共事件和 native run 查詢；不創建 local 專用的 run/attempt、結果賬本或執行協議。
 
-local conversation 的任意标题保存在 conversation.yaml，目录使用 UUID；标题不能作为文件路径。远端 conversation 标识来自其来源，namespace 保持隔离。
+local conversation 的任意標題保存在 conversation.yaml，目錄使用 UUID；標題不能作爲文件路徑。遠端 conversation 標識來自其來源，namespace 保持隔離。
 
-## 查询与边界
+## 查詢與邊界
 
-| 接口 | 行为 |
+| 接口 | 行爲 |
 |---|---|
-| List / Views | 返回启动快照及 local；Views 不含 device_key |
-| GetByID | 解析本机来源，不切换执行中任务的身份 |
-| 注册 / 保存 / 移除 | 更新 YAML，重启后生效 |
+| List / Views | 返回啓動快照及 local；Views 不含 device_key |
+| GetByID | 解析本機來源，不切換執行中任務的身份 |
+| 註冊 / 保存 / 移除 | 更新 YAML，重啓後生效 |
 
-同一来源下的实际 run UUID仍由 harnessctl 分配，不能用 server 派发 ID 替代。不同 endpoint 的工作目录、session 和公开查询互相隔离；凭据只传给该来源的调用，不通过修改进程全局环境切换。
+同一來源下的實際 run UUID仍由 harnessctl 分配，不能用 server 派發 ID 替代。不同 endpoint 的工作目錄、session 和公開查詢互相隔離；憑據只傳給該來源的調用，不通過修改進程全局環境切換。
 
-中心输入分配、公共事件确认和业务 CLI 凭据属于 run/server_connection.go 的传输边界；endpointService 不解释这些业务状态。删除来源配置不删除本机历史，不代表授权重新执行旧输入。
+中心輸入分配、公共事件確認和業務 CLI 憑據屬於 run/server_connection.go 的傳輸邊界；endpointService 不解釋這些業務狀態。刪除來源配置不刪除本機歷史，不代表授權重新執行舊輸入。
 
-endpointService 直接读写 endpoints.yaml，并在本包内负责 URL 规范化与 endpoint_id 推导。身份规则不放入通用文件工具；YAML 原子写入和路径检查使用 fileutil。
+endpointService 直接讀寫 endpoints.yaml，並在本包內負責 URL 規範化與 endpoint_id 推導。身份規則不放入通用文件工具；YAML 原子寫入和路徑檢查使用 fileutil。

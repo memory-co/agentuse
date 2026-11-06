@@ -1,46 +1,46 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="850" viewBox="0 0 1400 850" font-family="-apple-system, Segoe UI, PingFang SC, Microsoft YaHei, sans-serif" role="img" aria-labelledby="title desc">
-<title id="title">从 Server Run 到 Client Session</title><desc id="desc">Server 分配的多个 run 可以顺序绑定同一个本地 session，本地 session 一对一对应 Codex thread 或 Claude Code session，原生历史跨 run 保留。</desc>
+<title id="title">從 Server Run 到 Client Session</title><desc id="desc">Server 分配的多個 run 可以順序綁定同一個本地 session，本地 session 一對一對應 Codex thread 或 Claude Code session，原生歷史跨 run 保留。</desc>
 <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker></defs>
 <rect width="1400" height="850" rx="16" fill="white"/>
-<text x="30" y="40" font-size="25" fill="#0f172a" font-weight="600">Run 从中心领取，Session 在设备本地连续使用</text>
-<text x="30" y="80" font-size="17" fill="#475569">同一个 Conversation 的不同 Agent 有各自原生 Session，但共享 Server 对话历史。</text>
+<text x="30" y="40" font-size="25" fill="#0f172a" font-weight="600">Run 從中心領取，Session 在設備本地連續使用</text>
+<text x="30" y="80" font-size="17" fill="#475569">同一個 Conversation 的不同 Agent 有各自原生 Session，但共享 Server 對話歷史。</text>
 <rect x="30" y="160" width="345" height="175" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
 <text x="48" y="190" font-size="19" fill="#0f172a" font-weight="600">Server · Agent coder</text>
 <text x="48" y="222" font-size="15" fill="#475569">Conversation C</text>
-<text x="48" y="248" font-size="15" fill="#475569">R1 / A1，随后 R2 / A2</text>
-<text x="48" y="274" font-size="15" fill="#475569">任务身份来自中心</text>
+<text x="48" y="248" font-size="15" fill="#475569">R1 / A1，隨後 R2 / A2</text>
+<text x="48" y="274" font-size="15" fill="#475569">任務身份來自中心</text>
 <rect x="520" y="160" width="360" height="175" rx="10" fill="#ecfdf5" stroke="#cbd5e1"/>
 <text x="538" y="190" font-size="19" fill="#0f172a" font-weight="600">Client Session S1</text>
 <text x="538" y="222" font-size="15" fill="#475569">固定 native_session_id = T1</text>
-<text x="538" y="248" font-size="15" fill="#475569">先绑定 R1，再绑定 R2</text>
-<text x="538" y="274" font-size="15" fill="#475569">一个 Session 同时只执行一个 Run</text>
+<text x="538" y="248" font-size="15" fill="#475569">先綁定 R1，再綁定 R2</text>
+<text x="538" y="274" font-size="15" fill="#475569">一個 Session 同時只執行一個 Run</text>
 <rect x="1025" y="160" width="345" height="175" rx="10" fill="#fffbeb" stroke="#cbd5e1"/>
 <text x="1043" y="190" font-size="19" fill="#0f172a" font-weight="600">Codex Thread T1</text>
 <text x="1043" y="222" font-size="15" fill="#475569">R1 → Turn U1</text>
 <text x="1043" y="248" font-size="15" fill="#475569">R2 → Turn U2</text>
-<text x="1043" y="274" font-size="15" fill="#475569">连接重建可恢复原 Thread</text>
+<text x="1043" y="274" font-size="15" fill="#475569">連接重建可恢復原 Thread</text>
 <path d="M375 245 H520" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="400" y="225" font-size="14" fill="#475569">领来并绑定</text>
+<text x="400" y="225" font-size="14" fill="#475569">領來並綁定</text>
 <path d="M880 245 H1025" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
 <text x="905" y="225" font-size="14" fill="#475569">原生映射 1:1</text>
 <rect x="30" y="425" width="345" height="175" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
 <text x="48" y="455" font-size="19" fill="#0f172a" font-weight="600">Server · Agent reviewer</text>
-<text x="48" y="487" font-size="15" fill="#475569">同一个 Conversation C</text>
-<text x="48" y="513" font-size="15" fill="#475569">R3 / A3，随后 R4 / A4</text>
-<text x="48" y="539" font-size="15" fill="#475569">不是 Client 自建的任务</text>
+<text x="48" y="487" font-size="15" fill="#475569">同一個 Conversation C</text>
+<text x="48" y="513" font-size="15" fill="#475569">R3 / A3，隨後 R4 / A4</text>
+<text x="48" y="539" font-size="15" fill="#475569">不是 Client 自建的任務</text>
 <rect x="520" y="425" width="360" height="175" rx="10" fill="#ecfdf5" stroke="#cbd5e1"/>
 <text x="538" y="455" font-size="19" fill="#0f172a" font-weight="600">Client Session S2</text>
 <text x="538" y="487" font-size="15" fill="#475569">固定 native_session_id = H1</text>
-<text x="538" y="513" font-size="15" fill="#475569">先绑定 R3，再绑定 R4</text>
-<text x="538" y="539" font-size="15" fill="#475569">原生上下文与 coder 分开</text>
+<text x="538" y="513" font-size="15" fill="#475569">先綁定 R3，再綁定 R4</text>
+<text x="538" y="539" font-size="15" fill="#475569">原生上下文與 coder 分開</text>
 <rect x="1025" y="425" width="345" height="175" rx="10" fill="#fffbeb" stroke="#cbd5e1"/>
 <text x="1043" y="455" font-size="19" fill="#0f172a" font-weight="600">Claude Code Session H1</text>
-<text x="1043" y="487" font-size="15" fill="#475569">R3：首次执行</text>
-<text x="1043" y="513" font-size="15" fill="#475569">R4：按 ID 恢复并继续</text>
-<text x="1043" y="539" font-size="15" fill="#475569">进程结束不等于 Session 删除</text>
+<text x="1043" y="487" font-size="15" fill="#475569">R3：首次執行</text>
+<text x="1043" y="513" font-size="15" fill="#475569">R4：按 ID 恢復並繼續</text>
+<text x="1043" y="539" font-size="15" fill="#475569">進程結束不等於 Session 刪除</text>
 <path d="M375 510 H520" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
 <path d="M880 510 H1025" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="30" y="700" font-size="18" fill="#475569">session.yaml 标识本机会话；runs/&lt;run_id&gt;.jsonl 索引适配器 UUID，events.jsonl 保存执行事实。</text>
-<text x="30" y="745" font-size="17" fill="#475569">会话复用：同步共享历史增量；不重复灌完整历史，也不重复累计旧用量。</text>
-<text x="30" y="790" font-size="17" fill="#475569">中心 / 对话 / Agent / Harness 不同，不共用原生会话；版本或历史不可恢复时另建 Session。</text>
+<text x="30" y="700" font-size="18" fill="#475569">session.yaml 標識本機會話；runs/&lt;run_id&gt;.jsonl 索引適配器 UUID，events.jsonl 保存執行事實。</text>
+<text x="30" y="745" font-size="17" fill="#475569">會話複用：同步共享歷史增量；不重複灌完整歷史，也不重複累計舊用量。</text>
+<text x="30" y="790" font-size="17" fill="#475569">中心 / 對話 / Agent / Harness 不同，不共用原生會話；版本或歷史不可恢復時另建 Session。</text>
 </svg>

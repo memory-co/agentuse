@@ -1,30 +1,30 @@
-# fileService：按命名空间存储文件
+# fileService：按命名空間存儲文件
 
-> 通用 fileService、本地/S3 后端及下列文件入口已实现。fileService 不使用数据库表，不绑定 conversation、agent 或 skill 的业务模型。旧 /api/sessions/.../attachments 接口和 attachments 表仍独立存在，尚未迁移到这里；不能将新 fileService 理解为已完成旧附件链路替换。
+> 通用 fileService、本地/S3 後端及下列文件入口已實現。fileService 不使用數據庫表，不綁定 conversation、agent 或 skill 的業務模型。舊 /api/sessions/.../attachments 接口和 attachments 表仍獨立存在，尚未遷移到這裏；不能將新 fileService 理解爲已完成舊附件鏈路替換。
 
-## 职责
+## 職責
 
-fileService 统一封装本地文件系统与 S3 协议存储。调用方提供**命名空间、相对路径和文件流**；fileService 负责完整写入、读取、列举及删除，业务 service 负责对象归属、授权、版本和清理时机。
+fileService 統一封裝本地文件系統與 S3 協議存儲。調用方提供**命名空間、相對路徑和文件流**；fileService 負責完整寫入、讀取、列舉及刪除，業務 service 負責對象歸屬、授權、版本和清理時機。
 
 ```text
-Put(namespace, path, stream, false)  普通完整写入，可按业务要求覆盖
-Put(namespace, path, stream, true)   不存在时创建，已有路径不覆盖
+Put(namespace, path, stream, false)  普通完整寫入，可按業務要求覆蓋
+Put(namespace, path, stream, true)   不存在時創建，已有路徑不覆蓋
 Get(namespace, path)                  返回文件流
-List(namespace, prefix)               列举某一前缀
-Delete(namespace, path)               删除一个对象
-DeletePrefix(namespace, prefix)       清理一个业务空间
+List(namespace, prefix)               列舉某一前綴
+Delete(namespace, path)               刪除一個對象
+DeletePrefix(namespace, prefix)       清理一個業務空間
 ```
 
-不新增全局 files/attachments 元数据表。存储后端是字节内容和存在性的事实来源。AgentUse 不用一个 conversation_id 参数硬套所有文件，更不把 skill 包伪装为某个 conversation 的附件。
+不新增全局 files/attachments 元數據表。存儲後端是字節內容和存在性的事實來源。AgentUse 不用一個 conversation_id 參數硬套所有文件，更不把 skill 包僞裝爲某個 conversation 的附件。
 
-## 命名空间与目录
+## 命名空間與目錄
 
-| 命名空间 | 业务拥有者 | 相对路径 | 写入约束 |
+| 命名空間 | 業務擁有者 | 相對路徑 | 寫入約束 |
 |---|---|---|---|
-| conversations | conversationService | `<conversation_id>/<file_path>` | 对话文件可按相同路径覆盖 |
-| skills | skillService | `<skill_id>/<skill_version_id>/skill.zip` | 每个版本一个独立路径，发布后只读 |
+| conversations | conversationService | `<conversation_id>/<file_path>` | 對話文件可按相同路徑覆蓋 |
+| skills | skillService | `<skill_id>/<skill_version_id>/skill.zip` | 每個版本一個獨立路徑，發佈後只讀 |
 
-本地后端：
+本地後端：
 
 ```text
 <root>/
@@ -33,24 +33,24 @@ DeletePrefix(namespace, prefix)       清理一个业务空间
   skills/<skill_id>/<skill_version_id>/skill.zip
 ```
 
-S3 后端：相同 key 前加可选 prefix，存入配置的 bucket；例如 `agentuse/skills/<skill_id>/<skill_version_id>/skill.zip`。命名空间来自 server 业务代码，不由上传请求随意指定以越权访问其他空间。
+S3 後端：相同 key 前加可選 prefix，存入配置的 bucket；例如 `agentuse/skills/<skill_id>/<skill_version_id>/skill.zip`。命名空間來自 server 業務代碼，不由上傳請求隨意指定以越權訪問其他空間。
 
-本地 root、S3 endpoint/bucket/prefix/凭据属于部署配置。业务表只存命名空间内的相对路径，client 使用业务下载 API，不感知实际后端或持有存储凭据。
+本地 root、S3 endpoint/bucket/prefix/憑據屬於部署配置。業務表只存命名空間內的相對路徑，client 使用業務下載 API，不感知實際後端或持有存儲憑據。
 
-## 文件能力与业务规则
+## 文件能力與業務規則
 
-| FileService 负责 | 业务 Service 负责 |
+| FileService 負責 | 業務 Service 負責 |
 |---|---|
-| 流式存储、读取及后端差异 | 谁能上传、下载哪个业务对象 |
-| 普通写入和不存在时创建 | 哪些路径可覆盖，哪些版本发布后不可变 |
-| 原子可见的完整对象；失败不暴露半个文件 | Skill ZIP 校验、SHA-256、版本号和依赖关系 |
-| 路径边界及文件系统链接限制 | Conversation 删除、skill 版本保留、无引用对象清理 |
+| 流式存儲、讀取及後端差異 | 誰能上傳、下載哪個業務對象 |
+| 普通寫入和不存在時創建 | 哪些路徑可覆蓋，哪些版本發佈後不可變 |
+| 原子可見的完整對象；失敗不暴露半個文件 | Skill ZIP 校驗、SHA-256、版本號和依賴關係 |
+| 路徑邊界及文件系統鏈接限制 | Conversation 刪除、skill 版本保留、無引用對象清理 |
 
-路径不接受绝对路径、.. 或通过符号链接越出指定空间。本地写入先写临时文件并完成落盘后提交；S3 只有完整上传成功才发布对象。PutIfAbsent 必须保留“已存在则不覆盖”的语义，不能用不受保护的先查后写冒充。
+路徑不接受絕對路徑、.. 或通過符號鏈接越出指定空間。本地寫入先寫臨時文件並完成落盤後提交；S3 只有完整上傳成功才發佈對象。PutIfAbsent 必須保留“已存在則不覆蓋”的語義，不能用不受保護的先查後寫冒充。
 
-fileService 不解析 SKILL.md，不解压技能包，不知道 agent 当前版本，也不决定一个旧文件是否可删除。压缩包摘要和大小存于 skill_versions，是 skillService 的版本校验信息，不是 fileService 新建的元数据账本。
+fileService 不解析 SKILL.md，不解壓技能包，不知道 agent 當前版本，也不決定一箇舊文件是否可刪除。壓縮包摘要和大小存於 skill_versions，是 skillService 的版本校驗信息，不是 fileService 新建的元數據賬本。
 
-## HTTP 入口由业务对象定义
+## HTTP 入口由業務對象定義
 
 ```text
 PUT /api/conversations/{conversation_id}/files/{path...}
@@ -61,27 +61,27 @@ POST /api/skills/{skill_id}/versions
 GET /api/skills/{skill_id}/versions/{version_id}/package
 ```
 
-Conversation 入口先经 conversationService 校验归属，再操作 conversations 空间；messages.attachments 的相对路径数组是 conversation 元数据目标设计，旧附件消息引用仍由现有附件链路处理。
+Conversation 入口先經 conversationService 校驗歸屬，再操作 conversations 空間；messages.attachments 的相對路徑數組是 conversation 元數據目標設計，舊附件消息引用仍由現有附件鏈路處理。
 
-Skill 上传经 skillService 校验、分配不可变版本路径，并调用 fileService。下载同样由 skillService 校验用户或已分配输入的设备权限，然后返回文件流；不开放任意覆盖已发布 skill 包的通用 PUT 接口。
+Skill 上傳經 skillService 校驗、分配不可變版本路徑，並調用 fileService。下載同樣由 skillService 校驗用戶或已分配輸入的設備權限，然後返回文件流；不開放任意覆蓋已發佈 skill 包的通用 PUT 接口。
 
-## 发布、删除与异常清理
+## 發佈、刪除與異常清理
 
-上传 Skill 时先写新对象，确认完整后再提交版本表。SQLite 与文件后端没有跨系统事务；数据库提交失败时删除本次候选对象，异常中断可能留下未引用文件。当前未启用自动孤立对象清理。
+上傳 Skill 時先寫新對象，確認完整後再提交版本表。SQLite 與文件後端沒有跨系統事務；數據庫提交失敗時刪除本次候選對象，異常中斷可能留下未引用文件。當前未啓用自動孤立對象清理。
 
-删除 conversation 只清理 conversations 下该 conversation 的前缀，不清理 skills。软删除 agent/skill 不删除已发布且仍被版本引用的包。Skill 清理必须由 skillService 检查全部历史版本和正在发布的对象后进行，不能只保留 latest。没有显式版本淘汰流程时，只清理确认未发布且无版本记录引用的孤立对象，不删除任何已发布 skill_version 对应的包。
+刪除 conversation 只清理 conversations 下該 conversation 的前綴，不清理 skills。軟刪除 agent/skill 不刪除已發佈且仍被版本引用的包。Skill 清理必須由 skillService 檢查全部歷史版本和正在發佈的對象後進行，不能只保留 latest。沒有顯式版本淘汰流程時，只清理確認未發佈且無版本記錄引用的孤立對象，不刪除任何已發佈 skill_version 對應的包。
 
-文件删除与 SQLite 删除不能当成一件原子操作。业务 service 保留错误、重试或补偿清理的责任，fileService 提供可重复执行的删除原语，不维护另一套业务数据库。
+文件刪除與 SQLite 刪除不能當成一件原子操作。業務 service 保留錯誤、重試或補償清理的責任，fileService 提供可重複執行的刪除原語，不維護另一套業務數據庫。
 
-## 表结构
+## 表結構
 
-无。新增命名空间不需要新增 fileService 表；业务元数据由拥有它的 service 管理。
+無。新增命名空間不需要新增 fileService 表；業務元數據由擁有它的 service 管理。
 
-[Server 总览](server-main.md) · [skillService](server-skill.md) · [agentService](server-agent.md) · [conversationService](server-conversation.md) · [runService](server-run.md)
+[Server 總覽](server-main.md) · [skillService](server-skill.md) · [agentService](server-agent.md) · [conversationService](server-conversation.md) · [runService](server-run.md)
 
-## 启动配置
+## 啓動配置
 
-默认使用本地 `~/.agentuse/files`，支持 `-files-dir` / `AGENTUSE_FILES_DIR`。选择 S3：
+默認使用本地 `~/.agentuse/files`，支持 `-files-dir` / `AGENTUSE_FILES_DIR`。選擇 S3：
 
 ```bash
 agentuse-server start -files-backend s3 \
@@ -89,8 +89,8 @@ agentuse-server start -files-backend s3 \
   -s3-region us-east-1 -s3-prefix production
 ```
 
-凭据读取 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY；参数对应 AGENTUSE_FILES_BACKEND、AGENTUSE_S3_ENDPOINT、AGENTUSE_S3_BUCKET、AGENTUSE_S3_REGION、AGENTUSE_S3_PREFIX 环境变量。部署配置在启动时读取，修改后重启。S3 兼容后端须支持条件 PutObject（If-None-Match: *）；不支持时发布失败，不降级覆盖。
+憑據讀取 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY；參數對應 AGENTUSE_FILES_BACKEND、AGENTUSE_S3_ENDPOINT、AGENTUSE_S3_BUCKET、AGENTUSE_S3_REGION、AGENTUSE_S3_PREFIX 環境變量。部署配置在啓動時讀取，修改後重啓。S3 兼容後端須支持條件 PutObject（If-None-Match: *）；不支持時發佈失敗，不降級覆蓋。
 
-Conversation 删除提交后清理对应文件前缀；失败写入 server 日志，当前由运维重试清理，不提供另一份文件元数据账本。Skills 前缀不随 conversation 删除。
+Conversation 刪除提交後清理對應文件前綴；失敗寫入 server 日誌，當前由運維重試清理，不提供另一份文件元數據賬本。Skills 前綴不隨 conversation 刪除。
 
-实现使用 Go 1.25 的 os.Root 原子 Link/Rename，在限定根目录内发布文件；项目最低 Go 版本相应为 1.25。
+實現使用 Go 1.25 的 os.Root 原子 Link/Rename，在限定根目錄內發佈文件；項目最低 Go 版本相應爲 1.25。

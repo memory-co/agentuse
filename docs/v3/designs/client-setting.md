@@ -1,6 +1,6 @@
-# Client settingService：一次加载的本机设置
+# Client settingService：一次加載的本機設置
 
-settingService 读取 ~/.agentuse/setting.yaml，校验后提供不可变的启动快照。文件是唯一配置来源，不使用 SQLite，也不回写运行状态。
+settingService 讀取 ~/.agentuse/setting.yaml，校驗後提供不可變的啓動快照。文件是唯一配置來源，不使用 SQLite，也不回寫運行狀態。
 
 ```yaml
 local_http:
@@ -13,25 +13,25 @@ session:
     max_bytes: 21474836480
 ```
 
-省略 quota 表示不限容量，不因容量回收。声明 quota 即启用自动清理，max_bytes 必须为正整数；没有 enabled、cleanup 或 max_running_runs 配置。
+省略 quota 表示不限容量，不因容量回收。聲明 quota 即啓用自動清理，max_bytes 必須爲正整數；沒有 enabled、cleanup 或 max_running_runs 配置。
 
-## 生命周期
+## 生命週期
 
-启动时文件不存在则生成默认文件。路径扩展 ~ 并规范化；非法端口、地址、quota、危险根目录或与配置/原生全局目录重叠时明确启动报错。
+啓動時文件不存在則生成默認文件。路徑擴展 ~ 並規範化；非法端口、地址、quota、危險根目錄或與配置/原生全局目錄重疊時明確啓動報錯。
 
-运行中不监听、不周期重读、不比较差异，也不保存待应用字段。Save 只校验并原子写文件，不改变当前快照。端口、host、enabled、根目录和 quota 的任何变化都要重启。
+運行中不監聽、不周期重讀、不比較差異，也不保存待應用字段。Save 只校驗並原子寫文件，不改變當前快照。端口、host、enabled、根目錄和 quota 的任何變化都要重啓。
 
-API 只返回当前进程加载的一份配置，不返回 active_work_root、restart_required 或“配置值/生效值”两套字段。页面只读，不是配置热更新入口。
+API 只返回當前進程加載的一份配置，不返回 active_work_root、restart_required 或“配置值/生效值”兩套字段。頁面只讀，不是配置熱更新入口。
 
-## 职责边界
+## 職責邊界
 
-- sessionService 决定 conversation、workspace 和 session 的布局，settingService 不保存目录映射。
-- runService 使用固定的 quota 触发检查，不自行修改容量设置。
-- harnessService 使用启动时固定的包，原生控制通道不依赖页面监听端口。
-- endpoint 列表与凭据保存在 endpoints.yaml，不混进本机设置。
+- sessionService 決定 conversation、workspace 和 session 的佈局，settingService 不保存目錄映射。
+- runService 使用固定的 quota 觸發檢查，不自行修改容量設置。
+- harnessService 使用啓動時固定的包，原生控制通道不依賴頁面監聽端口。
+- endpoint 列表與憑據保存在 endpoints.yaml，不混進本機設置。
 
-同一 conversation 的 Codex、Claude 和自定义 harness 共用 workspace。更换 work_root 前先停止 client，需要保留状态时完整迁移目录，再按新配置启动。Client 不扫描旧根目录，不自动搬迁，也不维护 active/present/missing 目录绑定表。
+同一 conversation 的 Codex、Claude 和自定義 harness 共用 workspace。更換 work_root 前先停止 client，需要保留狀態時完整遷移目錄，再按新配置啓動。Client 不掃描舊根目錄，不自動搬遷，也不維護 active/present/missing 目錄綁定表。
 
-quota 统计受管 conversation 目录，清理整个空闲目录；运行、等待回答和未确认清理等占用受保护。它是清理和准入策略，不是执行中的文件系统硬配额。工作目录组织及保护规则以 client-session.md 为准。
+quota 統計受管 conversation 目錄，清理整個空閒目錄；運行、等待回答和未確認清理等佔用受保護。它是清理和准入策略，不是執行中的文件系統硬配額。工作目錄組織及保護規則以 client-session.md 爲準。
 
-settingService 直接读取、校验和保存 setting.yaml，使用 fileutil 完成原子文件写入；没有配置 repository 或数据库层。进程仍只使用启动快照。
+settingService 直接讀取、校驗和保存 setting.yaml，使用 fileutil 完成原子文件寫入；沒有配置 repository 或數據庫層。進程仍只使用啓動快照。

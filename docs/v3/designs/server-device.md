@@ -1,37 +1,37 @@
-# deviceService：执行设备
+# deviceService：執行設備
 
-> v3 目标设计，尚未据此修改代码或数据库。统一使用 device 命名；本文 SQL 表示目标结构，不是线上迁移脚本。时间字段除另行说明外，均为 Unix 秒，布尔值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。表之间只保留关联字段，不声明数据库外键；引用校验和关联清理由 service 在事务内完成。
+> v3 目標設計，尚未據此修改代碼或數據庫。統一使用 device 命名；本文 SQL 表示目標結構，不是線上遷移腳本。時間字段除另行說明外，均爲 Unix 秒，布爾值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。表之間只保留關聯字段，不聲明數據庫外鍵；引用校驗和關聯清理由 service 在事務內完成。
 
-## 职责
+## 職責
 
-device 是一台用户的执行设备，client 是设备上运行的程序。deviceService 管登记、凭据、连接状态和执行能力，不管理对话或 run 的业务终态。
+device 是一臺用戶的執行設備，client 是設備上運行的程序。deviceService 管登記、憑據、連接狀態和執行能力，不管理對話或 run 的業務終態。
 
-- 登记设备、生成一次性 setup token，注册时换取长期 device key。
-- 保存 client 本地探测后上报的 harness、版本与业务能力，不下发探测命令。
-- 维护 online/offline 和最近活动时间，管理某个 harness 是否允许领取任务。
-- 删除/重置时撤销凭据并断开旧连接；未领取输入可失败，已经执行的 run 不由 server 合成终态。
+- 登記設備、生成一次性 setup token，註冊時換取長期 device key。
+- 保存 client 本地探測後上報的 harness、版本與業務能力，不下發探測命令。
+- 維護 online/offline 和最近活動時間，管理某個 harness 是否允許領取任務。
+- 刪除/重置時撤銷憑據並斷開舊連接；未領取輸入可失敗，已經執行的 run 不由 server 合成終態。
 
-## 操作与协作
+## 操作與協作
 
-| 操作 | 行为 |
+| 操作 | 行爲 |
 |---|---|
-| 登记/注册 | 在事务内消费 setup_token，生成长期密钥哈希，禁止重复注册 |
-| 上线 | 验证设备密钥，更新 client 上报的 run 协议能力与本地 harness 探测结果，不把 available 自动等同于 enabled |
-| 心跳/离线 | 更新最近活动时间和连接状态；在线连接对象由连接管理组件维护 |
-| 开关 harness | 修改 enabled；重新开启后通知派活 |
-| 删除/重置 | 失败未领取输入，撤销凭据后关闭连接，不伪造原生执行结果 |
+| 登記/註冊 | 在事務內消費 setup_token，生成長期密鑰哈希，禁止重複註冊 |
+| 上線 | 驗證設備密鑰，更新 client 上報的 run 協議能力與本地 harness 探測結果，不把 available 自動等同於 enabled |
+| 心跳/離線 | 更新最近活動時間和連接狀態；在線連接對象由連接管理組件維護 |
+| 開關 harness | 修改 enabled；重新開啓後通知派活 |
+| 刪除/重置 | 失敗未領取輸入，撤銷憑據後關閉連接，不僞造原生執行結果 |
 
-agentService 发布版本时检查设备归属和运行能力，runService 根据输入固定的 agent 版本选择可领取任务。设备删除只改变可用性，不 UPDATE 历史 agent_versions.device_id；用户选择新设备时需发布新 agent 版本。探测由 client 本地 harnessService 读取 YAML 完成；deviceService 保存上报的 harness 标识、接入包版本、程序版本及业务能力。Server 不保存全局 harnesses 定义或 YAML，也不向设备发送探测命令。
+agentService 發佈版本時檢查設備歸屬和運行能力，runService 根據輸入固定的 agent 版本選擇可領取任務。設備刪除只改變可用性，不 UPDATE 歷史 agent_versions.device_id；用戶選擇新設備時需發佈新 agent 版本。探測由 client 本地 harnessService 讀取 YAML 完成；deviceService 保存上報的 harness 標識、接入包版本、程序版本及業務能力。Server 不保存全局 harnesses 定義或 YAML，也不向設備發送探測命令。
 
-状态为 pending（未注册）、offline、online。在线状态表示连接状态，不代表设备当前空闲；是否可以领取由 client 的 ready 和 runService 的领取规则共同决定。
+狀態爲 pending（未註冊）、offline、online。在線狀態表示連接狀態，不代表設備當前空閒；是否可以領取由 client 的 ready 和 runService 的領取規則共同決定。
 
-执行协议仅声明 harnessctl-events-v2。Server 接受 client 上报的自定义 harness 标签，不要求先注册全局目录，不按 codex/claudecode 分支。harness 列表接口是设备上报结果的只读视图，没有创建或编辑 YAML 的 API。
+執行協議僅聲明 harnessctl-events-v2。Server 接受 client 上報的自定義 harness 標籤，不要求先註冊全局目錄，不按 codex/claudecode 分支。harness 列表接口是設備上報結果的只讀視圖，沒有創建或編輯 YAML 的 API。
 
-## 表结构
+## 表結構
 
 ### devices
 
-设备主表。`user_id` 是归属用户，`setup_token` 只供注册使用，`key_hash` 是长期凭据哈希。注册后清除 setup_token；重置时废除旧 key_hash。
+設備主表。`user_id` 是歸屬用戶，`setup_token` 只供註冊使用，`key_hash` 是長期憑據哈希。註冊後清除 setup_token；重置時廢除舊 key_hash。
 
 ```sql
 CREATE TABLE devices (
@@ -52,7 +52,7 @@ CREATE UNIQUE INDEX devices_setup_token
 
 ### device_harnesses
 
-设备与 harness 的组合。`available` 表示 client 对本地接入包与程序的探测判定可用，`enabled` 表示用户允许使用，二者都满足才可派活。`user_id` 是设备所有者的冗余字段，由 service 保证一致。
+設備與 harness 的組合。`available` 表示 client 對本地接入包與程序的探測判定可用，`enabled` 表示用戶允許使用，二者都滿足纔可派活。`user_id` 是設備所有者的冗餘字段，由 service 保證一致。
 
 ```sql
 CREATE TABLE device_harnesses (
@@ -73,9 +73,9 @@ CREATE INDEX device_harnesses_user_harness
 
 ### device_capabilities
 
-设备支持的 run 业务协议版本与能力，例如任务领取、标准事件、文件操作。每次上线以上报内容替换旧集合，不把进程流、JSON-RPC 或原生 hook 等 client 内部实现当成 server 指令集。
+設備支持的 run 業務協議版本與能力，例如任務領取、標準事件、文件操作。每次上線以上報內容替換舊集合，不把進程流、JSON-RPC 或原生 hook 等 client 內部實現當成 server 指令集。
 
-device_harnesses.harness_revision 是本地接入包版本，连接 capability 声明公共传输协议 harnessctl-events-v2，不通过 steer/question/plan 等原生能力分支调度。Client 升级接入包后重新探测并上报，不用 server 编译配置。
+device_harnesses.harness_revision 是本地接入包版本，連接 capability 聲明公共傳輸協議 harnessctl-events-v2，不通過 steer/question/plan 等原生能力分支調度。Client 升級接入包後重新探測並上報，不用 server 編譯配置。
 
 ```sql
 CREATE TABLE device_capabilities (
@@ -85,6 +85,6 @@ CREATE TABLE device_capabilities (
 );
 ```
 
-## 相关设计
+## 相關設計
 
-[Server 总览](server-main.md) · [userService](server-user.md) · [agentService](server-agent.md) · [skillService](server-skill.md) · [Client harnessService](client-harness.md) · [conversationService](server-conversation.md) · [runService](server-run.md) · [fileService](server-file.md) · [workService](server-work.md)
+[Server 總覽](server-main.md) · [userService](server-user.md) · [agentService](server-agent.md) · [skillService](server-skill.md) · [Client harnessService](client-harness.md) · [conversationService](server-conversation.md) · [runService](server-run.md) · [fileService](server-file.md) · [workService](server-work.md)

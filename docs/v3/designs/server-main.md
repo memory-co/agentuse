@@ -1,110 +1,110 @@
-# Server 设计
+# Server 設計
 
-Server/client WebSocket 报文、字段和恢复规则见 [protocol.md](protocol.md)。
+Server/client WebSocket 報文、字段和恢復規則見 [protocol.md](protocol.md)。
 
-> 本文定义 v3 的目标业务划分。service 名称和 device 命名是设计约定，现有源码、表和接口尚未全部按此调整。本稿先说明业务关系，不逐文件展开实现。Client 整体职责见 [client-main.md](client-main.md)。
+> 本文定義 v3 的目標業務劃分。service 名稱和 device 命名是設計約定，現有源碼、表和接口尚未全部按此調整。本稿先說明業務關係，不逐文件展開實現。Client 整體職責見 [client-main.md](client-main.md)。
 
-Conversation 表示共享对话，由 conversationService 管理；原 session 业务整体改用此名称，session 专指 client 对应 Codex/Claude Code 的原生执行会话，见 [client-session.md](client-session.md)；server 不增加 sessionService 或 sessions 表。
+Conversation 表示共享對話，由 conversationService 管理；原 session 業務整體改用此名稱，session 專指 client 對應 Codex/Claude Code 的原生執行會話，見 [client-session.md](client-session.md)；server 不增加 sessionService 或 sessions 表。
 
-Server 保存对话、组织任务并跟踪执行。用户的一台执行设备称为 **device**，设备上运行的程序称为 **client**。Client 从 server 领取输入分配，由本地 harnessService 解析 YAML、准备资源、执行 harness 并处理交互。Server 保存输入分配与 client 上报的 run 事实，不理解原生 harness 协议。
+Server 保存對話、組織任務並跟蹤執行。用戶的一臺執行設備稱爲 **device**，設備上運行的程序稱爲 **client**。Client 從 server 領取輸入分配，由本地 harnessService 解析 YAML、準備資源、執行 harness 並處理交互。Server 保存輸入分配與 client 上報的 run 事實，不理解原生 harness 協議。
 
-一台 client 可以向多个独立 server 注册，由本地 [endpointService](client-endpoint.md) 保存注册信息，[client runService](client-run.md) 负责连接和领取任务；每个 server 只看到本中心注册的 device，不共享其他中心的任务或凭据。
+一臺 client 可以向多個獨立 server 註冊，由本地 [endpointService](client-endpoint.md) 保存註冊信息，[client runService](client-run.md) 負責連接和領取任務；每個 server 只看到本中心註冊的 device，不共享其他中心的任務或憑據。
 
-## 当前实现与目标命名
+## 當前實現與目標命名
 
-执行协议已采用 harnessctl-events-v2：server 不预创建 run，只有 client 的 accepted 创建实际 UUID；五种公共事件原样入库，没有 attempt、租约、原生能力分支或 server harnessService。详细协议、实际 SQL、重连规则及 schema 3 升级约束见 [server-run.md](server-run.md)。
+執行協議已採用 harnessctl-events-v2：server 不預創建 run，只有 client 的 accepted 創建實際 UUID；五種公共事件原樣入庫，沒有 attempt、租約、原生能力分支或 server harnessService。詳細協議、實際 SQL、重連規則及 schema 3 升級約束見 [server-run.md](server-run.md)。
 
-其他章节中的 conversation/device 为业务目标名称。现有 HTTP /sessions、/daemons 和部分元数据物理表仍保留原名；消息 UUID 和旧附件链路迁移仍为独立目标；通用 fileService 的本地/S3 后端已实现。
+其他章節中的 conversation/device 爲業務目標名稱。現有 HTTP /sessions、/daemons 和部分元數據物理表仍保留原名；消息 UUID 和舊附件鏈路遷移仍爲獨立目標；通用 fileService 的本地/S3 後端已實現。
 
-Agent/Skill 版本化已实现，分别见 [agentService](server-agent.md) 与 [skillService](server-skill.md)：有效配置变更发布不可变版本；输入入队时固定版本，client 首次使用该版本时创建新的 session/init 绑定。共享 ZIP 经 fileService 的 skills 命名空间保存，通过 HTTP 下载，不在 WebSocket 发送文件或原生命令。
+Agent/Skill 版本化已實現，分別見 [agentService](server-agent.md) 與 [skillService](server-skill.md)：有效配置變更發佈不可變版本；輸入入隊時固定版本，client 首次使用該版本時創建新的 session/init 綁定。共享 ZIP 經 fileService 的 skills 命名空間保存，通過 HTTP 下載，不在 WebSocket 發送文件或原生命令。
 
-## 一、整体关系
+## 一、整體關係
 
-![Server 业务关系](../../images/server-topology.svg)
+![Server 業務關係](../../images/server-topology.svg)
 
-Server 分为三层：
+Server 分爲三層：
 
-- **controller**：HTTP / WebSocket 入口，处理身份、请求和响应，把业务交给 service。
-- **service**：按业务对象划分职责，决定如何保存对话、分配任务、管理设备和业务状态。
-- **store**：表、查询和事务；各 service 通过它保存自己的业务数据。
+- **controller**：HTTP / WebSocket 入口，處理身份、請求和響應，把業務交給 service。
+- **service**：按業務對象劃分職責，決定如何保存對話、分配任務、管理設備和業務狀態。
+- **store**：表、查詢和事務；各 service 通過它保存自己的業務數據。
 
-设备的在线连接由连接管理组件维护。Service 通过通知接口让它派活、推送输入、取消或答案；连接本身不承担 conversation/run 的业务规则。
+設備的在線連接由連接管理組件維護。Service 通過通知接口讓它派活、推送輸入、取消或答案；連接本身不承擔 conversation/run 的業務規則。
 
 ## 二、有哪些 Service
 
-| Service | 负责什么 | 主要拥有的表或数据 |
+| Service | 負責什麼 | 主要擁有的表或數據 |
 |---|---|---|
-| [userService](server-user.md) | 用户、角色、访问令牌和身份校验 | `users` |
-| [deviceService](server-device.md) | 执行设备的登记、凭据、在线状态、可用 harness 和执行能力 | `devices`、`device_harnesses`、`device_capabilities` |
-| [agentService](server-agent.md) | Agent 身份、不可变配置版本，以及具体 Skill 版本的固定关联 | `agents`、`agent_versions`、`agent_version_skills` |
-| [skillService](server-skill.md) | 共享 Skill 身份、ZIP 版本发布与校验、权限和下载；复用 fileService | `skills`、`skill_versions` |
-| [conversationService](server-conversation.md) | 清晰、持续的对话：创建对话、保存消息、读取共享历史；调用 runService 分配任务，接收结果事件并保存回复 | `conversations`、`messages` |
-| [runService](server-run.md) | 分配消息输入、接收实际 run、原样保存公共事件、转发回答和取消 | `runs`、`run_prompts`、`run_events`、`run_requests`、`run_controls` |
-| [fileService](server-file.md) | 按业务命名空间封装本地/S3；conversation 文件与 agent skill 包分目录 | 本地目录或 S3 对象前缀，无数据库表 |
-| [workService](server-work.md) | 把多个 conversation 组织成一项工作，管理协调 agent、线程关系和结果汇总 | `works`、`work_run_tokens`、`run_notifications` |
+| [userService](server-user.md) | 用戶、角色、訪問令牌和身份校驗 | `users` |
+| [deviceService](server-device.md) | 執行設備的登記、憑據、在線狀態、可用 harness 和執行能力 | `devices`、`device_harnesses`、`device_capabilities` |
+| [agentService](server-agent.md) | Agent 身份、不可變配置版本，以及具體 Skill 版本的固定關聯 | `agents`、`agent_versions`、`agent_version_skills` |
+| [skillService](server-skill.md) | 共享 Skill 身份、ZIP 版本發佈與校驗、權限和下載；複用 fileService | `skills`、`skill_versions` |
+| [conversationService](server-conversation.md) | 清晰、持續的對話：創建對話、保存消息、讀取共享歷史；調用 runService 分配任務，接收結果事件並保存回覆 | `conversations`、`messages` |
+| [runService](server-run.md) | 分配消息輸入、接收實際 run、原樣保存公共事件、轉發回答和取消 | `runs`、`run_prompts`、`run_events`、`run_requests`、`run_controls` |
+| [fileService](server-file.md) | 按業務命名空間封裝本地/S3；conversation 文件與 agent skill 包分目錄 | 本地目錄或 S3 對象前綴，無數據庫表 |
+| [workService](server-work.md) | 把多個 conversation 組織成一項工作，管理協調 agent、線程關係和結果彙總 | `works`、`work_run_tokens`、`run_notifications` |
 
-这里的“拥有”指主要维护职责，不表示其他 service 不能读取。跨业务修改通过所属 service 完成；由编排操作统一事务，不能把各次调用做成互不相关的独立提交。
+這裏的“擁有”指主要維護職責，不表示其他 service 不能讀取。跨業務修改通過所屬 service 完成；由編排操作統一事務，不能把各次調用做成互不相關的獨立提交。
 
-各 service 的详细职责和表结构见上表。runService 文档给出已实现的执行层结构；Agent/Skill 版本表和 fileService 已实现，其他元数据仍包含目标设计。device 等元数据命名仍是目标设计；输入分配、client 执行身份和原样事件上报已实现。
+各 service 的詳細職責和表結構見上表。runService 文檔給出已實現的執行層結構；Agent/Skill 版本表和 fileService 已實現，其他元數據仍包含目標設計。device 等元數據命名仍是目標設計；輸入分配、client 執行身份和原樣事件上報已實現。
 
-所有表不声明数据库外键，只保存关联 ID。创建/修改时由 service 检查目标存在、归属和状态；删除时协调相关 service 显式清理或清空关联字段，并在同一事务提交。数据库保留主键、唯一索引和必要的 CHECK 约束，不依赖自动级联。
+所有表不聲明數據庫外鍵，只保存關聯 ID。創建/修改時由 service 檢查目標存在、歸屬和狀態；刪除時協調相關 service 顯式清理或清空關聯字段，並在同一事務提交。數據庫保留主鍵、唯一索引和必要的 CHECK 約束，不依賴自動級聯。
 
-conversationService 负责发送消息的业务编排，调用 runService 建立任务分配。runService 完成任务后发出结果事件，由 conversationService 接收并保存回复；runService 不反向调用 conversationService。
+conversationService 負責發送消息的業務編排，調用 runService 建立任務分配。runService 完成任務後發出結果事件，由 conversationService 接收並保存回覆；runService 不反向調用 conversationService。
 
 ### 2.1 userService、deviceService、agentService
 
-这三个对象分别回答“谁使用系统”“在哪里执行”“由哪个 agent 承担任务”。
+這三個對象分別回答“誰使用系統”“在哪裏執行”“由哪個 agent 承擔任務”。
 
-- 一个用户可以有多台 device 和多个 agent。
-- 一台 device 可以运行多种 harness；可用与是否允许使用由 deviceService 维护。
-- 一个 agent 是稳定角色身份；名称、说明、device/harness/model、指令与固定 skill 版本属于不可变 agent_version。
-- 输入入队时固定 agent_version_id；发布新版不改写排队输入或已有 run，client 新版绑定新 session/events 并执行 init。
+- 一個用戶可以有多臺 device 和多個 agent。
+- 一臺 device 可以運行多種 harness；可用與是否允許使用由 deviceService 維護。
+- 一個 agent 是穩定角色身份；名稱、說明、device/harness/model、指令與固定 skill 版本屬於不可變 agent_version。
+- 輸入入隊時固定 agent_version_id；發佈新版不改寫排隊輸入或已有 run，client 新版綁定新 session/events 並執行 init。
 
-**Device 是执行位置，agent 是任务角色，harness 是执行方式。** 三者不能合并成一个概念。
+**Device 是執行位置，agent 是任務角色，harness 是執行方式。** 三者不能合併成一個概念。
 
-### Agent 与 Skill 的独立版本
+### Agent 與 Skill 的獨立版本
 
-agentService 管角色配置和 agent_version_skills，skillService 管共享技能和 skill_versions；两者各自发布版本，只通过具体版本 ID 关联。agentService 在发布事务中调用 skillService 校验选中的版本，skillService 再复用 fileService 保存包，不反向更新 agent。升级 Skill 不会自动改变任何 Agent 版本；需要使用新版时，显式发布新的 Agent 版本。
+agentService 管角色配置和 agent_version_skills，skillService 管共享技能和 skill_versions；兩者各自發布版本，只通過具體版本 ID 關聯。agentService 在發佈事務中調用 skillService 校驗選中的版本，skillService 再複用 fileService 保存包，不反向更新 agent。升級 Skill 不會自動改變任何 Agent 版本；需要使用新版時，顯式發佈新的 Agent 版本。
 
 ### 2.2 Client 的 harnessService
 
-harnessService 放在 client，不属于 server service。YAML、hook、skill、指令资源和原生交互都由 client 本地管理，详情见 [Client harness 设计](client-harness.md)。
+harnessService 放在 client，不屬於 server service。YAML、hook、skill、指令資源和原生交互都由 client 本地管理，詳情見 [Client harness 設計](client-harness.md)。
 
-| Server 负责 | Client 的 harnessService 负责 |
+| Server 負責 | Client 的 harnessService 負責 |
 |---|---|
-| 保存消息、建立输入分配并接收实际 run | 读取本地 YAML、hook、skill 与指令资源 |
-| 按 device 和上报能力分配任务 | 本地探测 harness，报告可用性和业务能力 |
-| 下发输入、答案、取消 | 启动进程，进行原生 RPC、hook 与工具交互 |
-| 接收 accepted/message/request/result/log 公共事件 | 本地解释原始输出，转换为标准业务事件 |
+| 保存消息、建立輸入分配並接收實際 run | 讀取本地 YAML、hook、skill 與指令資源 |
+| 按 device 和上報能力分配任務 | 本地探測 harness，報告可用性和業務能力 |
+| 下發輸入、答案、取消 | 啓動進程，進行原生 RPC、hook 與工具交互 |
+| 接收 accepted/message/request/result/log 公共事件 | 本地解釋原始輸出，轉換爲標準業務事件 |
 
-WebSocket 只传 run 业务协议，不传 shell 命令、argv/env、YAML、执行脚本、原生 RPC 帧或 hook 请求。原生交互在设备上闭环，减少代理/WAF 对执行类消息的误判；这不保证任意业务正文都不会触发 WAF。
+WebSocket 只傳 run 業務協議，不傳 shell 命令、argv/env、YAML、執行腳本、原生 RPC 幀或 hook 請求。原生交互在設備上閉環，減少代理/WAF 對執行類消息的誤判；這不保證任意業務正文都不會觸發 WAF。
 
-Server 只认识设备上报的 harness 标识、版本和能力，不设 harnessService 或 harnesses 配置表，也不维护接入包分发服务。
+Server 只認識設備上報的 harness 標識、版本和能力，不設 harnessService 或 harnesses 配置表，也不維護接入包分發服務。
 
-### 2.3 conversationService 与 runService
+### 2.3 conversationService 與 runService
 
-- **conversationService 管对话与消息编排**：保存用户消息，调用 runService 分配任务；接收结果事件，把最终回复追加到同一 conversation。
-- **runService 管任务执行**：哪些消息交给哪个 agent，在哪个 device 上执行，目前执行到哪一步。
+- **conversationService 管對話與消息編排**：保存用戶消息，調用 runService 分配任務；接收結果事件，把最終回覆追加到同一 conversation。
+- **runService 管任務執行**：哪些消息交給哪個 agent，在哪個 device 上執行，目前執行到哪一步。
 
-发送消息时，conversationService 统一事务，消息与任务分配一并提交。收到 client result 时，原始事件、执行状态、最终回复、runs.result_message_id 和对话状态在同一事务提交；重复上报不会重复追加回复。messages 不保存 run_id。
+發送消息時，conversationService 統一事務，消息與任務分配一併提交。收到 client result 時，原始事件、執行狀態、最終回覆、runs.result_message_id 和對話狀態在同一事務提交；重複上報不會重複追加回復。messages 不保存 run_id。
 
-进度、计划、问题和插话确认属于 run 的执行记录；需要作为最终回复展示的结果进入 messages。读取对话时可以组合这些数据，但不能把执行事件全当作普通聊天消息。
+進度、計劃、問題和插話確認屬於 run 的執行記錄；需要作爲最終回覆展示的結果進入 messages。讀取對話時可以組合這些數據，但不能把執行事件全當作普通聊天消息。
 
 ### 2.4 fileService、workService
 
-fileService 统一按命名空间存储字节，不绑定 conversation。conversations 空间保存共享对话文件；skills 空间保存独立的 skill 版本 ZIP。conversationService 和 skillService 分别校验业务权限与清理时机。fileService 不写文件数据库记录；skill 包摘要和路径属于 skillService 的版本元数据。
+fileService 統一按命名空間存儲字節，不綁定 conversation。conversations 空間保存共享對話文件；skills 空間保存獨立的 skill 版本 ZIP。conversationService 和 skillService 分別校驗業務權限與清理時機。fileService 不寫文件數據庫記錄；skill 包摘要和路徑屬於 skillService 的版本元數據。
 
-Work 是多个 conversation 的组织方式。workService 维护协调 conversation、工作线程和协调 agent，在线程任务完成后汇总结果，再经 conversationService 给协调 conversation 发消息。它复用同一套消息与 run 机制，不另建一种执行模型。
+Work 是多個 conversation 的組織方式。workService 維護協調 conversation、工作線程和協調 agent，在線程任務完成後彙總結果，再經 conversationService 給協調 conversation 發消息。它複用同一套消息與 run 機制，不另建一種執行模型。
 
-## 三、每次消息进入 Server
+## 三、每次消息進入 Server
 
-1. controller 验证用户和 conversation 权限。
-2. conversationService 在事务内保存消息，runService 为每个目标写一条 run_prompts。此时不创建 run。
-3. 提交后通知已连接 client 领取；client 报告可用容量，领取输入及 server 准备的共享历史、附件和业务说明。
-4. client 通过 harnessctl send 执行。accepted 决定实际 run UUID，可能与上次相同，也可能不同。
-5. Server 验证并保存五类公共事件，提交后确认源位置；只从这些事件投影执行状态。
-6. result 与最终 conversation 回复一起提交；Work 在线程消息全部目标处理结束后只汇报一次。
+1. controller 驗證用戶和 conversation 權限。
+2. conversationService 在事務內保存消息，runService 爲每個目標寫一條 run_prompts。此時不創建 run。
+3. 提交後通知已連接 client 領取；client 報告可用容量，領取輸入及 server 準備的共享歷史、附件和業務說明。
+4. client 通過 harnessctl send 執行。accepted 決定實際 run UUID，可能與上次相同，也可能不同。
+5. Server 驗證並保存五類公共事件，提交後確認源位置；只從這些事件投影執行狀態。
+6. result 與最終 conversation 回覆一起提交；Work 在線程消息全部目標處理結束後只彙報一次。
 
-原生执行与权限处理都在 client。HTTP 取消或回答只入传输队列，断线不制造执行结果。完整规则以 server-run.md 为准。
+原生執行與權限處理都在 client。HTTP 取消或回答只入傳輸隊列，斷線不製造執行結果。完整規則以 server-run.md 爲準。
 
-![消息与执行事件链路](../../images/server-message-flow.svg)
+![消息與執行事件鏈路](../../images/server-message-flow.svg)

@@ -1,78 +1,78 @@
-# 一条命令接入
+# 一條命令接入
 
-> **状态:设计稿,未实施。** 实施计划见 [roadmap.md](roadmap.md)。
+> **狀態:設計稿,未實施。** 實施計劃見 [roadmap.md](roadmap.md)。
 
-目标:平台用户在设置页点一下,复制一条命令到自己电脑的终端里跑完,就能在评论里 @ 自己的 agent。不改配置文件,不找运维要密钥,不重启任何东西。参照 Multica:装一个 CLI、登录一次,daemon 就在后台跑起来。
+目標:平臺用戶在設置頁點一下,複製一條命令到自己電腦的終端裏跑完,就能在評論裏 @ 自己的 agent。不改配置文件,不找運維要密鑰,不重啓任何東西。參照 Multica:裝一個 CLI、登錄一次,daemon 就在後臺跑起來。
 
-## 1. 用户看到的
+## 1. 用戶看到的
 
-在平台的「我的 Agent」设置页:
+在平臺的「我的 Agent」設置頁:
 
-1. 填一个名字(默认 `<用户名>-claude`),点「创建」。
-2. 页面出现一条命令和一句提示「在你想让 agent 干活的仓库目录里运行」:
+1. 填一個名字(默認 `<用戶名>-claude`),點「創建」。
+2. 頁面出現一條命令和一句提示「在你想讓 agent 幹活的倉庫目錄裏運行」:
 
    ```bash
    cd ~/work/shop-api
    curl -fsSL https://agentuse.shop.example.com/install.sh | sh -s -- ac_7Hq2mX9pLw
    ```
 
-3. 终端里:
+3. 終端裏:
 
    ```
-   ✓ 已安装 agentuse 0.3.0 到 ~/.agentuse/bin
-   ✓ 找到 claude(已登录)
+   ✓ 已安裝 agentuse 0.3.0 到 ~/.agentuse/bin
+   ✓ 找到 claude(已登錄)
    ✓ 已接入 shop:agent @alice-claude → alice-mbp:~/work/shop-api
-   ✓ 已设为开机自启(launchd)
-   在任意工单评论里 @alice-claude 试试。
+   ✓ 已設爲開機自啓(launchd)
+   在任意工單評論裏 @alice-claude 試試。
    ```
 
-4. 设置页上 agent 的状态变成「在线 · alice-mbp」。
+4. 設置頁上 agent 的狀態變成「在線 · alice-mbp」。
 
-## 2. 背后发生的
+## 2. 背後發生的
 
 ```
-平台设置页                 平台服务端                         hub                          用户电脑
-   │ 点「创建」               │                                 │                               │
-   │────────────────────────▶│ 在自己用户表里建应用用户          │                               │
+平臺設置頁                 平臺服務端                         hub                          用戶電腦
+   │ 點「創建」               │                                 │                               │
+   │────────────────────────▶│ 在自己用戶表裏建應用用戶          │                               │
    │                         │  alice-claude                    │                               │
-   │                         │ POST /agents(平台签名)────────▶│ 建 User、Agent、接入码 ac_…   │
-   │                         │◀──────────── agent + 安装命令 ────│                               │
-   │◀──── 展示安装命令 ───────│                                  │                               │
+   │                         │ POST /agents(平臺簽名)────────▶│ 建 User、Agent、接入碼 ac_…   │
+   │                         │◀──────────── agent + 安裝命令 ────│                               │
+   │◀──── 展示安裝命令 ───────│                                  │                               │
    │                                                            │                               │
-   │                                        用户复制命令到终端 ──┼──────────────────────────────▶│
+   │                                        用戶複製命令到終端 ──┼──────────────────────────────▶│
    │                                                            │◀── GET /install.sh ───────────│
-   │                                                            │◀── GET /download/<os>/<arch> ─│ 装二进制
-   │                                                            │◀── POST /v1/connect ──────────│ 交接入码
-   │                                                            │  校验接入码(一次性,15 分钟)  │
-   │                                                            │  建 Device,绑到 Agent        │
-   │                                                            │─── 设备 id + 设备密钥 ────────▶│ 写 daemon.json
-   │                                                            │                               │ 装开机自启
-   │                                                            │◀══ WebSocket(设备密钥)═══════│ daemon 上线
-   │  刷新:在线 · alice-mbp ◀─────────── GET /agents ──────────│                               │
+   │                                                            │◀── GET /download/<os>/<arch> ─│ 裝二進制
+   │                                                            │◀── POST /v1/connect ──────────│ 交接入碼
+   │                                                            │  校驗接入碼(一次性,15 分鐘)  │
+   │                                                            │  建 Device,綁到 Agent        │
+   │                                                            │─── 設備 id + 設備密鑰 ────────▶│ 寫 daemon.json
+   │                                                            │                               │ 裝開機自啓
+   │                                                            │◀══ WebSocket(設備密鑰)═══════│ daemon 上線
+   │  刷新:在線 · alice-mbp ◀─────────── GET /agents ──────────│                               │
 ```
 
-### 2.1 接入码
+### 2.1 接入碼
 
-| 性质 | 取值 | 为什么 |
+| 性質 | 取值 | 爲什麼 |
 |---|---|---|
-| 一次性 | 兑换后立刻作废 | 命令被别人看到也用不了第二次 |
-| 时效 | 15 分钟 | 截图、聊天记录里泄露的风险小 |
-| 绑定 | 一个 agent | 兑换只能把**这个** agent 接到**跑命令的这台电脑** |
-| 形态 | `ac_` + 128 位随机,hub 只存 sha256 | 数据库泄露也拿不到可用的码 |
+| 一次性 | 兌換後立刻作廢 | 命令被別人看到也用不了第二次 |
+| 時效 | 15 分鐘 | 截圖、聊天記錄裏泄露的風險小 |
+| 綁定 | 一個 agent | 兌換隻能把**這個** agent 接到**跑命令的這臺電腦** |
+| 形態 | `ac_` + 128 位隨機,hub 只存 sha256 | 數據庫泄露也拿不到可用的碼 |
 
-只有平台服务端能申请接入码,而平台只把它展示给 agent 的主人看。所以「谁能把电脑接成 alice-claude」最终由平台的登录态决定,hub 不需要自己的账号体系。
+只有平臺服務端能申請接入碼,而平臺只把它展示給 agent 的主人看。所以「誰能把電腦接成 alice-claude」最終由平臺的登錄態決定,hub 不需要自己的賬號體系。
 
 ### 2.2 install.sh
 
-hub 自己提供 `GET /install.sh`,内容固定、可读、不带任何秘密:
+hub 自己提供 `GET /install.sh`,內容固定、可讀、不帶任何祕密:
 
-1. 判断系统和架构(macOS / Linux,amd64 / arm64);
-2. 从 `GET /download/<os>/<arch>` 下载对应的 agentuse 二进制,校验 sha256,放到 `~/.agentuse/bin/agentuse`,并把这个目录加进 shell 的 `PATH`(agent 运行时要调 `agentuse reply`);
-3. 执行 `agentuse connect <hub 地址> <接入码> --dir "$PWD"`。
+1. 判斷系統和架構(macOS / Linux,amd64 / arm64);
+2. 從 `GET /download/<os>/<arch>` 下載對應的 agentuse 二進制,校驗 sha256,放到 `~/.agentuse/bin/agentuse`,並把這個目錄加進 shell 的 `PATH`(agent 運行時要調 `agentuse reply`);
+3. 執行 `agentuse connect <hub 地址> <接入碼> --dir "$PWD"`。
 
-`/download` 由 hub 从 GitHub Release 转发或重定向,也可以由运维指向内网镜像。已经装过的电脑,下载这一步跳过,只接入。
+`/download` 由 hub 從 GitHub Release 轉發或重定向,也可以由運維指向內網鏡像。已經裝過的電腦,下載這一步跳過,只接入。
 
-不想 `curl | sh` 的用户,可以自己装好二进制,直接跑第 3 步那条命令,效果一样。
+不想 `curl | sh` 的用戶,可以自己裝好二進制,直接跑第 3 步那條命令,效果一樣。
 
 ### 2.3 agentuse connect
 
@@ -80,26 +80,26 @@ hub 自己提供 `GET /install.sh`,内容固定、可读、不带任何秘密:
 agentuse connect https://agentuse.shop.example.com ac_7Hq2mX9pLw --dir ~/work/shop-api
 ```
 
-1. **检查前提**:`claude` 在不在、登没登录;`--dir` 是不是 git 仓库、有没有基准分支。不满足就停下,说清楚缺什么,接入码不消耗。
-2. **兑换**:`POST /v1/connect {code, device_name, os, dir, base_ref}`。hub 校验接入码、建 Device(或复用这台电脑已有的设备)、把 agent 绑到这台设备和目录,交回设备 id 和设备密钥。
-3. **写配置**:`~/.agentuse/daemon.json` 里加上这个 hub 和设备密钥(权限 0600)。同一台电脑接多个 agent、多个平台的 hub 时,都追加进这一个文件。
-4. **起 daemon**:macOS 写 launchd 的 `~/Library/LaunchAgents/dev.agentuse.daemon.plist`,Linux 写 `systemctl --user` 的 unit,然后启动。已经在跑就让它重读配置。
-5. **自检**:等 daemon 连上 hub,打印「已接入」。
+1. **檢查前提**:`claude` 在不在、登沒登錄;`--dir` 是不是 git 倉庫、有沒有基準分支。不滿足就停下,說清楚缺什麼,接入碼不消耗。
+2. **兌換**:`POST /v1/connect {code, device_name, os, dir, base_ref}`。hub 校驗接入碼、建 Device(或複用這臺電腦已有的設備)、把 agent 綁到這臺設備和目錄,交回設備 id 和設備密鑰。
+3. **寫配置**:`~/.agentuse/daemon.json` 里加上這個 hub 和設備密鑰(權限 0600)。同一臺電腦接多個 agent、多個平臺的 hub 時,都追加進這一個文件。
+4. **起 daemon**:macOS 寫 launchd 的 `~/Library/LaunchAgents/dev.agentuse.daemon.plist`,Linux 寫 `systemctl --user` 的 unit,然後啓動。已經在跑就讓它重讀配置。
+5. **自檢**:等 daemon 連上 hub,打印「已接入」。
 
-同一台电脑第二次接入(第二个 agent、另一个平台),设备密钥和 daemon 都复用,只是多绑一个 agent。
+同一臺電腦第二次接入(第二個 agent、另一個平臺),設備密鑰和 daemon 都複用,只是多綁一個 agent。
 
-### 2.4 断开与吊销
+### 2.4 斷開與吊銷
 
-| 场景 | 怎么做 |
+| 場景 | 怎麼做 |
 |---|---|
-| 不想用了 | 平台设置页删 agent;或在电脑上 `agentuse disconnect alice-claude` |
-| 换电脑 | 设置页「重新接入」拿新命令,在新电脑上跑;agent 搬到新设备,旧设备上的绑定失效 |
-| 电脑丢了 | 设置页吊销设备;这台设备的密钥立刻作废,绑在上面的 agent 变成未接入 |
-| 卸载 | `agentuse uninstall`:停 daemon、删开机自启、删 `~/.agentuse` |
+| 不想用了 | 平臺設置頁刪 agent;或在電腦上 `agentuse disconnect alice-claude` |
+| 換電腦 | 設置頁「重新接入」拿新命令,在新電腦上跑;agent 搬到新設備,舊設備上的綁定失效 |
+| 電腦丟了 | 設置頁吊銷設備;這臺設備的密鑰立刻作廢,綁在上面的 agent 變成未接入 |
+| 卸載 | `agentuse uninstall`:停 daemon、刪開機自啓、刪 `~/.agentuse` |
 
-## 3. 运维那一侧也要简单
+## 3. 運維那一側也要簡單
 
-既然 hub 是平台自己的实例,起它也应该像起 Redis:
+既然 hub 是平臺自己的實例,起它也應該像起 Redis:
 
 ```bash
 docker run -d -p 7700:7700 -v agentuse:/data \
@@ -110,15 +110,15 @@ docker run -d -p 7700:7700 -v agentuse:/data \
   ghcr.io/memory-co/agentuse hub
 ```
 
-- 单平台用环境变量就够,不用写 hub.json;多平台或细调策略时再写 hub.json,两者都支持。
-- `token_key` 不配就在第一次启动时自动生成并存进数据目录。
-- `AGENTUSE_PUBLIC_URL` 是用户电脑访问 hub 的地址,安装命令里用的就是它。
-- 不再有 `daemon_keys`:设备都是通过接入码自己登记的。
+- 單平臺用環境變量就夠,不用寫 hub.json;多平臺或細調策略時再寫 hub.json,兩者都支持。
+- `token_key` 不配就在第一次啓動時自動生成並存進數據目錄。
+- `AGENTUSE_PUBLIC_URL` 是用戶電腦訪問 hub 的地址,安裝命令裏用的就是它。
+- 不再有 `daemon_keys`:設備都是通過接入碼自己登記的。
 
 ## 4. 安全
 
-- **接入码**只经过平台服务端和平台的已登录页面,只给 agent 的主人看。
-- **设备密钥**只在兑换时交给 daemon 一次,存在用户电脑 `0600` 的文件里;平台永远看不到它,hub 只存哈希。
-- **install.sh** 只从 hub 自己的 TLS 地址下载,二进制校验 sha256;脚本内容公开、固定,用户可以先 `curl` 下来看。
-- **一台电脑被别人拿到**:吊销设备即可,不影响同一个人的其它设备和其它人。
-- agent 在电脑上的权限边界不变,见 [wake-and-trust.md](wake-and-trust.md)。
+- **接入碼**只經過平臺服務端和平臺的已登錄頁面,只給 agent 的主人看。
+- **設備密鑰**只在兌換時交給 daemon 一次,存在用戶電腦 `0600` 的文件裏;平臺永遠看不到它,hub 只存哈希。
+- **install.sh** 只從 hub 自己的 TLS 地址下載,二進制校驗 sha256;腳本內容公開、固定,用戶可以先 `curl` 下來看。
+- **一臺電腦被別人拿到**:吊銷設備即可,不影響同一個人的其它設備和其它人。
+- agent 在電腦上的權限邊界不變,見 [wake-and-trust.md](wake-and-trust.md)。

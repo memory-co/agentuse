@@ -1,10 +1,10 @@
 # attachments
 
-> 会话附件设计见 [designs/attachment](../designs/attachment.md)，表结构见 [tables/attachments](../tables/attachments.md)。
+> 會話附件設計見 [designs/attachment](../designs/attachment.md)，表結構見 [tables/attachments](../tables/attachments.md)。
 
-附件属于 session，创建后内容不可变，不关联某条 message。全部接口先校验会话权限，再校验附件属于这个会话。用户、admin、daemon 密钥、工作令牌的范围见设计文档；下面的下载路径也需要认证。
+附件屬於 session，創建後內容不可變，不關聯某條 message。全部接口先校驗會話權限，再校驗附件屬於這個會話。用戶、admin、daemon 密鑰、工作令牌的範圍見設計文檔；下面的下載路徑也需要認證。
 
-## attachment 对象
+## attachment 對象
 
 ```json
 {
@@ -22,11 +22,11 @@
 }
 ```
 
-`sha256` 是文件原始字节的 64 位小写十六进制摘要，示例值仅表示格式。`source` 为 `user` / `daemon` / `work`；`created_by` 是执行请求的用户身份，daemon 上传时为 daemon 主人，工作令牌上传时为工作主人。`daemon_id` 仅 daemon 来源且 daemon 仍存在时出现。`download_path` 是相对服务根路径，客户端拼接自己的服务地址，响应不包含磁盘路径或认证令牌。
+`sha256` 是文件原始字節的 64 位小寫十六進制摘要，示例值僅表示格式。`source` 爲 `user` / `daemon` / `work`；`created_by` 是執行請求的用戶身份，daemon 上傳時爲 daemon 主人，工作令牌上傳時爲工作主人。`daemon_id` 僅 daemon 來源且 daemon 仍存在時出現。`download_path` 是相對服務根路徑，客戶端拼接自己的服務地址，響應不包含磁盤路徑或認證令牌。
 
 ## POST /api/sessions/{id}/attachments
 
-`Content-Type: multipart/form-data; boundary=…`，恰好一个 `file` 字段，文件名取该 part 的 filename。可选文本字段 `filename` 覆盖展示文件名。用 `dk_` 时必须带当前执行的 `X-Agentuse-Run` 与 `X-Agentuse-Attempt` 请求头。重复字段、多个文件、未知字段、缺文件返回 400；空文件允许。
+`Content-Type: multipart/form-data; boundary=…`，恰好一個 `file` 字段，文件名取該 part 的 filename。可選文本字段 `filename` 覆蓋展示文件名。用 `dk_` 時必須帶當前執行的 `X-Agentuse-Run` 與 `X-Agentuse-Attempt` 請求頭。重複字段、多個文件、未知字段、缺文件返回 400；空文件允許。
 
 ```bash
 curl -H 'Authorization: Bearer ut_…' \
@@ -34,7 +34,7 @@ curl -H 'Authorization: Bearer ut_…' \
   https://agentuse.example.com/api/sessions/ss_xxx/attachments
 ```
 
-成功返回 201 和 attachment 对象，`Location` 指向元数据接口。上传不创建消息、不触发派活，session 的任何状态都允许用户或工作令牌上传；daemon 读取与上传受当前 run/attempt 和租约约束。大小和会话配额见设计，失败不产生可见附件。同一文件重传会创建新 id。
+成功返回 201 和 attachment 對象，`Location` 指向元數據接口。上傳不創建消息、不觸發派活，session 的任何狀態都允許用戶或工作令牌上傳；daemon 讀取與上傳受當前 run/attempt 和租約約束。大小和會話配額見設計，失敗不產生可見附件。同一文件重傳會創建新 id。
 
 ## GET /api/sessions/{id}/attachments
 
@@ -44,39 +44,39 @@ curl -H 'Authorization: Bearer ut_…' \
 { "attachments": [ { "id": "at_…", "session_id": "ss_…", "…": "…" } ], "next_cursor": null }
 ```
 
-按 `(created_at, id)` 升序。`limit` 默认 100，范围 1–100；`cursor` 为上一页返回的不透明游标，非法或跨会话游标返回 400。没有下一页时 `next_cursor` 为 null；空列表为 `[]`。分页不是快照，期间新增、删除可能改变列表，daemon 按本次取到的清单执行，下一轮重取。
+按 `(created_at, id)` 升序。`limit` 默認 100，範圍 1–100；`cursor` 爲上一頁返回的不透明遊標，非法或跨會話遊標返回 400。沒有下一頁時 `next_cursor` 爲 null；空列表爲 `[]`。分頁不是快照，期間新增、刪除可能改變列表，daemon 按本次取到的清單執行，下一輪重取。
 
 ## GET /api/sessions/{id}/attachments/{attachment_id}
 
-返回 200 和 attachment 对象。
+返回 200 和 attachment 對象。
 
 ## GET /api/sessions/{id}/attachments/{attachment_id}/content
 
-返回 200 和二进制原文，带 `Content-Length`、检测出的 `Content-Type`、`Content-Disposition: attachment`、`X-Content-Type-Options: nosniff`、`Cache-Control: private, no-store`。第一版不要求 Range / 断点续传，客户端校验完整大小和摘要。浏览器使用登录 cookie 下载；脚本带 Bearer token，不把令牌放在 URL。
+返回 200 和二進制原文，帶 `Content-Length`、檢測出的 `Content-Type`、`Content-Disposition: attachment`、`X-Content-Type-Options: nosniff`、`Cache-Control: private, no-store`。第一版不要求 Range / 斷點續傳，客戶端校驗完整大小和摘要。瀏覽器使用登錄 cookie 下載；腳本帶 Bearer token，不把令牌放在 URL。
 
 ## DELETE /api/sessions/{id}/attachments/{attachment_id}
 
-用户或本工作令牌可以删除，成功返回 204；不存在或已经删除返回 404。daemon 密钥调用返回 403。允许在会话执行中删除；已经下载到 daemon 的副本不会被远程删除。删除 session 或 work 会级联删除附件元数据并异步回收文件。
+用戶或本工作令牌可以刪除，成功返回 204；不存在或已經刪除返回 404。daemon 密鑰調用返回 403。允許在會話執行中刪除；已經下載到 daemon 的副本不會被遠程刪除。刪除 session 或 work 會級聯刪除附件元數據並異步回收文件。
 
-## 错误
+## 錯誤
 
-沿用 `{"error": "说明"}`；鉴权和参数验证失败时也不返回附件内容。
+沿用 `{"error": "說明"}`；鑑權和參數驗證失敗時也不返回附件內容。
 
-| 状态码 | 场景 |
+| 狀態碼 | 場景 |
 |---|---|
-| 400 | 文件名或 multipart 字段错误、游标错误、daemon 上传缺少 message_id |
-| 401 | 未认证、令牌/密钥失效、工作令牌过期 |
-| 403 | 身份不允许该操作，或工作令牌越出本工作 |
-| 404 | 会话不可见、附件不存在或不属于 URL 中的会话、daemon 不匹配 |
-| 409 | 会话的 daemon 未声明附件能力；daemon 的消息不在执行、租约失效；上传提交前会话被删除 |
-| 413 | 文件、请求体或会话总配额超限 |
-| 415 | 上传不是 multipart/form-data |
-| 500 | 文件写入失败、数据库提交失败、元数据存在但文件缺失 |
+| 400 | 文件名或 multipart 字段錯誤、遊標錯誤、daemon 上傳缺少 message_id |
+| 401 | 未認證、令牌/密鑰失效、工作令牌過期 |
+| 403 | 身份不允許該操作，或工作令牌越出本工作 |
+| 404 | 會話不可見、附件不存在或不屬於 URL 中的會話、daemon 不匹配 |
+| 409 | 會話的 daemon 未聲明附件能力；daemon 的消息不在執行、租約失效；上傳提交前會話被刪除 |
+| 413 | 文件、請求體或會話總配額超限 |
+| 415 | 上傳不是 multipart/form-data |
+| 500 | 文件寫入失敗、數據庫提交失敗、元數據存在但文件缺失 |
 
 ## 多 agent session
 
-multi_agent 空会话可以先上传文件，不要求先绑定 daemon。选执行目标时校验 daemon 附件能力。每次执行读取同一 session 当前附件列表。
+multi_agent 空會話可以先上傳文件，不要求先綁定 daemon。選執行目標時校驗 daemon 附件能力。每次執行讀取同一 session 當前附件列表。
 
-元数据增加可选 created_by_run_id、created_by_agent_key，用于标识产物来自哪个执行和 agent。普通用户上传不填它们；daemon 和新工作令牌的作者由服务推导。
+元數據增加可選 created_by_run_id、created_by_agent_key，用於標識產物來自哪個執行和 agent。普通用戶上傳不填它們；daemon 和新工作令牌的作者由服務推導。
 
-daemon 请求带 Bearer dk_ 及 X-Agentuse-Run、X-Agentuse-Attempt；新模式不再仅凭 message_id 授权。执行结束、取消或租约失效后，读取和上传都拒绝；其他会话/其他 daemon 的执行返回 404。
+daemon 請求帶 Bearer dk_ 及 X-Agentuse-Run、X-Agentuse-Attempt；新模式不再僅憑 message_id 授權。執行結束、取消或租約失效後，讀取和上傳都拒絕；其他會話/其他 daemon 的執行返回 404。

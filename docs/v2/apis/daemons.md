@@ -1,8 +1,8 @@
 # daemons
 
-用户的 daemon(一台电脑一个)。表结构见 [tables/daemons](../tables/daemons.md) 和 [tables/daemon_harnesses](../tables/daemon_harnesses.md),接入流程见 [designs/connect](../designs/connect.md)。
+用戶的 daemon(一臺電腦一個)。表結構見 [tables/daemons](../tables/daemons.md) 和 [tables/daemon_harnesses](../tables/daemon_harnesses.md),接入流程見 [designs/connect](../designs/connect.md)。
 
-## daemon 对象
+## daemon 對象
 
 ```json
 {
@@ -28,39 +28,39 @@
 }
 ```
 
-- `status`:`pending`(已添加、还没跑安装命令)/ `online` / `offline`。
-- `setup_token`、`setup_command` 只在 `pending` 时出现。命令里的服务地址取服务的 `-public-url`,没配就按请求的 Host(和 `X-Forwarded-Proto` / `X-Forwarded-Host`)推断。
-- `harnesses`:这台电脑上报过的 harness。`available` 是本机最近一次上报里有没有它，`enabled` 是用户有没有打开。只派给 `available && enabled` 的。
-- `last_seen_at` 没连过时为 `null`。
+- `status`:`pending`(已添加、還沒跑安裝命令)/ `online` / `offline`。
+- `setup_token`、`setup_command` 只在 `pending` 時出現。命令裏的服務地址取服務的 `-public-url`,沒配就按請求的 Host(和 `X-Forwarded-Proto` / `X-Forwarded-Host`)推斷。
+- `harnesses`:這臺電腦上報過的 harness。`available` 是本機最近一次上報裏有沒有它，`enabled` 是用戶有沒有打開。只派給 `available && enabled` 的。
+- `last_seen_at` 沒連過時爲 `null`。
 
 ## GET /api/daemons
 
-列出我的 daemon(admin 看所有人的),按创建时间排序。
+列出我的 daemon(admin 看所有人的),按創建時間排序。
 
 ## POST /api/daemons
 
-添加一台 daemon,生成安装命令。
+添加一臺 daemon,生成安裝命令。
 
 ```json
 { "name": "my-laptop" }
 ```
 
-请求体可以省略;`name` 为空时，注册时用电脑的主机名。返回 201 和 daemon 对象(`status` 为 `pending`)。
+請求體可以省略;`name` 爲空時，註冊時用電腦的主機名。返回 201 和 daemon 對象(`status` 爲 `pending`)。
 
 ## POST /api/daemons/{id}/reset
 
-重新生成安装命令：生成新的 `setup_token`,清掉原来的密钥，状态回到 `pending`,原来那台电脑的连接立即断开。返回 200 和 daemon 对象。
+重新生成安裝命令：生成新的 `setup_token`,清掉原來的密鑰，狀態回到 `pending`,原來那臺電腦的連接立即斷開。返回 200 和 daemon 對象。
 
 ## PUT /api/daemons/{id}/harnesses/{harness}
 
-开关这台 daemon 上的某个 harness。
+開關這臺 daemon 上的某個 harness。
 
 ```json
 { "enabled": true }
 ```
 
-只能开关 `harnesses` 列表里已有的(本机上报过的),否则 404。打开后，这个用户排队中的会话马上会派过来;关掉后，这个 harness 上排队中的会话直接失败(见 [sessions](sessions.md)),以它为运行时的 agent 也不能再开新会话，要先切换运行时。返回 200 和 daemon 对象。
+只能開關 `harnesses` 列表裏已有的(本機上報過的),否則 404。打開後，這個用戶排隊中的會話馬上會派過來;關掉後，這個 harness 上排隊中的會話直接失敗(見 [sessions](sessions.md)),以它爲運行時的 agent 也不能再開新會話，要先切換運行時。返回 200 和 daemon 對象。
 
 ## DELETE /api/daemons/{id}
 
-删除 daemon,返回 204。它的连接立即断开、密钥失效，绑定在它上面的会话不能再发消息，没回完的消息记为失败。
+刪除 daemon,返回 204。它的連接立即斷開、密鑰失效，綁定在它上面的會話不能再發消息，沒回完的消息記爲失敗。

@@ -1,69 +1,69 @@
-# Client 总览：以 harnessctl 为执行模型
+# Client 總覽：以 harnessctl 爲執行模型
 
-Server/client WebSocket 报文、字段和恢复规则见 [protocol.md](protocol.md)。
+Server/client WebSocket 報文、字段和恢復規則見 [protocol.md](protocol.md)。
 
-Client 从输入来源接收文本，选择本机 session，调用 harnessctl，并读取该 session 的 events.jsonl。执行身份只有适配器公布的 run_id；client 不预分配 run_id，也没有执行 attempt。Server 的业务编排和调度设计不在本文扩展。
+Client 從輸入來源接收文本，選擇本機 session，調用 harnessctl，並讀取該 session 的 events.jsonl。執行身份只有適配器公佈的 run_id；client 不預分配 run_id，也沒有執行 attempt。Server 的業務編排和調度設計不在本文擴展。
 
-## 五个 service
+## 五個 service
 
-| Service | 职责 | 文件来源 |
+| Service | 職責 | 文件來源 |
 |---|---|---|
-| endpointService | 提供输入来源及其身份；内置 local | endpoints.yaml 的启动快照 |
-| settingService | 本机监听、工作根目录和 quota | setting.yaml 的启动快照 |
-| sessionService | session 选择、占用、共同工作目录和回收 | conversation 下的 session.yaml |
-| runService | 接收输入、驱动 session、登记实际 run、查询和控制 | runs/<run_id>.jsonl 引用及 events.jsonl |
-| harnessService | 安装和固定适配器，通过 init 和四个交互命令执行、读取公共事件 | ~/.agentuse/harness/ 下的启动快照 |
+| endpointService | 提供輸入來源及其身份；內置 local | endpoints.yaml 的啓動快照 |
+| settingService | 本機監聽、工作根目錄和 quota | setting.yaml 的啓動快照 |
+| sessionService | session 選擇、佔用、共同工作目錄和回收 | conversation 下的 session.yaml |
+| runService | 接收輸入、驅動 session、登記實際 run、查詢和控制 | runs/<run_id>.jsonl 引用及 events.jsonl |
+| harnessService | 安裝和固定適配器，通過 init 和四個交互命令執行、讀取公共事件 | ~/.agentuse/harness/ 下的啓動快照 |
 
-controller 处理本机 HTTP，通过 sessionService 和 runService 的只读查询接口获取页面数据。各 service 直接管理自己负责的 YAML / JSONL 文件；client 不设 store、repository、Ledger 或统一 Reader / Writer 层。fileutil 只提供路径检查、原子文件写入、YAML 编解码和进程文件锁，不包含业务实体、索引或恢复策略。原生 Codex RPC、Claude stream-json、权限策略和进程生命周期全部属于独立 harnessctl 包，client 不实现另一套原生协议。
+controller 處理本機 HTTP，通過 sessionService 和 runService 的只讀查詢接口獲取頁面數據。各 service 直接管理自己負責的 YAML / JSONL 文件；client 不設 store、repository、Ledger 或統一 Reader / Writer 層。fileutil 只提供路徑檢查、原子文件寫入、YAML 編解碼和進程文件鎖，不包含業務實體、索引或恢復策略。原生 Codex RPC、Claude stream-json、權限策略和進程生命週期全部屬於獨立 harnessctl 包，client 不實現另一套原生協議。
 
 ```mermaid
 flowchart LR
-  local[local 输入] --> run[runService]
-  remote[server 输入适配边界] --> run
+  local[local 輸入] --> run[runService]
+  remote[server 輸入適配邊界] --> run
   run --> session[sessionService]
   run --> harness[harnessService]
   harness --> ctl[harnessctl send / reply / cancel / status]
   ctl --> events[session events.jsonl]
   events --> index[accepted UUID → runs 引用]
-  events --> view[run 详情 / 事件 / 用量]
+  events --> view[run 詳情 / 事件 / 用量]
   index --> view
-  view --> http[本机 API / 页面]
+  view --> http[本機 API / 頁面]
 ```
 
-## 代码和文件归属
+## 代碼和文件歸屬
 
 ```text
 client/internal/
-  cli/                    启动、配置装配、进程锁和 HTTP 启停
-  controller/             本机 API；分别注入 session / run 的只读查询接口
-  fileutil/               通用路径、原子写入、YAML 和文件锁
+  cli/                    啓動、配置裝配、進程鎖和 HTTP 啓停
+  controller/             本機 API；分別注入 session / run 的只讀查詢接口
+  fileutil/               通用路徑、原子寫入、YAML 和文件鎖
   service/
-    endpoint/             endpoints.yaml、endpoint 身份推导和注册
-    setting/              setting.yaml 的配置校验与启动快照
-    session/              conversation/session 元数据、目录、占用和 quota
-    run/                  原生 run 引用、事件查询、计量、执行和中心事件传输
-    harness/              独立适配器包的安装、命令调用和公共事件读取
+    endpoint/             endpoints.yaml、endpoint 身份推導和註冊
+    setting/              setting.yaml 的配置校驗與啓動快照
+    session/              conversation/session 元數據、目錄、佔用和 quota
+    run/                  原生 run 引用、事件查詢、計量、執行和中心事件傳輸
+    harness/              獨立適配器包的安裝、命令調用和公共事件讀取
 ```
 
-sessionService 直接读取 conversation.yaml / session.yaml，并决定 workspace 及目录回收。runService 直接创建 runs/<run_id>.jsonl，从 events.jsonl 形成展示视图；恢复索引和旧 server 交付记录也由 runService 负责。两者没有包级循环依赖。
+sessionService 直接讀取 conversation.yaml / session.yaml，並決定 workspace 及目錄回收。runService 直接創建 runs/<run_id>.jsonl，從 events.jsonl 形成展示視圖；恢復索引和舊 server 交付記錄也由 runService 負責。兩者沒有包級循環依賴。
 
-重启恢复时，runService 先通过 sessionService 查询未完成 session，把其 harness / revision / events 地址交给 harnessService 确认取消，再重建 run 引用及交付状态，最后由 sessionService 恢复元数据。harnessService 不扫描 conversation 目录或解释 session.yaml。
+重啓恢復時，runService 先通過 sessionService 查詢未完成 session，把其 harness / revision / events 地址交給 harnessService 確認取消，再重建 run 引用及交付狀態，最後由 sessionService 恢復元數據。harnessService 不掃描 conversation 目錄或解釋 session.yaml。
 
-quota 回收由 sessionService 负责；中心未确认事件是否保护目录，由 runService 提供判断。sessionService 不解析 .server/ 文件，fileutil 不承担目录保护策略。内存互斥锁协调并发文件操作，不保存另一套持久化事实。
+quota 回收由 sessionService 負責；中心未確認事件是否保護目錄，由 runService 提供判斷。sessionService 不解析 .server/ 文件，fileutil 不承擔目錄保護策略。內存互斥鎖協調併發文件操作，不保存另一套持久化事實。
 
-## 身份与生命周期
+## 身份與生命週期
 
-- endpoint 标识来源；local 永远存在，不需要注册配置。
-- conversation 是目录及共同 workspace 的归属，可以包含多个本机 session。
-- session 是一个固定 events.jsonl 地址及其原生上下文，client 的 session UUID 仅用于目录定位。
-- run 是 events.jsonl 中一个适配器分配的 UUID。一次输入得到哪个 run，由 accepted 决定。
-- input_id、request_id 同样由适配器公布。client 不用预先生成的标识替代它们。
+- endpoint 標識來源；local 永遠存在，不需要註冊配置。
+- conversation 是目錄及共同 workspace 的歸屬，可以包含多個本機 session。
+- session 是一個固定 events.jsonl 地址及其原生上下文，client 的 session UUID 僅用於目錄定位。
+- run 是 events.jsonl 中一個適配器分配的 UUID。一次輸入得到哪個 run，由 accepted 決定。
+- input_id、request_id 同樣由適配器公佈。client 不用預先生成的標識替代它們。
 
-send 可能继续当前 run，也可能产生新 run；调用者不选择 steer/queue。结果到来前可以继续 send 或针对 request_id reply。cancel 作用于 session 的当前工作和排队输入，不假装支持只取消某个 run。
+send 可能繼續當前 run，也可能產生新 run；調用者不選擇 steer/queue。結果到來前可以繼續 send 或針對 request_id reply。cancel 作用於 session 的當前工作和排隊輸入，不假裝支持只取消某個 run。
 
-local 和远端采用同一个 harnessService、公共事件格式、run 引用、读取和用量模型。差别仅在输入来源与额外的来源通信，不存在 local 专用的 run/attempt 账本。
+local 和遠端採用同一個 harnessService、公共事件格式、run 引用、讀取和用量模型。差別僅在輸入來源與額外的來源通信，不存在 local 專用的 run/attempt 賬本。
 
-## 文件布局
+## 文件佈局
 
 ```text
 ~/.agentuse/
@@ -72,68 +72,68 @@ local 和远端采用同一个 harnessService、公共事件格式、run 引用�
   harness/<name>/<revision>/...
   ui.token
   tmp/<endpoint_id>/<conversation_id>/
-    conversation.yaml                 # local 标题等命名信息
+    conversation.yaml                 # local 標題等命名信息
     workspace/                        # 此 conversation 所有 harness 的共同 cwd
     sessions/<session_id>/
       session.yaml
-      events.jsonl                    # 执行事实的唯一来源
-      events.jsonl.d/                 # 适配器私有目录，保持不变
-      runs/<adapter_run_uuid>.jsonl    # client 的引用，不复制执行正文
-      resources/<content>.history.json  # 仅实际需要的非空输入资源
+      events.jsonl                    # 執行事實的唯一來源
+      events.jsonl.d/                 # 適配器私有目錄，保持不變
+      runs/<adapter_run_uuid>.jsonl    # client 的引用，不復制執行正文
+      resources/<content>.history.json  # 僅實際需要的非空輸入資源
 ```
 
-不使用 client SQLite，也没有全局 run 扫描接口。列表限定在指定 endpoint/conversation/session。配置及适配器包不属于 quota 回收对象；quota 回收完整的空闲 conversation 目录。
+不使用 client SQLite，也沒有全局 run 掃描接口。列表限定在指定 endpoint/conversation/session。配置及適配器包不屬於 quota 回收對象；quota 回收完整的空閒 conversation 目錄。
 
-runs 文件名必须来自 accepted.run_id。文件内 reference 记录 session、来源和接入包等定位元数据；完整输入、正文、问题、结果、日志和计量从同一 session 的 events.jsonl 按该 UUID 读取。不保存 client 自建执行 UUID、attempt 或 harness_run_ids 二级映射。
+runs 文件名必須來自 accepted.run_id。文件內 reference 記錄 session、來源和接入包等定位元數據；完整輸入、正文、問題、結果、日誌和計量從同一 session 的 events.jsonl 按該 UUID 讀取。不保存 client 自建執行 UUID、attempt 或 harness_run_ids 二級映射。
 
-## 启动与退出
+## 啓動與退出
 
-1. 加载并校验 setting、endpoints、适配器包，固定为当前进程的快照。
-2. 取得 client 单进程锁，初始化受管目录及会话状态。
-3. 通过公开 harnessctl 命令确认遗留前台执行已清理；不能确认时拒绝释放目录。
-4. 转换旧记录，并扫描公共 accepted 事件重建缺失的 run 引用；不重放输入。
-5. 恢复 session 元数据，再开放 HTTP 和来源连接。
-6. 运行期间处理输入、结果、重连及固定 quota 的检查，不重新加载配置。
+1. 加載並校驗 setting、endpoints、適配器包，固定爲當前進程的快照。
+2. 取得 client 單進程鎖，初始化受管目錄及會話狀態。
+3. 通過公開 harnessctl 命令確認遺留前臺執行已清理；不能確認時拒絕釋放目錄。
+4. 轉換舊記錄，並掃描公共 accepted 事件重建缺失的 run 引用；不重放輸入。
+5. 恢復 session 元數據，再開放 HTTP 和來源連接。
+6. 運行期間處理輸入、結果、重連及固定 quota 的檢查，不重新加載配置。
 
-退出时停止接收，取消受管的活动 session 并等待清理。适配器决定其后台进程的空闲回收和原生上下文恢复。
+退出時停止接收，取消受管的活動 session 並等待清理。適配器決定其後臺進程的空閒回收和原生上下文恢復。
 
-本机 HTTP 关闭时，远端输入和执行不依赖页面端口。enabled=true 时监听失败会明确启动报错；需要不启动页面时设置 local_http.enabled=false 后重启。原生控制连接不借用本机 HTTP。
+本機 HTTP 關閉時，遠端輸入和執行不依賴頁面端口。enabled=true 時監聽失敗會明確啓動報錯；需要不啓動頁面時設置 local_http.enabled=false 後重啓。原生控制連接不借用本機 HTTP。
 
-## 本机 API
+## 本機 API
 
-所有接口使用本机 token / HttpOnly cookie。配置和平台输入来源在页面中只读；local 入口用来验证相同的 harnessctl 执行链路。文档见 /api/docs，OpenAPI 见 /api/openapi.json。
+所有接口使用本機 token / HttpOnly cookie。配置和平臺輸入來源在頁面中只讀；local 入口用來驗證相同的 harnessctl 執行鏈路。文檔見 /api/docs，OpenAPI 見 /api/openapi.json。
 
-| 方法 | 路径 | 含义 |
+| 方法 | 路徑 | 含義 |
 |---|---|---|
-| GET | /api/settings | 当前启动配置，只有一份值 |
-| GET | /api/endpoints | 固定的来源列表，不含凭据 |
-| GET | /api/harnesses | 启动时的适配器及可用性 |
-| GET | /api/local/harnesses | 同一份启动探测结果，不重新探测 |
-| GET | /api/status | 来源连接与占用 session 数 |
-| GET | /api/conversations?endpoint_id=… | 指定来源的 conversation |
-| GET | /api/conversations/{endpoint}/{conversation} | conversation 与 workspace 位置 |
+| GET | /api/settings | 當前啓動配置，只有一份值 |
+| GET | /api/endpoints | 固定的來源列表，不含憑據 |
+| GET | /api/harnesses | 啓動時的適配器及可用性 |
+| GET | /api/local/harnesses | 同一份啓動探測結果，不重新探測 |
+| GET | /api/status | 來源連接與佔用 session 數 |
+| GET | /api/conversations?endpoint_id=… | 指定來源的 conversation |
+| GET | /api/conversations/{endpoint}/{conversation} | conversation 與 workspace 位置 |
 | GET | 同上 /sessions | session 列表 |
-| GET | 同上 /sessions/{session} | session 元数据 |
-| GET | 同上 /sessions/{session}/status | harnessctl 公开的 state、run_id、queued、requests、cwd、model |
-| GET | 同上 /sessions/{session}/runs | 实际 adapter run 列表，含完整输入、正文、插话和结果；日志仅详情返回。支持 limit/cursor/status/since/until |
-| GET | 同上 /sessions/{session}/runs/{run} | 该 UUID 对应的完整公共事件及结果 |
-| GET | 同上 /sessions/{session}/usage | 汇总保留的实际 run 计量 |
-| POST | /api/local/conversations | 创建命名空间，body 为 title |
-| POST | /api/local/conversations/{conversation}/runs | 输入 harness、prompt 或 input；等待 accepted，返回真实 run |
-| POST | /api/local/conversations/{conversation}/sessions/{session}/{action} | action 为 send、reply、cancel |
+| GET | 同上 /sessions/{session} | session 元數據 |
+| GET | 同上 /sessions/{session}/status | harnessctl 公開的 state、run_id、queued、requests、cwd、model |
+| GET | 同上 /sessions/{session}/runs | 實際 adapter run 列表，含完整輸入、正文、插話和結果；日誌僅詳情返回。支持 limit/cursor/status/since/until |
+| GET | 同上 /sessions/{session}/runs/{run} | 該 UUID 對應的完整公共事件及結果 |
+| GET | 同上 /sessions/{session}/usage | 彙總保留的實際 run 計量 |
+| POST | /api/local/conversations | 創建命名空間，body 爲 title |
+| POST | /api/local/conversations/{conversation}/runs | 輸入 harness、prompt 或 input；等待 accepted，返回真實 run |
+| POST | /api/local/conversations/{conversation}/sessions/{session}/{action} | action 爲 send、reply、cancel |
 
-send body 为 prompt，返回此次 accepted 对应的 run，可能与先前相同；reply body 为 request_id、answer，answer 使用原生公共协议的字符串或 JSON 对象；cancel body 为 {}，确认 session 前台工作停止后返回。空闲 session 可以再次 send。失败发生在 accepted 之前时直接返回错误，不伪造 run。
+send body 爲 prompt，返回此次 accepted 對應的 run，可能與先前相同；reply body 爲 request_id、answer，answer 使用原生公共協議的字符串或 JSON 對象；cancel body 爲 {}，確認 session 前臺工作停止後返回。空閒 session 可以再次 send。失敗發生在 accepted 之前時直接返回錯誤，不僞造 run。
 
-## Server 事件传输
+## Server 事件傳輸
 
-Server 与 client 使用 harnessctl-events-v2。Server 下发输入分配，client 用同一 harnessctl 执行路径处理；accepted 回报实际 run UUID，五种公共事件原样上传。Server 准备业务上下文和协调者规则，client 不据凭据推断角色。
+Server 與 client 使用 harnessctl-events-v2。Server 下發輸入分配，client 用同一 harnessctl 執行路徑處理；accepted 回報實際 run UUID，五種公共事件原樣上傳。Server 準備業務上下文和協調者規則，client 不據憑據推斷角色。
 
-输入收据、源 ACK 游标和控制收据位于 session/.server/；执行事实仍只在 events.jsonl，不再有旧版 run/attempt、租约或结果汇总层。详见 client-run.md。
+輸入收據、源 ACK 遊標和控制收據位於 session/.server/；執行事實仍只在 events.jsonl，不再有舊版 run/attempt、租約或結果彙總層。詳見 client-run.md。
 
-配置修改一律重启生效。运行中任务输入、答案、取消和来源重连属于正常运行行为，不是配置热更新。
+配置修改一律重啓生效。運行中任務輸入、答案、取消和來源重連屬於正常運行行爲，不是配置熱更新。
 
-## Server Agent 版本接入（已实现）
+## Server Agent 版本接入（已實現）
 
-Server 的 agentService/skillService 分别发布不可变版本，输入只关联固定的 agent_version_id 和 skill 包版本。runService 下载、校验并解包；sessionService 按 agent 版本选择独立 session/events，继续使用同 conversation 的 workspace；harnessService 将准备好的资源交给 init/send。旧版本输入和执行不跟随最新配置变化，local 也走相同版本快照和初始化流程。详见 [server-agent.md](server-agent.md)、[client-session.md](client-session.md) 和 [版本化通信字段](protocol.md#agent-versioning)。
+Server 的 agentService/skillService 分別發佈不可變版本，輸入只關聯固定的 agent_version_id 和 skill 包版本。runService 下載、校驗並解包；sessionService 按 agent 版本選擇獨立 session/events，繼續使用同 conversation 的 workspace；harnessService 將準備好的資源交給 init/send。舊版本輸入和執行不跟隨最新配置變化，local 也走相同版本快照和初始化流程。詳見 [server-agent.md](server-agent.md)、[client-session.md](client-session.md) 和 [版本化通信字段](protocol.md#agent-versioning)。
 
-本地启动 run 的请求可带 `model`、`agent_instructions` 和 `skill_packages`（本机 ZIP 绝对路径数组）。runService 对配置和 ZIP 内容摘要生成稳定的本地 agent_version_id；相同内容复用绑定，内容变化创建新 session。前端“初始化配置”提供对应输入，远端任务则完全采用 server 固定的版本资源。
+本地啓動 run 的請求可帶 `model`、`agent_instructions` 和 `skill_packages`（本機 ZIP 絕對路徑數組）。runService 對配置和 ZIP 內容摘要生成穩定的本地 agent_version_id；相同內容複用綁定，內容變化創建新 session。前端“初始化配置”提供對應輸入，遠端任務則完全採用 server 固定的版本資源。
