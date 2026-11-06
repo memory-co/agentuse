@@ -4,7 +4,7 @@
 <g font-family="sans-serif"><text x="50" y="48" font-size="25" fill="#0f172a">消息 → 輸入分配 → 適配器 Run → 原樣事件</text>
 <rect x="50" y="80" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="113" font-size="20" fill="#1d4ed8">1. HTTP message</text><text x="75" y="149" font-size="17" fill="#334155">驗證身份與 conversation 權限；保存一條共享消息。</text>
 <path d="M550 180v20" stroke="#64748b" stroke-width="2"/>
-<rect x="50" y="205" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="238" font-size="20" fill="#1d4ed8">2. run_prompts</text><text x="75" y="274" font-size="17" fill="#334155">每個 @agent 一條輸入分配；尚無 run UUID。</text>
+<rect x="50" y="205" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="238" font-size="20" fill="#1d4ed8">2. run_inputs</text><text x="75" y="274" font-size="17" fill="#334155">每個 @agent 一條輸入分配；尚無 run UUID。</text>
 <path d="M550 305v20" stroke="#64748b" stroke-width="2"/>
 <rect x="50" y="330" width="1000" height="100" rx="12" fill="white" stroke="#cbd5e1"/><text x="75" y="363" font-size="20" fill="#1d4ed8">3. claim → prompt</text><text x="75" y="399" font-size="17" fill="#334155">按設備上報的容量領取；server 準備上下文、附件與業務指令。</text>
 <path d="M550 430v20" stroke="#64748b" stroke-width="2"/>

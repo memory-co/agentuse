@@ -16,7 +16,7 @@
 <text x="690" y="332" font-size="16">UUID 來自適配器 accepted.run_id</text>
 <text x="690" y="367" font-size="16">同一 UUID 可以接受多條輸入；結果來自 result</text>
 <rect x="35" y="490" width="500" height="155" rx="12" fill="#ecfdf5" stroke="#94a3b8"/>
-<text x="60" y="526" font-size="22">run_prompts</text>
+<text x="60" y="526" font-size="22">run_inputs · send</text>
 <text x="60" y="562" font-size="16">一條 message × 一個目標 agent</text>
 <text x="60" y="597" font-size="16">先入隊，accepted 後綁定 run_id / input_id</text>
 <rect x="665" y="490" width="500" height="155" rx="12" fill="#fffbeb" stroke="#94a3b8"/>

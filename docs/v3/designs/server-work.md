@@ -6,6 +6,8 @@
 
 workService 將多個 conversation 組織成一項工作。一個 work 有一個協調 conversation、一個協調 agent 和若干線程 conversation。它複用 conversationService/runService 的對話與任務模型，不引入另一種執行實體。
 
+彙總只考慮 kind=send 的 run_inputs：rejected 可直接計為失敗，applied 須等對應 run 的原生終態；pending、sent、unknown 或尚無 run 歸屬的 applied 都不能視為完成。reply/cancel 不增加訊息的執行目標數。
+
 ## 操作與協作
 
 | 操作 | 行爲 |
@@ -13,10 +15,10 @@ workService 將多個 conversation 組織成一項工作。一個 work 有一個
 | 創建 work | 通過 agentService 校驗協調 agent，通過 conversationService 創建協調 conversation；在同一事務建立關聯 |
 | 創建線程 | 以工作範圍權限調用 conversationService 創建關聯 work_id 的 conversation |
 | 修改配置 | 維護名稱、說明和協調 agent；忙碌時拒絕不安全的執行選擇變更 |
-| 彙總結果 | 在最終回覆已由 conversationService 保存後，檢查原消息給所有目標的 run_prompts 是否完成；將彙總作爲消息發到協調 conversation |
+| 彙總結果 | 在最終回覆已由 conversationService 保存後，檢查原訊息對各目標的 send 輸入與對應 run 是否已結束；將彙總作爲消息發到協調 conversation |
 | 刪除 work | 檢查相關任務空閒，再經 conversationService 刪除所屬對話及 work 數據 |
 
-彙總使用 run_notifications 去重：記錄“該線程消息已彙報”與向協調 conversation 發彙總消息，必須在同一事務完成。不能只收到 run 結束事件就彙總，因爲最終回覆可能還沒消費入庫；需要等回覆落庫通知，並能通過持久化消息/run_prompts 掃描補償。
+彙總使用 run_notifications 去重：記錄“該線程消息已彙報”與向協調 conversation 發彙總消息，必須在同一事務完成。不能只收到 run 結束事件就彙總，因爲最終回覆可能還沒消費入庫；需要等回覆落庫通知，並能通過持久化消息/run_inputs 掃描補償。
 
 ## Agent 版本銜接（目標）
 
@@ -26,7 +28,7 @@ Work 說明和協調者業務規則仍由 server 隨輸入準備，不混入可�
 
 ## 工作令牌
 
-領取輸入時簽發限定 work/prompt 的令牌；此時實際 run 可能還不存在。每次使用檢查輸入狀態爲 sent 或 accepted，以及 work 範圍。輸入完成後授權失效，不把令牌當作長期用戶身份。
+領取輸入時簽發限定 work/input 的令牌；此時實際 run 可能還不存在。每次使用檢查輸入為 kind=send、傳輸狀態為 sent/applied、對應 run 尚未終止，以及 work 範圍。回報 accepted 前可用固定輸入授權；對應 run 結束或輸入被拒絕後授權失效，不把令牌當作長期用戶身份。
 
 協調者職責、派活規則及工作說明由 server 在領取輸入時組織到 Instructions，再隨任務下發。只有協調 conversation 當前指定的協調 agent 獲得協調者指令；線程和其他 agent 只收到共享工作說明。client 不根據 WorkToken 推斷角色或生成協調策略，只透傳憑據和已準備的指令。
 
@@ -55,13 +57,13 @@ CREATE INDEX works_user
 
 ### work_run_tokens
 
-令牌只存哈希，綁定 work 和輸入分配 prompt_id；實際有效性由 run_prompts.status 檢查。
+令牌只存哈希，綁定 work 和輸入分配 run_input_id；有效性結合 send 輸入的傳輸狀態及對應 runs.status 檢查，不能把 applied 當作執行完成。
 
 ```sql
 CREATE TABLE work_run_tokens (
     token_hash TEXT PRIMARY KEY,
     work_id TEXT NOT NULL,
-    prompt_id INTEGER NOT NULL
+    run_input_id INTEGER NOT NULL
 );
 ```
 

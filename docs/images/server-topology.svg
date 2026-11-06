@@ -21,12 +21,12 @@
 <text x="368" y="296" font-size="15" fill="#475569">接收結果並保存回覆</text>
 <rect x="700" y="190" width="305" height="130" rx="12" fill="#eef2ff" stroke="#cbd5e1"/>
 <text x="718" y="219" font-size="19" fill="#0f172a" font-weight="600">runService</text>
-<text x="718" y="248" font-size="15" fill="#475569">runs / run_prompts / events</text>
+<text x="718" y="248" font-size="15" fill="#475569">runs / run_inputs / events</text>
 <text x="718" y="272" font-size="15" fill="#475569">輸入分配、固定版本、執行事實</text>
 <text x="718" y="296" font-size="15" fill="#475569">接收標準結果與問題</text>
 <path d="M655 230 H700" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
 <path d="M700 290 H655" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#a)"/>
-<text x="370" y="365" font-size="17" fill="#3730a3">message ↔ run_prompts ↔ run：N:M</text>
+<text x="370" y="365" font-size="17" fill="#3730a3">message ↔ run_inputs ↔ run：N:M</text>
 <rect x="350" y="405" width="305" height="80" rx="12" fill="#f1f5f9" stroke="#cbd5e1"/>
 <text x="368" y="434" font-size="19" fill="#0f172a" font-weight="600">userService</text>
 <text x="368" y="463" font-size="15" fill="#475569">身份、角色、令牌</text>

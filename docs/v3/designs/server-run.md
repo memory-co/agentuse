@@ -1,132 +1,180 @@
-# runService：輸入分配與執行事實
+# runService：輸入、執行與事件
 
-完整 WebSocket 報文、字段和恢復規則見 [protocol.md](protocol.md)。
+> 本文是配合 [protocol-v2.md](protocol-v2.md) 的精簡目標設計，尚未據此修改程式或資料庫。現行實作仍使用 run_prompts、run_requests、run_controls；現行通信見 [protocol.md](protocol.md)。下列 SQL 是目標結構，不是已部署的 migration。
 
-Server 分配輸入，client 執行並報告事實。**run_id 只由適配器的 accepted 事件產生**。Server 不生成執行 UUID，不創建 attempt、租約或原生執行狀態，也不推斷一次輸入應該 start、steer 還是 queue。
+runService 只管理三張表：
 
-## 消息、輸入與 Run
+| 表 | 保存什麼 |
+|---|---|
+| run_inputs | Server 要交給 Client 的輸入：send、reply、cancel |
+| runs | 適配器實際產生的一次交互，以及便於查詢的狀態投影 |
+| run_events | Client 上報的五種公共事件，保留來源位置供恢復與去重 |
 
-一條消息 @ 兩個 agent，先寫兩條 run_prompts，此時 run_id 爲空，HTTP 返回 deliveries，runs 可以爲空。領取成功表示輸入已交付，不等於適配器已接受。
+**輸入是 Server 的要求，run 是適配器的執行事實，事件是這個事實的來源。** 不再為問題、回答和取消各建一套表。
+
+## 一、message 與 run 如何連接
+
+使用者訊息 @ 幾個 agent，就建立幾條 `kind=send` 的 run_inputs。每條保存面向該 agent 的正文副本，並固定 agent_version_id；這時還沒有 run_id。
 
 ```text
-M1 @coder @reviewer → P1、P2（pending）
-client 領取 P1 → P1.sent
-accepted(run_id=R1,input_id=I1) → 建 R1，P1 綁定 R1/I1
-M2 @coder → P3 → client 再次 send
-accepted(run_id=R1,input_id=I2) → P3 也綁定 R1：真實插話
-或 accepted(run_id=R3,input_id=I2) → 建 R3：真實排隊
+M1 @coder @reviewer → I1、I2
+Client 領取 I1，呼叫 harnessctl send
+accepted(run_id=R1, input_id=A1) → 建立 R1，I1 綁定 R1/A1
+M2 @coder → I3 → 再次 send
+accepted(run_id=R1, input_id=A2) → 同一次交互的補充輸入
+accepted(run_id=R2, input_id=A2) → 適配器安排了下一次交互
 ```
 
-一個 message 對多個 run，一個 run 可以消費多條 message。關係以 accepted 爲準，不根據“上一個 run 尚未結束”提前合併。first_message_id 來自該 UUID 第一條 accepted 對應的消息。輸入分配 ID 只用於傳輸關聯，不是另一個執行身份。
+後兩行是兩種可能結果，不會同時發生。只有適配器能決定實際歸屬；Server 不根據「前一個 run 還在跑」提前合併。
 
-## Agent 版本關聯
+message 與 run 的 N:M 關係，由 `kind=send` 的 run_inputs 連接。run_inputs.id 是 Server 輸入分配標識，adapter_input_id 是 accepted.input_id；兩者都不是另一個 run UUID。
 
-當前實現及 SQL 見後文；部署需 server/client 同步升級。版本定義見 [agentService](server-agent.md)。
+runs.id 只採用 accepted.run_id。first_message_id 取該 run 第一條 accepted 對應的 message；messages 仍只回覆 message，不增加 run_id。
 
-| 數據 | 固定關聯 | 固定時機 |
-|---|---|---|
-| run_prompts | agent_version_id | 保存消息併爲目標建立輸入時，與消息在同一事務固定當前版本 |
-| runs | agent_version_id | 第一條 accepted 從對應 prompt 複製；同 run 後續輸入只能來自相同版本 |
+## 二、回答與取消也是輸入
 
-兩列均爲非空版本 UUID，不存可變化的 latest，不冗餘名稱或版本配置。Agent 版本指向固定 device/harness/model/指令；agentService 擁有關聯，skillService 提供其固定 skill_versions 的元數據和下載授權。顯示版本號時關聯 agent_versions 查詢。
+三種輸入共用同一個領取、回執和恢復流程：
 
-Claim 使用固定版本生成 dispatch，不在領取時再查當前 head。重連仍重發原 dispatch。下行增加 agent_version_id、model、agent_instructions 和 skill 包版本清單，詳情見 [protocol.md 的版本字段](protocol.md#agent-versioning)。Server 只准備版本化業務資源，不生成 harness 命令。
+| kind | message_id | run_id | payload | Client 行為 |
+|---|---|---|---|---|
+| send | 必填 | accepted 前為空，之後固定 | content、固定版本 config、檔案描述 | 新 session 先 init，再 send |
+| reply | 空 | 已存在的目標 run | request_id、answer | 核對問題歸屬，再 reply |
+| cancel | 空 | 已存在的目標 run | 空物件 | 核對該 run 尚未結束，再 cancel |
 
-Client 活動流必須按 conversation/agent/agent_version 匹配；容量不足時，新版本不能因爲舊 agent 仍在執行就被當成可插話輸入。新版使用新 session/events 並 init，舊版本可以繼續完成。同一個 native run UUID 不能接收跨 agent_version 的輸入；server 校驗業務版本歸屬，不替適配器決定實際 run UUID。
+reply/cancel 不會建立新 run，也不建立一條假的使用者聊天訊息。target 中的 client_session_id 由既有 run 取得，不在輸入表再保存一份。
 
-最終 agent 回覆同時記錄 author_agent_id 與 author_agent_version_id，仍通過 reply_to_message_id 回覆首條 message，messages 不增加 run_id。具體目標消息結構見 [conversationService](server-conversation.md)。
+run_inputs 的 status 只描述傳輸：pending、sent、applied、rejected、unknown。它不複製 runs 的 running/completed 等執行狀態。
 
-## 與其他 Service 的關係
+- pending/sent：等待領取，或已交付而尚無確定回執；重送沿用同一 id。
+- applied：本地操作已受理；send 的 run/input 關聯仍以 accepted 為準。
+- rejected：可證明未受理，例如 init 前的資源準備失敗；只記錄該輸入失敗，不虛構 run。
+- unknown：可能已受理，停止自動重送，等待公共事件或人工處理。
 
-conversationService 保存共享歷史並建立輸入分配；agentService 提供執行設備和 harness 標籤；skillService 管獨立的技能包版本；deviceService 管連接和上報能力。runService 在領取時準備共享歷史、附件引用和業務指令。workService 提供工作說明、協調規則和授權。所有這些都是 server 業務，client 不推斷角色。
+回答送達不代表問題已回覆，取消送達也不代表 run 已取消。request/result 事件才決定實際狀態。延遲抵達的 cancel 不能取消同一 session 的下一次 run。
 
-Client 的 harnessService 管適配器 YAML、進程、原生協議、hook、skill、自動授權及插話策略。Server 不導入這些實現，不保存全局 harness 配置。設備上報的名稱、版本、revision 用作選擇和歷史展示。
+## 三、問題直接從事件讀取
 
-## WebSocket 協議
+不再建立 run_requests。request 事件已包含 request_id、kind、state、message、questions 和答案；查詢同一 run/request_id 最後一條 request 事件，就是目前的問題快照。
 
-版本爲 harnessctl-events-v2，舊協議不能接入。hello 報告可用 harness；claim 帶空閒 session 數和仍可接收輸入的 conversation/agent，server 返回 prompt 或 no_task。
+收到使用者回答時，在交易內確認最後狀態仍為 pending，再插入一條 reply 輸入。若同 request_id 已有非 rejected 的 reply 輸入，就拒絕再次提交；applied 也須等 request 事件確認，不能因傳輸完成就接受另一份答案。適配器之後仍可能回報 expired 或拒絕答案，Server 如實展示，不先把問題改成 replied。
 
-下行 prompt 包含分配 ID、conversation、message、agent、harness 標籤、準備好的文本、共享上下文及附件引用；不含原生命令或 attempt。補充輸入仍是 prompt。reply 攜帶 request_id 與不透明 JSON answer；cancel 針對 client session，並攜帶目標 run_id 防止延遲取消作用於後續交互。
+request 事件更新 runs 的 waiting/running 投影；result 決定 completed/failed/cancelled。新輸入、傳輸回執及設備斷線都不能覆蓋已確認的執行終態。
 
-上行 event 包含 conversation、agent、client session、實際 harness/revision、源 JSONL 行結束字節偏移，以及完整公共事件。accepted 額外關聯 prompt_id。Server 原樣保存公共事件，不把原生工具幀轉換成業務類型。
+## 四、固定版本與通信邊界
 
-| 公共類型 | Server 行爲 |
-|---|---|
-| accepted | 驗證輸入分配歸屬，按適配器 UUID 建 run，綁定 input_id |
-| message | 保存正文事件，供執行詳情讀取 |
-| request | 保存完整請求快照及 pending/replied/expired 狀態；不解釋原生權限工具 |
-| result | 保存 completed/failed/cancelled、input_ids、輸出、錯誤、用量和費用原文；投影 run 與輸入終態 |
-| log | 保存可觀測事件；允許在 accepted 之前出現，不據日誌猜測狀態 |
+保存 message 和 send 輸入時，在同一交易固定 agent_version_id、agent_id 與交付 device。新 Agent 版本不改舊輸入，Client 按版本選擇新 session/events；同一 run 不接受跨 Agent 版本的輸入。
 
-請求答案由 client/適配器解釋。控制命令送達確認不等於 request 已 replied；必須等待 client 的 request 事件。取消 HTTP 成功只表示已排入控制隊列，run 保持原狀，直到 client 報告 result。
+入隊時保存目標 agent 的正文副本。首次 pull 在原行 payload 補齊 Server 組織的上下文、固定 config、Work 授權和檔案描述，並同時標記 sent；之後 payload 不再改動，不另存一份 dispatch。
 
-Server 校驗身份、路由、事件格式、UUID、輸入集合及重複記錄一致性；不接受跨設備、跨 agent 或重新綁定輸入。結果的 input_ids 必須覆蓋該 run 已接受的輸入。執行輸出及終態以 client 爲準。
+Client 只接收準備好的正文與版本資源，不推斷協調者角色。原生 RPC、hook、權限策略、插話或排隊都在 Client 的 harnessService/適配器內處理。
 
-## 斷線、恢復與回覆
+網路使用 pull/report：每條 command 直接對應一條 run_inputs，統一採用 `i:<run_inputs.id>` 作為 command_id。send、reply、cancel 不再各自擁有控制記錄和 ACK 流程。具體報文見 [protocol-v2.md](protocol-v2.md)。
 
-Client 以 events.jsonl 爲持久化 outbox，一次發送完整行，只有 server 提交後收到 event_ack 才推進源字節遊標。Server 以 device/client_session/event_seq 唯一鍵處理重放；同偏移不同內容拒絕。結果重放不會重複生成 assistant 消息或 Work 彙報。
+## 五、事件保存與恢復
 
-斷線只改變設備在線狀態，不補造 failed/cancelled，不重新分配正在執行的輸入。首次領取保存準備好的 dispatch 快照，重連不重新組織上下文或簽發令牌。重連重送相同分配 ID 與未確認控制命令；client 使用輸入收據去重，絕不因重連重新 send。未被適配器接受的失敗以 prompt_error 報告，只失敗該輸入，不僞造 run。失敗通知同樣等待 server 提交確認；確認前保留輸入收據和所屬目錄。
+run_events 保存 accepted、message、request、result、log；payload 使用原始公共事件 JSON。run_id 允許為空，以容納不屬於任何 run 的 log。來源綁定一旦建立，device/client_session 不可改綁 conversation、Agent 或版本。
 
-原生 result 與 assistant 回覆在同一事務內保存。回覆通過 reply_to_message_id 指向 first_message_id，messages 不以 run_id 建關係。run.result_message_id 只是內部去重關聯。cancelled 不新增 assistant 回覆。
+事件依 `(device_id, client_session_id, source_pos)` 唯一。相同位置重送時核對內容；不同內容拒絕。每個來源已提交的最大 source_pos 就是 ACK，不另建遊標表。已提交事件隨 conversation 整體清理，在此之前保留來源位置與內容，確保 ACK 單調並能校驗重送。
 
-## 表結構
+log 可以不上傳。只有實際保存的事件才推進 Server ACK；尾端被略過的 log 不需要確認，也不保護目錄。Client 恢復後重新掃過這些 log 即可，不增加另一份持久化掃描遊標。
 
-以下爲當前執行層實際 SQL。物理 session_id 指 server conversation，daemon_id 指 device；公共 API 的 /sessions、/daemons 及舊元數據命名尚未整體更名。client_session_id 纔是本地原生會話。message_id 目前仍爲 INTEGER；消息 UUID 和舊附件鏈路遷移屬於獨立的元數據設計，不能把本文當作已經完成它們。新執行表沒有數據庫外鍵。
+report 在同一交易內保存回執、事件、runs 投影和最終 conversation 回覆，提交後才確認。原生結果中的 output/error/usage/cost 保留在 runs.result 的完整 JSON 投影，不再拆出多份結果欄位。
+
+accepted 同時將對應 send 輸入標記 applied 並綁定 run/input。result.input_ids 只核對該 run 的 send 輸入集合，reply/cancel 不計入其中。
+
+結果回覆以 reply_to_message_id 指向 first_message_id；runs.result_message_id 記錄已建立的回覆，事件重送不重複追加。cancelled 不新增最終 assistant 回覆。設備離線不製造 result，也不將不確定輸入改派其他設備。
+
+## 六、表結構
+
+時間使用 Unix 秒，JSON 使用 TEXT，所有關聯由 service 檢查，不使用資料庫外鍵。conversation/message 使用 v3 目標 UUID；run_inputs 的整數 id 只用於傳輸與排序。
+
+### run_inputs
 
 ```sql
--- A prompt is a server-side message delivery, not an execution.
-CREATE TABLE IF NOT EXISTS run_prompts (
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- session_id TEXT NOT NULL, message_id INTEGER NOT NULL,
- agent_id TEXT NOT NULL, agent_version_id TEXT NOT NULL, daemon_id TEXT NOT NULL, harness TEXT NOT NULL,
- content TEXT NOT NULL, dispatch TEXT, status TEXT NOT NULL DEFAULT 'pending',
- run_id TEXT NOT NULL DEFAULT '', input_id TEXT NOT NULL DEFAULT '',
- client_session_id TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
- created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
- UNIQUE(message_id,agent_id)
+CREATE TABLE run_inputs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL,
+    message_id TEXT,
+    agent_id TEXT NOT NULL,
+    agent_version_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('send','reply','cancel')),
+    run_id TEXT,
+    adapter_input_id TEXT,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending','sent','applied','rejected','unknown')),
+    error TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    CHECK((kind='send' AND message_id IS NOT NULL)
+        OR (kind IN ('reply','cancel') AND message_id IS NULL AND run_id IS NOT NULL))
 );
-CREATE INDEX IF NOT EXISTS prompts_dispatch ON run_prompts(daemon_id,status,id);
-CREATE INDEX IF NOT EXISTS prompts_run ON run_prompts(run_id,input_id);
--- IDs and terminal facts come exclusively from authenticated client reports.
-CREATE TABLE IF NOT EXISTS runs (
- id TEXT PRIMARY KEY, session_id TEXT NOT NULL, first_message_id INTEGER NOT NULL,
- agent_id TEXT NOT NULL, agent_version_id TEXT NOT NULL, daemon_id TEXT NOT NULL, client_session_id TEXT NOT NULL,
- harness TEXT NOT NULL, harness_revision TEXT NOT NULL,
- status TEXT NOT NULL DEFAULT 'running', result_message_id INTEGER,
- output TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
- result TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS runs_conversation ON runs(session_id,created_at,id);
-CREATE TABLE IF NOT EXISTS run_events (
- id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
- client_session_id TEXT NOT NULL, run_id TEXT NOT NULL DEFAULT '',
- agent_id TEXT NOT NULL, agent_version_id TEXT NOT NULL, daemon_id TEXT NOT NULL,
- event_seq INTEGER NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL,
- created_at INTEGER NOT NULL, UNIQUE(daemon_id,client_session_id,event_seq)
-);
-CREATE TABLE IF NOT EXISTS run_requests (
- request_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, run_id TEXT NOT NULL,
- client_session_id TEXT NOT NULL, daemon_id TEXT NOT NULL,
- payload TEXT NOT NULL, state TEXT NOT NULL, answer TEXT,
- answered_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS run_controls (
- id TEXT PRIMARY KEY, session_id TEXT NOT NULL, client_session_id TEXT NOT NULL,
- run_id TEXT NOT NULL, daemon_id TEXT NOT NULL, kind TEXT NOT NULL, request_id TEXT NOT NULL DEFAULT '',
- answer TEXT, state TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '',
- created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS work_run_tokens (
- token_hash TEXT PRIMARY KEY, work_id TEXT NOT NULL, prompt_id INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS run_notifications (message_id INTEGER PRIMARY KEY);
+CREATE INDEX run_inputs_dispatch ON run_inputs(device_id, status, id);
+CREATE INDEX run_inputs_run ON run_inputs(run_id, kind, id);
+CREATE UNIQUE INDEX run_inputs_message_agent
+    ON run_inputs(message_id, agent_id) WHERE kind='send';
 ```
 
-run_prompts 狀態爲 pending/sent/accepted/completed/failed/cancelled；runs 只有真實執行的 running/waiting/completed/failed/cancelled。run_events.payload 和 runs.result 保存公共事件原文。run_requests 保存最新公共請求快照；run_controls 是待傳輸控制命令，不是執行事件。
+adapter_input_id 只在 send 的 accepted 到來後填入；kind、目標版本、交付設備及已公佈的 run/input 歸屬都不改綁。created_by 保存觸發輸入的使用者或業務作者標識，供回答及取消審計，並不改變原 message 的作者。
 
-work_run_tokens 綁定輸入分配，而不是尚不存在的 run；有效性由輸入狀態檢查。run_notifications 保證同一線程消息只彙報一次。
+### runs
 
-## 升級
+```sql
+CREATE TABLE runs (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    first_message_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    agent_version_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    client_session_id TEXT NOT NULL,
+    harness TEXT NOT NULL,
+    harness_revision TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running'
+        CHECK(status IN ('running','waiting','completed','failed','cancelled')),
+    result TEXT,
+    result_message_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX runs_conversation ON runs(conversation_id, created_at, id);
+```
 
-數據庫 schema 版本爲 3。舊執行表和舊 WebSocket 協議不兼容；現有數據庫會被拒絕啓動，需按部署流程備份後使用新數據庫，並同步更新 client。代碼不會在啓動時自動清空歷史或重放舊輸入。
+harness/revision 記錄 Client 實際上報的執行選擇；名稱與 Agent 配置透過固定 agent_version 讀取，不保存 agent_name/agent_key。result 是 result 事件的查詢投影，不能單獨由 Server 寫成成功或失敗。
+
+### run_events
+
+```sql
+CREATE TABLE run_events (
+    device_id TEXT NOT NULL,
+    client_session_id TEXT NOT NULL,
+    source_pos INTEGER NOT NULL CHECK(source_pos > 0),
+    conversation_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    agent_version_id TEXT NOT NULL,
+    run_id TEXT,
+    kind TEXT NOT NULL CHECK(kind IN ('accepted','message','request','result','log')),
+    payload TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY(device_id, client_session_id, source_pos)
+);
+CREATE INDEX run_events_run ON run_events(run_id, kind, source_pos);
+```
+
+不再給事件另一個自增 id。問題查詢按 run_id/request_id 取最後來源位置；同一 run 固定在同一 Client session，來源順序足以決定快照先後。需要最佳化時可增加 JSON 欄位索引，先不為查詢投影增加新表。
+
+## 七、哪些表被移除
+
+| 舊表 | 精簡後 |
+|---|---|
+| run_prompts | 更名並收斂為 run_inputs，保留 message 對各 agent 的輸入副本 |
+| run_controls | 合併到 run_inputs 的 reply/cancel，複用傳輸狀態與回執 |
+| run_requests | 取消，由 request 事件取得最新快照 |
+| runs、run_events | 保留：一張查執行，一張保存來源事實 |
+| work_run_tokens、run_notifications | 屬於 workService，本文不再重複宣告；這兩張不計入本次刪表數量 |
+
+runService 從五張表縮為三張。Work 是否進一步簡化授權與彙總記錄，應在 [server-work.md](server-work.md) 分別處理，不能將必要狀態藏進其他表來宣稱已刪除。
+
+[Server 總覽](server-main.md) · [conversationService](server-conversation.md) · [agentService](server-agent.md) · [Client runService](client-run.md) · [新通信設計](protocol-v2.md) · [公共事件](../../../harnessctl/EVENT.md)
