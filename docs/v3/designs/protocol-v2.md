@@ -1,130 +1,228 @@
-# Client ↔ Server：六種 WebSocket 訊息
+# Client ↔ Server：直接投遞 conversation message
 
-> 設計草案，尚未實作，取代本檔上一稿的 HTTP pull/report 方案。現行實作見 [protocol.md](protocol.md)。Client 與本地 Agent 仍使用 harnessctl/3，不修改適配器介面。
+> 設計草案，尚未實作。本文取代上一稿的 task 派發與內嵌 Agent config 方案；現行實作仍見 [protocol.md](protocol.md)。本次只修改本協議設計，其他設計文件中的 run_inputs、派發配置快照及 log/result 外層報文尚未同步，以本文的新邊界為準。Client 與本地 Agent 繼續使用 harnessctl/3，不修改適配器介面。
 
-## 一、協議只有這六件事
+## 一、業務只有 message、Agent 和實際 run
 
-Client 主動建立一條 WebSocket；Server 下發輸入，Client 回傳執行事件。
+Server 保存 conversation message，決定哪些 Agent 要處理它，直接把 message 發給對應 Client。Client 負責找到或準備本地 session，再把消息交給 Agent；適配器受理後返回真正的 run_id，Server 才記錄執行關係。
 
-| type | 方向 | 用途 | 需要 ACK |
+```text
+conversation message + 目標 Agent
+    → Client 準備或複用本地 session
+    → harnessctl send
+    → accepted 回傳 run_id
+    → Server 關聯 message、Agent 和 run
+```
+
+不再建立 task，也不要求先把 message 包裝成另一個 run_input 才能投遞。`(message_id, agent_id)` 就是一次消息投遞的業務身份；一條消息發給兩個 Agent，是同一條 message 的兩個目標。
+
+- message_id：Server 已保存的 conversation message，正式值為 UUID。
+- agent_id / agent_version_id：目標 Agent 和此次消息固定使用的不可變版本。
+- session_id：Client 本地會話地址的標識，由 Client 管理，可承載多個 run。
+- run_id / input_id：適配器在 accepted 中確認的實際交互和輸入標識，Server 不預先分配。
+
+同一 Agent 的後續 message 仍直接投遞；它屬於當前 run 還是下一個 run，由適配器決定。一個 run 可以受理多條 message，一條 message 也可以因多個目標 Agent 關聯多個 run。
+
+## 二、通信分工
+
+WebSocket 傳消息、公共事件和控制；HTTP 讀取固定版本配置及下載資源。Client 主動連接 Server，但消息的投遞由 Server 決定，資源的按需獲取由 Client 決定。
+
+| type | 方向 | 用途 | 確認方式 |
 |---|---|---|---|
-| heartbeat | Client → Server | 在線狀態、執行器與可用容量 | 是 |
-| task | Server → Client | 發送輸入或取消目前交互 | 是 |
-| log | Client → Server | 輸入受理、正文、提問與執行過程 | 關鍵事件需要，普通日誌不需要 |
-| result | Client → Server | 最終結果、錯誤及用量 | 是 |
-| answer | Server → Client | 回答 Agent 的問題 | 是 |
-| ack | 雙向 | 確認指定訊息已處理 | 否 |
+| heartbeat | Client → Server | 在線、執行器、可用容量及活躍綁定 | Server 回 ack |
+| message | Server → Client | 指定 Agent 處理既有 conversation message | Client 回 accepted 事件；未受理的失敗或不確定情況回 ack |
+| event | Client → Server | 原樣上報 harnessctl 公共事件 | 關鍵事件由 Server 回 ack；普通 log 不要求確認 |
+| answer | Server → Client | 回答已存在 run 的指定問題 | Client 回 ack；實際狀態看 request 事件 |
+| cancel | Server → Client | 取消已存在的指定 run | Client 回 ack；實際終態看 result 事件 |
+| ack | 雙向 | 確認對應消息已處理，或報告拒絕、不確定 | 不再確認 ack |
 
-不再增加 hello/welcome、領取請求、無任務通知、批次回報或各種專用 ACK。沒有工作時只維持 heartbeat。
+`event` 統一承載 accepted、message、request、result、log，內層沿用 [harnessctl 公共事件](../../../harnessctl/EVENT.md)。外層 `type=message` 是 Server 投遞消息，內層 `event.type=message` 是 Agent 正文快照，按方向和層次區分。
 
-所有需確認的訊息帶 `id`，ACK 使用同一個 id。這是傳輸識別，不是 run_id。task/answer 的 id 直接使用 `i:<run_inputs.id>`；事件 id 由 Client 根據本地事件來源穩定產生，重送不換 id。
+報文 id 只用於傳輸去重，不新增業務對象：
 
-## 二、heartbeat：告訴 Server 現在能接什麼
+- message 的 id 穩定取自 message_id 和 agent_id，例如 `m:m1:reviewer`；重送不換 id。
+- event 的 id 由 Client 根據 session 和本地完整事件行位置穩定生成，例如 `e:s1:192`。
+- answer、cancel 使用各自穩定的控制 id，例如 `a:<uuid>`、`c:<uuid>`；重送沿用原 id。
+- heartbeat 每份新快照使用新的 id，重連時也不能與舊快照衝突；ack 沿用被確認報文的 id。
 
-```json
-{"type":"heartbeat","id":"h:1","free_sessions":1,"active":[{"conversation_id":"c1","agent_version_id":"v1"}],"harnesses":[{"name":"codex","version":"installed-version","revision":"package-revision"}]}
-```
+下例的 c1、m1、v1、s1 為 ID 縮寫，正式傳輸使用完整標識。
 
-連上後立即發送，之後約每 10 秒發送；容量變化時也立即更新。每次帶完整快照，不做增量同步。
-
-- free_sessions：還能建立多少個執行中的本地 session，是內部容量資訊，不增加使用者設定。
-- active：目前仍可接收輸入的 conversation/Agent 版本綁定。容量為零時，仍可向這些綁定發送補充輸入。
-- harnesses：啟動時探測並凍結的可用執行器清單。
-
-Server 依容量主動發送 task，不再等待 Client 領取；answer/cancel 不受新 session 容量限制。Client 仍是本機及多中心總容量的最終管理者，不能因 Server 下發 task 就超額啟動。
-
-## 三、task：首次與中途補充都一樣
+## 三、heartbeat：宣告現在能接什麼
 
 ```json
-{"type":"task","id":"i:17","action":"send","conversation_id":"c1","agent_id":"reviewer","agent_version_id":"v1","content":"Server 已準備好的完整輸入","config":{"harness":"codex","model":"固定模型","agent_instructions":"固定指令","skills":[]}}
+{"type":"heartbeat","id":"h:1","free_sessions":1,"active":[{"conversation_id":"c1","agent_id":"reviewer","agent_version_id":"v1"}],"harnesses":[{"name":"codex","version":"installed-version","revision":"package-revision"}]}
 ```
 
-content 已包含任務、共享歷史和 Server 業務說明。config 是固定 Agent 版本的模型、指令和 skill 下載描述；同一輸入重送時內容不變。範例中的 c1、v1、s1 是既有 ID 的縮寫。
+連上後立即發送，之後約每 10 秒發送；容量變化時也立即更新。每次是完整快照：
 
-Client 選擇對應本地 session；新綁定先準備資源並執行 `harnessctl init`，之後將 content 經 stdin 交給 `harnessctl send`。版本變更使用新的 session/events 地址，共用原 conversation 的 workspace。
+- free_sessions：還能佔用多少個 session 執行名額；資源準備和 init 期間也預留名額，避免並發超額啟動。
+- active：目前仍可接收補充消息的 conversation/Agent/版本綁定。容量為零時，Server 仍可向這些綁定投遞消息。
+- harnesses：Client 啟動時探測並凍結的可用執行器及包 revision，不表示某個 Agent 已完成 init。
 
-Server 不預先給 run_id，也不指定 start/steer/queue。中途補充仍是一條 send；適配器的 accepted 才決定它屬於原 run 還是新的 run。
+Server 按容量派發，並計入上份快照之後自己已發出、尚未取得受理結果的新綁定預留。Client 是本機及多中心總容量的最終管理者；容量不足且尚未提交輸入時，可以明確拒絕。answer/cancel 不受新 session 容量限制。
 
-取消沿用 task，明確指定已存在的 run：
+## 四、message：哪個 Agent 處理哪條消息
 
 ```json
-{"type":"task","id":"i:19","action":"cancel","session_id":"s1","run_id":"550e8400-e29b-41d4-a716-446655440000"}
+{"type":"message","id":"m:m1:reviewer","conversation_id":"c1","message_id":"m1","agent_id":"reviewer","agent_version_id":"v1","content":"請評審這次修改","attachments":[]}
 ```
 
-Client 核對目標仍在執行後呼叫 `harnessctl cancel`。目標已結束則確認無需操作，不能取消同一 session 後來啟動的交互。
+Server 在保存消息及目標 Agent 關係時，固定 agent_version_id 和目標 device；投遞的內容不隨重連、Agent 更新而變化。
 
-## 四、log：沿用 harnessctl 的事件
+- content 是 conversation message 的正文，attachments 沿用該消息的檔案引用。
+- 需要共享歷史或 Work 業務說明時，可增加 `context` 文本；Server 在首次投遞前固定它，Client 將 context 和正文組織為 send 的 stdin，不自行推斷業務角色。
+- 報文不攜帶 model、instructions、skills 或下載清單；這些由 Client 按固定 agent_version_id 讀取。
+- 同一 `(message_id, agent_id)` 不得重複提交已受理或受理結果不確定的 send；相同 id 的重送內容、版本和目標必須一致，衝突直接拒絕。
+
+首次消息和中途補充使用同一格式，Server 不指定 start/steer/queue，也不預填 run_id。不要求額外的領取請求、無任務通知或消息成功 ACK；accepted 本身就是這條消息的受理回執。
+
+Server 需要持久保存每個 message/Agent 目標的固定版本、設備、投遞內容及受理關係，以便恢復。這是既有消息的目標關係與投遞元數據，不另分配 task_id 或 run_input_id。
+
+## 五、Client 內部完成配置獲取、skills 和 init
+
+收到 message 後，Client 按 endpoint/conversation/agent/agent_version/harness revision 選擇本地 session：有效的相同綁定直接複用；缺少綁定時才準備資源並 init。Agent 版本變更使用新的 session/events 地址，仍可共用 conversation 的 workspace。
+
+### 按固定版本獲取資源
+
+Client 缺少配置時，讀取已有 Agent 版本 API；按其 skills 引用讀取固定 Skill 版本，再下載本地缺少的包：
+
+| HTTP | 取得什麼 |
+|---|---|
+| GET /api/agents/{agent_id}/versions/{agent_version_id} | harness、model、instructions 和有序 skill_id/skill_version_id 引用 |
+| GET /api/skills/{skill_id}/versions/{skill_version_id} | name、size_bytes、sha256、download_path 等不可變包描述 |
+| GET /api/skills/{skill_id}/versions/{skill_version_id}/package | 固定版本 ZIP |
+
+配置與包可以按不可變版本緩存；已有可驗證資源或有效的 session 快照時，不必每條消息重新下載。Client 始終讀取 message 指定的版本，不能改讀 Agent 的 current/latest。相同名稱或本地存在某個 skill，不足以證明它就是所需版本。
+
+以上 API 路徑已存在，但本方案要求擴充配置和 Skill 版本描述的讀取授權：device key 只能讀取已投遞給本設備的 message 所固定的 Agent 版本及其 Skill 依賴。Server 必須在發送 message 前提交這項關係，不能等 accepted/run 建立後才允許下載，否則首次 init 無法完成。尚未遷移的現行用戶認證接口不能直接視為已支持 device key。
+
+權限沿用對應消息/執行的有效範圍，重連不丟失；軟刪除不破壞已有消息的固定版本引用。下載地址只使用同一 endpoint 的 API 路徑，不向其他域傳送 device key。附件仍走既有 conversation 檔案 API。
+
+### 本地執行順序
+
+```text
+持久記錄正在處理的 message/Agent，預留容量
+    → 讀取缺少的固定版本配置與資源
+    → 校驗 ZIP 的版本、大小、SHA-256，安全解包到 workspace 外
+    → harnessctl init，固定模型、指令及技能快照
+    → init 成功後清理臨時資源
+    → 將消息經 stdin 交給 harnessctl send
+    → 從 accepted 取得 run_id/input_id，回傳 Server
+```
+
+`harnessctl init` 成功表示配置和資源快照已持久化；它不啟動原生 Agent、不調用模型、不分配 run。原生上下文在首次 send 時建立；已有 session 的恢復也由適配器負責。
+
+**Server 不派發 init，不接收 initializing/initialized 等階段事件，也不維護下載、解包、初始化的狀態機。** 這些都是 Client 處理消息的內部步驟；普通診斷可以上報，但不是 Server 推進流程的依據。Server 只等待該消息的受理回執或錯誤。
+
+準備或 init 失敗且能證明尚未提交輸入時，Client 回該 message 的錯誤 ACK，不調用 send、不虛構 run/result。init 成功後 send 失敗，也不把已提交的 session 綁定抹掉；是否受理依 send/事件證據判定。
+
+## 六、accepted：直接回答這條消息的 run_id
 
 ```json
-{"type":"log","id":"e:s1:192","task_id":"i:17","session_id":"s1","event":{"type":"accepted","ts":"2026-11-07T00:00:00Z","run_id":"550e8400-e29b-41d4-a716-446655440000","input_id":"in-1","text":"Server 已準備好的完整輸入"}}
+{"type":"event","id":"e:s1:192","message_id":"m1","agent_id":"reviewer","session_id":"s1","event":{"type":"accepted","ts":"2026-11-07T00:00:00Z","run_id":"550e8400-e29b-41d4-a716-446655440000","input_id":"in-1","text":"請評審這次修改"}}
 ```
 
-外層 log 是回傳通道名稱，**不表示裡面的東西都能丟**。event 原樣沿用 [harnessctl 公共事件](../../../harnessctl/EVENT.md)：
+accepted 必須帶外層 message_id、agent_id 和 session_id。Client 在提交輸入前持久保存消息和本地待受理 send 的關係；適配器事件保持原樣，Client 在網路封裝中補上來源消息，不能靠正文相同猜測歸屬。
 
-| event.type | 意義 | 可靠性 |
+Server 校驗此消息確實投遞給該設備及 Agent 版本，在同一事務中：
+
+1. 保存 accepted 原始事件。
+2. 按 accepted.run_id 建立或核對 run，固定 device/session/conversation/Agent/版本歸屬。
+3. 將 `(message_id, agent_id)` 關聯到 run_id 和 input_id。
+4. 提交後 ACK 該 event。
+
+```json
+{"type":"ack","id":"e:s1:192","status":"ok"}
+```
+
+這就完成「Client 告訴 Server：這個 Agent 處理這條 message 的 run_id 是什麼」。不再發另一份 message 成功 ACK，也沒有 task ACK。
+
+```text
+M1 → coder    → accepted(run_id=R1, input_id=A1)
+M1 → reviewer → accepted(run_id=R2, input_id=A2)
+M2 → coder    → accepted(run_id=R1 或 R3, input_id=A3)
+```
+
+最後一行只有一個實際結果；適配器確認後不再改綁。accepted 表示輸入已受理，不保證模型已開始處理或執行成功。
+
+## 七、event：正文、問題、過程和結果
+
+| event.type | Server 的處理 | 可靠性 |
 |---|---|---|
-| accepted | 輸入已受理，以及真正的 run_id/input_id | 必須保存並 ACK |
-| message | Agent 的完整正文快照 | 必須保存並 ACK |
-| request | 問題、權限請求及 pending/replied/expired 狀態 | 必須保存並 ACK |
-| log | 工具過程、流式片段與診斷 | 可丟、可合併，不要求 ACK |
+| accepted | 關聯消息和實際 run/input | 必須保存並 ACK |
+| message | 按 run/message_id 更新 Agent 完整正文快照 | 必須保存並 ACK |
+| request | 保存問題、權限請求及 pending/replied/expired 狀態 | 必須保存並 ACK |
+| result | 保存 completed/failed/cancelled、完整輸出、錯誤、用量及費用 | 必須保存並 ACK |
+| log | 展示工具過程、片段與診斷 | 可丟、可合併，不要求 ACK |
 
-accepted 必須帶外層 task_id，以關聯原始輸入。尚未建立來源綁定的初始化日誌也帶 task_id；其餘事件可依 session/run 關聯，不必重複傳 conversation、Agent 和版本。
+只有 accepted 必須逐條關聯來源 message/Agent；其餘事件可根據 session/run 找到固定歸屬。初始化期間尚未建立來源綁定的普通診斷也要帶 message_id、agent_id，但不形成初始化階段契約。
 
-Server 只依 accepted 建立 run。問題透過 request 交給前端；讀取正文按 message_id 更新完整快照，不能把日誌片段當成唯一正文。
-
-## 五、result：只回報實際執行結果
+result 和其他公共事件使用同一外層：
 
 ```json
-{"type":"result","id":"e:s1:640","session_id":"s1","event":{"type":"result","ts":"2026-11-07T00:00:10Z","run_id":"550e8400-e29b-41d4-a716-446655440000","input_ids":["in-1"],"status":"completed","output":"已完成","usage":null,"cost_usd":null,"error":null}}
+{"type":"event","id":"e:s1:640","session_id":"s1","event":{"type":"result","ts":"2026-11-07T00:00:10Z","run_id":"550e8400-e29b-41d4-a716-446655440000","input_ids":["in-1"],"status":"completed","output":"已完成","usage":null,"cost_usd":null,"error":null}}
 ```
 
-event 就是適配器的 result，包含 completed/failed/cancelled、完整輸出、錯誤、用量和費用，不再翻譯另一套結果格式。
+Server 在同一事務保存關鍵事件、更新 run 投影及必要的 conversation 回覆，提交後才 ACK。result.input_ids 核對該 run 的已受理消息；一個 run 只結算一次，不因受理多條 message 重複寫最終回覆。回覆仍指向該 run 第一條受理的 conversation message，取消可以沒有最終回覆。
 
-Server 保存結果、更新 run 和 conversation 回覆，在同一交易提交後 ACK。run 可以涵蓋多條輸入，依 input_ids 核對，不按 task 數量重複建立結果。
+內層 message_id 是適配器的正文快照標識，與外層來源 conversation message_id 不同。讀取正文按完整快照更新，不能用可丟的 log 片段作為唯一正文。
 
-尚未受理就準備失敗時，用該 task 的錯誤 ACK 回報；不虛構 run 或 result。
-
-## 六、answer：回答指定問題
+## 八、answer 和 cancel：直接控制既有 run
 
 ```json
-{"type":"answer","id":"i:18","session_id":"s1","run_id":"550e8400-e29b-41d4-a716-446655440000","request_id":"req-1","answer":{"q1":"Go"}}
+{"type":"answer","id":"a:18","session_id":"s1","run_id":"550e8400-e29b-41d4-a716-446655440000","request_id":"req-1","answer":{"q1":"Go"}}
 ```
 
-Client 核對公共 request 的歸屬，將答案經 stdin 交給 `harnessctl reply`。權限請求使用 allow/deny，問題答案沿用公共格式。
-
-answer 的 ACK 只確認本地操作；問題是否真的 replied，仍看適配器之後的 request 事件。send 等待受理時，answer/cancel 和事件回傳仍須能繼續，不能共用一個阻塞佇列。
-
-## 七、ack：只有一種確認格式
+Client 核對公共 request 歸屬及 pending 狀態，經 stdin 交給 `harnessctl reply`。權限請求使用 allow/deny。answer 的 ok 只確認本地操作受理；問題是否真的 replied，仍看後續 request 事件。Server 在已有答案仍待確認時，不再接受另一份答案；明確拒絕後才可修正再答，重送原答案沿用同一 id。
 
 ```json
-{"type":"ack","id":"i:17","status":"ok"}
+{"type":"cancel","id":"c:19","session_id":"s1","run_id":"550e8400-e29b-41d4-a716-446655440000"}
+```
+
+Client 核對指定 run 仍是該 session 的取消目標，再調用 `harnessctl cancel`。核對和執行須與該 session 的 send 串行協調；目標已結束則確認無需操作，無法確認目標時回 unknown，不能拿過期控制去取消後來的交互。harnessctl cancel 的作用域仍是該 session 當前及排隊工作，不新增單個 run 的原生取消接口；受影響的 run 各自回報 result。cancel 的 ok 不表示已 cancelled，終態看 result。
+
+兩者不建立聊天 message，也不建立新 run。傳輸去重與恢復所需的控制 id 和回執仍要持久保存，但不把它們包裝成 task 或統一的 run_input。尚未 accepted 的消息沒有 run_id，不能用這個 cancel 偽造一個目標；消息撤回不在本稿的 run 控制範圍。
+
+Client 等待 send 受理或下載資源時，answer/cancel 和事件回傳仍須能繼續，不能讓所有 session 共用一個阻塞佇列。
+
+## 九、ACK 與失敗邊界
+
+```json
+{"type":"ack","id":"m:m1:reviewer","status":"error","error":"固定版本的技能包校驗失敗，消息尚未提交"}
 ```
 
 | status | 含義 |
 |---|---|
-| ok | heartbeat 已更新；事件已保存；或 task/answer 的本地操作已受理、無需再操作 |
-| error | 明確拒絕或能證明尚未受理，附 error 說明 |
-| unknown | task/answer 可能已受理，但暫時無法確認，附 error 說明；停止自動重送執行 |
+| ok | heartbeat 已更新、關鍵 event 已保存，或 answer/cancel 的本地操作已受理/無需再操作 |
+| error | 明確拒絕或能證明尚未受理；附 error 說明 |
+| unknown | message/answer/cancel 可能已受理，但暫時無法確認；附 error 說明並停止自動重送執行 |
 
-ACK 的含義由原訊息決定，但格式相同。task 的 ok 不表示模型完成，answer 的 ok 不表示問題已 replied，cancel 的 ok 不表示 run 已 cancelled。執行狀態只從公共事件取得。
+message 的成功以 accepted 回覆，不能只回一個不含 run_id 的 ok。錯誤 ACK 不建立 run；Server 只在該消息/Agent 目標上記錄失敗或不確定，不把它寫成執行結果。
 
-Client 在本地操作受理後確認 task/answer；Server 在交易提交後確認關鍵 log/result。accepted 可能先於 task ACK 抵達，兩者不能互相等待。關鍵事件只有收到 ok 才能解除待同步保護；錯誤 ACK 不表示資料已保存。ACK 自身不需要 ACK，也不另帶一個回執 ID。
+普通消息重送不表示重新執行：已受理就補傳原 accepted，仍在處理就等待同一次操作，unknown 則等待確定證據。對 error 且能證明未受理的消息，Server 可按策略退避後使用原 id 重試；Client 串行恢復該消息的準備流程，不改內容和版本，也不增加另一個業務身份。已受理消息需要再次執行時，發送新的 conversation message。
 
-## 八、連接與實作規則
+Client 可在尚未提交 send 時重試配置讀取和下載，但不能把同一 send 當成可任意重試的 HTTP 讀取。相同規則也適用於控制：已受理或不確定的 answer/cancel 不再次執行，只補傳既有回執；能證明未受理才可重試。
 
-WebSocket 地址為 `/api/client/ws`，升級請求使用 device key 與 `AgentUse-Protocol: agentuse-client/2`。認證及版本在升級階段檢查，成功後直接發 heartbeat；不另做業務握手。不相容時明確要求升級，本地 harnessctl 仍為 /3。
+Server 的錯誤 ACK 不表示事件已保存；Client 只有收到 ok 才解除該關鍵事件的待同步保護。不確定狀態後若取得可唯一關聯的 accepted 等確定證據，仍可補傳並修正消息受理關係。
 
-Server 只傳業務正文和固定資源描述，不傳 shell、argv、原生 RPC 或 YAML。ZIP、附件仍走既有 HTTP 檔案 API，下載只向同一 endpoint 提交憑據。
+## 十、重連、重複與本地恢復
 
-恢復規則留在實作層，主協議不公開批次、來源遊標或同步階段：
+- 發送前持久保存消息或事件及其穩定 id。相同 id 重送要核對內容；相同 `(message_id, agent_id)` 即使被換一個外層 id 重送，也不能繞過已受理或 unknown 的收據再次執行。
+- Client 在 send 前保存該消息、session 和待受理位置；同一 session 同時最多一個 send 等待 accepted，取得受理證據後可繼續下一條，不用等 result。Server 按 conversation 消息順序投遞同一綁定，Client 保持該順序，不並發初始化同一綁定。
+- send 逾時、程序崩潰或斷線，都不能證明未受理。先查本地收據與公共事件；能唯一關聯就補傳，證據不足就回 unknown、保留現場並暫停該綁定的後續 send。不能盲目重放或換設備再執行。
+- 同一來源的關鍵事件按本地順序補傳。Server 尚未建立 session/run 綁定時，先確認 accepted，再同步該 run 後續事件；這只限制上報順序，不阻塞本地 Agent 執行及控制。較晚事件先獲 ACK，也不能丟掉前面未確認的其他關鍵事件。
+- 關鍵事件的穩定 id 可直接使用 session 和 JSONL 完整行位置；不增加線上的批次、pos/after/next 或同步階段。末尾半行不能作為事件上報。
+- 已受理工作在心跳遺失或離線時可以繼續；重連後補傳關鍵事件，斷線不合成 failed/cancelled。普通 log 不阻止目錄回收，未確認關鍵事件、未決消息/控制及準備中的預留必須保護目錄和收據。
+- Server 保留去重事實及消息/Agent 的受理關係；Client 保留仍可能重送的本地收據。刪除本地會話後，同一消息不能當作新消息執行；發生無法判定的歷史缺失時按 unknown 處理。
 
-- 需確認的訊息先保留在既有資料來源中，未確認就沿用原 id 重送；接收方核對重複內容，不能再次執行或追加結果。
-- 同一 session 同時最多一個 send 在等待受理，不用等 result 才能繼續下一個 send。逾時不能證明未受理；證據不足回報 unknown，保留現場並暫停後續 send，不盲目重放。
-- 事件 id 可直接由 session 與 JSONL 完整行位置生成，例如 e:s1:192；這是封裝器細節，不增加線上的 pos/after/next 欄位。較晚事件先獲 ACK，也不能丟掉前面尚未確認的關鍵事件。
-- 心跳遺失、重連或設備離線，都不代表原生工作失敗。已受理工作可繼續，連回後補傳關鍵事件；普通日誌不阻止目錄回收。
+本協議不宣稱跨 Server、Client 和原生 Agent 的恰好一次事務。可以可靠重試的是傳輸及資源讀取；原生 send 只能在能證明未受理時再提交。
 
-runService 仍只管理 run_inputs、runs、run_events：send/cancel 對應 task，reply 對應 answer，ACK 更新傳輸狀態，log/result 保存公共事件。資料表及事務細節見 [server-run.md](server-run.md)，不再展開成其他訊息類型。
+## 十一、連接與實作邊界
 
-Local 與遠端共用相同的 harnessctl 執行路徑；Local 只省去 Server 通信。此設計借鑑 [Multica 的訊息信封](https://github.com/multica-ai/multica/blob/282f48eed2531f467ed4e6febc2a59b590d3e711/server/pkg/protocol/messages.go)，具體六種訊息與 ACK 規則是 AgentUse 的選擇。
+WebSocket 地址為 `/api/client/ws`，升級請求使用 device key 與 `AgentUse-Protocol: agentuse-client/2`。認證及版本在升級階段檢查，成功後直接發 heartbeat，不另做業務握手；不相容時明確要求升級。本稿尚未實作，不兼容上一稿的 task 和 log/result 外層設計。
 
-[現行協議](protocol.md) · [harnessctl 介面](../../../harnessctl/README.md) · [公共事件](../../../harnessctl/EVENT.md) · [runService](server-run.md)
+Server 發送 message、回答和取消控制，管理固定版本與消息/run 關係；不傳 shell、argv、原生 RPC 或 YAML，不指揮本地 init。Client 的 sessionService/harnessService 負責資源準備、快照、init、send 和恢復，適配器負責原生上下文及交互歸屬。
+
+Local 與遠端共用相同的資源校驗、session 綁定和 harnessctl 執行路徑。Local 的固定配置和資源來自本地輸入，不經 Server HTTP/WebSocket。
+
+[現行協議](protocol.md) · [Agent 版本 API](server-agent.md) · [Skill 版本與下載](server-skill.md) · [Client session](client-session.md) · [harnessctl 介面](../../../harnessctl/README.md) · [公共事件](../../../harnessctl/EVENT.md)
