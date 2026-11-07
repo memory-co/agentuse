@@ -52,8 +52,8 @@ answer 和 cancel 直接指定既有 run/session。控制 id 只用於傳輸去�
 | run_controls | answer/cancel 的傳輸收據，防止不確定控制被自動重做 |
 | work_run_tokens / run_notifications | Work 授權和匯總去重；直接關聯 message/Agent，不引用 prompt ID |
 
-Schema 4 將 messages.id 及消息引用改為 UUID，messages.seq 保存 conversation 內順序。從 schema 3 升級時在一個事務中保留消息、回覆、run、事件、Work 授權與待發控制，將舊整數 ID 穩定轉換為 UUID，並移除 run_prompts。遷移失敗整體回滾，不要求清空歷史。
+只支持 schema 4，messages.id 及消息引用直接使用 UUID，messages.seq 保存 conversation 內順序。舊資料庫啟動時明確拒絕，必須使用新資料庫；不提供舊資料保留、遷移或 ID 轉換。
 
-Client 同步遷移本地舊輸入收據；尚未確認的原生副作用按 unknown 保留，不能因 Server/client 升級而重放。網路協議不向舊版 hello/claim/prompt 降級，Server 與 Client 必須一起升級。
+Client 只讀取新版 message/Agent 收據，不轉換舊 inputs 或控制收據。升級時清空本地工作目錄並重新註冊設備。網路協議不向舊版 hello/claim/prompt 降級，Server 與 Client 必須一起更新。
 
 [協議](protocol.md) · [conversationService](server-conversation.md) · [Agent 版本](server-agent.md) · [Client runService](client-run.md)

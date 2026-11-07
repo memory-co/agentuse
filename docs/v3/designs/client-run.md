@@ -64,13 +64,13 @@ Endpoint 根目錄的 .server/messages 另外保留很小的提交收據（消�
 
 關鍵事件來自原始 JSONL，外層 id 穩定取自 session 和完整行位置，收到對應 ok 後才推進本地確認位置。普通 log 可略過，不保護目錄。ACK 丟失則補傳原事件，消息重送則補回既有 accepted，不再次 send；連接短暫斷開時本地工作繼續。
 
-啟動時遷移舊版 inputs 收據，恢復已確認關聯。尚未跨過 send 邊界的準備可以重做；可能已提交的輸入只從源位置及唯一未關聯 accepted 恢復，證據缺失或衝突則保留 unknown，不重放。未知消息/控制、準備預留和未確認關鍵事件保護 conversation 目錄。
+啟動時只恢復新版消息收據，不讀取或轉換舊版 inputs 和控制收據；升級前清空舊工作目錄。尚未跨過 send 邊界的準備可以重做；可能已提交的輸入只從源位置及唯一未關聯 accepted 恢復，證據缺失或衝突則保留 unknown，不重放。未知消息/控制、準備預留和未確認關鍵事件保護 conversation 目錄。
 
 控制在調用原生命令前持久記錄不確定狀態，崩潰後不能再次執行相同 id。cancel 攜帶 run_id 作為過期控制檢查，實際作用域仍是 session 當前及排隊工作；request/result 才確認實際狀態。
 
 ## 實現歸屬
 
-native_runs.go 管引用與查詢，views.go 定義公開視圖，reconcile.go 管啓動恢復，server_connection.go 管中心連接、輸入收據、事件遊標和控制傳輸。沒有 store、執行 attempt 或結果副本；舊收據只作持久化升級，不兼容舊網路協議。sessionService 管目錄與會話元數據，fileutil 僅提供通用文件操作。
+native_runs.go 管引用與查詢，views.go 定義公開視圖，reconcile.go 管啓動恢復，server_connection.go 管中心連接、輸入收據、事件遊標和控制傳輸。沒有 store、執行 attempt、結果副本或舊資料兼容層。sessionService 管目錄與會話元數據，fileutil 僅提供通用文件操作。
 
 ## Server Agent 版本銜接（已實現）
 

@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/attachment"
 )
 
@@ -174,11 +173,6 @@ func ParseEventID(id string) (string, int64, error) {
 		return "", 0, fmt.Errorf("invalid event position")
 	}
 	return id[2:split], pos, nil
-}
-
-// LegacyMessageID provides a stable UUID when migrating the old integer IDs.
-func LegacyMessageID(conversation string, id int64) string {
-	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(conversation+"#message:"+strconv.FormatInt(id, 10))).String()
 }
 
 type PromptInput struct {

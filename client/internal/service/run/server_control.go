@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/memory-co/agentuse/client/internal/fileutil"
 	"github.com/memory-co/agentuse/internal/protocol"
@@ -59,34 +58,6 @@ func (d *endpointConnection) control(ctx context.Context, kind string, c protoco
 	} else if !os.IsNotExist(e) {
 		reply(protocol.AckUnknown, e.Error())
 		return
-	}
-	// Schema-3 controls used the unprefixed UUID as a filename. A durable
-	// success receipt is replayable; an old error remains conservative/unknown.
-	if _, legacyID, ok := strings.Cut(c.ID, ":"); ok && fileutil.Segment(legacyID) {
-		legacyPath := filepath.Join(d.sessionDir(m), ".server", "controls", legacyID+".json")
-		if data, e := os.ReadFile(legacyPath); e == nil {
-			var old struct {
-				Error string `json:"error"`
-			}
-			if e = json.Unmarshal(data, &old); e != nil {
-				reply(protocol.AckUnknown, e.Error())
-				return
-			}
-			saved.Error = old.Error
-			saved.Status = protocol.AckOK
-			if old.Error != "" {
-				saved.Status = protocol.AckUnknown
-			}
-			if e = fileutil.WriteJSON(path, saved); e != nil {
-				reply(protocol.AckUnknown, e.Error())
-				return
-			}
-			reply(saved.Status, saved.Error)
-			return
-		} else if !os.IsNotExist(e) {
-			reply(protocol.AckUnknown, e.Error())
-			return
-		}
 	}
 	native, err := d.cfg.RunService.Detail(ctx, d.cfg.EndpointID, c.ConversationID, c.SessionID, c.RunID)
 	if err != nil {

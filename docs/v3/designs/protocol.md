@@ -229,6 +229,6 @@ Local 與遠端共用相同的資源校驗、session 綁定和 harnessctl 執行
 
 ## 升級與持久化
 
-Schema 4 將消息及消息引用遷移為 UUID，用 messages.seq 保存順序；message_agents 以消息/Agent 複合鍵保存投遞和受理關係，取代 run_prompts。Schema 3 歷史及待發快照在一個事務中遷移，失敗時回滾，不刪除原歷史。Client 將舊 inputs 收據轉為相同的消息 UUID 關係；受理不確定時繼續停止自動重放。
+只支持 schema 4：消息及消息引用直接使用 UUID，messages.seq 保存順序；message_agents 以消息/Agent 複合鍵保存投遞和受理關係。舊版資料庫、inputs 收據和控制收據不讀取、不轉換，也不保留升級兼容邏輯。升級時重建 Server 資料庫、清空 Client 本地工作目錄並重新初始化和註冊設備。
 
 公開 HTTP 入口暫沿用 /api/sessions 和 daemon_id 命名。與網路協議無關的目標元數據命名不在本次更名；WebSocket 則只支持本文的 /api/client/ws 和 agentuse-client/2，兩端需一起升級。

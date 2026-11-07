@@ -120,15 +120,9 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if existing > 0 && revision != 3 && revision != 4 {
+	if existing > 0 && revision != 4 {
 		db.Close()
 		return nil, errors.New("unsupported database schema: reset the database before starting this version")
-	}
-	if existing > 0 && revision == 3 {
-		if err := migrateMessages(db); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("store: migrate message protocol: %w", err)
-		}
 	}
 	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=4;"); err != nil {
 		db.Close()

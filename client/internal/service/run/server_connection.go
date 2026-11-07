@@ -50,7 +50,6 @@ type messageReceipt struct {
 	State     string                       `json:"state"`
 	RunID     string                       `json:"run_id,omitempty"`
 	InputID   string                       `json:"input_id,omitempty"`
-	InputText string                       `json:"input_text,omitempty"`
 	Error     string                       `json:"error,omitempty"`
 }
 type streamReceipt struct {
@@ -340,7 +339,7 @@ func (d *endpointConnection) receiveMessage(ctx context.Context, p protocol.Conv
 			return
 		}
 	}
-	saved = messageReceipt{Message: p, State: "preparing", InputText: p.Text()}
+	saved = messageReceipt{Message: p, State: "preparing"}
 	if err = d.ensureConversation(p.ConversationID); err != nil {
 		_ = d.send(ctx, protocol.Message{Type: protocol.TypeAck, ID: p.Key(), Status: protocol.AckError, Error: err.Error()})
 		return

@@ -2,25 +2,22 @@ package run
 
 import (
 	"bytes"
-	contextpkg "context"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/memory-co/agentuse/client/internal/service/harness"
-	"github.com/memory-co/agentuse/client/internal/service/session"
-	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-func (s *Service) Reconcile(ctx contextpkg.Context) error {
+func (s *Service) Reconcile(ctx context.Context) error {
 	if err := s.recoverRemoteReceipts(ctx); err != nil {
 		return err
 	}
 	return s.rebuildNativeIndexes(ctx)
 }
-func (s *Service) pendingConversation(ctx contextpkg.Context, endpoint, conversation string) (bool, error) {
+func (s *Service) pendingConversation(ctx context.Context, endpoint, conversation string) (bool, error) {
 	dir := filepath.Join(s.Sessions.Root, endpoint, conversation)
 	entries, err := os.ReadDir(filepath.Join(dir, ".server", "messages"))
 	if err != nil && !os.IsNotExist(err) {
@@ -101,7 +98,7 @@ func (s *Service) pendingConversation(ctx contextpkg.Context, endpoint, conversa
 	return false, nil
 }
 
-func (s *Service) Recover(ctx contextpkg.Context) error {
+func (s *Service) Recover(ctx context.Context) error {
 	endpoints, err := os.ReadDir(s.Sessions.Root)
 	if err != nil {
 		return err
@@ -131,7 +128,7 @@ func (s *Service) Recover(ctx contextpkg.Context) error {
 }
 
 // Rebuild receipt associations from durable public events, never by replaying send.
-func (s *Service) recoverRemoteReceipts(ctx contextpkg.Context) error {
+func (s *Service) recoverRemoteReceipts(ctx context.Context) error {
 	endpoints, err := os.ReadDir(s.Sessions.Root)
 	if os.IsNotExist(err) {
 		return nil
@@ -149,15 +146,6 @@ func (s *Service) recoverRemoteReceipts(ctx contextpkg.Context) error {
 		}
 		d := &endpointConnection{cfg: Config{EndpointID: ep.Name(), RunService: s}}
 		for _, c := range conversations {
-			sessions, err := s.Sessions.Sessions(ctx, ep.Name(), c.ID)
-			if err != nil {
-				return err
-			}
-			for _, m := range sessions {
-				if err = d.migrateLegacyReceipts(m); err != nil {
-					return err
-				}
-			}
 			receipts, err := d.receipts(c.ID)
 			if err != nil {
 				return err
@@ -230,73 +218,6 @@ func (s *Service) recoverRemoteReceipts(ctx contextpkg.Context) error {
 					return e
 				}
 			}
-		}
-	}
-	return nil
-}
-
-func (d *endpointConnection) migrateLegacyReceipts(m session.Session) error {
-	root := filepath.Join(d.sessionDir(m), ".server", "inputs")
-	entries, err := os.ReadDir(root)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		path := filepath.Join(root, entry.Name())
-		data, e := os.ReadFile(path)
-		if e != nil {
-			return e
-		}
-		var old struct {
-			Prompt struct {
-				ConversationID string                     `json:"conversation_id"`
-				MessageID      int64                      `json:"message_id"`
-				AgentID        string                     `json:"agent_id"`
-				AgentVersionID string                     `json:"agent_version_id"`
-				Content        string                     `json:"content"`
-				Attachments    []protocol.LocalAttachment `json:"attachments"`
-				WorkID         string                     `json:"work_id"`
-				WorkToken      string                     `json:"work_token"`
-			} `json:"prompt"`
-			SessionID string `json:"session_id"`
-			Offset    int64  `json:"offset"`
-			State     string `json:"state"`
-			RunID     string `json:"run_id"`
-			InputID   string `json:"input_id"`
-			Error     string `json:"error"`
-		}
-		if e = json.Unmarshal(data, &old); e != nil {
-			return e
-		}
-		if old.Prompt.MessageID <= 0 {
-			return fmt.Errorf("legacy receipt lacks saved message identity")
-		}
-		content := old.Prompt.Content
-		context := ""
-		if pos := strings.LastIndex(content, "\n\n# 本次任务\n"); pos >= 0 {
-			context = content[:pos]
-			content = content[pos+len("\n\n# 本次任务\n"):]
-		}
-		msg := protocol.ConversationMessage{ConversationID: old.Prompt.ConversationID, MessageID: protocol.LegacyMessageID(old.Prompt.ConversationID, old.Prompt.MessageID), AgentID: old.Prompt.AgentID, AgentVersionID: old.Prompt.AgentVersionID, Content: content, Context: context, Attachments: old.Prompt.Attachments, WorkID: old.Prompt.WorkID, WorkToken: old.Prompt.WorkToken}
-		r := messageReceipt{Message: msg, SessionID: old.SessionID, Offset: old.Offset, State: old.State, RunID: old.RunID, InputID: old.InputID, InputText: old.Prompt.Content, Error: old.Error}
-		if r.State == "failed" {
-			r.State = "unknown"
-		}
-		if _, found, e := d.findReceipt(contextpkg.Background(), msg); e != nil {
-			return e
-		} else if !found {
-			if e = d.saveReceipt(r); e != nil {
-				return e
-			}
-		}
-		if e = os.Rename(path, path+".migrated"); e != nil {
-			return e
 		}
 	}
 	return nil

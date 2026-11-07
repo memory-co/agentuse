@@ -222,11 +222,10 @@ Client 不再使用 SQLite，文件结构为：
     events.jsonl.d/              # 适配器私有状态
     session.yaml
     runs/<run_id>.jsonl          # adapter accepted.run_id 的最小索引
-    resources/<content_hash>.history.json
-    .server/                    # 暂存旧中心协议交付与确认信息
+    .server/                    # 新版消息投递、事件确认与控制收据
 ```
 
-工作说明与 skill 内容随本次输入加载，不覆盖共享 workspace 中的 AGENTS.md / CLAUDE.md。Codex 恢复指定 thread，Claude Code 恢复指定 session；不同 session 可并行执行。执行事实只保存在 events.jsonl，run_id 由适配器决定；补充输入可能属于同一个 run，也可能排队形成新 run。client 不创建 attempt。中心输入收据、事件 ACK 游标和控制收据隔离在 .server/，未确认事件仍受目录保护。
+Agent 指令与 skills 由 Client 按固定版本 API 获取，通过 init 保存资源快照，不覆盖共享 workspace 中的 AGENTS.md / CLAUDE.md。Codex 恢复指定 thread，Claude Code 恢复指定 session；不同 session 可并行执行。执行事实只保存在 events.jsonl，run_id 由适配器决定；补充输入可能属于同一个 run，也可能排队形成新 run。client 不创建 attempt。中心输入收据、事件 ACK 游标和控制收据隔离在 .server/，未确认事件仍受目录保护。
 
 详见 [Client 设计与 API](docs/v3/designs/client-main.md)。
 
@@ -234,4 +233,4 @@ Client 不再使用 SQLite，文件结构为：
 
 ### 执行协议升级
 
-Server/client 使用 `harnessctl-events-v1`：server 分配输入，适配器决定 run UUID，并报告 accepted/message/request/result/log。Server 不管理 harness YAML、原生权限或 attempt。数据库 schema 2 不兼容旧执行表，启动会拒绝旧数据库；升级需先备份并使用新数据库，同时更新 client，不会自动删除运行数据。详见 [server-run 设计](docs/v3/designs/server-run.md)。
+Server/client 使用 `agentuse-client/2`：Server 直接投递 conversation message 和目标 Agent，Client 按需获取固定版本配置与 skills 并在本地 init，适配器通过 accepted 返回真实 run UUID。只支持数据库 schema 4 和新版消息收据，不保留旧数据迁移或兼容逻辑。升级需重建 Server 数据库、清空 Client 本地工作目录并重新初始化、注册设备；两端必须一起更新。详见 [协议](docs/v3/designs/protocol.md) 和 [server-run 设计](docs/v3/designs/server-run.md)。
