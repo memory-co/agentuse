@@ -18,7 +18,7 @@ runService 只管理三張表：
 
 ```text
 M1 @coder @reviewer → I1、I2
-Client 領取 I1，呼叫 harnessctl send
+Server 下發 I1，Client 呼叫 harnessctl send
 accepted(run_id=R1, input_id=A1) → 建立 R1，I1 綁定 R1/A1
 M2 @coder → I3 → 再次 send
 accepted(run_id=R1, input_id=A2) → 同一次交互的補充輸入
@@ -33,7 +33,7 @@ runs.id 只採用 accepted.run_id。first_message_id 取該 run 第一條 accept
 
 ## 二、回答與取消也是輸入
 
-三種輸入共用同一個領取、回執和恢復流程：
+三種輸入共用同一個下發、ACK 和恢復流程：
 
 | kind | message_id | run_id | payload | Client 行為 |
 |---|---|---|---|---|
@@ -45,7 +45,7 @@ reply/cancel 不會建立新 run，也不建立一條假的使用者聊天訊息
 
 run_inputs 的 status 只描述傳輸：pending、sent、applied、rejected、unknown。它不複製 runs 的 running/completed 等執行狀態。
 
-- pending/sent：等待領取，或已交付而尚無確定回執；重送沿用同一 id。
+- pending/sent：等待下發，或已交付而尚無確定回執；重送沿用同一 id。
 - applied：本地操作已受理；send 的 run/input 關聯仍以 accepted 為準。
 - rejected：可證明未受理，例如 init 前的資源準備失敗；只記錄該輸入失敗，不虛構 run。
 - unknown：可能已受理，停止自動重送，等待公共事件或人工處理。
@@ -64,21 +64,21 @@ request 事件更新 runs 的 waiting/running 投影；result 決定 completed/f
 
 保存 message 和 send 輸入時，在同一交易固定 agent_version_id、agent_id 與交付 device。新 Agent 版本不改舊輸入，Client 按版本選擇新 session/events；同一 run 不接受跨 Agent 版本的輸入。
 
-入隊時保存目標 agent 的正文副本。首次 pull 在原行 payload 補齊 Server 組織的上下文、固定 config、Work 授權和檔案描述，並同時標記 sent；之後 payload 不再改動，不另存一份 dispatch。
+入隊時保存目標 agent 的正文副本。首次下發 task 前，在原行 payload 補齊 Server 組織的上下文、固定 config、Work 授權和檔案描述，並同時標記 sent；之後 payload 不再改動，不另存一份 dispatch。
 
 Client 只接收準備好的正文與版本資源，不推斷協調者角色。原生 RPC、hook、權限策略、插話或排隊都在 Client 的 harnessService/適配器內處理。
 
-網路使用 pull/report：每條 command 直接對應一條 run_inputs，統一採用 `i:<run_inputs.id>` 作為 command_id。send、reply、cancel 不再各自擁有控制記錄和 ACK 流程。具體報文見 [protocol-v2.md](protocol-v2.md)。
+網路使用六種 WebSocket 訊息：send/cancel 對應 task，reply 對應 answer；訊息 id 統一採用 `i:<run_inputs.id>`。Client 透過 log/result 回傳公共事件，雙方共用一種 ACK 格式。具體報文見 [protocol-v2.md](protocol-v2.md)。
 
 ## 五、事件保存與恢復
 
 run_events 保存 accepted、message、request、result、log；payload 使用原始公共事件 JSON。run_id 允許為空，以容納不屬於任何 run 的 log。來源綁定一旦建立，device/client_session 不可改綁 conversation、Agent 或版本。
 
-事件依 `(device_id, client_session_id, source_pos)` 唯一。相同位置重送時核對內容；不同內容拒絕。每個來源已提交的最大 source_pos 就是 ACK，不另建遊標表。已提交事件隨 conversation 整體清理，在此之前保留來源位置與內容，確保 ACK 單調並能校驗重送。
+事件依 `(device_id, client_session_id, source_pos)` 唯一。相同位置重送時核對內容；不同內容拒絕。來源位置用來產生穩定事件 id 並校驗重送；線上 ACK 逐訊息確認，不傳累積遊標。已提交事件隨 conversation 整體清理，在此之前保留來源位置與內容，不另建確認表。
 
-log 可以不上傳。只有實際保存的事件才推進 Server ACK；尾端被略過的 log 不需要確認，也不保護目錄。Client 恢復後重新掃過這些 log 即可，不增加另一份持久化掃描遊標。
+外層 log 包裝 accepted/message/request/log；前三種必須保存並 ACK，普通 log 可不上傳，也不保護目錄。result 使用獨立的 result 訊息；內層都是原始公共事件。
 
-report 在同一交易內保存回執、事件、runs 投影和最終 conversation 回覆，提交後才確認。原生結果中的 output/error/usage/cost 保留在 runs.result 的完整 JSON 投影，不再拆出多份結果欄位。
+Server 處理關鍵 log/result 時，在同一交易內保存事件、runs 投影和最終 conversation 回覆，提交後才 ACK；task/answer 的 ACK 只更新輸入傳輸狀態。原生結果中的 output/error/usage/cost 保留在 runs.result 的完整 JSON 投影，不再拆出多份結果欄位。
 
 accepted 同時將對應 send 輸入標記 applied 並綁定 run/input。result.input_ids 只核對該 run 的 send 輸入集合，reply/cancel 不計入其中。
 

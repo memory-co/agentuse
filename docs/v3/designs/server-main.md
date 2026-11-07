@@ -18,7 +18,7 @@ Server 保存對話、組織任務並跟蹤執行。用戶的一臺執行設備�
 
 Agent/Skill 版本化已實現，分別見 [agentService](server-agent.md) 與 [skillService](server-skill.md)：有效配置變更發佈不可變版本；輸入入隊時固定版本，client 首次使用該版本時創建新的 session/init 綁定。共享 ZIP 經 fileService 的 skills 命名空間保存，通過 HTTP 下載，不在 WebSocket 發送文件或原生命令。
 
-runService 的最新精簡目標改用 run_inputs，回答與取消共用輸入表，問題從事件讀取，只保留三張表；配套通信見 [protocol-v2.md](protocol-v2.md)。這部分尚未實作，現行表名和報文仍見 [protocol.md](protocol.md)。
+runService 的最新精簡目標改用 run_inputs，回答與取消共用輸入表，問題從事件讀取，只保留三張表；配套通信採六種 WebSocket 訊息，見 [protocol-v2.md](protocol-v2.md)。這部分尚未實作，現行表名和報文仍見 [protocol.md](protocol.md)。
 
 ## 一、整體關係
 
@@ -102,7 +102,7 @@ Work 是多個 conversation 的組織方式。workService 維護協調 conversat
 
 1. controller 驗證用戶和 conversation 權限。
 2. conversationService 在事務內保存消息，runService 爲每個目標寫一條 send 類型的 run_inputs。此時不創建 run。
-3. 提交後通知已連接 client 領取；client 報告可用容量，領取輸入及 server 準備的共享歷史、附件和業務說明。
+3. 精簡目標中，提交後 Server 依 heartbeat 的容量直接下發 task；正文和固定資源描述由 Server 準備，Client 不再主動領取。
 4. client 通過 harnessctl send 執行。accepted 決定實際 run UUID，可能與上次相同，也可能不同。
 5. Server 驗證並保存五類公共事件，提交後確認源位置；只從這些事件投影執行狀態。
 6. result 與最終 conversation 回覆一起提交；Work 在線程消息全部目標處理結束後只彙報一次。
