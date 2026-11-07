@@ -46,8 +46,8 @@ func TestSyncAttachments(t *testing.T) {
 	defer ts.Close()
 	d := &endpointConnection{cfg: Config{Server: ts.URL, Key: "dk_ok"}}
 	dir := t.TempDir()
-	sync := func() (*protocol.Prompt, error) {
-		m := protocol.Prompt{ConversationID: a.SessionID}
+	sync := func() (*protocol.ConversationMessage, error) {
+		m := protocol.ConversationMessage{ConversationID: a.SessionID}
 		err := d.syncAttachments(context.Background(), &m, dir)
 		return &m, err
 	}

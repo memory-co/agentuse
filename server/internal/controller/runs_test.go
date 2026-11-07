@@ -20,14 +20,14 @@ func TestRunAPIUsesClientIdentityAndGenericReply(t *testing.T) {
 	if response.StatusCode != 201 || len(reply.Runs) != 0 || len(reply.Deliveries) != 1 {
 		t.Fatal("server predicted run membership", response.StatusCode, reply)
 	}
-	p, err := f.e.st.ClaimPrompt(ctx, f.d)
+	p, err := f.e.st.DispatchMessage(ctx, f.d)
 	if err != nil {
 		t.Fatal(err)
 	}
 	run := uuid.NewString()
 	report := func(seq int64, event any) {
 		data, _ := json.Marshal(event)
-		if err := f.e.st.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.session.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: p.AgentVersionID, Harness: p.Harness, Revision: "reported", PromptID: p.ID, Seq: seq, Event: data}); err != nil {
+		if err := f.e.st.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.session.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: p.AgentVersionID, Revision: "reported", MessageID: p.MessageID, Seq: seq, Event: data}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -65,7 +65,7 @@ func TestRunAPIUsesClientIdentityAndGenericReply(t *testing.T) {
 }
 func TestMessageSubmissionDoesNotDeduplicateUserText(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
-	ids := map[int64]bool{}
+	ids := map[string]bool{}
 	for i := 0; i < 2; i++ {
 		var reply service.MultiReply
 		r := f.e.req(f.token, "POST", "/api/sessions/"+f.session.ID+"/messages", map[string]any{"prompt": "same", "target_agent_ids": []string{f.agent}}, &reply)

@@ -72,8 +72,7 @@ func ScanSession(row scanner) (Session, error) {
 func ScanMessage(row scanner) (Message, error) {
 	var m Message
 	var content, targets string
-	err := row.Scan(&m.ID, &m.SessionID, &m.Role, &content, &m.CreatedAt, &m.RunID, &m.AgentKey, &m.AgentName, &targets, &m.AuthorAgentVersionID)
-	m.Seq = m.ID
+	err := row.Scan(&m.ID, &m.SessionID, &m.Role, &content, &m.CreatedAt, &m.RunID, &m.AgentKey, &m.AgentName, &targets, &m.AuthorAgentVersionID, &m.Seq)
 	_ = json.Unmarshal([]byte(targets), &m.TargetAgentIDs)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Message{}, ErrNotFound

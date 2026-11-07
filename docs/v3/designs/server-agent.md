@@ -1,6 +1,6 @@
 # agentService：不可變 Agent 版本與 Skill 版本關聯
 
-> 版本化鏈路已實現，使用數據庫 schema 3 和 harnessctl-events-v2。表之間不聲明數據庫外鍵。當前 HTTP/DTO 仍使用 daemon_id 表示 device；agent_versions 的物理列爲 device_id。
+> 版本化鏈路已實現，使用數據庫 schema 4 和 agentuse-client/2。表之間不聲明數據庫外鍵。當前 HTTP/DTO 仍使用 daemon_id 表示 device；agent_versions 的物理列爲 device_id。
 
 ## 職責與對象關係
 
@@ -40,16 +40,16 @@ Skill 包的格式、上傳 API、權限和表結構統一見 [server-skill.md](
 
 ## 從輸入分配到 harnessctl init
 
-1. 用戶消息 @ agent，conversationService/runService 在保存消息和輸入分配的同一事務內，讀取並固定該 agent 的當前 agent_version_id。
-2. 已入隊輸入不跟隨之後的 agent 更新。領取時按固定版本讀取執行選擇、指令和 skill 依賴，組織完整 dispatch 快照。
-3. Prompt 攜帶 agent_version_id、model、agent_instructions 和具體 skill 版本的下載清單。Server 不發送原生命令、argv 或 YAML。
-4. Client 按 endpoint/conversation/agent/version/適配器 revision 選擇 session。同版本可複用；新版本必須創建新的 session 目錄和 events.jsonl，不能對舊事件地址重配 init。
-5. Client 下載清單中的 ZIP，校驗版本、大小與 SHA-256，在 workspace 之外解包並寫指令文件，調用 harnessctl init --cwd ... --model ... --agents-md ... --skills-dir ...。未指定模型時省略 --model。
-6. init 成功後提交本次輸入；後續同版本輸入走 send，是否插話由適配器決定。accepted 決定實際 run UUID，server 再將 run 關聯到該輸入固定的 agent 版本。
+1. 保存 conversation message 時，在同一事務內保存每個目標 Agent 的 message_agents 關係，固定 agent_version_id 和設備，不新增 task 或輸入 ID。
+2. Server 按 heartbeat 容量直接發送 message，附固定版本和業務 context，不內嵌 Agent 配置或技能下載清單。
+3. Client 缺少配置時，使用 device key 讀取該 Agent 的固定版本 API，取得模型、指令及固定 skill 引用；再讀 Skill 版本 API 和缺少的 ZIP。授權在消息派發後即可使用，不依賴 run 已存在。
+4. Client 按 endpoint/conversation/agent/version/適配器 revision 複用 session；新版本創建新的事件地址。
+5. Client 校驗和緩存 ZIP，在 workspace 外準備資源，調用 harnessctl init。全部步驟由 Client 內部管理，不向 Server 建立 init 狀態機。
+6. init 成功後 send；accepted 直接關聯 message/Agent 和真正的 run UUID。準備失敗回原 message 的錯誤 ACK，不虛構 run。
 
 “每次變更做一次 init”是**下一次使用該新版本時建立新的初始化綁定**，不是每編輯一次就向所有 client 推配置。舊版本 run 可繼續完成；新版本消息不進入舊版本的原生上下文。兩者仍使用同一 conversation 的 workspace 和共享消息歷史。
 
-Agent 指令是版本固定的 init 資源。Work 說明、協調者規則、共享歷史和本次任務仍由 server 按業務輸入組織到 prompt.content，不因持有 WorkToken 就由 client 推斷角色，也不隨每次 send 重寫 agent 的指令快照。
+Agent 指令是版本固定的 init 資源。Work 說明、協調者規則、共享歷史和本次任務仍由 server 按業務輸入組織到 message.context，不因持有 WorkToken 就由 client 推斷角色，也不隨每次 send 重寫 agent 的指令快照。
 
 ## API 設計
 
@@ -119,7 +119,7 @@ agentService 通過 skillService 檢查版本歸屬、權限和發佈狀態；�
 
 ## 其他 Service 的關係
 
-- conversationService 保存穩定的 @ agent_id；runService 在輸入分配上固定 agent_version_id，不讓名字或 latest 參與執行歸屬判斷。
+- conversationService 保存穩定的 @ agent_id；runService 在消息/Agent 關係上固定 agent_version_id，不讓名字或 latest 參與執行歸屬判斷。
 - deviceService 維護設備可用性；版本里的 device/harness 是固定選擇，不隨設備記錄被刪除而改寫。
 - skillService 管技能身份、版本與包的可讀性；通過 fileService 存取 skills 空間，agentService 不直接寫技能包。
 - client sessionService 固定 agent_version_id 與事件地址；harnessService 只接收已準備好的資源路徑並調用 init。

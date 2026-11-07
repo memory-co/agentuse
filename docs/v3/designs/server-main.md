@@ -8,17 +8,17 @@ Conversation 表示共享對話，由 conversationService 管理；原 session �
 
 Server 保存對話、組織任務並跟蹤執行。用戶的一臺執行設備稱爲 **device**，設備上運行的程序稱爲 **client**。Client 從 server 領取輸入分配，由本地 harnessService 解析 YAML、準備資源、執行 harness 並處理交互。Server 保存輸入分配與 client 上報的 run 事實，不理解原生 harness 協議。
 
-一臺 client 可以向多個獨立 server 註冊，由本地 [endpointService](client-endpoint.md) 保存註冊信息，[client runService](client-run.md) 負責連接和領取任務；每個 server 只看到本中心註冊的 device，不共享其他中心的任務或憑據。
+一臺 client 可以向多個獨立 server 註冊，由本地 [endpointService](client-endpoint.md) 保存註冊信息，[client runService](client-run.md) 負責連接、接收 message 和執行；每個 server 只看到本中心註冊的 device，不共享其他中心的任務或憑據。
 
 ## 當前實現與目標命名
 
-執行協議已採用 harnessctl-events-v2：server 不預創建 run，只有 client 的 accepted 創建實際 UUID；五種公共事件原樣入庫，沒有 attempt、租約、原生能力分支或 server harnessService。詳細協議、實際 SQL、重連規則及 schema 3 升級約束見 [server-run.md](server-run.md)。
+執行協議已採用 agentuse-client/2：server 不預創建 run，只有 client 的 accepted 創建實際 UUID；五種公共事件原樣入庫，沒有 attempt、租約、原生能力分支或 server harnessService。詳細協議、實際 SQL、重連規則及 schema 4 升級約束見 [server-run.md](server-run.md)。
 
-其他章節中的 conversation/device 爲業務目標名稱。現有 HTTP /sessions、/daemons 和部分元數據物理表仍保留原名；消息 UUID 和舊附件鏈路遷移仍爲獨立目標；通用 fileService 的本地/S3 後端已實現。
+其他章節中的 conversation/device 爲業務目標名稱。現有 HTTP /sessions、/daemons 和部分元數據物理表仍保留原名；消息 UUID 已在 schema 4 遷移，舊附件鏈路整理仍為獨立目標；通用 fileService 的本地/S3 後端已實現。
 
 Agent/Skill 版本化已實現，分別見 [agentService](server-agent.md) 與 [skillService](server-skill.md)：有效配置變更發佈不可變版本；輸入入隊時固定版本，client 首次使用該版本時創建新的 session/init 綁定。共享 ZIP 經 fileService 的 skills 命名空間保存，通過 HTTP 下載，不在 WebSocket 發送文件或原生命令。
 
-runService 的最新精簡目標改用 run_inputs，回答與取消共用輸入表，問題從事件讀取，只保留三張表；配套通信採六種 WebSocket 訊息，見 [protocol-v2.md](protocol-v2.md)。這部分尚未實作，現行表名和報文仍見 [protocol.md](protocol.md)。
+runService 直接保存 message_agents 複合關係，accepted 建立實際 run；answer/cancel 各自保存傳輸收據，不再共用一個輸入業務對象。配置和 skills 由 Client 按固定版本 HTTP API 讀取，init 是 Client 內部步驟。
 
 ## 一、整體關係
 
@@ -41,7 +41,7 @@ Server 分爲三層：
 | [agentService](server-agent.md) | Agent 身份、不可變配置版本，以及具體 Skill 版本的固定關聯 | `agents`、`agent_versions`、`agent_version_skills` |
 | [skillService](server-skill.md) | 共享 Skill 身份、ZIP 版本發佈與校驗、權限和下載；複用 fileService | `skills`、`skill_versions` |
 | [conversationService](server-conversation.md) | 清晰、持續的對話：創建對話、保存消息、讀取共享歷史；調用 runService 分配任務，接收結果事件並保存回覆 | `conversations`、`messages` |
-| [runService](server-run.md) | 分配消息輸入、接收實際 run、原樣保存公共事件、轉發回答和取消 | `run_inputs`、`runs`、`run_events`（精簡目標） |
+| [runService](server-run.md) | 分配消息輸入、接收實際 run、原樣保存公共事件、轉發回答和取消 | `message_agents`、`runs`、`run_events`、問題及控制投影 |
 | [fileService](server-file.md) | 按業務命名空間封裝本地/S3；conversation 文件與 agent skill 包分目錄 | 本地目錄或 S3 對象前綴，無數據庫表 |
 | [workService](server-work.md) | 把多個 conversation 組織成一項工作，管理協調 agent、線程關係和結果彙總 | `works`、`work_run_tokens`、`run_notifications` |
 
@@ -101,8 +101,8 @@ Work 是多個 conversation 的組織方式。workService 維護協調 conversat
 ## 三、每次消息進入 Server
 
 1. controller 驗證用戶和 conversation 權限。
-2. conversationService 在事務內保存消息，runService 爲每個目標寫一條 send 類型的 run_inputs。此時不創建 run。
-3. 精簡目標中，提交後 Server 依 heartbeat 的容量直接下發 task；正文和固定資源描述由 Server 準備，Client 不再主動領取。
+2. conversationService 在事務內保存消息，runService 為每個目標保存一條 message_agents 關係。此時不創建 run。
+3. 提交後 Server 依 heartbeat 容量直接發送 message 和目標 Agent/版本；Client 缺少配置或技能時自己讀固定版本 API，準備資源並 init。
 4. client 通過 harnessctl send 執行。accepted 決定實際 run UUID，可能與上次相同，也可能不同。
 5. Server 驗證並保存五類公共事件，提交後確認源位置；只從這些事件投影執行狀態。
 6. result 與最終 conversation 回覆一起提交；Work 在線程消息全部目標處理結束後只彙報一次。

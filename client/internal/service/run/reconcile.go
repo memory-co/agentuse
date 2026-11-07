@@ -2,73 +2,106 @@ package run
 
 import (
 	"bytes"
-	"context"
+	contextpkg "context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/memory-co/agentuse/client/internal/fileutil"
 	"github.com/memory-co/agentuse/client/internal/service/harness"
+	"github.com/memory-co/agentuse/client/internal/service/session"
+	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-func (s *Service) Reconcile(ctx context.Context) error {
+func (s *Service) Reconcile(ctx contextpkg.Context) error {
 	if err := s.recoverRemoteReceipts(ctx); err != nil {
 		return err
 	}
 	return s.rebuildNativeIndexes(ctx)
 }
-func (s *Service) pendingConversation(ctx context.Context, endpoint, conversation string) (bool, error) {
+func (s *Service) pendingConversation(ctx contextpkg.Context, endpoint, conversation string) (bool, error) {
+	dir := filepath.Join(s.Sessions.Root, endpoint, conversation)
+	entries, err := os.ReadDir(filepath.Join(dir, ".server", "messages"))
+	if err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, e := os.ReadFile(filepath.Join(dir, ".server", "messages", entry.Name()))
+		if e != nil {
+			return false, e
+		}
+		var r messageReceipt
+		if e = json.Unmarshal(data, &r); e != nil {
+			return false, e
+		}
+		if r.State == "queued" || r.State == "preparing" || r.State == "submitting" || r.State == "unknown" {
+			return true, nil
+		}
+	}
 	sessions, err := s.Sessions.Sessions(ctx, endpoint, conversation)
 	if err != nil {
 		return false, err
 	}
-	for _, metadata := range sessions {
-		dir := filepath.Join(s.Sessions.Root, endpoint, conversation, "sessions", metadata.ID)
-		entries, e := os.ReadDir(filepath.Join(dir, ".server", "inputs"))
+	for _, m := range sessions {
+		root := filepath.Join(dir, "sessions", m.ID)
+		controls, e := os.ReadDir(filepath.Join(root, ".server", "controls"))
 		if e != nil && !os.IsNotExist(e) {
 			return false, e
 		}
-		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		for _, entry := range controls {
+			if entry.IsDir() {
 				continue
 			}
-			data, e := os.ReadFile(filepath.Join(dir, ".server", "inputs", entry.Name()))
+			raw, e := os.ReadFile(filepath.Join(root, ".server", "controls", entry.Name()))
 			if e != nil {
 				return false, e
 			}
-			var receipt promptReceipt
-			if e = json.Unmarshal(data, &receipt); e != nil {
+			var r controlReceipt
+			if e = json.Unmarshal(raw, &r); e != nil {
 				return false, e
 			}
-			if receipt.State == "submitting" || (receipt.State == "failed" && !receipt.Reported) {
+			if r.Status == "unknown" {
 				return true, nil
 			}
 		}
-		cursorData, err := os.ReadFile(filepath.Join(dir, ".server", "stream.json"))
-		if os.IsNotExist(err) {
+		raw, e := os.ReadFile(filepath.Join(root, ".server", "stream.json"))
+		if os.IsNotExist(e) {
 			continue
 		}
-		if err != nil {
-			return false, err
+		if e != nil {
+			return false, e
 		}
 		var cursor streamReceipt
-		if err = json.Unmarshal(cursorData, &cursor); err != nil {
-			return false, err
+		if e = json.Unmarshal(raw, &cursor); e != nil {
+			return false, e
 		}
-		info, err := os.Stat(filepath.Join(dir, "events.jsonl"))
-		if err == nil && info.Size() > cursor.Offset {
-			return true, nil
+		source, e := os.ReadFile(filepath.Join(root, "events.jsonl"))
+		if os.IsNotExist(e) {
+			continue
 		}
-		if err != nil && !os.IsNotExist(err) {
-			return false, err
+		if e != nil {
+			return false, e
+		}
+		if cursor.Offset < 0 || cursor.Offset > int64(len(source)) {
+			return true, fmt.Errorf("invalid event cursor")
+		}
+		for _, line := range bytes.Split(source[cursor.Offset:], []byte{'\n'}) {
+			var event struct {
+				Type string `json:"type"`
+			}
+			if len(line) > 0 && (json.Unmarshal(line, &event) != nil || event.Type != "log") {
+				return true, nil
+			}
 		}
 	}
 	return false, nil
 }
 
-func (s *Service) Recover(ctx context.Context) error {
+func (s *Service) Recover(ctx contextpkg.Context) error {
 	endpoints, err := os.ReadDir(s.Sessions.Root)
 	if err != nil {
 		return err
@@ -97,10 +130,12 @@ func (s *Service) Recover(ctx context.Context) error {
 	return s.Harness.Recover(ctx, active)
 }
 
-// Receipts never cause execution replay. After adapter recovery has cancelled
-// foreground work, recover bindings from the authoritative accepted records.
-func (s *Service) recoverRemoteReceipts(ctx context.Context) error {
+// Rebuild receipt associations from durable public events, never by replaying send.
+func (s *Service) recoverRemoteReceipts(ctx contextpkg.Context) error {
 	endpoints, err := os.ReadDir(s.Sessions.Root)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -112,79 +147,156 @@ func (s *Service) recoverRemoteReceipts(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		d := &endpointConnection{cfg: Config{EndpointID: ep.Name(), RunService: s}}
 		for _, c := range conversations {
 			sessions, err := s.Sessions.Sessions(ctx, ep.Name(), c.ID)
 			if err != nil {
 				return err
 			}
-			for _, metadata := range sessions {
-				dir := filepath.Join(s.Sessions.Root, ep.Name(), c.ID, "sessions", metadata.ID)
-				inputs := filepath.Join(dir, ".server", "inputs")
-				entries, err := os.ReadDir(inputs)
-				if os.IsNotExist(err) {
-					continue
-				}
-				if err != nil {
+			for _, m := range sessions {
+				if err = d.migrateLegacyReceipts(m); err != nil {
 					return err
-				}
-				source, err := os.ReadFile(filepath.Join(dir, "events.jsonl"))
-				if err != nil && !os.IsNotExist(err) {
-					return err
-				}
-				for _, entry := range entries {
-					if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-						continue
-					}
-					path := filepath.Join(inputs, entry.Name())
-					data, err := os.ReadFile(path)
-					if err != nil {
-						return err
-					}
-					var receipt promptReceipt
-					if err = json.Unmarshal(data, &receipt); err != nil {
-						return err
-					}
-					if receipt.State != "submitting" {
-						continue
-					}
-					if receipt.Offset < 0 || receipt.Offset > int64(len(source)) {
-						return fmt.Errorf("invalid pending receipt offset")
-					}
-					candidates := []harness.Event{}
-					complete := source[receipt.Offset:]
-					if end := bytes.LastIndexByte(complete, '\n'); end >= 0 {
-						complete = complete[:end+1]
-					} else {
-						complete = nil
-					}
-					for _, line := range bytes.Split(complete, []byte{'\n'}) {
-						if len(line) == 0 {
-							continue
-						}
-						var event harness.Event
-						if err = json.Unmarshal(line, &event); err != nil {
-							return err
-						}
-						if event.Type == "accepted" && event.Text == receipt.Prompt.Content {
-							candidates = append(candidates, event)
-						}
-					}
-					if len(candidates) > 1 {
-						return fmt.Errorf("ambiguous accepted input for prompt %d", receipt.Prompt.ID)
-					}
-					if len(candidates) == 1 {
-						receipt.State = "accepted"
-						receipt.RunID = candidates[0].RunID
-						receipt.InputID = candidates[0].InputID
-					} else {
-						receipt.State = "failed"
-						receipt.Error = "client restarted before input acceptance; executor recovery confirmed cancellation"
-					}
-					if err = fileutil.WriteJSON(path, receipt); err != nil {
-						return err
-					}
 				}
 			}
+			receipts, err := d.receipts(c.ID)
+			if err != nil {
+				return err
+			}
+			bound := map[string]bool{}
+			for _, r := range receipts {
+				if r.State == "accepted" || r.State == "submitting" || r.State == "unknown" {
+					if err = d.saveTombstone(r); err != nil {
+						return err
+					}
+				}
+				if r.InputID != "" {
+					bound[r.SessionID+"/"+r.RunID+"/"+r.InputID] = true
+				}
+			}
+			for _, r := range receipts {
+				if r.State == "preparing" {
+					r.State = "queued"
+					if err = d.saveReceipt(r); err != nil {
+						return err
+					}
+					continue
+				}
+				if r.State != "submitting" && r.State != "unknown" {
+					continue
+				}
+				path := filepath.Join(s.Sessions.Root, ep.Name(), c.ID, "sessions", r.SessionID, "events.jsonl")
+				source, e := os.ReadFile(path)
+				if e != nil && !os.IsNotExist(e) {
+					return e
+				}
+				if r.Offset < 0 || r.Offset > int64(len(source)) {
+					r.State = "unknown"
+					r.Error = "pending source position is unavailable"
+					if e = d.saveReceipt(r); e != nil {
+						return e
+					}
+					continue
+				}
+				complete := source[r.Offset:]
+				if end := bytes.LastIndexByte(complete, '\n'); end >= 0 {
+					complete = complete[:end+1]
+				} else {
+					complete = nil
+				}
+				var candidates []harness.Event
+				for _, line := range bytes.Split(complete, []byte{'\n'}) {
+					if len(line) == 0 {
+						continue
+					}
+					var event harness.Event
+					if e = json.Unmarshal(line, &event); e != nil {
+						return e
+					}
+					if event.Type == "accepted" && !bound[r.SessionID+"/"+event.RunID+"/"+event.InputID] {
+						candidates = append(candidates, event)
+					}
+				}
+				if len(candidates) == 1 {
+					r.State = "accepted"
+					r.RunID = candidates[0].RunID
+					r.InputID = candidates[0].InputID
+					r.Error = ""
+					bound[r.SessionID+"/"+r.RunID+"/"+r.InputID] = true
+				} else {
+					r.State = "unknown"
+					r.Error = "input acceptance cannot be uniquely established; automatic replay stopped"
+				}
+				if e = d.saveReceipt(r); e != nil {
+					return e
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (d *endpointConnection) migrateLegacyReceipts(m session.Session) error {
+	root := filepath.Join(d.sessionDir(m), ".server", "inputs")
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(root, entry.Name())
+		data, e := os.ReadFile(path)
+		if e != nil {
+			return e
+		}
+		var old struct {
+			Prompt struct {
+				ConversationID string                     `json:"conversation_id"`
+				MessageID      int64                      `json:"message_id"`
+				AgentID        string                     `json:"agent_id"`
+				AgentVersionID string                     `json:"agent_version_id"`
+				Content        string                     `json:"content"`
+				Attachments    []protocol.LocalAttachment `json:"attachments"`
+				WorkID         string                     `json:"work_id"`
+				WorkToken      string                     `json:"work_token"`
+			} `json:"prompt"`
+			SessionID string `json:"session_id"`
+			Offset    int64  `json:"offset"`
+			State     string `json:"state"`
+			RunID     string `json:"run_id"`
+			InputID   string `json:"input_id"`
+			Error     string `json:"error"`
+		}
+		if e = json.Unmarshal(data, &old); e != nil {
+			return e
+		}
+		if old.Prompt.MessageID <= 0 {
+			return fmt.Errorf("legacy receipt lacks saved message identity")
+		}
+		content := old.Prompt.Content
+		context := ""
+		if pos := strings.LastIndex(content, "\n\n# 本次任务\n"); pos >= 0 {
+			context = content[:pos]
+			content = content[pos+len("\n\n# 本次任务\n"):]
+		}
+		msg := protocol.ConversationMessage{ConversationID: old.Prompt.ConversationID, MessageID: protocol.LegacyMessageID(old.Prompt.ConversationID, old.Prompt.MessageID), AgentID: old.Prompt.AgentID, AgentVersionID: old.Prompt.AgentVersionID, Content: content, Context: context, Attachments: old.Prompt.Attachments, WorkID: old.Prompt.WorkID, WorkToken: old.Prompt.WorkToken}
+		r := messageReceipt{Message: msg, SessionID: old.SessionID, Offset: old.Offset, State: old.State, RunID: old.RunID, InputID: old.InputID, InputText: old.Prompt.Content, Error: old.Error}
+		if r.State == "failed" {
+			r.State = "unknown"
+		}
+		if _, found, e := d.findReceipt(contextpkg.Background(), msg); e != nil {
+			return e
+		} else if !found {
+			if e = d.saveReceipt(r); e != nil {
+				return e
+			}
+		}
+		if e = os.Rename(path, path+".migrated"); e != nil {
+			return e
 		}
 	}
 	return nil

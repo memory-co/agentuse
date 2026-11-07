@@ -40,8 +40,8 @@ func TestRemoteOutboxWaitsForCommitAckAndReplaysSource(t *testing.T) {
 	if err = fileutil.WriteJSON(filepath.Join(dir, ".server", "stream.json"), streamReceipt{}); err != nil {
 		t.Fatal(err)
 	}
-	receipt := promptReceipt{Prompt: protocol.Prompt{ID: 7, ConversationID: metadata.ConversationID}, State: "accepted", SessionID: metadata.ID, RunID: "550e8400-e29b-41d4-a716-446655440000", InputID: "input"}
-	if err = fileutil.WriteJSON(connection.receiptPath(metadata, 7), receipt); err != nil {
+	receipt := messageReceipt{Message: protocol.ConversationMessage{MessageID: "m7", AgentID: "agent", ConversationID: metadata.ConversationID}, State: "accepted", SessionID: metadata.ID, RunID: "550e8400-e29b-41d4-a716-446655440000", InputID: "input"}
+	if err = fileutil.WriteJSON(connection.receiptPath(metadata, "m:m7:agent"), receipt); err != nil {
 		t.Fatal(err)
 	}
 	received := make(chan protocol.Message, 3)
@@ -70,7 +70,7 @@ func TestRemoteOutboxWaitsForCommitAckAndReplaysSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := <-received
-	if first.ClientEvent == nil || first.ClientEvent.PromptID != 7 || first.ClientEvent.Seq != int64(len(line)) {
+	if first.ClientEvent == nil || first.ClientEvent.MessageID != "m7" || first.ClientEvent.Seq != int64(len(line)) {
 		t.Fatalf("bad envelope %+v", first)
 	}
 	if string(first.ClientEvent.Event) != strings.TrimSpace(string(line)) {
@@ -112,8 +112,8 @@ func TestRecoverRemoteReceiptUsesOnlyCompleteAcceptedRecords(t *testing.T) {
 		ambiguous           bool
 	}{
 		{"accepted", `{"type":"accepted","run_id":"550e8400-e29b-41d4-a716-446655440000","input_id":"one","text":"hello"}` + "\n" + `{"type":`, "accepted", false},
-		{"unaccepted", `{"type":`, "failed", false},
-		{"ambiguous", strings.Repeat(`{"type":"accepted","run_id":"550e8400-e29b-41d4-a716-446655440000","input_id":"one","text":"hello"}`+"\n", 2), "", true},
+		{"unaccepted", `{"type":`, "unknown", false},
+		{"ambiguous", strings.Repeat(`{"type":"accepted","run_id":"550e8400-e29b-41d4-a716-446655440000","input_id":"one","text":"hello"}`+"\n", 2), "unknown", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			files, _ := openFileServices(t.TempDir())
@@ -123,8 +123,8 @@ func TestRecoverRemoteReceiptUsesOnlyCompleteAcceptedRecords(t *testing.T) {
 			}
 			d, _ := newConnection(Config{Server: "http://example.com", Key: "test", EndpointID: metadata.EndpointID, RunService: files}, nil)
 			dir := d.sessionDir(metadata)
-			path := d.receiptPath(metadata, 1)
-			if err = fileutil.WriteJSON(path, promptReceipt{Prompt: protocol.Prompt{ID: 1, Content: "hello"}, SessionID: metadata.ID, State: "submitting"}); err != nil {
+			path := d.receiptPath(metadata, "m:m1:agent")
+			if err = fileutil.WriteJSON(path, messageReceipt{Message: protocol.ConversationMessage{MessageID: "m1", AgentID: "agent", ConversationID: metadata.ConversationID, Content: "hello"}, SessionID: metadata.ID, State: "submitting"}); err != nil {
 				t.Fatal(err)
 			}
 			if err = os.WriteFile(filepath.Join(dir, "events.jsonl"), []byte(tc.source), 0600); err != nil {
@@ -141,28 +141,86 @@ func TestRecoverRemoteReceiptUsesOnlyCompleteAcceptedRecords(t *testing.T) {
 				t.Fatal(err)
 			}
 			data, _ := os.ReadFile(path)
-			var receipt promptReceipt
+			var receipt messageReceipt
 			if json.Unmarshal(data, &receipt) != nil || receipt.State != tc.state {
 				t.Fatalf("bad recovery %s", data)
 			}
-			if receipt.State == "failed" {
+			if receipt.State == "unknown" {
 				pinned, e := files.pendingConversation(context.Background(), metadata.EndpointID, metadata.ConversationID)
 				if e != nil || !pinned {
-					t.Fatal("unconfirmed input failure can be reclaimed", e)
-				}
-				receipt.Reported = true
-				if e = fileutil.WriteJSON(path, receipt); e != nil {
-					t.Fatal(e)
-				}
-				pinned, e = files.pendingConversation(context.Background(), metadata.EndpointID, metadata.ConversationID)
-				if e != nil || pinned {
-					t.Fatal("confirmed input failure still pins directory", e)
+					t.Fatal("uncertain input can be reclaimed", e)
 				}
 			}
+
 			after, _ := os.ReadFile(filepath.Join(dir, "events.jsonl"))
 			if string(after) != tc.source {
 				t.Fatal("recovery rewrote execution facts")
 			}
 		})
+	}
+}
+
+func TestMessageReceiptSurvivesConversationReclamation(t *testing.T) {
+	files, err := openFileServices(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := newConnection(Config{Server: "http://example.com", Key: "test", EndpointID: "remote", RunService: files}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := protocol.ConversationMessage{ConversationID: "conversation", MessageID: "message", AgentID: "agent", AgentVersionID: "version", Content: "hello"}
+	r := messageReceipt{Message: p, State: "accepted", SessionID: "session", RunID: "run", InputID: "input"}
+	if err = d.saveReceipt(r); err != nil {
+		t.Fatal(err)
+	}
+	if err = d.saveTombstone(r); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.RemoveAll(filepath.Join(files.Sessions.Root, "remote", "conversation")); err != nil {
+		t.Fatal(err)
+	}
+	recovered, found, err := d.findReceipt(context.Background(), p)
+	if err != nil || !found || recovered.State != "unknown" || recovered.RunID != "run" {
+		t.Fatal("collected history permitted native replay", recovered, found, err)
+	}
+	p.Content = "different"
+	if _, _, err = d.findReceipt(context.Background(), p); err == nil {
+		t.Fatal("retained identity accepted conflicting content")
+	}
+	conversations, err := files.Sessions.Conversations(context.Background(), "remote")
+	if err != nil || len(conversations) != 0 {
+		t.Fatal("transport metadata exposed as conversation", conversations, err)
+	}
+}
+func TestLateAcceptedResolvesUncertainMessageWithoutReplay(t *testing.T) {
+	files, err := openFileServices(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, _, err := files.Sessions.Acquire(context.Background(), "remote", "conversation", "agent", "custom", "revision", "version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := newConnection(Config{Server: "http://example.com", Key: "test", EndpointID: "remote", RunService: files}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := protocol.ConversationMessage{ConversationID: "conversation", MessageID: "message", AgentID: "agent", AgentVersionID: "version", Content: "hello"}
+	r := messageReceipt{Message: p, State: "unknown", SessionID: metadata.ID}
+	if err = d.saveReceipt(r); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"type":"accepted","run_id":"550e8400-e29b-41d4-a716-446655440000","input_id":"input","text":"hello"}` + "\n")
+	if err = os.WriteFile(filepath.Join(d.sessionDir(metadata), "events.jsonl"), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	id, err := d.lateAcceptance(context.Background(), p.ConversationID, metadata.ID, "550e8400-e29b-41d4-a716-446655440000", "input", int64(len(raw)), []messageReceipt{r})
+	if err != nil || id != p.MessageID {
+		t.Fatal(id, err)
+	}
+	recovered, found, err := d.findReceipt(context.Background(), p)
+	if err != nil || !found || recovered.State != "accepted" || recovered.InputID != "input" {
+		t.Fatal(recovered, found, err)
 	}
 }

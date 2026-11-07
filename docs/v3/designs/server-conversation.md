@@ -1,6 +1,6 @@
 # conversationService：共享對話與消息編排
 
-> runService 最新精簡目標見 [server-run.md](server-run.md)：run_inputs 包含 send/reply/cancel，本文的訊息分配只指 kind=send；尚未據此改動實作。
+> 執行鏈路使用 [agentuse-client/2](protocol.md)：直接投遞 message，消息/Agent 關係見 [server-run.md](server-run.md)，不再有 task 或獨立輸入 ID。
 
 > 執行關係已採用 client 公共事件協議。本文的 conversation/device 是業務名稱，後面的元數據 SQL 仍爲目標結構，不是當前數據庫遷移腳本；實際命名及尚未落地的字段在“目標元數據與當前實現”中單獨說明。目標表不聲明數據庫外鍵，關聯校驗和清理由 service 完成。
 
@@ -8,32 +8,32 @@
 
 Conversation 是原共享對話概念的新名稱，不新增另一層 conversationService；原有消息、任務和文件歸屬隨之統一改名。session 是 client 本地的原生執行會話，見 [client-session.md](client-session.md)。
 
-conversationService 管理 conversation、message 和共享歷史，並編排消息分配。一個 conversation 包含若干 message 和若干 run；message 與 run 的任務輸入關係是 **N:M**，由 runService 中 kind=send 的 run_inputs 連接。
+conversationService 管理 conversation、message 和共享歷史，並編排消息分配。一個 conversation 包含若干 message 和若干 run；message 與 run 的任務輸入關係是 **N:M**，由 runService 中 message_agents 連接。
 
 - 創建/讀取/刪除對話，維護標題、歸屬和共享歷史。
-- 接收消息，調用 runService 爲目標 agent 分配任務；對話原文只保存一次，每個目標 agent 另存一份 run_inputs，等待 accepted 關聯實際 run。
+- 接收消息，調用 runService 爲目標 agent 分配任務；對話原文只保存一次，每個目標 agent 保存一條 message_agents 關係，等待 accepted 關聯實際 run。
 - 消費執行結果事件，把最終回覆寫爲 agent message，並記錄作者和被回覆的 message。
-- 讀取對話時組合對話、run、run_inputs、事件和問題的統一快照。
+- 讀取對話時組合對話、run、message_agents、事件和問題的統一快照。
 
 ![Conversation、消息、投遞與執行的關係](../../images/conversation-run.svg)
 
 ## 發送和回覆
 
-發送鏈路是 `controller → conversationService → runService`：先檢查權限，在一個事務中寫一條 message 和每個目標 agent 的 run_inputs，提交後通知 client 領取。任一目標失敗則整體回滾。空目標只保存備註。
+發送鏈路是 `controller → conversationService → runService`：先檢查權限，在一個事務中寫一條 message 和每個目標 agent 的 message_agents，提交後按 heartbeat 容量主動發送 message。任一目標失敗則整體回滾。空目標只保存備註。
 
-此時只分配輸入，run_id 爲空。這一事務內爲每條 run_inputs 固定 agent_version_id，後續領取不追隨 latest。Server 不能根據某個 agent 仍在執行，就認定新消息一定屬於它當前的 run。
+此時只分配輸入，run_id 爲空。這一事務內爲每條 message_agents 固定 agent_version_id，後續派發不追隨 latest。Server 不能根據某個 agent 仍在執行，就認定新消息一定屬於它當前的 run。
 
 ```text
-M1 @coder @reviewer → P1(coder)、P2(reviewer)
-client accepted P1：run_id=R1，input_id=I1
-client accepted P2：run_id=R2，input_id=I2
-M2 @coder → P3(coder)
-client accepted P3：
+M1 @coder @reviewer → (M1,coder)、(M1,reviewer)
+client accepted (M1,coder)：run_id=R1，input_id=I1
+client accepted (M1,reviewer)：run_id=R2，input_id=I2
+M2 @coder → (M2,coder)
+client accepted (M2,coder)：
   run_id=R1 → 同一次交互的補充輸入
   run_id=R3 → 後續一次交互
 ```
 
-P3 最終關聯哪個 run，由適配器決定，並通過 accepted 上報。message 與 run 的 N:M 關係由此建立，輸入分配 ID 只用於關聯消息，不是執行身份。conversation 不綁定 agent，不設置參與者表或每個 agent 獨立的共享歷史。
+(M2,coder) 最終關聯哪個 run，由適配器決定，並通過 accepted 上報。message 與 run 的 N:M 關係由此建立，消息/Agent 複合鍵直接關聯消息，不另分配執行身份。conversation 不綁定 agent，不設置參與者表或每個 agent 獨立的共享歷史。
 
 收到 client result 後，在**同一事務**保存原始事件、更新 run 與輸入狀態、寫入 agent message、綁定 runs.result_message_id，並重算對話狀態。最終回覆的 reply_to_message_id 指向 first_message_id；messages 不保存 run_id。事務提交後才確認源事件位置，重複上報直接確認已有記錄，不重複寫回復或觸發 Work 彙總。
 
@@ -43,19 +43,19 @@ message、request、log 是執行記錄，不能都變成普通聊天消息。ca
 
 Conversation 狀態是實際 run 與未完成輸入的聚合投影，優先 waiting、running、pending，再到 idle；resolved 是用戶的完成標記。投影由 conversationService 通過 runService 查詢當前狀態後更新，run 狀態變化和最終結果事件都觸發重算；重算讀取當前實際 run 和未完成輸入集合，不用舊事件直接覆蓋投影。idle 不表示歷史任務全部成功。
 
-有活躍 run 或待領取/待受理輸入時拒絕刪除，檢查與刪除共用事務；回覆消費前也要重新檢查對話是否存在，已刪除的對話不恢復創建。刪除對話由 conversationService 協調相關 service，在同一事務內清理消息、run、run_inputs、事件、問題及輔助記錄；本地目錄或 S3 對象前綴由 fileService 清理。Work 的協調對話和線程歸屬由 workService 決定。
+有活躍 run 或待領取/待受理輸入時拒絕刪除，檢查與刪除共用事務；回覆消費前也要重新檢查對話是否存在，已刪除的對話不恢復創建。刪除對話由 conversationService 協調相關 service，在同一事務內清理消息、run、message_agents、事件、問題及輔助記錄；本地目錄或 S3 對象前綴由 fileService 清理。Work 的協調對話和線程歸屬由 workService 決定。
 
 ## 標識和消息順序
 
 conversations.id 和 messages.id 均爲 server 生成的 UUID，SQLite 中使用 TEXT 保存。所有 conversation_id、message_id、reply_to_message_id 等關聯字段使用相同的 UUID 字符串。
 
-UUID 只用於標識，不承擔消息排序。目標結構用 messages.seq 保存 conversation 內的遞增順序號。領取時 server 將共享歷史和順序邊界放入 prompt，並保存完整 dispatch 快照；重連重發同一快照，不使用 run 的歷史游標或重新組織上下文。
+UUID 只用於標識，不承擔消息排序。目標結構用 messages.seq 保存 conversation 內的遞增順序號。首次派發時 server 將共享歷史固定在 message.context，並保存完整 dispatch 快照；重連重發同一快照，不使用 run 的歷史游標或重新組織上下文。
 
 發送請求不做去重：每次成功發送創建新的 message UUID，不需要請求 key 或內容摘要字段。
 
 ## 目標元數據與當前實現
 
-本文下列 SQL 定義元數據的目標命名和字段。當前已實現的執行關係以本文發送鏈路和 [server-run.md](server-run.md) 爲準；物理對話表仍名爲 sessions，HTTP 入口仍爲 /api/sessions。當前 conversation ID 爲 UUID，messages.id 與 reply_to_message_id 仍爲 INTEGER，messages.seq 由 ID 投影。消息 UUID、author_role、獨立 attachments 列及舊附件鏈路遷移仍是目標設計；通用 fileService 的目錄/S3 後端已實現，不表示已部署。執行表的實際 SQL 見 server-run.md。
+本文下列 SQL 定義元數據的目標命名和字段。當前已實現的執行關係以本文發送鏈路和 [server-run.md](server-run.md) 爲準；物理對話表仍名爲 sessions，HTTP 入口仍爲 /api/sessions。Schema 4 的 conversation/message ID 均為 UUID，messages.seq 是對話內順序。author_role、獨立 attachments 列及舊附件鏈路遷移仍是目標設計；通用 fileService 的目錄/S3 後端已實現，不表示已部署。執行表的實際 SQL 見 server-run.md。
 
 ## 表結構
 
@@ -107,7 +107,7 @@ M1：@coder @reviewer 修復並評審
   └─ M4：用戶追問，reply_to_message_id=M1 或選中的具體回覆
 ```
 
-一個 run 消費多條輸入時，最終回覆默認指向其主任務 message；補充輸入仍通過 run_inputs 記錄。service 檢查父消息已存在、屬於同一 conversation，避免跨對話引用和循環回覆。
+一個 run 消費多條輸入時，最終回覆默認指向其主任務 message；補充輸入仍通過 message_agents 記錄。service 檢查父消息已存在、屬於同一 conversation，避免跨對話引用和循環回覆。
 
 執行結果的內部關聯留在 runs.result_message_id，允許 runService 追蹤及去重，但不會出現在 messages 的字段或回覆語義中。conversationService 在同一事務調用 runService 檢查結果是否已綁定，未綁定才新增回覆並綁定；重複結果直接返回已有回覆。取消可以沒有回覆。
 

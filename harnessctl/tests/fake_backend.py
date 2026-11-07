@@ -70,7 +70,7 @@ for line in sys.stdin:
                 emit(dict(type='system', subtype='init', session_id='native-session'))
                 initialized = True
             text = f['message']['content']
-            if '\n\n# 本次任务\n' in text:text=text.split('\n\n# 本次任务\n',1)[1]
+            if '\n\n# 本次消息\n' in text:text=text.split('\n\n# 本次消息\n',1)[1]
             emit(dict(type='command_lifecycle',command_uuid=f['uuid'],state='queued'))
             emit(f)  # replay alone is not proof of consumption
             if text == 'deferred-question' and turn:
@@ -148,7 +148,7 @@ for line in sys.stdin:
             turn = 'turn-' + str(count)
             emit(dict(id=f['id'], result=dict(turn=dict(id=turn))))
             text = f['params']['input'][0]['text']
-            if '\n\n# 本次任务\n' in text:text=text.split('\n\n# 本次任务\n',1)[1]
+            if '\n\n# 本次消息\n' in text:text=text.split('\n\n# 本次消息\n',1)[1]
             if text == 'environment':
                 emit(dict(method='item/completed',params=dict(threadId='native-session',turnId=turn,item=dict(type='agentMessage',id='env',text=os.environ.get('AGENTUSE_RUN','')))))
                 finish()

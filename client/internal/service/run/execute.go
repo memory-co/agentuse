@@ -30,6 +30,7 @@ type Request struct {
 	agentID           string
 	environment       []string
 	beforeSend        func(session.Session) error
+	onSubmit          func() error
 	accepted          func(harness.Acceptance) error
 }
 type localExecution struct {
@@ -105,9 +106,14 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 				text = pi.Prompt
 			}
 			accepted := make(chan harness.Acceptance, 1)
+			s.localMu.Unlock()
 			if request.beforeSend != nil {
 				if err := request.beforeSend(active.session); err != nil {
-					s.localMu.Unlock()
+					return Run{}, err
+				}
+			}
+			if request.onSubmit != nil {
+				if err := request.onSubmit(); err != nil {
 					return Run{}, err
 				}
 			}
@@ -120,7 +126,6 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 				}
 				accepted <- a
 			})
-			s.localMu.Unlock()
 			if !ok {
 				select {
 				case <-active.done:
@@ -163,14 +168,6 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 		_ = s.Sessions.Release(metadata, true)
 		return Run{}, err
 	}
-	if request.beforeSend != nil {
-		if err = request.beforeSend(metadata); err != nil {
-			<-s.slots
-			s.localMu.Unlock()
-			_ = s.Sessions.Release(metadata, true)
-			return Run{}, err
-		}
-	}
 	adapter.EventsPath = harness.EventsPath(cwd, metadata.ID)
 	adapter.Env = []string{"AGENTUSE_SERVER=", "AGENTUSE_TOKEN=", "AGENTUSE_WORK=", "AGENTUSE_CONFIG=", "AGENTUSE_RUN=", "AGENTUSE_ATTEMPT=", "AGENTUSE_ENDPOINT=" + id, "AGENTUSE_CONVERSATION=" + conversation, "AGENTUSE_SESSION=" + metadata.ID, "AGENTUSE_AGENT=" + metadata.AgentID, "AGENTUSE_RESOURCES="}
 	if len(request.environment) > 0 {
@@ -209,9 +206,17 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 				accepted <- harness.Acceptance{RunID: event.RunID, InputID: event.InputID}
 			}
 		}
-		cleanup, prepareErr := s.prepareResources(execCtx, metadata, request, &adapter)
+		var prepareErr error
+		if request.beforeSend != nil {
+			prepareErr = request.beforeSend(metadata)
+		}
+		cleanup := func() {}
+		if prepareErr == nil {
+			cleanup, prepareErr = s.prepareResources(execCtx, metadata, request, &adapter)
+		}
 		defer cleanup()
 		adapter.OnInitialized = cleanup
+		adapter.OnSubmitting = request.onSubmit
 		var result harness.DriveResult
 		if prepareErr != nil {
 			result = harness.DriveResult{Error: prepareErr.Error()}

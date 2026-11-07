@@ -11,14 +11,14 @@ type Run struct {
 	AgentVersionID  string          `json:"agent_version_id"`
 	ID              string          `json:"id"`
 	SessionID       string          `json:"session_id"`
-	FirstMessageID  int64           `json:"first_message_id"`
+	FirstMessageID  string          `json:"first_message_id"`
 	AgentID         string          `json:"agent_id"`
 	DaemonID        string          `json:"daemon_id"`
 	ClientSessionID string          `json:"client_session_id"`
 	Harness         string          `json:"harness"`
 	HarnessRevision string          `json:"harness_revision"`
 	Status          string          `json:"status"`
-	ResultMessageID *int64          `json:"result_message_id,omitempty"`
+	ResultMessageID *string         `json:"result_message_id,omitempty"`
 	Output          string          `json:"output,omitempty"`
 	Error           string          `json:"error,omitempty"`
 	Result          json.RawMessage `json:"result,omitempty"`
@@ -26,11 +26,11 @@ type Run struct {
 	UpdatedAt       int64           `json:"updated_at"`
 }
 
-// Delivery exists before a client accepts input. RunID is empty until accepted.
+// Delivery is the metadata of a message/Agent target, with no independent ID.
+// RunID is empty until the adapter reports accepted.
 type Delivery struct {
 	AgentVersionID  string          `json:"agent_version_id"`
-	ID              int64           `json:"id"`
-	MessageID       int64           `json:"message_id"`
+	MessageID       string          `json:"message_id"`
 	SessionID       string          `json:"session_id"`
 	AgentID         string          `json:"agent_id"`
 	DaemonID        string          `json:"daemon_id"`
@@ -83,7 +83,7 @@ func (c *Client) WaitRun(ctx context.Context, as, conversation, run string, poll
 		}
 	}
 }
-func (c *Client) WaitMessageRuns(ctx context.Context, as, conversation string, message int64, poll time.Duration) (*SessionDetail, error) {
+func (c *Client) WaitMessageRuns(ctx context.Context, as, conversation string, message string, poll time.Duration) (*SessionDetail, error) {
 	if poll <= 0 {
 		poll = 200 * time.Millisecond
 	}
@@ -96,7 +96,7 @@ func (c *Client) WaitMessageRuns(ctx context.Context, as, conversation string, m
 		}
 		done := true
 		for _, d := range out.Deliveries {
-			if d.MessageID == message && d.Status != "completed" && d.Status != "failed" && d.Status != "cancelled" {
+			if d.MessageID == message && d.Status != "completed" && d.Status != "failed" && d.Status != "cancelled" && d.Status != "rejected" {
 				done = false
 			}
 		}

@@ -139,6 +139,27 @@ func TestRemoteResourceDownloadValidation(t *testing.T) {
 	if calls != 1 || len(a.InitArgs) != 2 {
 		t.Fatal(calls, a.InitArgs)
 	}
+	// A new session using the same immutable skill reuses the verified ZIP.
+	other := m
+	other.ID = uuid.NewString()
+	nextAdapter := harness.Adapter{EventsPath: filepath.Join(s.Sessions.Root, other.EndpointID, other.ConversationID, "sessions", other.ID, "events.jsonl")}
+	cleanup, e = s.prepareResources(context.Background(), other, Request{skills: []protocol.SkillResource{descriptor}}, &nextAdapter)
+	if e != nil {
+		t.Fatal(e)
+	}
+	cleanup()
+	if calls != 1 {
+		t.Fatal("cached immutable skill was downloaded again", calls)
+	}
+	// A corrupt local cache is repaired from the fixed version API.
+	cache := filepath.Join(s.Sessions.Root, m.EndpointID, m.ConversationID, ".server", "skills", version+".zip")
+	if e = os.WriteFile(cache, []byte("interrupted download"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	dataAgain, e := s.cachedSkill(context.Background(), m, descriptor)
+	if e != nil || !bytes.Equal(dataAgain, data) || calls != 2 {
+		t.Fatal("cache corruption not repaired", e, calls)
+	}
 	descriptor.SHA256 = strings.Repeat("0", 64)
 	_, e = s.prepareResources(context.Background(), m, Request{skills: []protocol.SkillResource{descriptor}}, &a)
 	if e == nil {

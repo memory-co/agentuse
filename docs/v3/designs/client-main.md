@@ -126,7 +126,7 @@ send body 爲 prompt，返回此次 accepted 對應的 run，可能與先前相�
 
 ## Server 事件傳輸
 
-Server 與 client 使用 harnessctl-events-v2。Server 下發輸入分配，client 用同一 harnessctl 執行路徑處理；accepted 回報實際 run UUID，五種公共事件原樣上傳。Server 準備業務上下文和協調者規則，client 不據憑據推斷角色。
+Server 與 client 使用 agentuse-client/2。Server 直接下發 message 和目標 Agent，client 用同一 harnessctl 執行路徑處理；accepted 回報實際 run UUID，五種公共事件原樣上傳。Server 準備業務上下文和協調者規則，client 不據憑據推斷角色。
 
 輸入收據、源 ACK 遊標和控制收據位於 session/.server/；執行事實仍只在 events.jsonl，不再有舊版 run/attempt、租約或結果彙總層。詳見 client-run.md。
 
@@ -134,6 +134,6 @@ Server 與 client 使用 harnessctl-events-v2。Server 下發輸入分配，clie
 
 ## Server Agent 版本接入（已實現）
 
-Server 的 agentService/skillService 分別發佈不可變版本，輸入只關聯固定的 agent_version_id 和 skill 包版本。runService 下載、校驗並解包；sessionService 按 agent 版本選擇獨立 session/events，繼續使用同 conversation 的 workspace；harnessService 將準備好的資源交給 init/send。舊版本輸入和執行不跟隨最新配置變化，local 也走相同版本快照和初始化流程。詳見 [server-agent.md](server-agent.md)、[client-session.md](client-session.md) 和 [版本化通信字段](protocol.md#agent-versioning)。
+Server 的 agentService/skillService 分別發佈不可變版本，輸入只關聯固定的 agent_version_id 和 skill 包版本。runService 下載、校驗並解包；sessionService 按 agent 版本選擇獨立 session/events，繼續使用同 conversation 的 workspace；harnessService 將準備好的資源交給 init/send。舊版本輸入和執行不跟隨最新配置變化，local 也走相同版本快照和初始化流程。詳見 [server-agent.md](server-agent.md)、[client-session.md](client-session.md) 和 [通信協議](protocol.md)。
 
 本地啓動 run 的請求可帶 `model`、`agent_instructions` 和 `skill_packages`（本機 ZIP 絕對路徑數組）。runService 對配置和 ZIP 內容摘要生成穩定的本地 agent_version_id；相同內容複用綁定，內容變化創建新 session。前端“初始化配置”提供對應輸入，遠端任務則完全採用 server 固定的版本資源。

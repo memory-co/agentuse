@@ -69,22 +69,34 @@ func TestVersionsPinQueuedInputAndPreserveHistoricalResources(t *testing.T) {
 	if e != nil || unchanged.CurrentVersionID != next.CurrentVersionID {
 		t.Fatal("no-op published a version", e)
 	}
-	p, e := s.ClaimPrompt(ctx, d)
-	if e != nil || p.AgentVersionID != a.CurrentVersionID || p.AgentInstructions != "Agent v2" || p.Model != "model-one" || len(p.Skills) != 1 || p.Skills[0].SkillVersionID != v1.CurrentVersionID {
+	p, e := s.DispatchMessage(ctx, d)
+	if e != nil || p.AgentVersionID != a.CurrentVersionID {
 		t.Fatalf("queued input changed: %+v %v", p, e)
+	}
+	fixed, err := s.GetAgentVersion(ctx, u, p.AgentID, p.AgentVersionID)
+	if err != nil || fixed.Instructions != "Agent v2" || fixed.Model != "model-one" || len(fixed.Skills) != 1 || fixed.Skills[0].SkillVersionID != v1.CurrentVersionID {
+		t.Fatal("fixed configuration changed", fixed, err)
+	}
+	frame, _ := json.Marshal(protocol.DeliveryFrame(p))
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(frame, &fields)
+	for _, key := range []string{"skills", "model", "config", "agent_instructions", "prompt_id", "task_id"} {
+		if _, exists := fields[key]; exists {
+			t.Fatalf("inline configuration/identity retained: %s", key)
+		}
 	}
 	runID := uuid.NewString()
 	reportNative(t, s, d, p, "native-v2", 1, acceptedEvent(runID, "input1", p.Content))
 	if _, e = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"next"}`), []string{a.ID}, ""); e != nil {
 		t.Fatal(e)
 	}
-	p2, e := s.ClaimPrompt(ctx, d)
-	if e != nil || p2.AgentVersionID != next.CurrentVersionID || p2.Skills[0].SkillVersionID != v2.CurrentVersionID {
+	p2, e := s.DispatchMessage(ctx, d)
+	if e != nil || p2.AgentVersionID != next.CurrentVersionID {
 		t.Fatal(p2, e)
 	}
 	bad := acceptedEvent(uuid.NewString(), "input2", p2.Content)
 	raw, _ := json.Marshal(bad)
-	envelope := protocol.ClientEvent{ConversationID: p2.ConversationID, AgentID: p2.AgentID, AgentVersionID: p2.AgentVersionID, Harness: p2.Harness, Revision: "client-revision", SessionID: "native-v2", Seq: 2, PromptID: p2.ID, Event: raw}
+	envelope := protocol.ClientEvent{ConversationID: p2.ConversationID, AgentID: p2.AgentID, AgentVersionID: p2.AgentVersionID, Revision: "client-revision", SessionID: "native-v2", Seq: 2, MessageID: p2.MessageID, Event: raw}
 	if e = s.ReportClientEvent(ctx, d.ID, envelope); e == nil {
 		t.Fatal("cross-version native session reuse accepted")
 	}

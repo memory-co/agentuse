@@ -36,6 +36,7 @@ type Manifest struct {
 }
 type Adapter struct {
 	OnInitialized                                                      func()
+	OnSubmitting                                                       func() error
 	InitArgs                                                           []string
 	Name, Path, Revision, Version, PackageDir, HistoryPath, EventsPath string
 	Manifest                                                           Manifest

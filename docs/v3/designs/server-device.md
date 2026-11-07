@@ -25,7 +25,7 @@ agentService 發佈版本時檢查設備歸屬和運行能力，runService 根�
 
 狀態爲 pending（未註冊）、offline、online。在線狀態表示連接狀態，不代表設備當前空閒；是否可以領取由 client 的 ready 和 runService 的領取規則共同決定。
 
-執行協議僅聲明 harnessctl-events-v2。Server 接受 client 上報的自定義 harness 標籤，不要求先註冊全局目錄，不按 codex/claudecode 分支。harness 列表接口是設備上報結果的只讀視圖，沒有創建或編輯 YAML 的 API。
+執行協議僅聲明 agentuse-client/2。Server 接受 client 上報的自定義 harness 標籤，不要求先註冊全局目錄，不按 codex/claudecode 分支。harness 列表接口是設備上報結果的只讀視圖，沒有創建或編輯 YAML 的 API。
 
 ## 表結構
 
@@ -75,7 +75,7 @@ CREATE INDEX device_harnesses_user_harness
 
 設備支持的 run 業務協議版本與能力，例如任務領取、標準事件、文件操作。每次上線以上報內容替換舊集合，不把進程流、JSON-RPC 或原生 hook 等 client 內部實現當成 server 指令集。
 
-device_harnesses.harness_revision 是本地接入包版本，連接 capability 聲明公共傳輸協議 harnessctl-events-v2，不通過 steer/question/plan 等原生能力分支調度。Client 升級接入包後重新探測並上報，不用 server 編譯配置。
+device_harnesses.harness_revision 是本地接入包版本，連接 capability 聲明公共傳輸協議 agentuse-client/2，不通過 steer/question/plan 等原生能力分支調度。Client 升級接入包後重新探測並上報，不用 server 編譯配置。
 
 ```sql
 CREATE TABLE device_capabilities (

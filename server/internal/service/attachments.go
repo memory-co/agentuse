@@ -67,7 +67,7 @@ func (s *Service) attachmentSession(ctx context.Context, q querier, a Attachment
 	}
 	if a.DaemonID != "" {
 		var allowed int
-		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM run_prompts WHERE daemon_id=? AND session_id=? AND status IN ('sent','accepted','completed')`, a.DaemonID, ss.ID).Scan(&allowed); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM message_agents WHERE daemon_id=? AND session_id=? AND status IN ('sent','accepted','completed')`, a.DaemonID, ss.ID).Scan(&allowed); err != nil {
 			return ss, err
 		}
 		if allowed == 0 {

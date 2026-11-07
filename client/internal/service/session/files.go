@@ -53,7 +53,7 @@ func (l *Service) Conversations(ctx context.Context, endpoint string) ([]Convers
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		if d.IsDir() && fileutil.Segment(d.Name()) {
+		if d.IsDir() && !strings.HasPrefix(d.Name(), ".") && fileutil.Segment(d.Name()) {
 			if _, e = fileutil.SafePath(root, d.Name()); e != nil {
 				return nil, e
 			}

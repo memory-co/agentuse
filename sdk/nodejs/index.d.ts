@@ -70,7 +70,7 @@ export interface Session {
 export interface Message {
  author_agent_version_id?:string;
  seq?:number;run_id?:string;agent_key?:string;agent_name?:string;target_agent_ids?:string[];
-  id: number;
+  id: string;
   session_id: string;
   role: "user" | "assistant";
   content: any;
@@ -101,9 +101,9 @@ export interface SessionEvent {
 
 export interface Question {delivery_error?:string;request_id:string;session_id:string;run_id:string;state:"pending"|"replied"|"expired";payload:unknown;answer?:unknown;answered_by?:string;created_at:number}
 export interface Run {
- agent_version_id:string;id:string;session_id:string;first_message_id:number;agent_id:string;daemon_id:string;client_session_id:string;harness:string;harness_revision:string;status:"running"|"waiting"|"completed"|"failed"|"cancelled";result_message_id?:number;output?:string;error?:string;result?:unknown;created_at:number;updated_at:number}
+ agent_version_id:string;id:string;session_id:string;first_message_id:string;agent_id:string;daemon_id:string;client_session_id:string;harness:string;harness_revision:string;status:"running"|"waiting"|"completed"|"failed"|"cancelled";result_message_id?:string;output?:string;error?:string;result?:unknown;created_at:number;updated_at:number}
 export interface Delivery {
- agent_version_id:string;id:number;message_id:number;session_id:string;agent_id:string;daemon_id:string;harness:string;content:unknown;run_id?:string;input_id?:string;client_session_id?:string;status:string;error?:string}
+ agent_version_id:string;message_id:string;session_id:string;agent_id:string;daemon_id:string;harness:string;content:unknown;run_id?:string;input_id?:string;client_session_id?:string;status:string;error?:string}
 export interface RunDetail { run:Run;events:SessionEvent[] }
 export interface MultiReply { message:Message;runs:Run[];deliveries:Delivery[] }
 export interface WaitOptions { interval?:number;timeout?:number;returnOnWaiting?:boolean }
@@ -131,7 +131,7 @@ export declare class Client {
  cancelRun(user:UserId,session:string,run:string):Promise<Run>;
  replyRunRequest(user:UserId,session:string,run:string,request:string,answer:unknown):Promise<void>;
  waitRun(user:UserId,session:string,run:string,opts?:WaitOptions):Promise<RunDetail>;
- waitMessageRuns(user:UserId,session:string,message:number,opts?:WaitOptions):Promise<SessionDetail>;
+ waitMessageRuns(user:UserId,session:string,message:string,opts?:WaitOptions):Promise<SessionDetail>;
 
  uploadAttachment(user: UserId, sessionId: string, filename: string, stream: AsyncIterable<Uint8Array> | ReadableStream<Uint8Array> | Blob): Promise<Attachment>;
  listAttachments(user: UserId, sessionId: string, opts?: {limit?: number; cursor?: string}): Promise<AttachmentPage>;

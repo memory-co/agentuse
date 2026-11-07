@@ -59,7 +59,13 @@ func (s *Server) handleSkillVersions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, rows)
 }
 func (s *Server) handleSkillVersion(w http.ResponseWriter, r *http.Request) {
-	v, err := s.service.GetSkillVersion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("version_id"))
+	var v agentuse.SkillVersion
+	var err error
+	if resourceCredential(r) {
+		v, err = s.service.SkillForCredential(r.Context(), requestToken(r), r.PathValue("id"), r.PathValue("version_id"))
+	} else {
+		v, err = s.service.GetSkillVersion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("version_id"))
+	}
 	if err != nil {
 		s.storeErr(w, err)
 		return

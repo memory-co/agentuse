@@ -240,16 +240,19 @@ func (s Service) DriveSession(ctx context.Context, a Adapter, prompt string, dir
 	if a.OnInitialized != nil {
 		a.OnInitialized()
 	}
-	if _, e = command(ctx, a, events, "send", prompt); e != nil {
-		return fail(e)
+	if a.OnSubmitting != nil {
+		if e = a.OnSubmitting(); e != nil {
+			return DriveResult{Error: e.Error()}
+		}
 	}
-	// Native consumption can wait for a tool boundary. Keep observing events and
-	// servicing replies while a supplemental send awaits its accepted receipt.
+	// Initial send can wait for native consumption; keep servicing requests and
+	// public events while it is pending, just like supplemental sends.
 	sendCtx, cancelSends := context.WithCancel(ctx)
 	defer cancelSends()
 	sendDone := make(chan error, 1)
 	var pendingSends []*submission
-	sendBusy := false
+	sendBusy := true
+	go func() { _, err := command(sendCtx, a, events, "send", prompt); sendDone <- err }()
 	tick := time.NewTicker(40 * time.Millisecond)
 	defer tick.Stop()
 	lastPoll := time.Now()

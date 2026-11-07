@@ -26,10 +26,10 @@ func runStore(t *testing.T) (*Service, User, Daemon, Agent) {
 func acceptedEvent(run, input, text string) map[string]any {
 	return map[string]any{"type": "accepted", "ts": "2026-11-03T00:00:00Z", "run_id": run, "input_id": input, "text": text}
 }
-func reportNative(t *testing.T, s *Service, d Daemon, p protocol.Prompt, session string, seq int64, event map[string]any) protocol.ClientEvent {
+func reportNative(t *testing.T, s *Service, d Daemon, p protocol.ConversationMessage, session string, seq int64, event map[string]any) protocol.ClientEvent {
 	t.Helper()
 	raw, _ := json.Marshal(event)
-	e := protocol.ClientEvent{ConversationID: p.ConversationID, AgentID: p.AgentID, AgentVersionID: p.AgentVersionID, Harness: p.Harness, Revision: "client-revision", SessionID: session, Seq: seq, PromptID: p.ID, Event: raw}
+	e := protocol.ClientEvent{ConversationID: p.ConversationID, AgentID: p.AgentID, AgentVersionID: p.AgentVersionID, Revision: "client-revision", SessionID: session, Seq: seq, MessageID: p.MessageID, Event: raw}
 	if err := s.ReportClientEvent(context.Background(), d.ID, e); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 	if len(reply.Runs) != 0 || len(reply.Deliveries) != 1 {
 		t.Fatal("server fabricated a run", reply)
 	}
-	p, err := s.ClaimPrompt(ctx, d)
+	p, err := s.DispatchMessage(ctx, d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 	if _, err = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"supplement"}`), []string{a.ID}, ""); err != nil {
 		t.Fatal(err)
 	}
-	p2, err := s.ClaimPrompt(ctx, d)
+	p2, err := s.DispatchMessage(ctx, d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 	if _, err = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"next"}`), []string{a.ID}, ""); err != nil {
 		t.Fatal(err)
 	}
-	p3, _ := s.ClaimPrompt(ctx, d)
+	p3, _ := s.DispatchMessage(ctx, d)
 	other := uuid.NewString()
 	reportNative(t, s, d, p3, "client-session", 5, acceptedEvent(other, "input-3", p3.Content))
 	rows, _ = s.Runs(ctx, ss.ID)
@@ -102,7 +102,7 @@ func TestClientRequestReplyCancelAndDisconnectAreAuthoritative(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, _ := s.ClaimPrompt(ctx, d)
+	p, _ := s.DispatchMessage(ctx, d)
 	id := uuid.NewString()
 	reportNative(t, s, d, p, "client-session", 1, acceptedEvent(id, "input", p.Content))
 	request := map[string]any{"type": "request", "run_id": id, "request_id": "public-request", "state": "pending", "kind": "permission", "message": "Continue?"}
@@ -138,7 +138,7 @@ func TestClientEventsCannotCrossOwnershipOrRebindInputs(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
 	ss, _, _ := s.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"first"}`), []string{a.ID}, "")
-	p, _ := s.ClaimPrompt(ctx, d)
+	p, _ := s.DispatchMessage(ctx, d)
 	id := uuid.NewString()
 	e := reportNative(t, s, d, p, "client-session", 1, acceptedEvent(id, "input", p.Content))
 	e.Seq = 2

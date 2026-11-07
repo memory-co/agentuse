@@ -151,7 +151,7 @@ func runSession(args []string) error {
 				if m.AgentKey != "" {
 					who = "@" + m.AgentKey
 				}
-				fmt.Printf("[%d %s] %s\n", m.ID, who, m.Content)
+				fmt.Printf("[%s %s] %s\n", m.ID, who, m.Content)
 			}
 			return nil
 		}

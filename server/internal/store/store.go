@@ -81,14 +81,15 @@ CREATE TABLE IF NOT EXISTS works (
 CREATE INDEX IF NOT EXISTS works_user ON works(user_id, updated_at);
 
 CREATE TABLE IF NOT EXISTS messages (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  id         TEXT PRIMARY KEY,
+  seq        INTEGER NOT NULL,
   session_id TEXT NOT NULL,
   role       TEXT NOT NULL,
   content    TEXT NOT NULL,
-  author_user_id TEXT, author_agent_id TEXT, run_agent_ids TEXT NOT NULL DEFAULT '[]', reply_to_message_id INTEGER, author_agent_version_id TEXT,
+  author_user_id TEXT, author_agent_id TEXT, run_agent_ids TEXT NOT NULL DEFAULT '[]', reply_to_message_id TEXT, author_agent_version_id TEXT,
   created_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS messages_session ON messages(session_id, id);
+CREATE UNIQUE INDEX IF NOT EXISTS messages_session ON messages(session_id, seq);
 
 `
 
@@ -119,11 +120,17 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if existing > 0 && revision != 3 {
+	if existing > 0 && revision != 3 && revision != 4 {
 		db.Close()
 		return nil, errors.New("unsupported database schema: reset the database before starting this version")
 	}
-	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=3;"); err != nil {
+	if existing > 0 && revision == 3 {
+		if err := migrateMessages(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("store: migrate message protocol: %w", err)
+		}
+	}
+	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=4;"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("store: initialize: %w", err)
 	}

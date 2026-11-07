@@ -1,15 +1,9 @@
 package protocol
 
-import "encoding/json"
-
-// ExecutionProtocol transports business inputs and unchanged harnessctl events.
-// A prompt identifies a server message delivery; only the client assigns run_id.
-const ExecutionProtocol = "harnessctl-events-v2"
-const TypePrompt = "prompt"
-const TypePromptError = "prompt_error"
-const TypePromptErrorAck = "prompt_error_ack"
-const TypeReply = "reply"
-const TypeControlAck = "control_ack"
+import (
+	"encoding/json"
+	"strings"
+)
 
 type SkillResource struct {
 	SkillID        string `json:"skill_id"`
@@ -20,47 +14,50 @@ type SkillResource struct {
 	DownloadPath   string `json:"download_path"`
 }
 
-type Prompt struct {
-	AgentVersionID    string            `json:"agent_version_id"`
-	Model             string            `json:"model,omitempty"`
-	AgentInstructions string            `json:"agent_instructions"`
-	Skills            []SkillResource   `json:"skills"`
-	Attachments       []LocalAttachment `json:"attachments,omitempty"`
-	ID                int64             `json:"id"`
-	ConversationID    string            `json:"conversation_id"`
-	MessageID         int64             `json:"message_id"`
-	AgentID           string            `json:"agent_id"`
-	Harness           string            `json:"harness"`
-	Content           string            `json:"content"`
-	Instructions      string            `json:"instructions,omitempty"`
-	Context           json.RawMessage   `json:"context,omitempty"`
-	ContextSeq        int64             `json:"context_seq,omitempty"`
-	WorkID            string            `json:"work_id,omitempty"`
-	WorkToken         string            `json:"work_token,omitempty"`
+// ConversationMessage refers directly to one saved message and its target Agent.
+// Agent configuration is read separately through the immutable version API.
+type ConversationMessage struct {
+	ConversationID string            `json:"conversation_id"`
+	MessageID      string            `json:"message_id"`
+	AgentID        string            `json:"agent_id"`
+	AgentVersionID string            `json:"agent_version_id"`
+	Content        string            `json:"content"`
+	Context        string            `json:"context,omitempty"`
+	Attachments    []LocalAttachment `json:"attachments"`
+	WorkID         string            `json:"work_id,omitempty"`
+	WorkToken      string            `json:"work_token,omitempty"`
+}
+
+func (m ConversationMessage) Key() string { return "m:" + m.MessageID + ":" + m.AgentID }
+func (m ConversationMessage) Valid() bool {
+	return m.ConversationID != "" && m.MessageID != "" && m.AgentID != "" && m.AgentVersionID != "" && strings.TrimSpace(m.Content) != ""
+}
+func (m ConversationMessage) Text() string {
+	if m.Context == "" {
+		return m.Content
+	}
+	return m.Context + "\n\n# 本次消息\n" + m.Content
 }
 
 type ClientEvent struct {
-	AgentVersionID string `json:"agent_version_id"`
-	ConversationID string `json:"conversation_id"`
-	AgentID        string `json:"agent_id"`
-	SessionID      string `json:"session_id"`
-	Harness        string `json:"harness"`
-	Revision       string `json:"revision"`
-	Seq            int64  `json:"seq"`
-	PromptID       int64  `json:"prompt_id,omitempty"`
-	// Event is the exact public JSONL object, without native adapter translation.
-	Event json.RawMessage `json:"event"`
+	AgentVersionID string          `json:"agent_version_id,omitempty"`
+	ConversationID string          `json:"conversation_id,omitempty"`
+	AgentID        string          `json:"agent_id,omitempty"`
+	SessionID      string          `json:"session_id"`
+	Harness        string          `json:"harness,omitempty"`
+	Revision       string          `json:"revision,omitempty"`
+	Seq            int64           `json:"-"`
+	MessageID      string          `json:"message_id,omitempty"`
+	Event          json.RawMessage `json:"event"`
 }
-
 type SessionControl struct {
+	ID             string          `json:"-"`
 	RunID          string          `json:"run_id"`
-	ID             string          `json:"id"`
-	ConversationID string          `json:"conversation_id"`
+	ConversationID string          `json:"conversation_id,omitempty"`
 	SessionID      string          `json:"session_id"`
 	RequestID      string          `json:"request_id,omitempty"`
 	Answer         json.RawMessage `json:"answer,omitempty"`
 }
-
 type StreamRef struct {
 	AgentVersionID string `json:"agent_version_id"`
 	ConversationID string `json:"conversation_id"`

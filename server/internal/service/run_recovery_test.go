@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"github.com/memory-co/agentuse/internal/protocol"
 	"reflect"
 	"strings"
 	"testing"
@@ -21,7 +22,7 @@ func TestInputWakeupRunsAfterCommit(t *testing.T) {
 	calls := 0
 	s.SetNotifier(committedNotifier{kick: func() {
 		var count int
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM run_prompts`).Scan(&count); err != nil || count == 0 {
+		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM message_agents`).Scan(&count); err != nil || count == 0 {
 			t.Fatalf("input not committed: %d %v", count, err)
 		}
 		calls++
@@ -42,17 +43,17 @@ func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
 	if _, err = s.SendMultiMessage(ctx, u, coordinator.ID, json.RawMessage(`{"prompt":"first"}`), []string{a.ID}, ""); err != nil {
 		t.Fatal(err)
 	}
-	original, err := s.ClaimPrompt(ctx, d)
+	original, err := s.DispatchMessage(ctx, d)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if original.WorkToken == "" || original.WorkID != work.ID || !strings.Contains(original.Instructions, "shared work instructions") {
+	if original.WorkToken == "" || original.WorkID != work.ID || !strings.Contains(original.Context, "shared work instructions") {
 		t.Fatal("server omitted work context")
 	}
 	if _, err = s.SendMultiMessage(ctx, u, coordinator.ID, json.RawMessage(`{"prompt":"later"}`), []string{a.ID}, ""); err != nil {
 		t.Fatal(err)
 	}
-	recovered, err := s.PendingPrompts(ctx, d.ID)
+	recovered, err := s.PendingMessages(ctx, d.ID)
 	if err != nil || len(recovered) != 1 || !reflect.DeepEqual(original, recovered[0]) {
 		t.Fatalf("reconnect changed prompt: %v %v", recovered, err)
 	}
@@ -66,7 +67,7 @@ func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
 	if err != nil || got.ID != work.ID {
 		t.Fatal(got, err)
 	}
-	if err = s.RejectPrompt(ctx, d.ID, original.ID, "adapter unavailable"); err != nil {
+	if err = s.RejectMessage(ctx, d.ID, original.Key(), protocol.AckError, "adapter unavailable"); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err = s.runWorkToken(ctx, original.WorkToken); err == nil {
@@ -81,7 +82,7 @@ func TestCompletedConversationDeletesExecutionRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := s.ClaimPrompt(ctx, d)
+	p, err := s.DispatchMessage(ctx, d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +92,7 @@ func TestCompletedConversationDeletesExecutionRows(t *testing.T) {
 	if err = s.DeleteSession(ctx, u, ss.ID); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"run_prompts", "runs", "run_events", "run_requests", "run_controls", "run_notifications", "work_run_tokens"} {
+	for _, table := range []string{"message_agents", "runs", "run_events", "run_requests", "run_controls", "run_notifications", "work_run_tokens"} {
 		var n int
 		if err = s.db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 0 {
 			t.Fatalf("orphan %s: %d %v", table, n, err)
@@ -106,7 +107,7 @@ func TestRejectedReplyCanRetryWithoutInventingRequestState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := s.ClaimPrompt(ctx, d)
+	p, err := s.DispatchMessage(ctx, d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +124,7 @@ func TestRejectedReplyCanRetryWithoutInventingRequestState(t *testing.T) {
 	if err != nil || len(controls) != 1 {
 		t.Fatal(controls, err)
 	}
-	if err = s.ConfirmControl(ctx, d.ID, controls[0].Control.ID, "adapter rejected answer"); err != nil {
+	if err = s.ConfirmControl(ctx, d.ID, controls[0].Control.ID, protocol.AckError, "adapter rejected answer"); err != nil {
 		t.Fatal(err)
 	}
 	questions, err := s.RunQuestions(ctx, ss.ID)

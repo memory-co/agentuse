@@ -65,13 +65,30 @@ func TestSkillAPIAndAssignedDeviceDownload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = device.GetAgentVersion(ctx, "", a.ID, a.CurrentVersionID); !agentuse.IsStatus(err, 404) {
+		t.Fatal("device read an unassigned Agent version", err)
+	}
+	if _, err = device.GetSkillVersion(ctx, "", skill.ID, skill.CurrentVersionID); !agentuse.IsStatus(err, 404) {
+		t.Fatal("device read unassigned skill metadata", err)
+	}
 	_, _, err = e.st.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"test"}`), []string{a.ID}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := e.st.ClaimPrompt(ctx, d)
+	p, err := e.st.DispatchMessage(ctx, d)
 	if err != nil || p.AgentVersionID != a.CurrentVersionID {
 		t.Fatal(p, err)
+	}
+	fixed, err := device.GetAgentVersion(ctx, "", a.ID, p.AgentVersionID)
+	if err != nil || fixed.Instructions != "fixed" || len(fixed.Skills) != 1 || fixed.Skills[0].SkillVersionID != skill.CurrentVersionID {
+		t.Fatal("fixed configuration unavailable before accepted", fixed, err)
+	}
+	meta, err := device.GetSkillVersion(ctx, "", skill.ID, skill.CurrentVersionID)
+	if err != nil || meta.SHA256 != skill.CurrentVersion.SHA256 {
+		t.Fatal("assigned skill metadata unavailable", meta, err)
+	}
+	if code := e.req(key, "GET", "/api/agents/"+a.ID+"/versions/"+p.AgentVersionID, nil, nil, actAsHeader, u.ID).StatusCode; code != 403 {
+		t.Fatal("device impersonation permitted", code)
 	}
 	stream, err := device.DownloadSkillPackage(ctx, "", skill.ID, skill.CurrentVersionID)
 	if err != nil {

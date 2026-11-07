@@ -45,7 +45,7 @@ func (s *Service) CreateMultiWork(ctx context.Context, u User, name, agent, inst
 }
 func (s *Service) runWorkToken(ctx context.Context, token string) (Work, User, error) {
 	var id string
-	err := s.db.QueryRowContext(ctx, `SELECT t.work_id FROM work_run_tokens t JOIN run_prompts p ON p.id=t.prompt_id WHERE t.token_hash=? AND p.status IN ('sent','accepted')`, HashSecret(token)).Scan(&id)
+	err := s.db.QueryRowContext(ctx, `SELECT t.work_id FROM work_run_tokens t JOIN message_agents p ON p.message_id=t.message_id AND p.agent_id=t.agent_id WHERE t.token_hash=? AND p.status IN ('sent','accepted')`, HashSecret(token)).Scan(&id)
 	if err == sql.ErrNoRows {
 		return Work{}, User{}, ErrNotFound
 	}
@@ -60,7 +60,7 @@ func (s *Service) runWorkToken(ctx context.Context, token string) (Work, User, e
 	return w, u, err
 }
 func (s *Service) WorkRunByToken(ctx context.Context, token string) (Run, error) {
-	return scanNativeRun(s.db.QueryRowContext(ctx, nativeRunCols+` WHERE id=(SELECT p.run_id FROM work_run_tokens t JOIN run_prompts p ON p.id=t.prompt_id WHERE t.token_hash=? AND p.status IN ('sent','accepted'))`, HashSecret(token)))
+	return scanNativeRun(s.db.QueryRowContext(ctx, nativeRunCols+` WHERE id=(SELECT p.run_id FROM work_run_tokens t JOIN message_agents p ON p.message_id=t.message_id AND p.agent_id=t.agent_id WHERE t.token_hash=? AND p.status IN ('sent','accepted'))`, HashSecret(token)))
 }
 
 func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversation string) error {
@@ -75,14 +75,14 @@ func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversatio
 	if err != nil {
 		return err
 	}
-	groups := map[int64][]Delivery{}
+	groups := map[string][]Delivery{}
 	for _, p := range prompts {
 		groups[p.MessageID] = append(groups[p.MessageID], p)
 	}
 	for id, group := range groups {
 		done := true
 		for _, p := range group {
-			if p.Status != "completed" && p.Status != "failed" && p.Status != "cancelled" {
+			if p.Status != "completed" && p.Status != "failed" && p.Status != "cancelled" && p.Status != "rejected" {
 				done = false
 			}
 		}
@@ -100,6 +100,9 @@ func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversatio
 		var summary strings.Builder
 		for _, p := range group {
 			fmt.Fprintf(&summary, "\n@%s: %s", p.AgentID, p.Status)
+			if p.Error != "" {
+				summary.WriteString("\n" + p.Error)
+			}
 			if p.RunID != "" {
 				var output string
 				if err = tx.QueryRowContext(ctx, `SELECT output FROM runs WHERE id=?`, p.RunID).Scan(&output); err != nil {

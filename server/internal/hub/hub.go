@@ -1,4 +1,4 @@
-// Package hub transports server message deliveries and unchanged client events.
+// Package hub transports saved conversation messages and public execution events.
 package hub
 
 import (
@@ -24,10 +24,12 @@ type Hub struct {
 	conns   map[string]*deviceConn
 }
 type deviceConn struct {
-	d      service.Daemon
-	ws     *websocket.Conn
-	cancel context.CancelFunc
-	sendMu sync.Mutex
+	d        service.Daemon
+	ws       *websocket.Conn
+	cancel   context.CancelFunc
+	sendMu   sync.Mutex
+	wake     chan struct{}
+	capacity protocol.Message
 }
 
 func New(s *service.Service, logger *log.Logger) *Hub {
@@ -43,6 +45,11 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid device credential", 401)
 		return
 	}
+	if r.Header.Get(protocol.ProtocolHeader) != protocol.ExecutionProtocol {
+		w.Header().Set(protocol.ProtocolHeader, protocol.ExecutionProtocol)
+		http.Error(w, "client protocol upgrade required", http.StatusUpgradeRequired)
+		return
+	}
 	ws, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
@@ -50,14 +57,15 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ws.SetReadLimit(8 << 20)
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	c := &deviceConn{d: d, ws: ws, cancel: cancel}
+	c := &deviceConn{d: d, ws: ws, cancel: cancel, wake: make(chan struct{}, 1)}
 	h.mu.Lock()
-	if old := h.conns[d.ID]; old != nil {
+	old := h.conns[d.ID]
+	h.conns[d.ID] = c
+	h.mu.Unlock()
+	if old != nil {
 		old.cancel()
 		old.ws.Close(websocket.StatusPolicyViolation, "connection replaced")
 	}
-	h.conns[d.ID] = c
-	h.mu.Unlock()
 	defer func() {
 		h.mu.Lock()
 		if h.conns[d.ID] == c {
@@ -72,29 +80,31 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (h *Hub) serve(ctx context.Context, c *deviceConn) error {
-	var hello protocol.Message
-	if err := wsjson.Read(ctx, c.ws, &hello); err != nil {
+	var first protocol.Message
+	if err := wsjson.Read(ctx, c.ws, &first); err != nil {
 		return err
 	}
-	if hello.Type != protocol.TypeHello || hello.Protocol != protocol.ExecutionProtocol {
-		return errors.New("client execution protocol upgrade required")
+	if first.Type != protocol.TypeHeartbeat {
+		return errors.New("heartbeat required")
 	}
 	reported := []service.ReportedHarness{}
-	for _, a := range hello.Harnesses {
+	for _, a := range first.Harnesses {
 		reported = append(reported, service.ReportedHarness{Name: a.Name, Version: a.Version, Revision: a.Revision})
 	}
-	if _, err := h.service.DaemonConnected(ctx, c.d, reported, hello.Capabilities); err != nil {
+	if _, err := h.service.DaemonConnected(ctx, c.d, reported, []string{protocol.ExecutionProtocol, "session-attachments-v1"}); err != nil {
 		return err
 	}
-	if err := c.send(ctx, protocol.Message{Type: protocol.TypeWelcome, Protocol: protocol.ExecutionProtocol, DaemonID: c.d.ID, Name: c.d.Name}); err != nil {
+	c.capacity = first
+	if err := c.send(ctx, protocol.Message{Type: protocol.TypeAck, ID: first.ID, Status: protocol.AckOK}); err != nil {
 		return err
 	}
-	prompts, err := h.service.PendingPrompts(ctx, c.d.ID)
+	pending, err := h.service.PendingMessages(ctx, c.d.ID)
 	if err != nil {
 		return err
 	}
-	for _, p := range prompts {
-		if err = c.send(ctx, protocol.Message{Type: protocol.TypePrompt, Prompt: &p}); err != nil {
+	for _, m := range pending {
+		c.reserve(m)
+		if err = c.send(ctx, protocol.DeliveryFrame(m)); err != nil {
 			return err
 		}
 	}
@@ -107,56 +117,124 @@ func (h *Hub) serve(ctx context.Context, c *deviceConn) error {
 			return err
 		}
 	}
-	for {
-		var m protocol.Message
-		if err := wsjson.Read(ctx, c.ws, &m); err != nil {
-			return err
+	incoming := make(chan protocol.Message, 1)
+	readError := make(chan error, 1)
+	go func() {
+		for {
+			var m protocol.Message
+			if err := wsjson.Read(ctx, c.ws, &m); err != nil {
+				select {
+				case readError <- err:
+				case <-ctx.Done():
+				}
+				return
+			}
+			select {
+			case incoming <- m:
+			case <-ctx.Done():
+				return
+			}
 		}
-		switch m.Type {
-		case protocol.TypeClaim:
-			prompt, err := h.service.ClaimPrompt(ctx, c.d, m)
-			if errors.Is(err, service.ErrNotFound) {
-				err = c.send(ctx, protocol.Message{Type: protocol.TypeNoTask, ClaimID: m.ClaimID})
-			} else if err == nil {
-				err = c.send(ctx, protocol.Message{Type: protocol.TypePrompt, ClaimID: m.ClaimID, Prompt: &prompt})
-			}
-			if err != nil {
-				return err
-			}
-		case protocol.TypeHeartbeat:
-			if err = h.service.TouchDaemon(ctx, c.d.ID); err != nil {
-				return err
-			}
-		case protocol.TypeEvent:
-			if m.ClientEvent == nil {
-				return errors.New("missing client event")
-			}
-			err = h.service.ReportClientEvent(ctx, c.d.ID, *m.ClientEvent)
-			if err != nil {
-				if e := c.send(ctx, protocol.Message{Type: protocol.TypeError, SessionID: m.ClientEvent.SessionID, AckSeq: m.ClientEvent.Seq, Error: err.Error()}); e != nil {
+	}()
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+	if err = h.dispatch(ctx, c); err != nil {
+		return err
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case err := <-readError:
+			return err
+		case <-c.wake:
+		case <-tick.C:
+		case m := <-incoming:
+			switch m.Type {
+			case protocol.TypeHeartbeat:
+				// Executor availability is frozen for this connection; capacity is a snapshot.
+				if !sameHarnesses(first.Harnesses, m.Harnesses) {
+					return errors.New("harness snapshot changed; reconnect required")
+				}
+				c.capacity = m
+				// Outstanding new bindings may not yet be visible in the received snapshot.
+				outstanding, e := h.service.PendingMessages(ctx, c.d.ID)
+				if e != nil {
 					return e
 				}
-				continue
+				for _, p := range outstanding {
+					c.reserve(p)
+				}
+				if err = h.service.TouchDaemon(ctx, c.d.ID); err != nil {
+					return err
+				}
+				if err = c.send(ctx, protocol.Message{Type: protocol.TypeAck, ID: m.ID, Status: protocol.AckOK}); err != nil {
+					return err
+				}
+			case protocol.TypeEvent:
+				if m.ClientEvent == nil {
+					return errors.New("missing event")
+				}
+				err = h.service.ReportClientEvent(ctx, c.d.ID, *m.ClientEvent)
+				var event struct {
+					Type string `json:"type"`
+				}
+				_ = json.Unmarshal(m.ClientEvent.Event, &event)
+				if err == nil && event.Type == "log" {
+					continue
+				}
+				ack := protocol.Message{Type: protocol.TypeAck, ID: m.ID, Status: protocol.AckOK}
+				if err != nil {
+					ack.Status = protocol.AckError
+					ack.Error = err.Error()
+				}
+				if err = c.send(ctx, ack); err != nil {
+					return err
+				}
+			case protocol.TypeAck:
+				if strings.HasPrefix(m.ID, "m:") {
+					err = h.service.RejectMessage(ctx, c.d.ID, m.ID, m.Status, m.Error)
+				} else {
+					err = h.service.ConfirmControl(ctx, c.d.ID, m.ID, m.Status, m.Error)
+				}
+				if err != nil {
+					return err
+				}
+			default:
+				return errors.New("unexpected client message")
 			}
-			if err = c.send(ctx, protocol.Message{Type: protocol.TypeEventAck, SessionID: m.ClientEvent.SessionID, AckSeq: m.ClientEvent.Seq}); err != nil {
-				return err
-			}
-		case protocol.TypePromptError:
-			if err = h.service.RejectPrompt(ctx, c.d.ID, m.PromptID, m.Error); err != nil {
-				return err
-			}
-			if err = c.send(ctx, protocol.Message{Type: protocol.TypePromptErrorAck, PromptID: m.PromptID, Prompt: m.Prompt}); err != nil {
-				return err
-			}
-		case protocol.TypeControlAck:
-			if m.Control == nil {
-				return errors.New("missing control receipt")
-			}
-			if err = h.service.ConfirmControl(ctx, c.d.ID, m.Control.ID, m.Error); err != nil {
-				return err
-			}
-		default:
-			return errors.New("unknown execution message")
+		}
+		if err = h.dispatch(ctx, c); err != nil {
+			return err
+		}
+	}
+}
+func sameHarnesses(a, b []protocol.Harness) bool {
+	aa, _ := json.Marshal(a)
+	bb, _ := json.Marshal(b)
+	return string(aa) == string(bb)
+}
+func (c *deviceConn) reserve(m protocol.ConversationMessage) {
+	for _, a := range c.capacity.ActiveStreams {
+		if a.ConversationID == m.ConversationID && a.AgentID == m.AgentID && a.AgentVersionID == m.AgentVersionID {
+			return
+		}
+	}
+	c.capacity.FreeSessions = max(0, c.capacity.FreeSessions-1)
+	c.capacity.ActiveStreams = append(c.capacity.ActiveStreams, protocol.StreamRef{ConversationID: m.ConversationID, AgentID: m.AgentID, AgentVersionID: m.AgentVersionID})
+}
+func (h *Hub) dispatch(ctx context.Context, c *deviceConn) error {
+	for {
+		m, err := h.service.DispatchMessage(ctx, c.d, c.capacity)
+		if errors.Is(err, service.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		c.reserve(m)
+		if err = c.send(ctx, protocol.DeliveryFrame(m)); err != nil {
+			return err
 		}
 	}
 }
@@ -165,11 +243,7 @@ func (c *deviceConn) send(ctx context.Context, m protocol.Message) error {
 	defer c.sendMu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	data, err := json.Marshal(m)
-	if err != nil {
-		return err
-	}
-	return c.ws.Write(ctx, websocket.MessageText, data)
+	return wsjson.Write(ctx, c.ws, m)
 }
 func (h *Hub) PushRun(id string, m protocol.Message) {
 	h.mu.Lock()
@@ -185,13 +259,12 @@ func (h *Hub) PushRun(id string, m protocol.Message) {
 }
 func (h *Hub) KickAll() {
 	h.mu.Lock()
-	ids := []string{}
-	for id := range h.conns {
-		ids = append(ids, id)
-	}
-	h.mu.Unlock()
-	for _, id := range ids {
-		h.PushRun(id, protocol.Message{Type: protocol.TypeReady})
+	defer h.mu.Unlock()
+	for _, c := range h.conns {
+		select {
+		case c.wake <- struct{}{}:
+		default:
+		}
 	}
 }
 func (h *Hub) KickUser(string) { h.KickAll() }

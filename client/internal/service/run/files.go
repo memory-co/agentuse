@@ -26,7 +26,7 @@ func openAttachmentDir(root *os.Root, name string) (*os.Root, error) {
 	}
 	return root.OpenRoot(name)
 }
-func (d *endpointConnection) syncAttachments(ctx context.Context, m *protocol.Prompt, dir string) error {
+func (d *endpointConnection) syncAttachments(ctx context.Context, m *protocol.ConversationMessage, dir string) error {
 	c := agentuse.Client{BaseURL: d.cfg.Server, Token: d.cfg.Key}
 	list, err := c.AllAttachments(ctx, "", m.ConversationID)
 	if err != nil {

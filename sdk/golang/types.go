@@ -103,7 +103,7 @@ type Message struct {
 	AgentName            string          `json:"agent_name,omitempty"`
 	RunID                string          `json:"run_id,omitempty"`
 	TargetAgentIDs       []string        `json:"target_agent_ids,omitempty"`
-	ID                   int64           `json:"id"`
+	ID                   string          `json:"id"`
 	SessionID            string          `json:"session_id"`
 	Role                 string          `json:"role"` // user / assistant
 	Content              json.RawMessage `json:"content"`

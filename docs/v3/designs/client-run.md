@@ -44,29 +44,36 @@ accepted 事件是執行歸屬的事實。若適配器寫入 accepted 後 client
 
 ## 遠端傳輸邊界
 
-local 和遠端調用完全相同的 sessionService、harnessService 與 runService；都直接展示適配器 UUID。Server 不再有另一套執行 run，輸入分配 ID 僅用於關聯 server 消息。
-
-每個遠端 session 額外保存傳輸收據：
+local 和遠端調用完全相同的 sessionService、harnessService 與 runService。遠端直接接收 conversation message 和目標 Agent；不再有獨立輸入分配 ID，accepted 回傳來源 message_id/agent_id 與實際 run_id/input_id。
 
 ```text
-.server/
-  inputs/<prompt_id>.json  輸入提交狀態、源起點及 accepted 的 run_id/input_id
-  stream.json             server 已提交確認的 events.jsonl 字節偏移
-  controls/<control_id>.json  reply/cancel 送達收據
+<endpoint>/<conversation>/
+  .server/
+    messages/<message-agent-key-hash>.json  原消息、準備/提交收據、源起點與受理關係
+    agents/<agent_version_id>.json        不可變配置緩存
+    agents/skills/<skill_version_id>.json 技能版本描述緩存
+    skills/<skill_version_id>.zip         已校驗的技能包緩存
+  sessions/<session_id>/.server/
+    stream.json                          Server 已逐條確認的源字節位置
+    controls/<control-id-hash>.json       answer/cancel 的原內容、狀態和收據
 ```
 
-這些文件不復制執行輸出或結果。源 JSONL 是唯一事件 outbox：發送完整行，收到 ACK 後原子推進遊標。ACK 丟失則重傳同一源位置，server 去重；重連收到同一輸入 ID 時讀取收據，不再次 send。活動 session 在連接短暫斷開時繼續運行。
+Endpoint 根目錄的 .server/messages 另外保留很小的提交收據（消息摘要及受理標識），不隨 conversation quota 回收，防止延遲重複消息重新執行。它不包含正文、輸出或另一個業務 ID。
 
-啓動先確認遺留前臺工作停止，再恢復輸入收據：從提交前保存的源位置讀取 accepted，補回實際 UUID；存在歧義則報錯，不重放輸入。只讀完整 JSONL 行。尚未確認的失敗通知、未確定受理狀態和未確認上報的事件保護 conversation 目錄，不因 quota 丟掉待交付事實。
+消息收據在讀取配置之前保存。有效的既有 session 直接複用資源快照；缺少資源時按固定版本 API 讀取，ZIP 必須校驗摘要和大小，緩存損壞時重新下載相同版本。Server 不需要知道下載或 init 的階段。
 
-控制命令以 control_id 去重；cancel 攜帶目標 run_id，目標已經終態時不能取消後續交互。request 的狀態和最終結果仍以適配器事件爲準，傳輸 ACK 不代表業務狀態已改變。
+關鍵事件來自原始 JSONL，外層 id 穩定取自 session 和完整行位置，收到對應 ok 後才推進本地確認位置。普通 log 可略過，不保護目錄。ACK 丟失則補傳原事件，消息重送則補回既有 accepted，不再次 send；連接短暫斷開時本地工作繼續。
+
+啟動時遷移舊版 inputs 收據，恢復已確認關聯。尚未跨過 send 邊界的準備可以重做；可能已提交的輸入只從源位置及唯一未關聯 accepted 恢復，證據缺失或衝突則保留 unknown，不重放。未知消息/控制、準備預留和未確認關鍵事件保護 conversation 目錄。
+
+控制在調用原生命令前持久記錄不確定狀態，崩潰後不能再次執行相同 id。cancel 攜帶 run_id 作為過期控制檢查，實際作用域仍是 session 當前及排隊工作；request/result 才確認實際狀態。
 
 ## 實現歸屬
 
-native_runs.go 管引用與查詢，views.go 定義公開視圖，reconcile.go 管啓動恢復，server_connection.go 管中心連接、輸入收據、事件遊標和控制傳輸。沒有 store、執行 attempt、結果副本或舊協議兼容層。sessionService 管目錄與會話元數據，fileutil 僅提供通用文件操作。
+native_runs.go 管引用與查詢，views.go 定義公開視圖，reconcile.go 管啓動恢復，server_connection.go 管中心連接、輸入收據、事件遊標和控制傳輸。沒有 store、執行 attempt 或結果副本；舊收據只作持久化升級，不兼容舊網路協議。sessionService 管目錄與會話元數據，fileutil 僅提供通用文件操作。
 
 ## Server Agent 版本銜接（已實現）
 
-遠端輸入攜帶 agent_version_id、model、agent_instructions 和固定 skill 包版本清單。runService 按已分配輸入下載資源、校驗 SHA-256/大小並安全解包，調用 sessionService 選擇同版本會話，再由 harnessService 調用 init/send。下載只使用當前 endpoint 的相對 API 路徑，不把設備密鑰發到其他域。
+遠端 message 只固定 agent_version_id；Client 通過 Agent 版本及 Skill 版本 API 讀取模型、指令和依賴。配置、ZIP 校驗、安全解包與 init 都內含於消息處理。缺少配置不能改讀 latest，資源已在有效快照中則直接複用。
 
-活動輸入匹配加入 agent_version_id，不能把新版消息塞入舊版驅動窗口；同版本補充輸入仍由適配器裁定 run 歸屬。ClientEvent 信封和本地 run 引用記錄該版本關聯，公共 accepted/message/request/result/log 的 Schema 不變。詳情見 [client-session.md](client-session.md) 與 [版本化通信字段](protocol.md#agent-versioning)。
+活動輸入必須匹配 agent_version_id，不能將新版消息放進舊版原生上下文。同版本補充輸入由適配器裁定 run 歸屬。公共 accepted/message/request/result/log Schema 不變，網路封裝與授權見 [通信協議](protocol.md)。

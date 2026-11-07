@@ -100,36 +100,13 @@ func (s *Service) prepareResources(ctx context.Context, m session.Session, r Req
 		if m.EndpointID == "local" {
 			data = r.localPackages[index]
 		} else {
-			if resource.SizeBytes <= 0 || resource.SizeBytes > skillbundle.MaxArchive || uuid.Validate(resource.SkillID) != nil || uuid.Validate(resource.SkillVersionID) != nil {
-				return fail(fmt.Errorf("invalid skill package descriptor"))
-			}
-			expected := "/api/skills/" + resource.SkillID + "/versions/" + resource.SkillVersionID + "/package"
-			if resource.DownloadPath != expected {
-				return fail(fmt.Errorf("skill download must use this endpoint's version API"))
-			}
-			ep, e := s.Endpoints.GetByID(m.EndpointID)
-			if e != nil {
-				return fail(e)
-			}
-			request, e := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(ep.ServerURL, "/")+expected, nil)
-			if e != nil {
-				return fail(e)
-			}
-			request.Header.Set("Authorization", "Bearer "+ep.DeviceKey)
-			response, e := (&http.Client{Timeout: time.Minute, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}).Do(request)
-			if e != nil {
-				return fail(e)
-			}
-			if response.StatusCode != 200 {
-				response.Body.Close()
-				return fail(fmt.Errorf("skill download: HTTP %d", response.StatusCode))
-			}
-			data, e = io.ReadAll(io.LimitReader(response.Body, resource.SizeBytes+1))
-			response.Body.Close()
+			var e error
+			data, e = s.cachedSkill(ctx, m, resource)
 			if e != nil {
 				return fail(e)
 			}
 		}
+
 		digest := sha256.Sum256(data)
 		if int64(len(data)) != resource.SizeBytes || hex.EncodeToString(digest[:]) != resource.SHA256 {
 			return fail(fmt.Errorf("skill package size/digest mismatch"))
@@ -150,4 +127,68 @@ func (s *Service) prepareResources(ctx context.Context, m session.Session, r Req
 		a.InitArgs = append(a.InitArgs, "--skills-dir", filepath.Join(dir, "skills"))
 	}
 	return cleanup, nil
+}
+
+// The cache is local to the endpoint/conversation and is checked against the
+// immutable version descriptor before reuse, including after interrupted writes.
+func (s *Service) cachedSkill(ctx context.Context, m session.Session, resource protocol.SkillResource) ([]byte, error) {
+	if resource.SizeBytes <= 0 || resource.SizeBytes > skillbundle.MaxArchive || uuid.Validate(resource.SkillID) != nil || uuid.Validate(resource.SkillVersionID) != nil {
+		return nil, fmt.Errorf("invalid skill package descriptor")
+	}
+	expected := "/api/skills/" + resource.SkillID + "/versions/" + resource.SkillVersionID + "/package"
+	if resource.DownloadPath != expected {
+		return nil, fmt.Errorf("skill download must use this endpoint's version API")
+	}
+	path, err := fileutil.SafePath(s.Sessions.Root, m.EndpointID, m.ConversationID, ".server", "skills", resource.SkillVersionID+".zip")
+	if err != nil {
+		return nil, err
+	}
+	valid := func(data []byte) bool {
+		digest := sha256.Sum256(data)
+		return int64(len(data)) == resource.SizeBytes && hex.EncodeToString(digest[:]) == resource.SHA256
+	}
+	if f, e := os.Open(path); e == nil {
+		data, e := io.ReadAll(io.LimitReader(f, resource.SizeBytes+1))
+		f.Close()
+		if e == nil && valid(data) {
+			return data, nil
+		}
+	} else if !os.IsNotExist(e) {
+		return nil, e
+	}
+	ep, err := s.Endpoints.GetByID(m.EndpointID)
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(ep.ServerURL, "/")+expected, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+ep.DeviceKey)
+	response, err := (&http.Client{Timeout: time.Minute, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}).Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 {
+		return nil, fmt.Errorf("skill download: HTTP %d", response.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, resource.SizeBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if !valid(data) {
+		return nil, fmt.Errorf("skill package size/digest mismatch")
+	}
+	meta, err := skillbundle.Inspect(data)
+	if err != nil {
+		return nil, err
+	}
+	if meta.Name != resource.Name {
+		return nil, fmt.Errorf("skill package name mismatch")
+	}
+	if err = fileutil.Atomic(path, data); err != nil {
+		return nil, err
+	}
+	return data, nil
 }

@@ -111,7 +111,7 @@ export function Conversation({ id, onDeleted, placeholder,defaultAgent }: { id: 
         </div>
         <Attachments key={id} session={id} running={!settled} />
         {messages.map(m=><div key={m.id} className="grid min-w-0 grid-cols-1 gap-2"><MessageView m={m}/>
-        {m.role==='user'&&<div className="flex flex-wrap gap-2">{(q.data.deliveries??[]).filter(d=>d.message_id===m.id && !(q.data.runs??[]).some(run=>run.id===d.run_id && run.first_message_id===m.id)).map(d=><span key={d.id} className="rounded-md border px-2 py-1 text-xs" title={d.error}>@{d.agent_id} · {d.status}</span>)}</div>}
+        {m.role==='user'&&<div className="flex flex-wrap gap-2">{(q.data.deliveries??[]).filter(d=>d.message_id===m.id && !(q.data.runs??[]).some(run=>run.id===d.run_id && run.first_message_id===m.id)).map(d=><span key={`${d.message_id}:${d.agent_id}`} className="rounded-md border px-2 py-1 text-xs" title={d.error}>@{d.agent_id} · {d.status}</span>)}</div>}
         {(q.data.runs??[]).filter(r=>r.first_message_id===m.id).map(run=><RunView key={run.id} run={run} events={events} questions={questions} messages={messages} deliveries={q.data.deliveries ?? []} sessionId={id}/>)}
         </div>)}
         <div ref={bottom} />

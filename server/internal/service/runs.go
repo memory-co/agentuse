@@ -51,12 +51,12 @@ func runs(ctx context.Context, q rowsQuerier, conversation string) ([]Run, error
 	return out, rows.Err()
 }
 
-const promptCols = `SELECT id,message_id,session_id,agent_id,agent_version_id,daemon_id,harness,content,status,run_id,input_id,client_session_id,error FROM run_prompts`
+const messageTargetCols = `SELECT message_id,session_id,agent_id,agent_version_id,daemon_id,harness,(SELECT content FROM messages WHERE id=message_agents.message_id),status,run_id,input_id,client_session_id,error FROM message_agents`
 
-func scanPrompt(row scanner) (Delivery, error) {
+func scanMessageTarget(row scanner) (Delivery, error) {
 	var d Delivery
 	var content string
-	err := row.Scan(&d.ID, &d.MessageID, &d.SessionID, &d.AgentID, &d.AgentVersionID, &d.DaemonID, &d.Harness, &content, &d.Status, &d.RunID, &d.InputID, &d.ClientSessionID, &d.Error)
+	err := row.Scan(&d.MessageID, &d.SessionID, &d.AgentID, &d.AgentVersionID, &d.DaemonID, &d.Harness, &content, &d.Status, &d.RunID, &d.InputID, &d.ClientSessionID, &d.Error)
 	d.Content = json.RawMessage(content)
 	if err == sql.ErrNoRows {
 		err = ErrNotFound
@@ -64,14 +64,14 @@ func scanPrompt(row scanner) (Delivery, error) {
 	return d, err
 }
 func deliveries(ctx context.Context, q rowsQuerier, where string, args ...any) ([]Delivery, error) {
-	rows, err := q.QueryContext(ctx, promptCols+` WHERE `+where+` ORDER BY id`, args...)
+	rows, err := q.QueryContext(ctx, messageTargetCols+` WHERE `+where+` ORDER BY (SELECT seq FROM messages WHERE id=message_agents.message_id),agent_id`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []Delivery{}
 	for rows.Next() {
-		d, e := scanPrompt(rows)
+		d, e := scanMessageTarget(rows)
 		if e != nil {
 			return nil, e
 		}
@@ -83,7 +83,7 @@ func (s *Service) Deliveries(ctx context.Context, conversation string) ([]Delive
 	return deliveries(ctx, s.db, `session_id=?`, conversation)
 }
 func multiStatus(ctx context.Context, tx *sql.Tx, conversation string, now int64) error {
-	_, err := tx.ExecContext(ctx, `UPDATE sessions SET status=CASE WHEN EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='waiting') THEN 'waiting' WHEN EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running') THEN 'running' WHEN EXISTS(SELECT 1 FROM run_prompts WHERE session_id=? AND status IN ('pending','sent')) THEN 'pending' WHEN status='resolved' THEN 'resolved' ELSE 'idle' END,updated_at=? WHERE id=?`, conversation, conversation, conversation, now, conversation)
+	_, err := tx.ExecContext(ctx, `UPDATE sessions SET status=CASE WHEN EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='waiting') THEN 'waiting' WHEN EXISTS(SELECT 1 FROM runs WHERE session_id=? AND status='running') THEN 'running' WHEN EXISTS(SELECT 1 FROM message_agents WHERE session_id=? AND status IN ('pending','sent','unknown')) THEN 'pending' WHEN status='resolved' THEN 'resolved' ELSE 'idle' END,updated_at=? WHERE id=?`, conversation, conversation, conversation, now, conversation)
 	return err
 }
 func (s *Service) insertMulti(ctx context.Context, tx *sql.Tx, u User, work, title string) (Session, error) {
@@ -171,7 +171,7 @@ func (s *Service) sendMultiTx(ctx context.Context, tx *sql.Tx, u User, ss Sessio
 		return MultiReply{}, err
 	}
 	for _, a := range agents {
-		if _, err = tx.ExecContext(ctx, `INSERT INTO run_prompts(session_id,message_id,agent_id,agent_version_id,daemon_id,harness,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, ss.ID, m.ID, a.ID, a.CurrentVersionID, a.DaemonID, a.Harness, string(input), s.unix(), s.unix()); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO message_agents(session_id,message_id,agent_id,agent_version_id,daemon_id,harness,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, ss.ID, m.ID, a.ID, a.CurrentVersionID, a.DaemonID, a.Harness, s.unix(), s.unix()); err != nil {
 			return MultiReply{}, err
 		}
 	}
@@ -197,10 +197,10 @@ func (s *Service) sendMultiTx(ctx context.Context, tx *sql.Tx, u User, ss Sessio
 // Execution tables deliberately have no cascading database foreign keys.
 func deleteConversationExecution(ctx context.Context, tx *sql.Tx, id string) error {
 	for _, query := range []string{
-		`DELETE FROM work_run_tokens WHERE prompt_id IN (SELECT id FROM run_prompts WHERE session_id=?)`,
+		`DELETE FROM work_run_tokens WHERE message_id IN (SELECT message_id FROM message_agents WHERE session_id=?)`,
 		`DELETE FROM run_notifications WHERE message_id IN (SELECT id FROM messages WHERE session_id=?)`,
 		`DELETE FROM run_controls WHERE session_id=?`, `DELETE FROM run_requests WHERE session_id=?`,
-		`DELETE FROM run_events WHERE session_id=?`, `DELETE FROM runs WHERE session_id=?`, `DELETE FROM run_prompts WHERE session_id=?`,
+		`DELETE FROM run_events WHERE session_id=?`, `DELETE FROM runs WHERE session_id=?`, `DELETE FROM message_agents WHERE session_id=?`,
 		`DELETE FROM attachments WHERE session_id=?`, `DELETE FROM messages WHERE session_id=?`,
 	} {
 		if _, err := tx.ExecContext(ctx, query, id); err != nil {

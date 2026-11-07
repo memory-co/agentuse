@@ -37,7 +37,13 @@ func (s *Server) handleAgentVersions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, rows)
 }
 func (s *Server) handleAgentVersion(w http.ResponseWriter, r *http.Request) {
-	v, err := s.service.GetAgentVersion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("version_id"))
+	var v agentuse.AgentVersion
+	var err error
+	if resourceCredential(r) {
+		v, err = s.service.AgentVersionForCredential(r.Context(), requestToken(r), r.PathValue("id"), r.PathValue("version_id"))
+	} else {
+		v, err = s.service.GetAgentVersion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("version_id"))
+	}
 	if err != nil {
 		s.storeErr(w, err)
 		return

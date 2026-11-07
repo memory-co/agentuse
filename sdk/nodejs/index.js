@@ -144,12 +144,12 @@ export class Client {
   replyRunRequest(user, session, run, request, answer) { return this._request("POST", `/api/sessions/${q(session)}/runs/${q(run)}/requests/${q(request)}/reply`, user, {answer}); }
   async waitRun(user, session, run, {interval=2000, timeout, returnOnWaiting=false}={}) {
     const start=Date.now();
-    for (;;) { const d=await this.getRun(user,session,run); if (["completed","failed","cancelled"].includes(d.run.status) || (returnOnWaiting && d.run.status==="waiting")) return d;
+    for (;;) { const d=await this.getRun(user,session,run); if (["completed","failed","cancelled","rejected"].includes(d.run.status) || (returnOnWaiting && d.run.status==="waiting")) return d;
       if (timeout!=null && Date.now()-start>=timeout) throw new Error("agentuse: waitRun timed out"); await new Promise(r=>setTimeout(r,interval)); }
   }
   async waitMessageRuns(user, session, message, {interval=2000,timeout}={}) {
     const start=Date.now();
-    for (;;) { const d=await this.getSession(user,session); if ((d.deliveries||[]).filter(x=>x.message_id===message).every(x=>["completed","failed","cancelled"].includes(x.status))) return d;
+    for (;;) { const d=await this.getSession(user,session); if ((d.deliveries||[]).filter(x=>x.message_id===message).every(x=>["completed","failed","cancelled","rejected"].includes(x.status))) return d;
       if (timeout!=null && Date.now()-start>=timeout) throw new Error("agentuse: waitMessageRuns timed out"); await new Promise(r=>setTimeout(r,interval)); }
   }
 

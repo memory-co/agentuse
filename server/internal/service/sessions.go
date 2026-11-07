@@ -25,14 +25,16 @@ var (
 )
 
 func insertMessage(ctx context.Context, tx *sql.Tx, sessionID, role string, content json.RawMessage, now int64) (Message, error) {
-	res, err := tx.ExecContext(ctx,
-		store.InsertMessageInsert,
-		sessionID, role, string(content), now)
+	var seq int64
+	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(seq),0)+1 FROM messages WHERE session_id=?", sessionID).Scan(&seq); err != nil {
+		return Message{}, err
+	}
+	id := newUUID()
+	_, err := tx.ExecContext(ctx, store.InsertMessageInsert, id, seq, sessionID, role, string(content), now)
 	if err != nil {
 		return Message{}, err
 	}
-	id, _ := res.LastInsertId()
-	return Message{ID: id, Seq: id, SessionID: sessionID, Role: role, Content: content, CreatedAt: now}, nil
+	return Message{ID: id, Seq: seq, SessionID: sessionID, Role: role, Content: content, CreatedAt: now}, nil
 }
 
 func (s *Service) scanSession(row scanner) (Session, error) { return store.ScanSession(row) }

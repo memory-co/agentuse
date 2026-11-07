@@ -6,7 +6,7 @@
 
 workService 將多個 conversation 組織成一項工作。一個 work 有一個協調 conversation、一個協調 agent 和若干線程 conversation。它複用 conversationService/runService 的對話與任務模型，不引入另一種執行實體。
 
-彙總只考慮 kind=send 的 run_inputs：rejected 可直接計為失敗，applied 須等對應 run 的原生終態；pending、sent、unknown 或尚無 run 歸屬的 applied 都不能視為完成。reply/cancel 不增加訊息的執行目標數。
+彙總檢查原消息的 message_agents 關係：rejected 可直接計為失敗，accepted 必須等對應 run 的實際終態；pending、sent、unknown 都不能視為完成。answer/cancel 不增加消息的目標數。
 
 ## 操作與協作
 
@@ -18,7 +18,7 @@ workService 將多個 conversation 組織成一項工作。一個 work 有一個
 | 彙總結果 | 在最終回覆已由 conversationService 保存後，檢查原訊息對各目標的 send 輸入與對應 run 是否已結束；將彙總作爲消息發到協調 conversation |
 | 刪除 work | 檢查相關任務空閒，再經 conversationService 刪除所屬對話及 work 數據 |
 
-彙總使用 run_notifications 去重：記錄“該線程消息已彙報”與向協調 conversation 發彙總消息，必須在同一事務完成。不能只收到 run 結束事件就彙總，因爲最終回覆可能還沒消費入庫；需要等回覆落庫通知，並能通過持久化消息/run_inputs 掃描補償。
+彙總使用 run_notifications 去重：記錄“該線程消息已彙報”與向協調 conversation 發彙總消息，必須在同一事務完成。不能只收到 run 結束事件就彙總，因爲最終回覆可能還沒消費入庫；需要等回覆落庫通知，並能通過持久化消息/message_agents 掃描補償。
 
 ## Agent 版本銜接（目標）
 

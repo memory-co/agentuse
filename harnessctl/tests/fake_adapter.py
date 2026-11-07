@@ -34,7 +34,7 @@ def main():
     if verb == '_worker':
         run, iid, cwd = args; prompt = sys.stdin.read(); os.environ['AGENTUSE_RUN']=run
         lock = open(root/'queue.lock','w'); fcntl.flock(lock, fcntl.LOCK_EX)
-        instruction, sep, task = prompt.partition('\n\n# 本次任务\n'); task = task if sep else prompt
+        instruction, sep, task = prompt.partition('\n\n# 本次消息\n'); task = task if sep else prompt
         import re
         match = re.search(r'先读取 (.+?history.json)。',instruction)
         saved = root/'history-path'
@@ -77,6 +77,8 @@ def main():
             except (FileNotFoundError,ProcessLookupError): pass
             event('result',run,input_ids=[accepted[run]['input_id']],status='cancelled',output='',usage=None,cost_usd=None,error=None)
         print('{}')
-    elif verb == 'status': print(json.dumps(dict(state='running' if accepted.keys()-done else 'idle')))
+    elif verb == 'status':
+        active = [run for run in accepted if run not in done]
+        print(json.dumps(dict(state='running' if active else 'idle', run_id=active[0] if active else None, queued=max(0,len(active)-1),requests=[])))
     else: raise SystemExit('unsupported fixture command')
 if __name__=='__main__': main()

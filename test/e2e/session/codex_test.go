@@ -66,7 +66,7 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 			return false
 		}
 		for _, cap := range ds[0].Capabilities {
-			if cap == "harnessctl-events-v2" {
+			if cap == "agentuse-client/2" {
 				return true
 			}
 		}
@@ -129,7 +129,7 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 	var output string
 	var assistantCount int
 	for _, delivery := range detail.Deliveries {
-		if delivery.ID == sent.Deliveries[0].ID && delivery.RunID == runID && delivery.InputID != "" {
+		if delivery.MessageID == sent.Deliveries[0].MessageID && delivery.AgentID == sent.Deliveries[0].AgentID && delivery.RunID == runID && delivery.InputID != "" {
 			acknowledged = true
 		}
 	}

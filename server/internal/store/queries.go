@@ -13,7 +13,7 @@ const ListAgentsClause2 = ` ORDER BY name, id`
 
 const AttachmentSessionSelect = `SELECT user_id FROM daemons WHERE id=? AND key_hash=?`
 
-const AttachmentSessionSelect2 = `SELECT COUNT(*) FROM work_run_tokens t JOIN run_prompts p ON p.id=t.prompt_id WHERE t.work_id=? AND t.token_hash=? AND p.status IN ('sent','accepted') AND ?>=0`
+const AttachmentSessionSelect2 = `SELECT COUNT(*) FROM work_run_tokens t JOIN message_agents p ON p.message_id=t.message_id AND p.agent_id=t.agent_id WHERE t.work_id=? AND t.token_hash=? AND p.status IN ('sent','accepted') AND ?>=0`
 
 const AttachmentSessionSelect3 = `SELECT id,role FROM users WHERE token_hash=?`
 
@@ -99,14 +99,14 @@ const CreateMultiWorkUpdate = `UPDATE works SET coordinator_id=? WHERE id=?`
 
 const InsertMultiInsert = `INSERT INTO sessions(id,user_id,created_by,work_id,title,status,created_at,updated_at) VALUES(?,?,?,?,?,'idle',?,?)`
 
-const InsertMessageInsert = `INSERT INTO messages (session_id, role, content, created_at) VALUES (?, ?, ?, ?)`
+const InsertMessageInsert = `INSERT INTO messages (id,seq,session_id,role,content,created_at) VALUES (?,?,?,?,?,?)`
 
 // work_role 是算出来的：工作的 coordinator_id 指着它就是协调者，否则在工作里就是线程。
 const SessionCols = `SELECT id,user_id,created_by,work_id,
  CASE WHEN work_id IS NULL THEN '' WHEN EXISTS(SELECT 1 FROM works w WHERE w.coordinator_id=sessions.id) THEN 'coordinator' ELSE 'thread' END,
  title,status,created_at,updated_at,'multi_agent' FROM sessions`
 
-const MessageCols = `SELECT id,session_id,role,content,created_at,'',COALESCE(author_agent_id,''),COALESCE((SELECT name FROM agent_versions WHERE id=messages.author_agent_version_id),''),run_agent_ids,COALESCE(author_agent_version_id,'') FROM messages`
+const MessageCols = `SELECT id,session_id,role,content,created_at,'',COALESCE(author_agent_id,''),COALESCE((SELECT name FROM agent_versions WHERE id=messages.author_agent_version_id),''),run_agent_ids,COALESCE(author_agent_version_id,''),seq FROM messages`
 
 const GetSessionClause = ` WHERE id = ?`
 
@@ -122,7 +122,7 @@ const ListSessionsClause3 = ` ORDER BY updated_at DESC, id DESC LIMIT ?`
 
 const DeleteSessionDelete = `DELETE FROM sessions WHERE id = ?`
 
-const MessagesClause = ` WHERE session_id = ? ORDER BY id`
+const MessagesClause = ` WHERE session_id = ? ORDER BY seq`
 
 const CreateUserInsert = `INSERT INTO users (id, name, role, token_hash, created_at) VALUES (?, ?, ?, ?, ?)`
 

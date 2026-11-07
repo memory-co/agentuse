@@ -35,7 +35,7 @@ class AttachmentPage(TypedDict):
 class Run(TypedDict, total=False):
     id: str
     session_id: str
-    first_message_id: int
+    first_message_id: str
     agent_id: str
     agent_version_id: str
     daemon_id: str
@@ -43,7 +43,7 @@ class Run(TypedDict, total=False):
     harness: str
     harness_revision: str
     status: Literal["running", "waiting", "completed", "failed", "cancelled"]
-    result_message_id: int
+    result_message_id: str
     output: str
     error: str
     result: dict
@@ -51,8 +51,7 @@ class Run(TypedDict, total=False):
     updated_at: int
 
 class Delivery(TypedDict, total=False):
-    id: int
-    message_id: int
+    message_id: str
     session_id: str
     agent_id: str
     agent_version_id: str
@@ -311,7 +310,7 @@ class Client:
         start = time.monotonic()
         while True:
             detail = self.get_run(user, session_id, run_id)
-            if detail["run"]["status"] in ("completed", "failed", "cancelled") or (return_on_waiting and detail["run"]["status"] == "waiting"):
+            if detail["run"]["status"] in ("completed", "failed", "cancelled", "rejected") or (return_on_waiting and detail["run"]["status"] == "waiting"):
                 return detail
             if timeout is not None and time.monotonic() - start >= timeout:
                 raise TimeoutError("agentuse: wait_run timed out")
@@ -321,7 +320,7 @@ class Client:
         start = time.monotonic()
         while True:
             detail = self.get_session(user, session_id)
-            if all(d["status"] in ("completed", "failed", "cancelled") for d in detail.get("deliveries", []) if d["message_id"] == message_id):
+            if all(d["status"] in ("completed", "failed", "cancelled", "rejected") for d in detail.get("deliveries", []) if d["message_id"] == message_id):
                 return detail
             if timeout is not None and time.monotonic() - start >= timeout:
                 raise TimeoutError("agentuse: wait_message_runs timed out")
