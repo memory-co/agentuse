@@ -11,7 +11,7 @@ Conversation 是原共享對話概念的新名稱，不新增另一層 conversat
 conversationService 管理 conversation、message 和共享歷史，並編排消息分配。一個 conversation 包含若干 message 和若干 run；message 與 run 的任務輸入關係是 **N:M**，由 runService 中 message_agents 連接。
 
 - 創建/讀取/刪除對話，維護標題、歸屬和共享歷史。
-- 接收消息，調用 runService 爲目標 agent 分配任務；對話原文只保存一次，每個目標 agent 保存一條 message_agents 關係，等待 accepted 關聯實際 run。
+- 接收消息，保存 to_agent_ids 和 to_user_ids；按 to_agent_ids 調用 runService，對話原文只保存一次，每個目標 agent 保存一條 message_agents 關係，等待 accepted 關聯實際 run。
 - 消費執行結果事件，把最終回覆寫爲 agent message，並記錄作者和被回覆的 message。
 - 讀取對話時組合對話、run、message_agents、事件和問題的統一快照。
 
@@ -19,7 +19,9 @@ conversationService 管理 conversation、message 和共享歷史，並編排消
 
 ## 發送和回覆
 
-發送鏈路是 `controller → conversationService → runService`：先檢查權限，在一個事務中寫一條 message 和每個目標 agent 的 message_agents，提交後按 heartbeat 容量主動發送 message。任一目標失敗則整體回滾。空目標只保存備註。
+發送鏈路是 `controller → conversationService → runService`：先檢查發送權限及兩組收件人的有效性，在一個事務中寫一條 message 和 to_agent_ids 中每個 Agent 的 message_agents，提交後按 heartbeat 容量主動發送 message。任一收件人校驗失敗則整體回滾。
+
+`to_user_ids` 表示消息發給哪些用戶，不建立 message_agents 或 run。只有用戶收件人時保存發給用戶的消息；兩組都為空時保存普通對話備註。省略的數組統一保存為 `[]`，不默認調用上次 Agent，也不從正文中的 @ 名稱推斷執行目標。
 
 此時只分配輸入，run_id 爲空。這一事務內爲每條 message_agents 固定 agent_version_id，後續派發不追隨 latest。Server 不能根據某個 agent 仍在執行，就認定新消息一定屬於它當前的 run。
 
@@ -55,7 +57,7 @@ UUID 只用於標識，不承擔消息排序。目標結構用 messages.seq 保�
 
 ## 目標元數據與當前實現
 
-本文下列 SQL 定義元數據的目標命名和字段。當前已實現的執行關係以本文發送鏈路和 [server-run.md](server-run.md) 爲準；物理對話表仍名爲 sessions，HTTP 入口仍爲 /api/sessions。Schema 4 的 conversation/message ID 均為 UUID，messages.seq 是對話內順序。author_role、獨立 attachments 列及舊附件鏈路遷移仍是目標設計；通用 fileService 的目錄/S3 後端已實現，不表示已部署。執行表的實際 SQL 見 server-run.md。
+本文下列 SQL 定義元數據的目標命名和字段。物理對話表仍名爲 sessions，HTTP 入口仍爲 /api/sessions。Schema 4 的 conversation/message ID 均為 UUID，messages.seq 是對話內順序。to_agent_ids、to_user_ids、author_role 和獨立 attachments 列仍是目標設計；現行存儲的 Agent 目標字段仍為 run_agent_ids，發送接口仍使用 target_agent_ids，本次只調整本文設計。通用 fileService 的目錄/S3 後端已實現，不表示全部目標字段已部署。執行關係見 [server-run.md](server-run.md)。
 
 ## 表結構
 
@@ -86,12 +88,21 @@ CREATE INDEX conversations_created_by
 
 ### messages
 
-共享對話的原始消息。`content` 統一保存對話正文；`author_role` 爲 user/agent；`author_user_id`、`author_agent_id` 按作者類型二選一。Agent 回覆還記錄 `author_agent_version_id`，關聯具體不可變版本讀取當時名稱；用戶名稱關聯 users，不保存 agent_key、agent_name 字符串快照。`run_agent_ids` 保存原始 @ 目標數組，即使執行分配變化，對話仍能顯示當時 @ 了誰。
+共享對話的原始消息。`content` 統一保存對話正文；`author_role` 爲 user/agent；`author_user_id`、`author_agent_id` 按作者類型二選一。Agent 回覆還記錄 `author_agent_version_id`，關聯具體不可變版本讀取當時名稱；用戶名稱關聯 users，不保存 agent_key、agent_name 字符串快照。
+
+`to_agent_ids` 和 `to_user_ids` 保存消息的收件人，兩者均為 JSON 字符串數組，可同時非空，用戶消息和 Agent 消息使用相同規則：
+
+- `to_agent_ids`：穩定的 agents.id 數組，表示哪些 Agent 要處理這條消息；具體版本和實際執行歸屬保存在 message_agents 與 runs。
+- `to_user_ids`：users.id 數組，表示消息發給哪些用戶；這些收件人不觸發 Agent 執行。
+
+service 校驗元素為非空 ID 字符串，分別去重，檢查 Agent 可在該 conversation 使用、用戶存在且有權讀取該 conversation。收件人字段不授予對話訪問權；消息仍屬於共享歷史，由 conversation 權限決定可見性，不因定向收件而變成私信。
+
+兩組收件人在消息首次入庫時固定，即使後續派發失敗、Agent 改名或 run 結束，也保留原始收件人。每條新回覆獨立指定收件人，不自動繼承父消息的收件人數組。
 
 `attachments` 是 JSON 字符串數組，保存相對於當前 conversation 文件空間的路徑，用戶消息和 agent 回覆都可以攜帶。例如：
 
 ```json
-{"content":"請查看這兩個文件","attachments":["inputs/data.csv","reports/result.pdf"]}
+{"content":"請查看這兩個文件","to_agent_ids":["coder"],"to_user_ids":["user-alice"],"attachments":["inputs/data.csv","reports/result.pdf"]}
 ```
 
 文件先通過 fileService 上傳，再在消息中引用；沒有附件時爲 `[]`。不保存絕對路徑、URL、bucket 或本地根目錄。service 校驗數組元素爲合法相對路徑，讀取時由 fileService 按 conversation 和路徑定位文件。這只是消息上的文件引用，不新增文件元數據表。
@@ -99,6 +110,8 @@ CREATE INDEX conversations_created_by
 service 寫入時保證 user 消息只填 author_user_id，agent 消息填寫 author_agent_id 和 author_agent_version_id，並檢查版本屬於該 agent。讀取作者用 LEFT JOIN；角色選擇器展示當前版本名稱，歷史 agent 回覆按作者版本展示，不受後來改名影響。軟刪除不清空消息作者或已發佈版本。
 
 message 永遠回覆另一條 message，不回覆 run。`reply_to_message_id` 表示被回覆的消息，字段保存被回覆消息的 UUID，開頭的根消息爲空；後續用戶消息、agent 回覆都可以引用同 conversation 中已有的消息。messages 不保存 run_id，也不以 run 爲對話層級。
+
+`author_*` 表示誰發送，`to_*` 表示發給誰，`reply_to_message_id` 表示回覆哪條消息，三者獨立。寫入 Agent 最終回覆時，Server 明確填寫收件人；例如 user-alice 發給 coder 的消息，其 Agent 回覆可設 `to_user_ids=["user-alice"]`、`to_agent_ids=[]`。僅引用 reply_to_message_id 不會再次喚起父消息中的 Agent；要讓另一個 Agent 繼續處理，須在新消息的 to_agent_ids 中明確指定。
 
 ```text
 M1：@coder @reviewer 修復並評審
@@ -122,7 +135,8 @@ CREATE TABLE messages (
     author_user_id TEXT,
     author_agent_id TEXT,
     author_agent_version_id TEXT,
-    run_agent_ids TEXT NOT NULL DEFAULT '[]',
+    to_agent_ids TEXT NOT NULL DEFAULT '[]',
+    to_user_ids TEXT NOT NULL DEFAULT '[]',
     reply_to_message_id TEXT,
     created_at INTEGER NOT NULL
 );
