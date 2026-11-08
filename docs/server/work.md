@@ -2,7 +2,7 @@
 
 Work 由 Server 管理，将一个协调 conversation 和多个线程 conversation 组织在一起。协调 Agent 可以在 Client A 执行，线程中的 Agent 可以分别位于 Client B、C；Server 保存关系、校验权限、向目标设备派发消息，并把线程结果汇总回协调 conversation。
 
-Client 接收 conversation message、准备 Agent、驱动 run 并上报事件。`context` 提供当前 run 的输入与文件读写。Work 业务工具由 Server 维护和授权。
+Client 接收 conversation message、准备 Agent、驱动 run 并上报事件。`context` 提供执行身份、状态和文件读写。Work 业务工具由 Server 维护和授权。
 
 ## 人类管理
 
@@ -50,9 +50,9 @@ python3 "$agentuse_work_tool_dir/work.py" new --agents coder "实现这个功能
 
 ## 来源与授权
 
-工具通过通用 `context input` 取得当前 conversation、message、agent 和实际 run ID，然后使用执行设备身份向 Server 申请工作授权。设备身份由 Client 的通用运行环境提供，Client 不接收或处理 Work 令牌。
+工具通过 `context status` 取得当前 conversation、agent 和实际 run ID，使用执行设备身份向 Server 申请工作授权。Server 根据已上报的 run 关联来源消息。设备身份由 Client 的通用运行环境提供，Client 不接收或处理 Work 令牌。
 
-Server 确认消息确实投递给当前设备、conversation 属于该 Work 的协调对话、Agent 是当前协调者，且来源输入仍在处理中。实际 run 尚未上报时，使用既有消息投递关系授权；上报后核对 run ID。工作令牌只在工具与 Server API 之间使用，不输出到工具结果，也不写入 Client 环境。
+Server 确认消息确实投递给当前设备、conversation 属于该 Work 的协调对话、Agent 是当前协调者，且来源输入仍在处理中。工具仅在授权阶段短暂等待 accepted 上报，Server 按实际 run ID 关联来源，不使用原生进程启动时的消息环境变量。工作令牌只在工具与 Server API 之间使用，不输出到工具结果，也不写入 Client 环境。
 
 普通 run、工作线程、其他设备和已结束的协调输入不能取得协调权限；已有授权在来源输入完成、失败、取消或被拒绝后失效。Server 对每次操作校验 Work 范围。下一轮协调执行重新读取当前身份并申请授权。
 

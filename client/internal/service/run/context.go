@@ -4,17 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/client/internal/fileutil"
-	"github.com/memory-co/agentuse/client/internal/service/endpoint"
 	"github.com/memory-co/agentuse/client/internal/service/harness"
 	"github.com/memory-co/agentuse/client/internal/service/session"
 )
@@ -22,7 +19,7 @@ import (
 const ContextInstructions = `# Execution context tools
 
 Call context directly; no Server, conversation or session ID is needed:
-- context input: read the current run's accepted inputs, including supplemental messages.
+- context status: query execution identity and status; messages are delivered through the native harness input channel.
 - context attachment list: fetch the current attachment list for the entire conversation from Server, including files from earlier messages and runs. Listing does not download files.
 - context attachment download PATH: download a file by its conversation-relative path, for example user_input/screenshot.png. Use relative_path from the attachment list or message; no file ID is needed. The file is verified and saved at <workspace>/<relative_path>. Reuse that path in later turns. The command returns the local absolute path, name and MIME type; use your native image or file tools to read it.
 - Create output files inside the workspace, for example reports/report.txt. user_input/ is reserved for user uploads. context attachment upload FILE publishes a file to the conversation at the same workspace-relative path and associates it with this run. If Server assigns a different path to avoid a conflict, use the returned relative_path and local_path.
@@ -41,25 +38,17 @@ type contextManifest struct {
 // ExecutionContext is a view of one adapter-owned run, never another business ID.
 // Credentials and storage locations stay private to the command implementation.
 type ExecutionContext struct {
-	EndpointID     string         `json:"endpoint_id"`
-	ConversationID string         `json:"conversation_id"`
-	SessionID      string         `json:"session_id"`
-	RunID          string         `json:"run_id"`
-	AgentID        string         `json:"agent_id"`
-	Status         string         `json:"status"`
-	Workspace      string         `json:"workspace"`
-	Inputs         []ContextInput `json:"inputs"`
+	EndpointID     string `json:"endpoint_id"`
+	ConversationID string `json:"conversation_id"`
+	SessionID      string `json:"session_id"`
+	RunID          string `json:"run_id"`
+	AgentID        string `json:"agent_id"`
+	Status         string `json:"status"`
+	Workspace      string `json:"workspace"`
 	path           string
 	manifest       contextManifest
 }
 
-type ContextInput struct {
-	MessageID     string   `json:"message_id,omitempty"`
-	InputID       string   `json:"input_id"`
-	Text          string   `json:"text"`
-	Context       string   `json:"context,omitempty"`
-	AttachmentIDs []string `json:"attachment_ids"`
-}
 type ContextAttachment struct {
 	ID             string `json:"id"`
 	RelativePath   string `json:"relative_path"`
@@ -163,12 +152,11 @@ func OpenConversationContext(ctx context.Context, path string) (*ExecutionContex
 		return nil, err
 	}
 	out := &ExecutionContext{EndpointID: m.EndpointID, ConversationID: m.ConversationID, SessionID: m.ID, RunID: "",
-		AgentID: m.AgentID, Workspace: workspace, Status: "",
-		Inputs: []ContextInput{}, path: path, manifest: manifest}
+		AgentID: m.AgentID, Workspace: workspace, Status: "", path: path, manifest: manifest}
 	return out, nil
 }
 
-// OpenExecutionContext selects the actual run for input, upload and shell access.
+// OpenExecutionContext selects the actual run for status, upload and shell access.
 func OpenExecutionContext(ctx context.Context, path, runID string) (*ExecutionContext, error) {
 	out, err := OpenConversationContext(ctx, path)
 	if err != nil {
@@ -193,65 +181,15 @@ func OpenExecutionContext(ctx context.Context, path, runID string) (*ExecutionCo
 		return nil, fmt.Errorf("无效的 run UUID")
 	}
 	out.RunID = runID
-	// The adapter fsyncs accepted before the Client's event poll saves its receipt.
-	// Wait for that exact input/run mapping instead of guessing by prompt text.
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		err = out.readInputs(ctx, events)
-		if !errors.Is(err, errContextReceiptPending) || time.Now().After(deadline) {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(20 * time.Millisecond):
-		}
-	}
-	if err != nil {
+	if err = out.readRunStatus(ctx, events); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-var errContextReceiptPending = errors.New("输入受理关系尚在同步，请稍后重试")
-
-func (c *ExecutionContext) readInputs(ctx context.Context, events string) error {
+func (c *ExecutionContext) readRunStatus(ctx context.Context, events string) error {
 	if err := ctx.Err(); err != nil {
 		return err
-	}
-	receipts := map[string]messageReceipt{}
-	if c.EndpointID != endpoint.LocalID {
-		dir, err := fileutil.SafePath(c.manifest.Root, c.EndpointID, c.ConversationID, ".server", "messages")
-		if err != nil {
-			return err
-		}
-		entries, err := os.ReadDir(dir)
-		if err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-				continue
-			}
-			path, err := fileutil.SafePath(dir, entry.Name())
-			if err != nil {
-				return err
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-			var receipt messageReceipt
-			if err = json.Unmarshal(data, &receipt); err != nil {
-				return err
-			}
-			if receipt.SessionID == c.SessionID && receipt.RunID == c.RunID && receipt.State == "accepted" {
-				if receipt.Message.ConversationID != c.ConversationID || receipt.Message.AgentID != c.AgentID || receipt.Message.AgentVersionID != c.manifest.Session.AgentVersionID {
-					return fmt.Errorf("输入上下文归属不匹配")
-				}
-				receipts[receipt.InputID] = receipt
-			}
-		}
 	}
 	file, err := os.Open(events)
 	if err != nil {
@@ -259,7 +197,7 @@ func (c *ExecutionContext) readInputs(ctx context.Context, events string) error 
 	}
 	defer file.Close()
 	reader := bufio.NewReader(file)
-	c.Inputs = []ContextInput{}
+	accepted := false
 	c.Status = "running"
 	pending := map[string]bool{}
 	for {
@@ -279,23 +217,7 @@ func (c *ExecutionContext) readInputs(ctx context.Context, events string) error 
 		}
 		switch event.Type {
 		case "accepted":
-			input := ContextInput{InputID: event.InputID, Text: event.Text, AttachmentIDs: []string{}}
-			if c.EndpointID != endpoint.LocalID {
-				r, ok := receipts[event.InputID]
-				if !ok {
-					return errContextReceiptPending
-				}
-				input.MessageID, input.Text, input.Context = r.Message.MessageID, r.Message.Content, r.PreparedContext
-				for _, attachment := range r.Message.Attachments {
-					a := attachment
-					if a.SessionID != c.ConversationID {
-						return fmt.Errorf("附件不属于当前 conversation")
-					}
-					input.AttachmentIDs = append(input.AttachmentIDs, a.ID)
-
-				}
-			}
-			c.Inputs = append(c.Inputs, input)
+			accepted = true
 		case "result":
 			c.Status = event.Status
 		case "request":
@@ -306,7 +228,7 @@ func (c *ExecutionContext) readInputs(ctx context.Context, events string) error 
 			}
 		}
 	}
-	if len(c.Inputs) == 0 {
+	if !accepted {
 		return fmt.Errorf("run 不属于该上下文或尚未受理")
 	}
 	if c.Status == "running" && len(pending) > 0 {

@@ -35,7 +35,12 @@ func TestWorkToolAuthorizationBelongsToServer(t *testing.T) {
 	}
 	run := uuid.NewString()
 	identity := workToolAuthorization{ConversationID: coordinator.ID, MessageID: input.MessageID, AgentID: f.agent, RunID: run}
+	runIdentity := identity
+	runIdentity.MessageID = ""
 	path := "/api/agent-tools/work/authorize"
+	if status := f.e.code(f.key, "POST", path, runIdentity); status != 403 {
+		t.Fatal("unreported run authorized without a source mapping", status)
+	}
 	if status := f.e.code(f.token, "POST", path, identity); status != 401 {
 		t.Fatal("user credential authorized an execution", status)
 	}
@@ -69,6 +74,12 @@ func TestWorkToolAuthorizationBelongsToServer(t *testing.T) {
 		}
 	}
 	report(1, map[string]any{"type": "accepted", "run_id": run, "input_id": "first", "text": "coordinate"})
+	if response := f.e.req(f.key, "POST", path, runIdentity, &authorization); response.StatusCode != 200 || authorization.Token == "" {
+		t.Fatal("Server failed to resolve source message from run", response.StatusCode)
+	}
+	if status := f.e.code(otherKey, "POST", path, runIdentity); status != 403 {
+		t.Fatal("run mapping bypassed device ownership", status)
+	}
 	wrong := identity
 	wrong.RunID = uuid.NewString()
 	if status := f.e.code(f.key, "POST", path, wrong); status != 403 {
@@ -103,6 +114,9 @@ func TestWorkToolAuthorizationBelongsToServer(t *testing.T) {
 		t.Fatal("ordinary conversation gained work capability", status)
 	}
 	report(2, map[string]any{"type": "result", "run_id": run, "status": "completed", "input_ids": []string{"first"}, "output": "done"})
+	if status := f.e.code(f.key, "POST", path, runIdentity); status != 403 {
+		t.Fatal("terminal run authorized through source lookup", status)
+	}
 	if status := f.e.code(f.key, "POST", path, identity); status != 403 {
 		t.Fatal("terminal run obtained authorization", status)
 	}

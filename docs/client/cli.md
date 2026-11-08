@@ -51,7 +51,7 @@ agentuse ui --open
 | `agentuse ui` | 输出本机页面登录链接，`--open` 同时打开浏览器 |
 | `agentuse status` | 检查所选 Server 的设备凭据，显示本机服务和页面信息 |
 | `agentuse harnesses` | 探测本机 harness，支持 `--json` |
-| `agentuse context …` | 读取本机某个 run 的输入、读写附件，或进入其 shell |
+| `agentuse context …` | 查询本机 run 的身份与状态、读写附件，或进入其 shell |
 | `agentuse conversation …` | 发送消息、读取会话、查看 run、等待或取消执行 |
 | `agentuse help` | 查看命令一览 |
 | `agentuse version` | 显示版本 |
@@ -187,33 +187,33 @@ agentuse harnesses [--config FILE] [--json]
 
 Client 使用启动时的适配器和可用性快照。安装、升级或启停 harness 后，重启 Client，再在 Server 页面确认设备上报并启用对应 harness。
 
-## context：run 内的输入与文件
+## context：执行身份、状态与文件
 
 AI 在 Client 启动的执行环境中直接使用 `context`，不需要提供 Server、conversation、session 或 run ID：
 
 ```bash
-context input
+context status
 context attachment list
 context attachment download user_input/截图.png
 context attachment upload ./report.pdf
 context --help
 ```
 
-`input` 输出当前 run 已受理的输入及来源 message ID。`attachment list` 直接查詢整個 conversation 的 Server 附件；`download` 按 `relative_path` 選擇文件，下載、校驗並保存到 workspace/<relative_path>，返回本地路徑和 MIME 類型；兩者不需要活躍 run。下載不使用附件 ID，從其他目錄調用時也保存到 context 綁定的 workspace。圖片再用原生工具讀取。`upload` 自动关联当前 conversation/run，返回附件元数据和可在回复中引用的 `download_path`，Server 用户可直接查看或下载。所有结果为 JSON。
+`status` 只输出执行身份、状态和工作目录，不包含输入正文或输入列表。`attachment list` 直接查詢整個 conversation 的 Server 附件；`download` 按 `relative_path` 選擇文件，下載、校驗並保存到 workspace/<relative_path>，返回本地路徑和 MIME 類型；兩者不需要活躍 run。下載不使用附件 ID，從其他目錄調用時也保存到 context 綁定的 workspace。圖片再用原生工具讀取。`upload` 自动关联当前 conversation/run，返回附件元数据和可在回复中引用的 `download_path`，Server 用户可直接查看或下载。所有结果为 JSON。
 
 上传只接受普通文件，不自动发消息或结束执行。Server 在接收及落库时检查 run 的归属与活动状态，已结束 run 无法继续上传。连接中断时可能已经保存；先 `list` 核对，工具不自动重试上传。人类在 Server 页面或通过 API/SDK 上传输入文件，Client AI 通过 context 读取；输出由 AI 上传后在 Server 展示。
 
-一个本机 session 可以有多个 run。默认通过公开的 `harnessctl status` 确认正在执行的 run，不选择“最后一条 accepted”；排队 run 不会替换当前输入。当前 run 后续受理的补充消息可以通过再次调用 `context input` 读取。
+一个本机 session 可以有多个 run。默认通过公开的 `harnessctl status` 确认正在执行的 run，不选择“最后一条 accepted”。消息和补充消息由 `harnessctl send` 投递，输入受理和 run 归属以适配器协议为准，无需通过 context 再次读取。
 
 人类可以直接查看，或进入绑定某个 run 的 shell：
 
 ```bash
-agentuse context --path /绝对路径/context.json --run RUN_ID input
+agentuse context --path /绝对路径/context.json --run RUN_ID status
 agentuse context --path /绝对路径/context.json attachment list
 agentuse context --path /绝对路径/context.json attachment download user_input/截图.png
 agentuse context enter --path /绝对路径/context.json --run RUN_ID
 # 进入后：
-context input
+context status
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -225,7 +225,7 @@ context input
 
 裸 `context` 使用已经绑定的上下文，不接受 `--path`、`--run`、`--server`、`--token` 或管理命令。Work 编排和协调工具由 Server 提供，见 [Server Work 手册](../server/work.md)。
 
-本地调试同样提供输入读取；远端输入还包含 Server message ID 和附件快照。完整的输出字段和图片读取示例见 [执行上下文手册](context.md)。旧 `agentuse session` 命令已移除；远端管理使用下面的 `agentuse conversation`。
+本地调试同样支持执行状态查询。完整的输出字段和图片读取示例见 [执行上下文手册](context.md)。旧 `agentuse session` 命令已移除；远端管理使用下面的 `agentuse conversation`。
 
 ## 远端命令的地址、会话与凭据
 
@@ -328,9 +328,9 @@ Client 为远端 Agent 的命令准备相应上下文，便于在执行中调用
 | `AGENTUSE_CONTEXT_RUN` | `agentuse context enter` 为 shell 固定的 run UUID |
 | `AGENTUSE_AGENT` | 当前 Agent ID |
 | `AGENTUSE_RUN` | 适配器可设置的实际 run ID，用于附件来源标记 |
-| `AGENTUSE_MESSAGE_ID` | 原生进程启动时的来源消息；读取当前输入应使用 `context input` |
+| `AGENTUSE_MESSAGE_ID` | 原生进程启动时的来源消息，不代表后续 run 或补充输入 |
 
-实际 run ID 由适配器产生，`AGENTUSE_RUN` 是否已设置取决于适配器的执行上下文。`context` 优先使用进入 shell 时固定的 `AGENTUSE_CONTEXT_RUN`，其次为适配器提供的 `AGENTUSE_RUN`，否则询问原生 status；不依赖启动时的消息环境变量判断当前输入。
+实际 run ID 由适配器产生，`AGENTUSE_RUN` 是否已设置取决于适配器的执行上下文。`context` 优先使用进入 shell 时固定的 `AGENTUSE_CONTEXT_RUN`，其次为适配器提供的 `AGENTUSE_RUN`，否则询问原生 status；不依赖启动时的消息环境变量判断当前 run。
 
 用户手动运行远端命令时，可用 `AGENTUSE_TOKEN` 提供用户令牌。`AGENTUSE_CONFIG` 的默认值读取适用于 `conversation`；其他接受配置文件的命令使用显式 `--config`。
 

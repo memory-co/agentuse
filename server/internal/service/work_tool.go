@@ -8,8 +8,9 @@ import (
 )
 
 // AuthorizeWorkTool derives business scope from a delivered coordinator input.
-// Native acceptance may still be travelling to the Server, so sent inputs can
-// authorize tools; once accepted, the reported run must match the caller.
+// When no message is specified, Server resolves it from its accepted run mapping.
+// An explicit message can authorize while native acceptance is still in flight;
+// once accepted, the reported run must match the caller.
 func (s *Service) AuthorizeWorkTool(ctx context.Context, device, conversation, message, agent, run string) (string, error) {
 	if uuid.Validate(run) != nil {
 		return "", fmt.Errorf("invalid run UUID")
@@ -20,10 +21,12 @@ func (s *Service) AuthorizeWorkTool(ctx context.Context, device, conversation, m
 	}
 	defer tx.Rollback()
 	var work string
-	err = tx.QueryRowContext(ctx, `SELECT w.id FROM message_agents p
+	err = tx.QueryRowContext(ctx, `SELECT w.id, p.message_id FROM message_agents p
  JOIN works w ON w.coordinator_id=p.session_id AND w.coordinator_agent_id=p.agent_id
- WHERE p.daemon_id=? AND p.session_id=? AND p.message_id=? AND p.agent_id=?
- AND (p.status='sent' OR (p.status='accepted' AND p.run_id=?))`, device, conversation, message, agent, run).Scan(&work)
+ WHERE p.daemon_id=? AND p.session_id=? AND p.agent_id=?
+ AND ((?<>'' AND p.message_id=? AND p.status='sent')
+ OR (p.status='accepted' AND p.run_id=? AND (?='' OR p.message_id=?)))
+ LIMIT 1`, device, conversation, agent, message, message, run, message, message).Scan(&work, &message)
 	if err != nil {
 		return "", err
 	}

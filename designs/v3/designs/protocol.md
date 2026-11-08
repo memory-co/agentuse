@@ -116,7 +116,7 @@ Client 缺少配置時，讀取已有 Agent 版本 API；按其 skills 引用讀
 
 `harnessctl init` 成功表示配置和資源快照已持久化；它不啟動原生 Agent、不調用模型、不分配 run。原生上下文在首次 send 時建立；已有 session 的恢復也由適配器負責。
 
-AI 讀取當前輸入及圖片的 `context` 工具同樣由 Client 準備；按實際 run 的 accepted 和消息收據確定可讀範圍，不增加 WebSocket 階段或執行身份。見 [執行上下文設計](client-context.md)。
+AI 查詢執行身份、狀態和讀寫文件的 `context` 工具同樣由 Client 準備；輸入由 harnessctl send 投遞，context 不另行提供輸入模型，不增加 WebSocket 階段或執行身份。見 [執行上下文設計](client-context.md)。
 
 **Server 不派發 init，不接收 initializing/initialized 等階段事件，也不維護下載、解包、初始化的狀態機。** 這些都是 Client 處理消息的內部步驟；普通診斷可以上報，但不是 Server 推進流程的依據。Server 只等待該消息的受理回執或錯誤。
 

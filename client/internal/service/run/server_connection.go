@@ -45,14 +45,13 @@ type endpointConnection struct {
 	harnesses     []protocol.Harness
 }
 type messageReceipt struct {
-	PreparedContext string                       `json:"prepared_context,omitempty"`
-	Message         protocol.ConversationMessage `json:"message"`
-	SessionID       string                       `json:"session_id,omitempty"`
-	Offset          int64                        `json:"offset"`
-	State           string                       `json:"state"`
-	RunID           string                       `json:"run_id,omitempty"`
-	InputID         string                       `json:"input_id,omitempty"`
-	Error           string                       `json:"error,omitempty"`
+	Message   protocol.ConversationMessage `json:"message"`
+	SessionID string                       `json:"session_id,omitempty"`
+	Offset    int64                        `json:"offset"`
+	State     string                       `json:"state"`
+	RunID     string                       `json:"run_id,omitempty"`
+	InputID   string                       `json:"input_id,omitempty"`
+	Error     string                       `json:"error,omitempty"`
 }
 type streamReceipt struct {
 	Offset int64 `json:"offset"`
@@ -421,12 +420,6 @@ func (d *endpointConnection) receiveMessage(ctx context.Context, p protocol.Conv
 		}
 		prepared := p
 		prepared.Context += completeMessagesText(view.CompleteMessages)
-		receiptMu.Lock()
-		defer receiptMu.Unlock()
-		saved.PreparedContext = prepared.Context
-		if err = d.saveReceipt(saved); err != nil {
-			return "", err
-		}
 		return prepared.Text(), nil
 	}
 	request.onSubmit = func() error {

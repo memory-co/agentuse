@@ -276,18 +276,7 @@ func custom() int {
 				time.Sleep(50 * time.Millisecond)
 			}
 		}
-		cmd := exec.Command("context", "input")
-		live, err := cmd.CombinedOutput()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, string(live), err)
-			return 2
-		}
-		var state map[string]any
-		if err = json.Unmarshal(live, &state); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 2
-		}
-		out, _ := json.Marshal(map[string]any{"agent_id": in.AgentID, "run_id": in.RunID, "resume": in.Resume, "history": in.SessionMessages, "task_ids": in.TaskMessageIDs, "live": state["inputs"]})
+		out, _ := json.Marshal(map[string]any{"agent_id": in.AgentID, "run_id": in.RunID, "resume": in.Resume, "history": in.SessionMessages, "task_ids": in.TaskMessageIDs})
 		emit(map[string]any{"type": "result", "ok": true, "output": string(out), "session_id": "native-" + in.RunID})
 		return 0
 	}

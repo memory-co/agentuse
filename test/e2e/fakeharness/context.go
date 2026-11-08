@@ -33,21 +33,20 @@ func contextProof(hold bool) (string, error) {
 		}
 		return out, nil
 	}
-	input, err := call("input")
+	status, err := call("status")
 	if err != nil {
 		return "", err
 	}
 	var view struct {
-		RunID          string            `json:"run_id"`
-		SessionID      string            `json:"session_id"`
-		ConversationID string            `json:"conversation_id"`
-		Workspace      string            `json:"workspace"`
-		Inputs         []json.RawMessage `json:"inputs"`
+		RunID          string `json:"run_id"`
+		SessionID      string `json:"session_id"`
+		ConversationID string `json:"conversation_id"`
+		Workspace      string `json:"workspace"`
 	}
-	if err = json.Unmarshal(input, &view); err != nil {
+	if err = json.Unmarshal(status, &view); err != nil {
 		return "", err
 	}
-	if view.RunID == "" || view.SessionID != os.Getenv("AGENTUSE_SESSION") || len(view.Inputs) == 0 {
+	if view.RunID == "" || view.SessionID != os.Getenv("AGENTUSE_SESSION") {
 		return "", fmt.Errorf("missing native context binding")
 	}
 	if id := os.Getenv("AGENTUSE_RUN"); id != "" && id != view.RunID {
@@ -61,6 +60,7 @@ func contextProof(hold bool) (string, error) {
 		Attachments []struct {
 			ID           string `json:"id"`
 			RelativePath string `json:"relative_path"`
+			Name         string `json:"name"`
 		} `json:"attachments"`
 	}
 	if err = json.Unmarshal(files, &attachments); err != nil {
@@ -69,21 +69,15 @@ func contextProof(hold bool) (string, error) {
 	if len(attachments.Attachments) == 0 {
 		return "", fmt.Errorf("missing image attachments")
 	}
-	var firstInput struct {
-		AttachmentIDs []string `json:"attachment_ids"`
-	}
-	if err = json.Unmarshal(view.Inputs[0], &firstInput); err != nil || len(firstInput.AttachmentIDs) == 0 {
-		return "", fmt.Errorf("missing current message attachment")
-	}
 	var relativePath string
-	for _, file := range attachments.Attachments {
-		if file.ID == firstInput.AttachmentIDs[0] {
-			relativePath = file.RelativePath
+	for _, attachment := range attachments.Attachments {
+		if attachment.Name == "截图.png" {
+			relativePath = attachment.RelativePath
 			break
 		}
 	}
 	if relativePath == "" {
-		return "", fmt.Errorf("missing current message attachment path")
+		return "", fmt.Errorf("missing conversation image path")
 	}
 	file, err := call("attachment", "download", relativePath)
 	if err != nil {
@@ -155,7 +149,7 @@ func contextProof(hold bool) (string, error) {
 	if err != nil || string(savedBody) != string(reportBody) {
 		return "", fmt.Errorf("uploaded output could not be read: %v", err)
 	}
-	after, err := call("input")
+	after, err := call("status")
 	if err != nil {
 		return "", err
 	}
@@ -166,6 +160,6 @@ func contextProof(hold bool) (string, error) {
 		return "", fmt.Errorf("upload completed the run unexpectedly: %v", err)
 	}
 
-	proof, _ := json.Marshal(map[string]any{"context": json.RawMessage(input), "attachments": json.RawMessage(files), "file": json.RawMessage(file), "sha256": hex.EncodeToString(digest[:]), "help": string(help), "uploaded": json.RawMessage(uploaded), "outputs": json.RawMessage(listedOutputs)})
+	proof, _ := json.Marshal(map[string]any{"context": json.RawMessage(status), "attachments": json.RawMessage(files), "file": json.RawMessage(file), "sha256": hex.EncodeToString(digest[:]), "help": string(help), "uploaded": json.RawMessage(uploaded), "outputs": json.RawMessage(listedOutputs)})
 	return string(proof), nil
 }

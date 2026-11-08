@@ -32,9 +32,9 @@ Work 是 Server 的業務實體，可跨多個 Client；協調 Agent 的物理�
 
 人類使用 `agentuse-server work`，通過 `/api/works/{work_id}/threads` 及其消息、讀取和 resolve 接口操作。Server 校驗工作所有者/管理員身份，並在每次請求中核對線程歸屬；管理員創建的線程仍屬於工作所有者。
 
-Server 在協調輸入的 context 文本中提供工具使用說明。`GET /api/agent-tools/work.py` 返回 Server 維護的 Python 工具；工具在協調 Agent 所在設備執行，通過通用 `context input` 讀取 conversation/message/agent/run 身份，再用當前設備憑據請求 `POST /api/agent-tools/work/authorize`。Client 不解析工具內容或推斷角色。
+Server 在協調輸入的 context 文本中提供工具使用說明。`GET /api/agent-tools/work.py` 返回 Server 維護的 Python 工具；工具在協調 Agent 所在設備執行，通過 `context status` 查詢 conversation/agent/run 身份，由 Server 按 run 關聯來源消息，再用當前設備憑據請求 `POST /api/agent-tools/work/authorize`。Client 不解析工具內容或推斷角色。
 
-Server 根據已投遞的消息/Agent 關係、執行設備和 Work 當前協調者確認授權。消息仍在 sent 時允許以既有投遞身份申請，避免首次 accepted 尚在上報時阻塞工具；accepted 後必須匹配實際 run UUID。普通對話、工作線程、其他設備及已結束/拒絕的輸入不能取得協調權限。
+Server 根據已投遞的消息/Agent 關係、執行設備和 Work 當前協調者確認授權。工具在授權階段短暫等待 accepted 上報，再依實際 run UUID 取得來源消息；不使用啓動時的 message 環境變量猜測當前輸入。普通對話、工作線程、其他設備及已結束/拒絕的輸入不能取得協調權限。
 
 工作令牌只存在於 Server 工具與 API 的授權交互中，不寫入 Client 環境或 WebSocket message。工具每次調用取得對應來源輸入的授權，Server 逐次驗證其工作範圍及輸入仍在 sent/accepted；輸入終態後失效。Client 的 context 輸出不返回令牌。
 

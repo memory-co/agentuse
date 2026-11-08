@@ -108,7 +108,6 @@ func TestContextUploadsOutputsAndRecoversLostResponseFromServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture.eventsFile(t, acceptedContextEvent(run, "one"))
-	fixture.receipt(t, run, "one", "message", "create a report")
 	view, err := OpenExecutionContext(context.Background(), fixture.path, run)
 	if err != nil {
 		t.Fatal(err)

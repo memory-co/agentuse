@@ -10,7 +10,7 @@ import (
 
 type workToolAuthorization struct {
 	ConversationID string `json:"conversation_id"`
-	MessageID      string `json:"message_id"`
+	MessageID      string `json:"message_id,omitempty"`
 	AgentID        string `json:"agent_id"`
 	RunID          string `json:"run_id"`
 }
@@ -39,8 +39,8 @@ func (s *Server) handleAuthorizeWorkTool(w http.ResponseWriter, r *http.Request)
 		writeErr(w, 400, err.Error())
 		return
 	}
-	if input.ConversationID == "" || input.MessageID == "" || input.AgentID == "" || input.RunID == "" {
-		writeErr(w, 400, "需要来源 conversation/message/agent/run")
+	if input.ConversationID == "" || input.AgentID == "" || input.RunID == "" {
+		writeErr(w, 400, "需要来源 conversation/agent/run")
 		return
 	}
 	token, err := s.service.AuthorizeWorkTool(r.Context(), device.ID, input.ConversationID, input.MessageID, input.AgentID, input.RunID)

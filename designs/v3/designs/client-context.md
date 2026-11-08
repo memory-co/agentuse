@@ -1,6 +1,6 @@
 # Client 執行上下文工具
 
-AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇或進入相同上下文。它提供當前 run 的輸入與文件能力，遠端 conversation 管理使用 `agentuse conversation`。操作文檔見 [執行上下文手冊](../../../docs/client/context.md)。
+AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇或進入相同上下文。它提供執行身份、狀態與文件能力，遠端 conversation 管理使用 `agentuse conversation`。操作文檔見 [執行上下文手冊](../../../docs/client/context.md)。
 
 ## 身份與選擇
 
@@ -20,17 +20,15 @@ AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇�
 
 ## 命令與輸出
 
-- `context input`：實際 run 定位、狀態及該 UUID 的已受理輸入；context 讀取消息收據中實際送入 harnessctl 的組裝結果，包含必要的 `complete_messages` 補充，不重新查詢最新共享歷史。
+- `context status`：只返回執行身份、狀態和工作目錄，不包含輸入正文或輸入列表。
 - `context attachment list`：直接查詢 Server 的 conversation 附件列表，不按 run 篩選，不下載文件。
 - `context attachment download PATH`：以 conversation 相對路徑精確選擇文件，不接受文件 ID；查詢 Server 元資料，下載並校驗，保存到 `workspace/<relative_path>`，返回本地絕對路徑及 MIME 類型。
 - `context attachment upload FILE`：上傳本次 run 的輸出，自動關聯 conversation/run，返回可引用的下載路徑。
 - `context --help`：當前可用能力，不列出註冊、啓停等管理命令。
 
-輸入按公共 accepted 的順序讀取，只匹配選定 run UUID。遠端輸入通過 conversation 下的 `.server/messages/` 收據，按 session/run/input 三者匹配來源 message、正文、業務上下文和附件快照。補充輸入屬於同一 UUID 時自然出現在同一結果中；本地輸入直接使用 accepted.text。
+輸入由 harnessctl 統一定義：send 負責投遞，accepted 確認 input/run 歸屬，result 明確覆蓋的 input_ids。Client 保存 Server message 與 accepted 的業務關聯，不向 AI 提供第二份輸入模型，也不要求 AI 輪詢補充消息。
 
-公共 accepted 已落盤而 Client 尚未保存來源收據時，工具短暫等待同一個受理關係完成；不能按 prompt 相似度匹配，不能退回另一條消息。只讀完整 JSONL 行；損壞的完整記錄明確報錯。request/result 同樣按 run UUID 計算 waiting 和終態。
-
-輸出不包含設備密鑰、註冊配置位置或消息提交收據。Server API 仍沿用 `/api/sessions`，不因 CLI 改名改動 HTTP 路由或 DTO。
+status 僅根據公共事件確認所選 run 的歸屬和 request/result 狀態，不讀取或等待 Client 消息收據，不返回設備密鑰及註冊配置位置。Server API 仍沿用 `/api/sessions`。
 
 ## 文件範圍與圖片
 
@@ -38,7 +36,7 @@ Client 收到遠端 message 時只保存附件元資料及向 AI 說明名稱、
 
 `list` 直接分頁讀取同一 Server 的 conversation 附件列表；`read` 依 ID 讀取該 conversation 的附件元資料，與是否附在當前消息、是否由當前 run 產生無關。因此先前 run 的文件、補齊消息的文件和後續上傳的文件都可查詢；Server 仍驗證設備有權訪問該 conversation，不允許跨 conversation 讀取。
 
-兩個命令只需要既有 context 描述文件的 conversation 綁定，不讀取 harness status、accepted 或 run 收據來選擇附件。`input`、`upload` 和 `enter` 才需要實際 run；上傳仍保留輸出歸屬和活動狀態檢查。
+兩個命令只需要既有 context 描述文件的 conversation 綁定，不讀取 harness status、accepted 或 run 收據來選擇附件。`status`、`upload` 和 `enter` 才需要實際 run；上傳仍保留輸出歸屬和活動狀態檢查。
 
 Server 返回的 `relative_path` 是唯一文件路徑。download 參數使用這個完整相對路徑，在分頁附件列表中精確匹配，不按 basename 猜測，也不接受 ID 別名。Client 保存到 context 綁定的 `<workspace>/<relative_path>`，不受調用者工作目錄影響，不另建隱藏附件目錄。例如 `user_input/manual.pdf` 對應 `workspace/user_input/manual.pdf`。已下載且大小、SHA-256 一致時重用文件，缺失或損壞時按需下載；下載使用同 endpoint 的設備身份，不跟隨重定向，透過 os.Root 校驗父目錄、拒絕符號鏈接與越界路徑，校驗臨時文件後原子發布。
 
@@ -76,7 +74,7 @@ runService 在首次 init 的指令快照中追加工具說明，保留 Agent �
 
 ## 人類入口與回收
 
-`agentuse context --path context.json --run UUID` 可以讀取該 session 中指定 run；省略 run 時只選擇適配器確認的當前執行。`enter` 切換到 workspace，設置固定 run 的環境並打開 shell，從中直接使用裸 `context`。
+`agentuse context --path context.json --run UUID` 可查詢該 session 中指定 run 的狀態或操作附件；省略 run 時只選擇適配器確認的當前執行。`enter` 切換到 workspace，設置固定 run 的環境並打開 shell，從中直接使用裸 `context`。
 
 裸命令不提供選擇其他 Server、path、session 或 run 的參數。需要切換時，人類重新通過 `agentuse context` 選擇。描述文件只是本機執行元數據，不是新的授權憑據。
 

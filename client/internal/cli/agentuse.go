@@ -26,7 +26,7 @@ const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 age
   agentuse status                                 看本机的注册和连接状态
   agentuse harnesses [-json]                         看本机检测到哪些 harness
   agentuse conversation send <会话> --agents coder,reviewer "消息" | read | runs | wait | cancel
-  agentuse context …                              当前 run 的输入、附件及上下文
+  agentuse context …                              执行身份、状态与附件
   agentuse version
 
 register/start/daemon/status/harnesses/conversation 支持 -config。

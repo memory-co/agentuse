@@ -13,10 +13,10 @@ import (
 	"github.com/memory-co/agentuse/internal/command"
 )
 
-const contextUsage = `context —— 当前 run 的输入与 conversation 文件
+const contextUsage = `context —— 执行身份、状态与 conversation 文件
 
 用法:
-  context input                     读取已受理的输入，包括补充消息
+  context status                    查询执行身份和状态
   context attachment list           列出整个 conversation 的附件
   context attachment download PATH  下载到 workspace 内的对应相对路径
   context attachment upload FILE    上传输出文件，自动关联当前 conversation/run
@@ -25,14 +25,14 @@ const contextUsage = `context —— 当前 run 的输入与 conversation 文件
 const humanContextUsage = `agentuse context —— 访问或进入本机执行上下文
 
 用法:
-  agentuse context [--path CONTEXT_JSON] [--run RUN_UUID] input
+  agentuse context [--path CONTEXT_JSON] [--run RUN_UUID] status
   agentuse context [--path CONTEXT_JSON] attachment list
   agentuse context [--path CONTEXT_JSON] attachment download PATH
   agentuse context [--path CONTEXT_JSON] [--run RUN_UUID] attachment upload FILE
   agentuse context [--path CONTEXT_JSON] [--run RUN_UUID] enter
 
 --path 默认读取 AGENTUSE_CONTEXT。attachment list/download 不需要活跃 run。
-input/upload/enter 未指定 run 时由原生适配器的 status 确认当前执行；历史 run 需要显式 --run。
+status/upload/enter 未指定 run 时由原生适配器的 status 确认当前执行；历史 run 需要显式 --run。
 enter 打开已绑定该 run 的 shell，里面可直接使用 context。
 `
 
@@ -92,9 +92,9 @@ func contextCommand(args []string, bound bool) error {
 		return nil
 	}
 	switch rest[0] {
-	case "input":
+	case "status":
 		if len(rest) != 1 {
-			return command.UsageErr("context input 不接受额外参数")
+			return command.UsageErr("context status 不接受额外参数")
 		}
 	case "attachment":
 		if len(rest) < 2 {
@@ -132,10 +132,7 @@ func contextCommand(args []string, bound bool) error {
 		return err
 	}
 	switch rest[0] {
-	case "input":
-		if len(rest) != 1 {
-			return command.UsageErr("context input 不接受额外参数")
-		}
+	case "status":
 		return json.NewEncoder(os.Stdout).Encode(selected)
 	case "attachment":
 		switch rest[1] {

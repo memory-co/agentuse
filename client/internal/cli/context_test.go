@@ -14,12 +14,12 @@ func TestContextHelpOnlyAdvertisesExecutionTools(t *testing.T) {
 		t.Fatal(code, stderr)
 	}
 	help := out + stderr
-	for _, expected := range []string{"context input", "context attachment list", "context attachment download PATH", "context attachment upload FILE"} {
+	for _, expected := range []string{"context status", "context attachment list", "context attachment download PATH", "context attachment upload FILE"} {
 		if !strings.Contains(help, expected) {
 			t.Fatal("missing execution tool", expected)
 		}
 	}
-	for _, management := range []string{"register", "daemon", "user create", "--path", "--run", "--server", "--token", "attachment read", "FILE_ID"} {
+	for _, management := range []string{"context input", "register", "daemon", "user create", "--path", "--run", "--server", "--token", "attachment read", "FILE_ID"} {
 		if strings.Contains(help, management) {
 			t.Fatal("management option exposed", management)
 		}
@@ -32,11 +32,11 @@ func TestContextHelpOnlyAdvertisesExecutionTools(t *testing.T) {
 func TestContextRequiresBindingAndRejectsScopeOverride(t *testing.T) {
 	t.Setenv("AGENTUSE_CONTEXT", "")
 	var code int
-	_, stderr := capture(t, func() { code = ContextMain([]string{"input"}) })
+	_, stderr := capture(t, func() { code = ContextMain([]string{"status"}) })
 	if code != 1 || !strings.Contains(stderr, "未进入执行上下文") {
 		t.Fatal(code, stderr)
 	}
-	for _, args := range [][]string{{"--path", "/other", "input"}, {"--run", "other", "input"}, {"--server", "https://other", "input"}, {"register"}, {"enter"}, {"work", "new"}, {"attachments"}, {"attachment", "at_old"}, {"attachment", "read", "at_old"}, {"attachment", "download"}, {"attachment", "download", "first.txt", "second.txt"}} {
+	for _, args := range [][]string{{"input"}, {"--path", "/other", "status"}, {"--run", "other", "status"}, {"--server", "https://other", "status"}, {"register"}, {"enter"}, {"work", "new"}, {"attachments"}, {"attachment", "at_old"}, {"attachment", "read", "at_old"}, {"attachment", "download"}, {"attachment", "download", "first.txt", "second.txt"}} {
 		capture(t, func() { code = ContextMain(args) })
 		if code != 2 {
 			t.Fatal("bound command accepted a management operation", args, code)

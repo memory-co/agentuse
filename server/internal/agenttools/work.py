@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -16,6 +17,12 @@ import uuid
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
+
+
+class ServerError(ValueError):
+    def __init__(self, code, message):
+        super().__init__("Server returned %s: %s" % (code, message))
+        self.code = code
 
 
 def main():
@@ -62,16 +69,24 @@ def main():
                 message = json.load(error).get("error", error.reason)
             except (ValueError, AttributeError):
                 message = error.reason
-            raise ValueError("Server returned %s: %s" % (error.code, message)) from None
+            raise ServerError(error.code, message) from None
 
-    context = json.loads(subprocess.check_output(["context", "input"], text=True))
-    inputs = context["inputs"]
-    if not inputs or not inputs[0].get("message_id"):
-        raise ValueError("Work tools require a Server-delivered coordinator input")
-    authorization = request(device_key, "POST", "/api/agent-tools/work/authorize", {
-        "conversation_id": context["conversation_id"], "message_id": inputs[0]["message_id"],
+    context = json.loads(subprocess.check_output(["context", "status"], text=True))
+    identity = {
+        "conversation_id": context["conversation_id"],
         "agent_id": context["agent_id"], "run_id": context["run_id"],
-    })
+    }
+    # Native acceptance can precede the Client's report to Server. Only retry
+    # authorization while that association catches up; never replay Work writes.
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            authorization = request(device_key, "POST", "/api/agent-tools/work/authorize", identity)
+            break
+        except ServerError as error:
+            if error.code != 403 or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.05)
     token = authorization["token"]
     targets = lambda value: [part.strip() for part in value.split(",") if part.strip()]
     thread_path = "/api/sessions/" + urllib.parse.quote(getattr(args, "thread", ""), safe="")

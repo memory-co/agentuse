@@ -12,14 +12,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/client/internal/fileutil"
 	"github.com/memory-co/agentuse/client/internal/service/endpoint"
 	"github.com/memory-co/agentuse/client/internal/service/harness"
 	"github.com/memory-co/agentuse/client/internal/service/session"
-	"github.com/memory-co/agentuse/internal/protocol"
 	sdk "github.com/memory-co/agentuse/sdk/golang"
 )
 
@@ -66,34 +64,25 @@ func (f contextFixture) eventsFile(t *testing.T, events ...map[string]any) {
 		t.Fatal(err)
 	}
 }
-func (f contextFixture) receipt(t *testing.T, run, input, message, text string, files ...sdk.Attachment) messageReceipt {
-	t.Helper()
-	p := protocol.ConversationMessage{ConversationID: f.metadata.ConversationID, MessageID: message, AgentID: f.metadata.AgentID, AgentVersionID: f.metadata.AgentVersionID, Content: text, Context: "shared history", Attachments: []sdk.Attachment{}}
-	for _, a := range files {
-		p.Attachments = append(p.Attachments, a)
-	}
-	r := messageReceipt{Message: p, PreparedContext: p.Context, SessionID: f.metadata.ID, RunID: run, InputID: input, State: "accepted"}
-	if err := fileutil.WriteJSON(filepath.Join(f.service.Sessions.Root, f.metadata.EndpointID, f.metadata.ConversationID, ".server", "messages", receiptName(p.Key())), r); err != nil {
-		t.Fatal(err)
-	}
-	return r
-}
 func acceptedContextEvent(run, input string) map[string]any {
 	return map[string]any{"type": "accepted", "run_id": run, "input_id": input, "text": "identical native text"}
 }
 
-func TestContextUsesNativeActiveRunAndAcceptedInputMembership(t *testing.T) {
+func TestContextStatusUsesNativeRunWithoutMessageReceipts(t *testing.T) {
 	f := newContextFixture(t, "platform")
 	f.eventsFile(t, acceptedContextEvent(f.first, "one"), acceptedContextEvent(f.first, "two"), acceptedContextEvent(f.next, "queued"))
-	f.receipt(t, f.first, "one", "message-one", "first")
-	f.receipt(t, f.first, "two", "message-two", "supplement")
-	f.receipt(t, f.next, "queued", "message-next", "future")
 	view, err := OpenExecutionContext(context.Background(), f.path, "")
-	if err != nil || view.RunID != f.first || len(view.Inputs) != 2 || view.Inputs[0].Text != "first" || view.Inputs[1].Text != "supplement" {
+	if err != nil || view.RunID != f.first || view.Status != "running" {
 		t.Fatal(view, err)
 	}
+	data, _ := json.Marshal(view)
+	for _, removed := range []string{"inputs", "input_id", "message_id", "text", "attachment_ids"} {
+		if strings.Contains(string(data), `"`+removed+`"`) {
+			t.Fatal("status exposed input data", string(data))
+		}
+	}
 	next, err := OpenExecutionContext(context.Background(), f.path, f.next)
-	if err != nil || len(next.Inputs) != 1 || next.Inputs[0].Text != "future" {
+	if err != nil || next.RunID != f.next {
 		t.Fatal(next, err)
 	}
 	if _, err = OpenExecutionContext(context.Background(), f.path, uuid.NewString()); err == nil {
@@ -107,34 +96,11 @@ func TestContextUsesNativeActiveRunAndAcceptedInputMembership(t *testing.T) {
 	}
 }
 
-func TestContextWaitsForExactAcceptedReceipt(t *testing.T) {
-	f := newContextFixture(t, "platform")
-	f.eventsFile(t, acceptedContextEvent(f.first, "one"))
-	r := f.receipt(t, f.first, "one", "message-one", "hello")
-	path := filepath.Join(f.service.Sessions.Root, f.metadata.EndpointID, f.metadata.ConversationID, ".server", "messages", receiptName(r.Message.Key()))
-	pending := r
-	pending.State = "submitting"
-	pending.RunID = ""
-	pending.InputID = ""
-	if err := fileutil.WriteJSON(path, pending); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { time.Sleep(40 * time.Millisecond); done <- fileutil.WriteJSON(path, r) }()
-	view, err := OpenExecutionContext(context.Background(), f.path, f.first)
-	if err != nil || len(view.Inputs) != 1 || view.Inputs[0].MessageID != "message-one" {
-		t.Fatal(view, err)
-	}
-	if err = <-done; err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestContextLocalInputsAndHistoricalSelection(t *testing.T) {
+func TestContextHistoricalStatus(t *testing.T) {
 	f := newContextFixture(t, endpoint.LocalID)
 	f.eventsFile(t, acceptedContextEvent(f.first, "one"), map[string]any{"type": "result", "run_id": f.first, "status": "completed"})
 	view, err := OpenExecutionContext(context.Background(), f.path, f.first)
-	if err != nil || view.Status != "completed" || len(view.Inputs) != 1 || view.Inputs[0].Text != "identical native text" || view.Inputs[0].MessageID != "" {
+	if err != nil || view.Status != "completed" {
 		t.Fatal(view, err)
 	}
 	files, err := view.Attachments(context.Background())
@@ -184,9 +150,7 @@ func TestContextAttachmentsComeFromConversationAndDownloadOnDemand(t *testing.T)
 	other.RelativePath = "reports/earlier.png"
 	other.CreatedByRunID = f.first
 	f.eventsFile(t, acceptedContextEvent(f.first, "one"), acceptedContextEvent(f.next, "next"))
-	f.receipt(t, f.first, "one", "message", "inspect image", image)
-	// This later run has no attachment IDs, but sees all conversation files.
-	f.receipt(t, f.next, "next", "later", "continue")
+	// A later run sees all conversation files without input receipts.
 	view, err := OpenExecutionContext(context.Background(), f.path, f.next)
 	if err != nil {
 		t.Fatal(err)
@@ -230,7 +194,6 @@ func TestContextAttachmentsComeFromConversationAndDownloadOnDemand(t *testing.T)
 func TestContextDoesNotExposeCredentialsOrServerBusinessPolicy(t *testing.T) {
 	f := newContextFixture(t, "platform")
 	f.eventsFile(t, acceptedContextEvent(f.first, "one"))
-	f.receipt(t, f.first, "one", "message", "input")
 	view, err := OpenExecutionContext(context.Background(), f.path, f.first)
 	if err != nil {
 		t.Fatal(err)

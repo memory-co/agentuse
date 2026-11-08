@@ -1,6 +1,6 @@
 # 執行上下文：context
 
-Client 爲每個執行環境提供 `context`。AI 用它讀取當前 run 的輸入與補充消息，以及 conversation 下的全部附件，並把輸出文件交給 Server；人類用 `agentuse context` 調試同一份上下文，也可以進入綁定該 run 的 shell。
+Client 爲每個執行環境提供 `context`。AI 用它查詢執行身份與狀態、讀取 conversation 下的全部附件，並把輸出文件交給 Server；人類用 `agentuse context` 調試同一份上下文，也可以進入綁定該 run 的 shell。
 
 文件交互採用兩個方向：
 
@@ -9,12 +9,12 @@ Client 爲每個執行環境提供 `context`。AI 用它讀取當前 run 的輸�
 | 輸入文件 | 人類在 Server 頁面或通過 API/SDK 上傳 | Client AI 通過 context 讀取 |
 | 輸出文件 | Client AI 通過 context 上傳 | 人類在 Server 頁面查看、下載 |
 
-## 當前輸入
+## 執行身份與狀態
 
 Client 初始化 session 時注入英文工具說明，將 `context` 加入 harness 的 `PATH`。直接調用：
 
 ```bash
-context input
+context status
 ```
 
 | 字段 | 含義 |
@@ -26,11 +26,10 @@ context input
 | `agent_id` | 當前 Agent |
 | `status` | `running`、`waiting` 或實際 result 的終態 |
 | `workspace` | conversation 共享工作目錄的絕對路徑 |
-| `inputs` | 歸屬該 run 的已受理輸入，按 accepted 順序排列 |
 
-每條輸入包含 `input_id`、`text`、`attachment_ids`；遠端輸入另有 `message_id`，有業務上下文時包含 `context`。命令不返回設備密鑰或工作令牌。
+`status` 只返回執行身份、狀態和工作目錄，不返回輸入正文、輸入列表或設備憑據。默認通過適配器公開的 status 確認當前 run；歷史 run 可顯式指定。
 
-同一個 run 可以受理多條輸入。需要讀取補充消息時，再調用一次 `context input`。默認由適配器公開的 status 判斷當前 run；排隊 run 的輸入不會混入當前結果。
+消息及補充消息統一由 `harnessctl send` 投遞到原生模型。輸入受理、插話、排隊和結果覆蓋範圍以適配器的 accepted/result 事件為準，AI 無需通過 context 再次讀取消息。
 
 ## 列出文件
 
@@ -103,19 +102,19 @@ Client 爲本機 session 生成描述文件：
 默認工作根目錄是 `~/.agentuse/tmp`。在本機頁面找到 endpoint、conversation、session 和 run 後，可顯式查看：
 
 ```bash
-agentuse context --path /絕對路徑/context.json --run RUN_UUID input
+agentuse context --path /絕對路徑/context.json --run RUN_UUID status
 agentuse context --path /絕對路徑/context.json attachment list
 agentuse context --path /絕對路徑/context.json attachment download user_input/截图.png
 agentuse context enter --path /絕對路徑/context.json --run RUN_UUID
 # 進入後：
-context input
+context status
 context attachment list
 exit
 ```
 
 `--path` 默認讀取 `AGENTUSE_CONTEXT`；省略 `--run` 時詢問適配器當前執行。`enter` 使用 `$SHELL`，未設置時使用 `/bin/sh`，工作目錄切換到 conversation workspace，並通過 `AGENTUSE_CONTEXT_RUN` 固定所選 run。裸 `context` 不提供切換 Server、session 或 run 的參數。
 
-文件保留期間可以下載歷史輸入和輸出；列表及按路徑查找需要 Server 可用。歷史 run 的上傳會被拒絕。上下文文件和下載的文件隨 conversation quota 回收。本地調試支持輸入讀取，沒有 Server 文件傳輸目標。
+文件保留期間可以顯式查詢歷史 run 的狀態；附件查詢及下載需要 Server 可用。歷史 run 的上傳會被拒絕。上下文文件和緩存隨 conversation quota 回收。本地調試支持執行狀態查詢，沒有 Server 上傳目標。
 
 ## Server 業務工具
 
@@ -125,4 +124,4 @@ Work 的協調、跨設備派發和工作授權由 Server 負責。協調 Agent 
 
 命令成功時退出碼爲 `0`，執行或存儲錯誤爲 `1`，參數錯誤爲 `2`。其他管理命令見 [Client CLI](cli.md)。
 
-`attachment list/download` 只需 context 描述文件，不需要活躍 run，也不按 `--run` 過濾；`input/upload/enter` 仍綁定實際 run。
+`attachment list/download` 只需 context 描述文件，不需要活躍 run，也不按 `--run` 過濾；`status/upload/enter` 仍綁定實際 run。

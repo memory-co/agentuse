@@ -120,7 +120,7 @@ Server 和 Client 都使用 [Huma](https://github.com/danielgtaylor/huma) 自动
 | [Server 文档](docs/server/README.md) · [CLI](docs/server/cli.md) | 启动服务、存储设置、管理员登录、用户和工作线程管理 |
 | [Client 文档](docs/client/README.md) · [CLI](docs/client/cli.md) | 注册、启动、本机调试、远端会话和附件 |
 | [Server Work](docs/server/work.md) | 跨 Client 编排、协调工具和工作授权 |
-| [执行上下文](docs/client/context.md) | AI 直接使用 context 读取当前输入和图片；人类选择或进入 run |
+| [执行上下文](docs/client/context.md) | AI 使用 context 查询执行状态、读写文件；人类选择或进入 run |
 | 运行中的 `/api/docs` | 两端分别提供的 Huma API 交互文档 |
 | [SDK](sdk/README.md) | Go、Node.js 和 Python 接入示例 |
 | [Server 设计](designs/v3/designs/server-main.md) · [Client 设计](designs/v3/designs/client-main.md) | 业务划分及实现约定 |
@@ -175,7 +175,7 @@ client 和 server 通过 Go internal 规则隔离；本机 controller 分别查�
 会话支持输入文件和输出文件，接口是 `/api/sessions/{id}/attachments`。人类在 Server 页面或通过 API/SDK 上传输入，Client AI 在当前 run 中读取；AI 上传输出后，人类在 Server 查看或下载。
 
 ```bash
-context input
+context status
 context attachment list
 context attachment download user_input/截图.png
 context attachment upload ./report.pdf

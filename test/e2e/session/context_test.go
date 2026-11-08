@@ -26,10 +26,6 @@ type imageContextProof struct {
 		SessionID      string `json:"session_id"`
 		ConversationID string `json:"conversation_id"`
 		Status         string `json:"status"`
-		Inputs         []struct {
-			MessageID string `json:"message_id"`
-			Text      string `json:"text"`
-		} `json:"inputs"`
 	} `json:"context"`
 	Attachments struct {
 		Attachments []struct {
@@ -159,7 +155,7 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 			if run.Status != "completed" || json.Unmarshal([]byte(run.Output), &proof) != nil {
 				t.Fatal("context command failed", run.Status, run.Error, run.Output)
 			}
-			if proof.Context.RunID != run.ID || proof.Context.SessionID == conversation || proof.Context.ConversationID != conversation || len(proof.Context.Inputs) != 1 || proof.Context.Inputs[0].MessageID != first.Message.ID || proof.Context.Inputs[0].Text != prompt {
+			if proof.Context.RunID != run.ID || proof.Context.SessionID == conversation || proof.Context.ConversationID != conversation {
 				t.Fatal("incorrect context binding", run.Output)
 			}
 			expectedFiles := 1
@@ -193,7 +189,7 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 			}
 
 			path := filepath.Join(home, ".agentuse", "tmp", ep, conversation, "sessions", proof.Context.SessionID, "context.json")
-			inspect := exec.Command(cli, "context", "--path", path, "--run", run.ID, "input")
+			inspect := exec.Command(cli, "context", "--path", path, "--run", run.ID, "status")
 			inspect.Env = e2eutil.Env(home)
 			var selected struct {
 				RunID string `json:"run_id"`
@@ -222,7 +218,7 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 				t.Fatal("download wrote to caller directory", e)
 			}
 			shell := filepath.Join(t.TempDir(), "shell")
-			if err = os.WriteFile(shell, []byte("#!/bin/sh\ncontext input\n"), 0700); err != nil {
+			if err = os.WriteFile(shell, []byte("#!/bin/sh\ncontext status\n"), 0700); err != nil {
 				t.Fatal(err)
 			}
 			enter := exec.Command(cli, "context", "enter", "--path", path, "--run", run.ID)
