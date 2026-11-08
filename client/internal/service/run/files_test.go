@@ -47,7 +47,10 @@ func TestSyncAttachments(t *testing.T) {
 	d := &endpointConnection{cfg: Config{Server: ts.URL, Key: "dk_ok"}}
 	dir := t.TempDir()
 	sync := func() (*protocol.ConversationMessage, error) {
-		m := protocol.ConversationMessage{ConversationID: a.SessionID}
+		m := protocol.ConversationMessage{ConversationID: a.SessionID, Attachments: []protocol.LocalAttachment{}}
+		if list {
+			m.Attachments = append(m.Attachments, protocol.LocalAttachment{Attachment: a, Path: filepath.ToSlash(filepath.Join(".agentuse", "attachments", a.ID, a.Filename))})
+		}
 		err := d.syncAttachments(context.Background(), &m, dir)
 		return &m, err
 	}

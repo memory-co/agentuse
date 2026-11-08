@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -37,6 +38,15 @@ func codexAppServer() int {
 			ack(map[string]any{"turn": map[string]string{"id": turn, "status": "inProgress"}})
 			emit(map[string]any{"method": "turn/started", "params": map[string]any{"threadId": thread, "turn": map[string]string{"id": turn, "status": "inProgress"}}})
 			emit(map[string]any{"method": "item/started", "params": map[string]any{"threadId": thread, "turnId": turn, "item": map[string]string{"type": "commandExecution", "command": "sleep 12"}}})
+			if len(req.Params.Input) > 0 && strings.HasSuffix(req.Params.Input[0].Text, "# 本次消息\ncontext-image") {
+				out, err := contextProof(false)
+				if err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					return 2
+				}
+				emit(map[string]any{"method": "item/completed", "params": map[string]any{"threadId": thread, "turnId": turn, "item": map[string]string{"type": "agentMessage", "text": out}}})
+				emit(map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": thread, "turn": map[string]string{"id": turn, "status": "completed"}}})
+			}
 		case "turn/steer":
 			if req.Params.ExpectedTurnID != turn || req.Params.ThreadID != thread {
 				emit(map[string]any{"id": req.ID, "error": map[string]any{"code": -32000, "message": "wrong turn"}})

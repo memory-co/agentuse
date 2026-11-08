@@ -26,11 +26,12 @@ const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 age
   agentuse status                                 看本机的注册和连接状态
   agentuse harnesses [-json]                         看本机检测到哪些 harness
   agentuse work …                                 工作的协调者用来开线程、看线程(见 agentuse work help)
-  agentuse session send <会话> --agents coder,reviewer "消息" | read | runs | wait | cancel
+  agentuse conversation send <会话> --agents coder,reviewer "消息" | read | runs | wait | cancel
   agentuse attachment upload <文件> | list | download <id> --output <文件>
+  agentuse context …                              当前 run 的输入、附件及上下文
   agentuse version
 
-register/start/daemon/status/harnesses/session/attachment 支持 -config。
+register/start/daemon/status/harnesses/conversation/attachment 支持 -config。
 work 使用工作环境变量。完整用法见 docs/client/cli.md。
 `
 
@@ -45,7 +46,8 @@ func Main(args []string) int {
 		{Name: "harnesses", Run: runHarnesses},
 		{Name: "work", Run: runWork},
 		{Name: "attachment", Run: runAttachment},
-		{Name: "session", Run: runSession},
+		{Name: "conversation", Run: runConversation},
+		{Name: "context", Run: runContext},
 	})
 }
 

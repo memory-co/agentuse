@@ -68,9 +68,7 @@ func (s *Service) prepareResources(ctx context.Context, m session.Session, r Req
 	if r.Model != "" {
 		a.InitArgs = append(a.InitArgs, "--model", r.Model)
 	}
-	if r.AgentInstructions == "" && len(r.skills) == 0 {
-		return noop, nil
-	}
+	r.AgentInstructions = strings.TrimSpace(r.AgentInstructions) + "\n\n" + ContextInstructions
 	dir, err := fileutil.SafePath(s.Sessions.Root, m.EndpointID, m.ConversationID, "sessions", m.ID, "init-resources")
 	if err != nil {
 		return noop, err

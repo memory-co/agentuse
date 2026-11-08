@@ -19,6 +19,8 @@ runService 接收輸入、驅動 session 並提供實際執行的視圖。**run_
 ```text
 sessions/<session_id>/
   session.yaml
+  context.json
+  bin/context -> agentuse
   events.jsonl
   events.jsonl.d/
   runs/<accepted.run_id>.jsonl
@@ -77,3 +79,9 @@ native_runs.go 管引用與查詢，views.go 定義公開視圖，reconcile.go �
 遠端 message 只固定 agent_version_id；Client 通過 Agent 版本及 Skill 版本 API 讀取模型、指令和依賴。配置、ZIP 校驗、安全解包與 init 都內含於消息處理。缺少配置不能改讀 latest，資源已在有效快照中則直接複用。
 
 活動輸入必須匹配 agent_version_id，不能將新版消息放進舊版原生上下文。同版本補充輸入由適配器裁定 run 歸屬。公共 accepted/message/request/result/log Schema 不變，網路封裝與授權見 [通信協議](protocol.md)。
+
+## 執行上下文工具（已實現）
+
+runService 為 harness 提供裸 `context input / attachments / attachment`，人類通過 `agentuse context` 選擇或進入同一執行上下文。描述文件只固定 session 和來源；當前 run 由公共 status 或顯式選擇確定，仍以 accepted 及來源消息收據關聯輸入。附件採用收到 message 時的固定快照，不重新列舉最新會話文件。圖片返回經校驗的本地路徑，由 AI 原生看圖工具讀取。
+
+完整邊界、目錄與回收規則見 [執行上下文設計](client-context.md)；操作方法見 [使用手冊](../../../docs/client/context.md)。

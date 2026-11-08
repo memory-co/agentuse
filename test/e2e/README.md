@@ -37,7 +37,7 @@ go test -count=1 -v ./test/e2e/session/
 
 所有执行入口均安装为 manifest.json + harnessctl 包。Codex、Claude 用实际独立适配器连接 fakeharness 模拟的 app-server / stream-json；自定义 fake 通过 tests/fake_adapter.py 提供相同四命令、五事件协议，不调用模型。
 
-覆盖多中心、本机 API、本地调试、会话复用、共享目录并发、补充输入与适配器 run 关联、问答、取消、工作线程及附件。原生协议细节另由 harnessctl/tests 的独立测试覆盖。真实 Codex 测试通过 AGENTUSE_REAL_CODEX=1 显式启用。独立内置适配器需要 Linux 和 Python 3.9+。
+覆盖多中心、本机 API、本地调试、会话复用、共享目录并发、补充输入与适配器 run 关联、问答、取消、工作线程及附件。`TestRunContextImagesAndHumanEntry` 使用真实 PNG，在自定义、Codex、Claude 三条链路内调用实际裸 `context`，验证输入归属、文件路径和校验、排队 run 的附件隔离，以及人类选择和进入 shell。原生协议细节另由 harnessctl/tests 的独立测试覆盖。真实 Codex 测试通过 AGENTUSE_REAL_CODEX=1 显式启用。独立内置适配器需要 Linux 和 Python 3.9+。
 
 ## 加一个场景
 

@@ -5,9 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
+	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/attachment"
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
@@ -27,11 +26,17 @@ func openAttachmentDir(root *os.Root, name string) (*os.Root, error) {
 	return root.OpenRoot(name)
 }
 func (d *endpointConnection) syncAttachments(ctx context.Context, m *protocol.ConversationMessage, dir string) error {
-	c := agentuse.Client{BaseURL: d.cfg.Server, Token: d.cfg.Key}
-	list, err := c.AllAttachments(ctx, "", m.ConversationID)
-	if err != nil {
-		return err
+	c := agentuse.New(d.cfg.Server, d.cfg.Key)
+	list := make([]agentuse.Attachment, 0, len(m.Attachments))
+	for _, a := range m.Attachments {
+		list = append(list, a.Attachment)
 	}
+	return cacheContextAttachments(ctx, c, m.ConversationID, dir, list)
+}
+
+var errAttachmentNotCached = errors.New("attachment is not cached")
+
+func cacheContextAttachments(ctx context.Context, c *agentuse.Client, conversation, dir string, list []agentuse.Attachment) error {
 	if len(list) == 0 {
 		return nil
 	}
@@ -52,7 +57,7 @@ func (d *endpointConnection) syncAttachments(ctx context.Context, m *protocol.Co
 	defer cache.Close()
 	for _, a := range list {
 		name, e := attachment.Filename(a.Filename)
-		if e != nil || name != a.Filename || !attachment.ValidID(a.ID, "at_") || a.SessionID != m.ConversationID {
+		if e != nil || name != a.Filename || !attachment.ValidID(a.ID, "at_") || a.SessionID != conversation {
 			return fmt.Errorf("服务返回不合法的附件元数据")
 		}
 		sub, e := openAttachmentDir(cache, a.ID)
@@ -77,16 +82,15 @@ func (d *endpointConnection) syncAttachments(ctx context.Context, m *protocol.Co
 			} else if !errors.Is(e, os.ErrNotExist) {
 				return e
 			}
+			if c == nil {
+				return errAttachmentNotCached
+			}
 			src, e := c.DownloadAttachment(ctx, "", a.SessionID, a.ID)
 			if e != nil {
 				return e
 			}
 			defer src.Close()
-			tmp := ".download-" + strings.TrimPrefix(a.ID, "at_")
-			// Remove a previous interrupted download, never follow it.
-			if e = sub.Remove(tmp); e != nil && !errors.Is(e, os.ErrNotExist) {
-				return e
-			}
+			tmp := ".download-" + uuid.NewString()
 			f, e := sub.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 			if e != nil {
 				return e
@@ -107,7 +111,6 @@ func (d *endpointConnection) syncAttachments(ctx context.Context, m *protocol.Co
 		if e != nil {
 			return e
 		}
-		m.Attachments = append(m.Attachments, protocol.LocalAttachment{Attachment: a, Path: filepath.ToSlash(filepath.Join(".agentuse", "attachments", a.ID, name))})
 	}
 	return nil
 }

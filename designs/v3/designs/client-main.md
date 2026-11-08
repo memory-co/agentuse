@@ -11,7 +11,7 @@ Client 從輸入來源接收文本，選擇本機 session，調用 harnessctl，
 | endpointService | 提供輸入來源及其身份；內置 local | endpoints.yaml 的啓動快照 |
 | settingService | 本機監聽、工作根目錄和 quota | setting.yaml 的啓動快照 |
 | sessionService | session 選擇、佔用、共同工作目錄和回收 | conversation 下的 session.yaml |
-| runService | 接收輸入、驅動 session、登記實際 run、查詢和控制 | runs/<run_id>.jsonl 引用及 events.jsonl |
+| runService | 接收輸入、驅動 session、登記實際 run、查詢、控制和執行上下文工具 | runs/<run_id>.jsonl 引用及 events.jsonl |
 | harnessService | 安裝和固定適配器，通過 init 和四個交互命令執行、讀取公共事件 | ~/.agentuse/harness/ 下的啓動快照 |
 
 controller 處理本機 HTTP，通過 sessionService 和 runService 的只讀查詢接口獲取頁面數據。各 service 直接管理自己負責的 YAML / JSONL 文件；client 不設 store、repository、Ledger 或統一 Reader / Writer 層。fileutil 只提供路徑檢查、原子文件寫入、YAML 編解碼和進程文件鎖，不包含業務實體、索引或恢復策略。原生 Codex RPC、Claude stream-json、權限策略和進程生命週期全部屬於獨立 harnessctl 包，client 不實現另一套原生協議。
@@ -45,7 +45,7 @@ client/internal/
     harness/              獨立適配器包的安裝、命令調用和公共事件讀取
 ```
 
-sessionService 直接讀取 conversation.yaml / session.yaml，並決定 workspace 及目錄回收。runService 直接創建 runs/<run_id>.jsonl，從 events.jsonl 形成展示視圖；恢復索引和舊 server 交付記錄也由 runService 負責。兩者沒有包級循環依賴。
+sessionService 直接讀取 conversation.yaml / session.yaml，並決定 workspace 及目錄回收。runService 直接創建 runs/<run_id>.jsonl，從 events.jsonl 形成展示視圖；恢復索引和 Server 消息受理記錄也由 runService 負責。兩者沒有包級循環依賴。
 
 重啓恢復時，runService 先通過 sessionService 查詢未完成 session，把其 harness / revision / events 地址交給 harnessService 確認取消，再重建 run 引用及交付狀態，最後由 sessionService 恢復元數據。harnessService 不掃描 conversation 目錄或解釋 session.yaml。
 
@@ -76,6 +76,8 @@ local 和遠端採用同一個 harnessService、公共事件格式、run 引用�
     workspace/                        # 此 conversation 所有 harness 的共同 cwd
     sessions/<session_id>/
       session.yaml
+      context.json                    # 固定來源與 session 的工具描述
+      bin/context                     # 指向 agentuse 的裸命令入口
       events.jsonl                    # 執行事實的唯一來源
       events.jsonl.d/                 # 適配器私有目錄，保持不變
       runs/<adapter_run_uuid>.jsonl    # client 的引用，不復制執行正文
@@ -91,7 +93,7 @@ runs 文件名必須來自 accepted.run_id。文件內 reference 記錄 session�
 1. 加載並校驗 setting、endpoints、適配器包，固定爲當前進程的快照。
 2. 取得 client 單進程鎖，初始化受管目錄及會話狀態。
 3. 通過公開 harnessctl 命令確認遺留前臺執行已清理；不能確認時拒絕釋放目錄。
-4. 轉換舊記錄，並掃描公共 accepted 事件重建缺失的 run 引用；不重放輸入。
+4. 掃描公共 accepted 事件重建缺失的 run 引用；不轉換舊記錄，也不重放輸入。
 5. 恢復 session 元數據，再開放 HTTP 和來源連接。
 6. 運行期間處理輸入、結果、重連及固定 quota 的檢查，不重新加載配置。
 
@@ -137,3 +139,7 @@ Server 與 client 使用 agentuse-client/2。Server 直接下發 message 和目�
 Server 的 agentService/skillService 分別發佈不可變版本，輸入只關聯固定的 agent_version_id 和 skill 包版本。runService 下載、校驗並解包；sessionService 按 agent 版本選擇獨立 session/events，繼續使用同 conversation 的 workspace；harnessService 將準備好的資源交給 init/send。舊版本輸入和執行不跟隨最新配置變化，local 也走相同版本快照和初始化流程。詳見 [server-agent.md](server-agent.md)、[client-session.md](client-session.md) 和 [通信協議](protocol.md)。
 
 本地啓動 run 的請求可帶 `model`、`agent_instructions` 和 `skill_packages`（本機 ZIP 絕對路徑數組）。runService 對配置和 ZIP 內容摘要生成穩定的本地 agent_version_id；相同內容複用綁定，內容變化創建新 session。前端“初始化配置”提供對應輸入，遠端任務則完全採用 server 固定的版本資源。
+
+## 執行中的 context 命令（已實現）
+
+AI 在執行環境直接使用 `context` 讀取當前 run 的輸入與文件，無需知道 Client 管理命令。人類用 `agentuse context` 顯式選擇本機上下文或進入 shell；遠端會話管理改為 `agentuse conversation`。同 session 多 run 的選擇、附件快照和工作能力見 [client-context.md](client-context.md)，操作見 [執行上下文手冊](../../../docs/client/context.md)。

@@ -25,18 +25,18 @@ func splitAgents(s string) []string {
 	}
 	return out
 }
-func runSession(args []string) error {
+func runConversation(args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		fmt.Println("agentuse session send <session> [--agents coder,reviewer] [--users user_ids] \"消息\" | read [session] | runs [session] | wait [session] | cancel <session> <run>")
+		fmt.Println("agentuse conversation send <conversation> [--agents coder,reviewer] [--users user_ids] \"消息\" | read [conversation] | runs [conversation] | wait [conversation] | cancel <conversation> <run>")
 		return nil
 	}
 	action := args[0]
-	fs := command.NewFlags("agentuse session " + action)
+	fs := command.NewFlags("agentuse conversation " + action)
 	server := fs.String("server", os.Getenv("AGENTUSE_SERVER"), "服务地址")
 	token := fs.String("token", os.Getenv("AGENTUSE_TOKEN"), "用户或工作令牌")
 	config := fs.String("config", command.EnvOr("AGENTUSE_CONFIG", endpointservice.DefaultPath()), "daemon 配置")
-	session := fs.String("session", os.Getenv("AGENTUSE_SESSION"), "当前 session")
-	agents := fs.String("agents", "", "逗号分隔的 @ 目标")
+	session := fs.String("conversation", os.Getenv("AGENTUSE_CONVERSATION"), "Server conversation ID")
+	agents := fs.String("agents", "", "逗号分隔的 Agent 收件人 ID")
 	users := fs.String("users", "", "逗号分隔的用户收件人 ID")
 	asJSON := fs.Bool("json", false, "JSON 输出")
 	timeout := fs.Duration("timeout", 30*time.Minute, "等待上限")
@@ -104,7 +104,7 @@ func runSession(args []string) error {
 		pos = pos[1:]
 	}
 	if *session == "" || len(pos) != need {
-		return command.UsageErr("需要 session id 和对应命令参数")
+		return command.UsageErr("需要 conversation id 和对应命令参数")
 	}
 	ctx, stop := command.SignalContext()
 	defer stop()

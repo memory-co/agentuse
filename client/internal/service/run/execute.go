@@ -173,6 +173,12 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 	if len(request.environment) > 0 {
 		adapter.Env = request.environment
 	}
+	if err = s.prepareContext(metadata, &adapter); err != nil {
+		<-s.slots
+		s.localMu.Unlock()
+		_ = s.Sessions.Release(metadata, false)
+		return Run{}, err
+	}
 	execCtx, cancel := context.WithCancel(s.localCtx)
 	execution := &localExecution{cancel: cancel, in: harness.NewInput(harness.DefaultAskTimeout), done: make(chan struct{}), session: metadata}
 	s.localRuns[metadata.ID] = execution

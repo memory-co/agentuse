@@ -1,0 +1,74 @@
+# Client 執行上下文工具
+
+AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇或進入相同上下文。它提供當前 run 的輸入與文件能力，遠端 conversation 管理使用 `agentuse conversation`。操作文檔見 [執行上下文手冊](../../../docs/client/context.md)。
+
+## 身份與選擇
+
+不引入 context ID，也不增加 Server task、租約或初始化階段。描述文件固定 endpoint、conversation、Client session 和適配器包位置；run UUID 仍只能來自公共 accepted 事件。
+
+| 標識 | 來源及作用 |
+|---|---|
+| conversation_id | Server 業務會話，或本地調試的命名空間 |
+| session_id | Client 本機 session，固定 events.jsonl 和資源快照 |
+| run_id | 適配器 accepted.run_id，一個 session 可以有多個 run |
+| input_id | 適配器 accepted.input_id，對應一次被受理的輸入 |
+| message_id | 遠端來源消息，由既有受理收據與 input_id 關聯 |
+
+裸 `context` 從 `AGENTUSE_CONTEXT` 找到描述文件。人類進入 shell 時明確設置的 `AGENTUSE_CONTEXT_RUN` 優先，其次是適配器提供的 `AGENTUSE_RUN`；兩者都沒有時，通過固定版本適配器的公共 `harnessctl status` 讀取當前 run_id。不能通過最後一條 accepted、最後修改時間、唯一未結束結果或啓動時的 message 環境變量猜測。
+
+這是必要的：適配器可以先受理多條排隊輸入，各自有 run UUID；原生進程也可能跨 run 複用。正在執行的 run 與最近受理的 run 可能不同。
+
+## 命令與輸出
+
+- `context input`：實際 run 定位、狀態及該 UUID 的已受理輸入。
+- `context attachments`：輸入快照所允許的附件元數據。
+- `context attachment FILE_ID`：驗證文件並返回本地絕對路徑及 MIME 類型。
+- `context --help`：當前可用能力，不列出註冊、啓停等管理命令。
+- `context work …`：僅有工作授權且未結束的 run 可操作工作線程。
+
+輸入按公共 accepted 的順序讀取，只匹配選定 run UUID。遠端輸入通過 conversation 下的 `.server/messages/` 收據，按 session/run/input 三者匹配來源 message、正文、業務上下文和附件快照。補充輸入屬於同一 UUID 時自然出現在同一結果中；本地輸入直接使用 accepted.text。
+
+公共 accepted 已落盤而 Client 尚未保存來源收據時，工具短暫等待同一個受理關係完成；不能按 prompt 相似度匹配，不能退回另一條消息。只讀完整 JSONL 行；損壞的完整記錄明確報錯。request/result 同樣按 run UUID 計算 waiting 和終態。
+
+輸出不包含設備密鑰、工作令牌、註冊配置位置或消息提交收據。Server API 仍沿用 `/api/sessions`，不因 CLI 改名改動 HTTP 路由或 DTO。
+
+## 文件範圍與圖片
+
+收到遠端 message 時，Client 按報文中的附件快照校驗及下載，不在執行前重新列舉 conversation 的最新文件。快照是投遞時會話可用的附件，不宣稱文件只屬於單條消息。
+
+工具將同一 run 全部已受理輸入的附件去重，同一 ID 的元數據衝突時報錯。其他排隊 run 的附件即使已下載到共享 workspace，也不能經本工具的當前視圖讀取。這個視圖不改變 conversation 共用 workspace 的既有模型。
+
+`attachment` 先確認 ID 在輸入快照內，再驗證緩存的大小和 SHA-256；缺失或內容損壞時，通過描述文件指定的 endpoint 註冊配置取得設備身份，從同一 Server 重新下載。下載不跟隨重定向。文件緩存繼續使用 os.Root、受管子目錄校驗及獨立臨時文件，不跟隨符號鏈接。
+
+返回本地路徑後，AI 使用原生看圖或文件工具讀取內容。Client 不把圖片 base64 塞進 CLI JSON，也不建立另一個圖片 RPC。Codex、Claude 及自定義適配器共用同一個命令實現。
+
+## 準備及文件佈局
+
+```text
+<work_root>/<endpoint>/<conversation>/
+  workspace/.agentuse/attachments/<file_id>/<filename>
+  .server/messages/<message-agent-key-hash>.json
+  sessions/<session_id>/
+    session.yaml
+    context.json
+    bin/context -> agentuse 可執行文件
+    events.jsonl
+    events.jsonl.d/
+    runs/<adapter_run_uuid>.jsonl
+```
+
+runService 在首次 init 的指令快照中追加工具說明，保留 Agent 自身指令；不向共用 workspace 寫入 AGENTS.md 或 CLAUDE.md。每次啓動 session 驅動時準備描述文件與命令入口，將其 bin 前置到 harness 的 PATH。`AGENTUSE_SESSION` 明確表示 Client 本機 session，`AGENTUSE_CONVERSATION` 才是 conversation；不再將兩者混用。
+
+這些步驟是 Client 處理輸入的內部行爲。send 和公共事件格式不變；Server 不下發 context init，也不記錄新的 context 生命周期。適配器私有 `.d/` 不由 Client 解釋。
+
+## 人類入口與回收
+
+`agentuse context --path context.json --run UUID` 可以讀取該 session 中指定 run；省略 run 時只選擇適配器確認的當前執行。`enter` 切換到 workspace，設置固定 run 的環境並打開 shell，從中直接使用裸 `context`。
+
+裸命令不提供選擇其他 Server、path、session 或 run 的參數。需要切換時，人類重新通過 `agentuse context` 選擇。描述文件只是本機執行元數據，不是新的授權憑據。
+
+歷史 run 在本機文件仍保留時可讀，工作線程寫入能力則在終態後停止。遠端請求憑據由私有註冊配置與對應輸入收據取得，不能依賴複用原生進程中的第一條消息令牌。
+
+context.json、命令入口和附件緩存隨既有 conversation quota 一起回收，不增加全局索引、全局 run 掃描或新的常駐服務。實現在 runService 和 CLI 入口；維持既有五個 service。
+
+不保留 `agentuse session`、`--session` 或將 conversation 寫入 `AGENTUSE_SESSION` 的舊入口，也不轉換舊本機上下文。

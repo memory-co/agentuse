@@ -82,6 +82,8 @@ agentuse ui --open                                      # 打开本机页面
 agentuse daemon                                         # setup.sh 安装的后台服务入口
 agentuse status                                         # 注册和连接状态
 agentuse harnesses                                      # 本机检测到的 harness
+agentuse conversation read CONVERSATION_ID              # 远端会话管理
+agentuse context --path /绝对路径/context.json --run RUN_UUID enter  # 进入本机执行上下文
 ```
 
 两个 CLI 的完整说明见 [Server CLI](docs/server/cli.md) 和 [Client CLI](docs/client/cli.md)。`start` 的参数也能用环境变量给:`AGENTUSE_ADDR`、`AGENTUSE_DB`、`AGENTUSE_PUBLIC_URL`、`AGENTUSE_DIST`。
@@ -116,6 +118,7 @@ Server 和 Client 都使用 [Huma](https://github.com/danielgtaylor/huma) 自动
 |---|---|
 | [Server 文档](docs/server/README.md) · [CLI](docs/server/cli.md) | 启动服务、存储设置、管理员登录和用户管理 |
 | [Client 文档](docs/client/README.md) · [CLI](docs/client/cli.md) | 注册、启动、本机调试、远端会话、工作线程和附件 |
+| [执行上下文](docs/client/context.md) | AI 直接使用 context 读取当前输入和图片；人类选择或进入 run |
 | 运行中的 `/api/docs` | 两端分别提供的 Huma API 交互文档 |
 | [SDK](sdk/README.md) | Go、Node.js 和 Python 接入示例 |
 | [Server 设计](designs/v3/designs/server-main.md) · [Client 设计](designs/v3/designs/client-main.md) | 业务划分及实现约定 |
@@ -167,19 +170,29 @@ client 和 server 通过 Go internal 规则隔离；本机 controller 分别查�
 
 ## 会话附件
 
-会话支持输入文件和交付产物，接口是 `/api/sessions/{id}/attachments`。先用 `defer_start: true` 创建空会话、上传输入文件，再发送第一条消息。daemon 会下载并校验附件，交给 harness 读取。harness 生成文件后可直接运行：
+会话支持输入文件和交付产物，接口是 `/api/sessions/{id}/attachments`。先创建空会话、上传输入文件，再发送第一条消息。Client 按输入携带的快照下载并校验附件。AI 在执行环境中直接使用：
 
 ```bash
-agentuse attachment upload ./report.pdf
-agentuse attachment list --json
-agentuse attachment download at_xxx --output ./report.pdf
+context input
+context attachments
+context attachment FILE_ID
 ```
 
-网页会话页和 Go、Python、Node SDK 均支持附件。服务端默认单文件 100 MiB、每会话总计 1 GiB；附件目录默认 `~/.agentuse/attachments`，须与数据库一起备份。需要服务端和 daemon 一起升级，旧 daemon 会提示不支持附件。[设计](designs/v2/designs/attachment.md) · [API](designs/v2/apis/attachments.md) · [Client CLI](docs/client/cli.md)。
+`attachment` 返回经过大小和 SHA-256 校验的本地绝对路径及 MIME 类型；图片再交给模型的原生看图工具读取。每次调用按当前实际 run 确认输入范围，排队 run 的输入与文件不会混入工具结果。人类可以用 `agentuse context` 显式选择或进入同一上下文，详见 [执行上下文手册](docs/client/context.md)。
+
+上传交付产物等远端文件操作使用管理命令：
+
+```bash
+agentuse attachment upload ./report.pdf --conversation CONVERSATION_ID
+agentuse attachment list --conversation CONVERSATION_ID --json
+agentuse attachment download FILE_ID --conversation CONVERSATION_ID --output ./report.pdf
+```
+
+网页会话页和 Go、Python、Node SDK 均支持附件。服务端默认单文件 100 MiB、每会话总计 1 GiB；附件目录默认 `~/.agentuse/attachments`，须与数据库一起备份。[设计](designs/v2/designs/attachment.md) · [API](designs/v2/apis/attachments.md) · [Client CLI](docs/client/cli.md)。
 
 ## 多 agent 共享会话
 
-网页新建 session 不绑定 agent，每条消息通过 @ 选择一个或多个执行者。所有 agent 每次都读取同一 session 的消息和附件，并启动新的原生 harness 会话。目标空闲时新建 run，目标已有任务时自动作为插话；不支持插话或未送达的补充排到后续执行，用户消息只保存一次。
+网页新建 session 不绑定 agent，每条消息通过 @ 选择一个或多个执行者。Server 将 conversation message 投递给目标 Agent，Client 准备或复用对应的本机 session。输入属于当前 run 还是排队产生新 run，由适配器的 accepted 事件确认；用户消息只保存一次。
 
 ```json
 {"mode":"multi_agent"}
@@ -191,7 +204,7 @@ agentuse attachment download at_xxx --output ./report.pdf
 {"prompt":"分别看看实现和风险","to_agent_ids":["coder","reviewer"],"to_user_ids":["alice"]}
 ```
 
-返回 `{message, runs, deliveries}`。也支持 `agentuse session send ss_xxx --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有会话统一使用共享模型，未传 mode 也创建 multi_agent。Server 与 Client 使用 `agentuse-client/2` 通信。[设计](designs/v2/designs/session-mentions.md) · [API](designs/v2/apis/sessions.md)。
+返回 `{message, runs, deliveries}`。也支持 `agentuse conversation send CONVERSATION_ID --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有会话统一使用共享模型，未传 mode 也创建 multi_agent。Server 与 Client 使用 `agentuse-client/2` 通信。[设计](designs/v2/designs/session-mentions.md) · [API](designs/v2/apis/sessions.md)。
 
 ### Client 本机页面与文件配置
 
@@ -229,6 +242,8 @@ Client 不再使用 SQLite，文件结构为：
     events.jsonl                # 固定的 harnessctl 会话地址
     events.jsonl.d/              # 适配器私有状态
     session.yaml
+    context.json                # 当前执行上下文的固定路由信息
+    bin/context                 # run 环境可直接调用的入口
     runs/<run_id>.jsonl          # adapter accepted.run_id 的最小索引
     .server/                    # 新版消息投递、事件确认与控制收据
 ```

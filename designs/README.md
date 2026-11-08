@@ -8,6 +8,7 @@
 |---|---|
 | [Server 设计](v3/designs/server-main.md) | 服务端业务划分及各 service 的设计 |
 | [Client 设计](v3/designs/client-main.md) | 本机配置、endpoint、session、run 和 harness 的设计 |
+| [Client 执行上下文](v3/designs/client-context.md) | AI 的 context 工具、run 归属、附件快照和人类入口 |
 | [Client ↔ Server 协议](v3/designs/protocol.md) | `agentuse-client/2` 报文、受理、控制及恢复规则 |
 | [v2 资料](v2/designs/main.md) | 早期架构、接口、表结构和 CLI 说明 |
 | [v1 资料](v1/README.md) | 第一版设计与接口说明 |

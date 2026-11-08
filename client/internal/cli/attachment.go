@@ -22,7 +22,7 @@ func runAttachment(args []string) error {
 	}
 	action := args[0]
 	fs := command.NewFlags("agentuse attachment " + action)
-	session := fs.String("session", os.Getenv("AGENTUSE_SESSION"), "会话 id")
+	session := fs.String("conversation", os.Getenv("AGENTUSE_CONVERSATION"), "会话 id")
 	server := fs.String("server", os.Getenv("AGENTUSE_SERVER"), "服务地址")
 	token := fs.String("token", os.Getenv("AGENTUSE_TOKEN"), "用户或工作令牌")
 	cfgPath := fs.String("config", command.EnvOr("AGENTUSE_CONFIG", endpointservice.DefaultPath()), "daemon 配置")
@@ -57,7 +57,7 @@ func runAttachment(args []string) error {
 		return err
 	}
 	if *session == "" {
-		return errors.New("需要 --session 或 AGENTUSE_SESSION")
+		return errors.New("需要 --conversation 或 AGENTUSE_CONVERSATION")
 	}
 	if *token == "" {
 		*token = os.Getenv("AGENTUSE_WORK")

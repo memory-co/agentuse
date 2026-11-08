@@ -112,6 +112,14 @@ func claudeTurns(args []string, resume string, stdin *bufio.Reader) int {
 			return 1
 		}
 		out := reply("claude", prompt, resume)
+		if prompt == "context-image" {
+			var err error
+			out, err = contextProof(false)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 2
+			}
+		}
 		if instructionText != in.Message.Content {
 			first, _, _ := strings.Cut(instructionText, "\n")
 			if first != "" {
@@ -119,7 +127,7 @@ func claudeTurns(args []string, resume string, stdin *bufio.Reader) int {
 			}
 		}
 		if f := strings.SplitN(prompt, " ", 3); len(f) == 3 && f[0] == "spawn" {
-			b, err := exec.Command("agentuse", "work", "new", "--agents", f[1], f[2]).CombinedOutput()
+			b, err := exec.Command("context", "work", "new", "--agents", f[1], f[2]).CombinedOutput()
 			out += " spawned=" + strings.TrimSpace(string(b))
 			if err != nil {
 				out += " err=" + err.Error()
@@ -235,6 +243,15 @@ func custom() int {
 		fmt.Fprintln(os.Stderr, "fake failure")
 		return 3
 	}
+	if strings.HasPrefix(in.Input.Prompt, "context-image") {
+		out, err := contextProof(in.Input.Prompt == "context-image-hold")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+		emit(map[string]any{"type": "result", "ok": true, "output": out})
+		return 0
+	}
 	if strings.HasPrefix(in.Input.Prompt, "multi:") {
 		if in.RunID == "" || in.Resume != "" || os.Getenv("AGENTUSE_RUN") != in.RunID {
 			fmt.Fprintln(os.Stderr, "missing fresh run context")
@@ -248,7 +265,7 @@ func custom() int {
 				time.Sleep(50 * time.Millisecond)
 			}
 		}
-		cmd := exec.Command("agentuse", "session", "read", "--json")
+		cmd := exec.Command("context", "input")
 		live, err := cmd.CombinedOutput()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, string(live), err)
@@ -259,7 +276,7 @@ func custom() int {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
-		out, _ := json.Marshal(map[string]any{"agent_id": in.AgentID, "run_id": in.RunID, "resume": in.Resume, "history": in.SessionMessages, "task_ids": in.TaskMessageIDs, "live": state["messages"]})
+		out, _ := json.Marshal(map[string]any{"agent_id": in.AgentID, "run_id": in.RunID, "resume": in.Resume, "history": in.SessionMessages, "task_ids": in.TaskMessageIDs, "live": state["inputs"]})
 		emit(map[string]any{"type": "result", "ok": true, "output": string(out), "session_id": "native-" + in.RunID})
 		return 0
 	}

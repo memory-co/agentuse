@@ -3,8 +3,14 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 
 	"github.com/memory-co/agentuse/client/internal/cli"
 )
 
-func main() { os.Exit(cli.Main(os.Args[1:])) }
+func main() {
+	if filepath.Base(os.Args[0]) == "context" {
+		os.Exit(cli.ContextMain(os.Args[1:]))
+	}
+	os.Exit(cli.Main(os.Args[1:]))
+}

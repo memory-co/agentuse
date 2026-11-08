@@ -2,7 +2,9 @@
 
 `agentuse` 在执行设备上运行，连接一个或多个 Server，接收发给 Agent 的消息，并通过本机 harness 执行。收到消息后，Client 按固定版本取得所需配置和 skills，在本地准备或复用 session，再把实际 run ID 和执行事件上报 Server。
 
-使用 [Client CLI 手册](cli.md) 注册设备、启动 Client、打开本机页面，以及操作远端会话、工作线程和附件。
+AI 在每次执行中可以直接使用 `context input`、`context attachments` 和 `context attachment FILE_ID` 读取当前输入、取得图片等附件的本地路径。人类用 `agentuse context` 显式选择 run，或通过 `enter` 进入其 shell。操作方法见 [执行上下文](context.md)。
+
+使用 [Client CLI 手册](cli.md) 注册设备、启动 Client、打开本机页面，以及通过 `agentuse conversation` 操作远端会话、工作线程和附件。
 
 没有注册 Server 时也可以运行 `agentuse start`，再用 `agentuse ui --open` 打开本地调试页面。默认地址为 `127.0.0.1:7801`，可在页面中选择已安装的 harness 实际执行。
 

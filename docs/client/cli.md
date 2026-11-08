@@ -1,6 +1,6 @@
 # Client CLI：agentuse
 
-`agentuse` 在执行设备上运行 Client，连接 Server 并调用本机 harness。它也提供远端会话、工作线程和附件的命令。
+`agentuse` 在执行设备上运行 Client，连接 Server 并调用本机 harness。它也提供远端会话、工作线程和附件命令，以及 run 内直接可用的 `context` 工具。
 
 ## 快速开始
 
@@ -39,7 +39,7 @@ agentuse start
 agentuse ui --open
 ```
 
-在页面中选择“本地调试”、创建 conversation、选择可用 harness 并执行。默认监听 `127.0.0.1:7801`。本节后面的 `session`、`work`、`attachment` 命令访问远端 Server；本地执行通过本机页面或 Client 的 `/api/docs` 操作。
+在页面中选择“本地调试”、创建 conversation、选择可用 harness 并执行。默认监听 `127.0.0.1:7801`。本节后面的 `conversation`、`work`、`attachment` 命令访问远端 Server；本地执行通过本机页面或 Client 的 `/api/docs` 操作。
 
 ## 命令一览
 
@@ -51,13 +51,14 @@ agentuse ui --open
 | `agentuse ui` | 输出本机页面登录链接，`--open` 同时打开浏览器 |
 | `agentuse status` | 检查所选 Server 的设备凭据，显示本机服务和页面信息 |
 | `agentuse harnesses` | 探测本机 harness，支持 `--json` |
-| `agentuse session …` | 发送消息、读取会话、查看 run、等待或取消执行 |
+| `agentuse context …` | 读取本机某个 run 的输入和附件，或进入其 shell |
+| `agentuse conversation …` | 发送消息、读取会话、查看 run、等待或取消执行 |
 | `agentuse work …` | 协调者管理工作线程 |
 | `agentuse attachment …` | 上传、列出和下载远端会话附件 |
 | `agentuse help` | 查看命令一览 |
 | `agentuse version` | 显示版本 |
 
-参数支持 `--flag value`、`-flag value` 和 `--flag=value`。除 `session`、`attachment` 特别支持参数交错外，参数放在位置参数之前。`--config` 按各命令说明使用；`work` 命令从工作环境变量读取地址和凭据。
+参数支持 `--flag value`、`-flag value` 和 `--flag=value`。除 `context` 的选择参数、`conversation`、`attachment` 支持参数交错外，参数放在位置参数之前。`--config` 按各命令说明使用；`work` 命令从工作环境变量读取地址和凭据。
 
 ## 配置与运行目录
 
@@ -188,16 +189,53 @@ agentuse harnesses [--config FILE] [--json]
 
 Client 使用启动时的适配器和可用性快照。安装、升级或启停 harness 后，重启 Client，再在 Server 页面确认设备上报并启用对应 harness。
 
+## context：run 内的输入与文件
+
+AI 在 Client 启动的执行环境中直接使用 `context`，不需要提供 Server、conversation、session 或 run ID：
+
+```bash
+context input
+context attachments
+context attachment FILE_ID
+context --help
+```
+
+`input` 输出当前 run 已受理的输入及来源 message ID；`attachments` 输出这些输入携带的附件快照；`attachment` 校验文件大小、SHA-256 后返回本地绝对路径和 MIME 类型。图片需要再用模型的原生看图工具读取该路径。所有结果均为 JSON。
+
+一个本机 session 可以有多个 run。默认通过公开的 `harnessctl status` 确认正在执行的 run，不选择“最后一条 accepted”；排队 run 不会替换当前输入。当前 run 后续受理的补充消息可以通过再次调用 `context input` 读取。
+
+人类可以直接查看，或进入绑定某个 run 的 shell：
+
+```bash
+agentuse context --path /绝对路径/context.json --run RUN_ID input
+agentuse context --path /绝对路径/context.json --run RUN_ID attachments
+agentuse context --path /绝对路径/context.json --run RUN_ID attachment FILE_ID
+agentuse context enter --path /绝对路径/context.json --run RUN_ID
+# 进入后：
+context input
+```
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `--path` | `AGENTUSE_CONTEXT` | 本机 session 下 Client 生成的 `context.json` |
+| `--run` | 绑定环境中的 run，否则询问适配器当前 run | 该 session 中实际 accepted 的 run UUID；读取历史时显式指定 |
+
+文件位于 `<session.work_root>/<endpoint_id>/<conversation_id>/sessions/<session_id>/context.json`。`enter` 将工作目录切换到该 conversation 的 workspace，并为 shell 固定所选 run；退出 shell 即退出上下文。记录尚未回收且文件完整时，停止 Client 后也可以显式读取历史 run。
+
+裸 `context` 使用已经绑定的上下文，不接受 `--path`、`--run`、`--server`、`--token` 或管理命令。协调者 run 额外提供 `context work …`，由 `context --help` 展示；它使用该 run 的工作能力，结束后不可再操作工作线程。
+
+本地调试同样提供输入读取；远端输入还包含 Server message ID 和附件快照。完整的输出字段和图片读取示例见 [执行上下文手册](context.md)。旧 `agentuse session` 命令已移除；远端管理使用下面的 `agentuse conversation`。
+
 ## 远端命令的地址、会话与凭据
 
-`session`、`attachment` 共用以下选择规则：
+`conversation`、`attachment` 共用以下选择规则：
 
 | 值 | 来源，按优先级排列 |
 |---|---|
 | Server 地址 | `--server` → `AGENTUSE_SERVER` → 注册配置中选中的来源 |
 | 请求令牌 | `--token` → `AGENTUSE_TOKEN` → `AGENTUSE_WORK` → 所选来源的设备密钥 |
 | 注册配置文件 | `--config` → `AGENTUSE_CONFIG` → `~/.agentuse/endpoints.yaml` |
-| conversation ID | `--session` → `AGENTUSE_SESSION`；`session` 命令的显式位置参数优先 |
+| conversation ID | `--conversation` → `AGENTUSE_CONVERSATION`；`conversation` 命令的显式位置参数优先 |
 
 当地址或令牌仍需从配置补全时，会读取注册配置；显式提供地址时选择对应的注册来源。如果同时提供 Server 地址和用户或工作令牌，则无需本机注册即可调用相应的远端命令。
 
@@ -214,28 +252,28 @@ export AGENTUSE_SERVER="https://agentuse.example.com"
 export AGENTUSE_TOKEN="ut_替换为用户令牌"
 ```
 
-## session：远端会话
+## conversation：远端会话
 
-这里的 `SESSION_ID` 是 Server 的 conversation ID，即 `/api/sessions/{id}` 中的 ID。它与 Client 本机页面中的原生 harness session ID 含义不同。
+这里的 `CONVERSATION_ID` 是 Server 的 conversation ID，即 `/api/sessions/{id}` 中的 ID。它与 Client 本机页面中的原生 harness session ID 含义不同。
 
 ### 发送消息
 
 ```bash
-agentuse session send SESSION_ID [参数] "消息"
+agentuse conversation send CONVERSATION_ID [参数] "消息"
 ```
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
 | `--agents` | 空 | 逗号分隔的 Agent ID，对应 `to_agent_ids` |
 | `--users` | 空 | 逗号分隔的用户 ID，对应 `to_user_ids` |
-| `--session` | `AGENTUSE_SESSION` | 省略位置参数时使用的 conversation ID |
+| `--conversation` | `AGENTUSE_CONVERSATION` | 省略位置参数时使用的 conversation ID |
 | `--server`、`--token`、`--config` | 见上节 | 远端地址和凭据 |
 
 ```bash
-agentuse session send SESSION_ID --agents coder,reviewer "检查实现与风险"
-agentuse session send SESSION_ID --users alice "请查看结果"
-agentuse session send SESSION_ID --agents coder --users alice "请修复并记录结果"
-agentuse session send SESSION_ID "保存一条备注"
+agentuse conversation send CONVERSATION_ID --agents coder,reviewer "检查实现与风险"
+agentuse conversation send CONVERSATION_ID --users alice "请查看结果"
+agentuse conversation send CONVERSATION_ID --agents coder --users alice "请修复并记录结果"
+agentuse conversation send CONVERSATION_ID "保存一条备注"
 ```
 
 只有 `--agents` 中的收件人触发执行。用户收件人必须已经拥有会话读取权限；两组都为空时保存备注。正文里的 `@名称` 不会自动指定收件人。
@@ -245,47 +283,47 @@ agentuse session send SESSION_ID "保存一条备注"
 ### 读取、列 run 和等待
 
 ```bash
-agentuse session read SESSION_ID [--json]
-agentuse session runs SESSION_ID [--json]
-agentuse session wait SESSION_ID [--timeout 10m]
+agentuse conversation read CONVERSATION_ID [--json]
+agentuse conversation runs CONVERSATION_ID [--json]
+agentuse conversation wait CONVERSATION_ID [--timeout 10m]
 ```
 
-`read` 默认按顺序显示共享消息。`runs` 默认每行显示 run ID、Agent ID 和状态。`read/runs --json` 以及 `wait` 输出包含 `session`、`messages`、`runs` 的 JSON 对象。
+`read` 默认按顺序显示共享消息。`runs` 默认每行显示 run ID、Agent ID 和状态。`read/runs --json` 以及 `wait` 输出包含 `session`、`messages`、`runs` 的 JSON 对象；HTTP API 的字段名仍为 `session`。
 
 `wait` 等待会话进入 `idle` 或 `resolved`，默认超时 30 分钟。超时只结束等待，执行可以继续。命令成功结束等待后，仍需查看 `runs[].status` 判断执行成功、失败或取消；会话空闲本身不表示全部 run 成功。
 
 设置会话后，可以省略位置参数：
 
 ```bash
-export AGENTUSE_SESSION="替换为conversation的UUID"
-agentuse session read
-agentuse session send --agents coder "补充一个测试"
-agentuse session wait --timeout 5m
+export AGENTUSE_CONVERSATION="替换为conversation的UUID"
+agentuse conversation read
+agentuse conversation send --agents coder "补充一个测试"
+agentuse conversation wait --timeout 5m
 ```
 
 ### 取消执行
 
 ```bash
-agentuse session cancel SESSION_ID RUN_ID
+agentuse conversation cancel CONVERSATION_ID RUN_ID
 ```
 
 向指定 run 发送取消请求并输出 Server 当前记录的 run JSON。最终状态由 Client 的 result 事件确认，可以继续用 `runs`、`wait` 或页面查看。
 
 适配器实际执行的是对应本地 session 的取消操作，作用于该 session 当前及排队工作。需要回答执行中的问题时，使用 Server 页面或对应 API。
 
-`session` 各子命令都接受前述远端公共参数。`session` 和 `attachment` 允许参数出现在位置参数前后；使用 `--` 可终止参数解析，例如发送以 `-` 开头的正文。
+`conversation` 各子命令都接受前述远端公共参数。`conversation` 和 `attachment` 允许参数出现在位置参数前后；使用 `--` 可终止参数解析，例如发送以 `-` 开头的正文。
 
 ## attachment：远端会话附件
 
 ```bash
-agentuse attachment upload FILE --session SESSION_ID [参数]
-agentuse attachment list --session SESSION_ID [参数]
-agentuse attachment download ATTACHMENT_ID --session SESSION_ID --output FILE [参数]
+agentuse attachment upload FILE --conversation CONVERSATION_ID [参数]
+agentuse attachment list --conversation CONVERSATION_ID [参数]
+agentuse attachment download ATTACHMENT_ID --conversation CONVERSATION_ID --output FILE [参数]
 ```
 
 | 参数 | 默认值或来源 | 说明 |
 |---|---|---|
-| `--session` | `AGENTUSE_SESSION` | conversation ID，必填 |
+| `--conversation` | `AGENTUSE_CONVERSATION` | conversation ID，必填 |
 | `--server`、`--token`、`--config` | 见远端命令公共规则 | Server 地址和凭据 |
 | `--name` | 上传文件的 basename | 上传时覆盖显示文件名 |
 | `--output` | 无 | 下载目标文件，下载时必填 |
@@ -294,9 +332,9 @@ agentuse attachment download ATTACHMENT_ID --session SESSION_ID --output FILE [�
 | `--json` | `false` | 输出 JSON |
 
 ```bash
-agentuse attachment upload ./input.csv --session SESSION_ID --name data.csv --json
-agentuse attachment list --session SESSION_ID
-agentuse attachment download ATTACHMENT_ID --session SESSION_ID --output ./result.csv
+agentuse attachment upload ./input.csv --conversation CONVERSATION_ID --name data.csv --json
+agentuse attachment list --conversation CONVERSATION_ID
+agentuse attachment download ATTACHMENT_ID --conversation CONVERSATION_ID --output ./result.csv
 ```
 
 上传只接受普通文件，成功后默认输出附件 ID、文件名、大小和下载路径。上传连接中断时，Server 可能已经保存文件，先用 `list` 核对再决定是否重新上传。
@@ -307,7 +345,7 @@ agentuse attachment download ATTACHMENT_ID --session SESSION_ID --output ./resul
 
 ## work：协调者的工作线程
 
-工作协调者运行时，Client 自动提供 `AGENTUSE_SERVER` 和 `AGENTUSE_WORK`。`work` 命令从这两个环境变量读取地址和工作令牌，权限限定在对应工作；不使用 `--config` 或 Server 管理员登录文件。
+AI 协调者应使用 `context work …`；以下 `agentuse work …` 是显式环境变量入口，适合人工操作。工作协调者运行时，Client 自动提供 `AGENTUSE_SERVER` 和 `AGENTUSE_WORK`。`work` 命令从这两个环境变量读取地址和工作令牌，权限限定在对应工作；不使用 `--config` 或 Server 管理员登录文件。
 
 | 命令 | 作用 |
 |---|---|
@@ -315,9 +353,9 @@ agentuse attachment download ATTACHMENT_ID --session SESSION_ID --output ./resul
 | `agentuse work threads` | 列出本工作线程 |
 | `agentuse work new [参数] "消息"` | 创建线程并发送首条消息 |
 | `agentuse work new --defer-start` | 创建空线程，供上传附件后发送消息 |
-| `agentuse work send [参数] SESSION_ID "消息"` | 向线程发送消息 |
-| `agentuse work read SESSION_ID` | 查看线程消息 |
-| `agentuse work resolve SESSION_ID` | 将空闲线程标记为已完成 |
+| `agentuse work send [参数] CONVERSATION_ID "消息"` | 向线程发送消息 |
+| `agentuse work read CONVERSATION_ID` | 查看线程消息 |
+| `agentuse work resolve CONVERSATION_ID` | 将空闲线程标记为已完成 |
 | `agentuse work help` | 查看工作命令说明 |
 
 `new` 和 `send` 的参数放在消息或会话 ID 之前：
@@ -331,9 +369,9 @@ agentuse attachment download ATTACHMENT_ID --session SESSION_ID --output ./resul
 ```bash
 agentuse work agents
 agentuse work new --agents coder "实现这个功能"
-agentuse work send --agents reviewer --users alice SESSION_ID "请评审当前结果"
-agentuse work read SESSION_ID
-agentuse work resolve SESSION_ID
+agentuse work send --agents reviewer --users alice CONVERSATION_ID "请评审当前结果"
+agentuse work read CONVERSATION_ID
+agentuse work resolve CONVERSATION_ID
 ```
 
 `new` 输出创建的线程 ID。指定 Agent 后，线程执行完会把结果汇总给协调者；只指定用户或未指定收件人时，只保存消息。`send` 输出消息发送结果 JSON；`agents`、`threads`、`read` 默认输出可读文本。
@@ -343,8 +381,8 @@ agentuse work resolve SESSION_ID
 ```bash
 agentuse work new --defer-start
 # 将上一步输出的线程 ID 替换到以下命令。
-agentuse attachment upload ./input.csv --session SESSION_ID --token "$AGENTUSE_WORK"
-agentuse work send --agents coder SESSION_ID "分析附件中的数据"
+agentuse attachment upload ./input.csv --conversation CONVERSATION_ID --token "$AGENTUSE_WORK"
+agentuse work send --agents coder CONVERSATION_ID "分析附件中的数据"
 ```
 
 ## 执行环境变量
@@ -356,15 +394,18 @@ Client 为远端 Agent 的命令准备相应上下文，便于在执行中调用
 | `AGENTUSE_SERVER` | 当前 Server 地址 |
 | `AGENTUSE_CONFIG` | 当前 Client 注册配置文件 |
 | `AGENTUSE_ENDPOINT` | 当前来源标识；本地调试为 `local` |
-| `AGENTUSE_SESSION` | Server conversation ID |
+| `AGENTUSE_CONVERSATION` | Server conversation ID；远端管理命令的默认目标 |
+| `AGENTUSE_SESSION` | Client 本机 session ID，与 conversation ID 不同 |
+| `AGENTUSE_CONTEXT` | 当前 session 的 `context.json` 路径 |
+| `AGENTUSE_CONTEXT_RUN` | `agentuse context enter` 为 shell 固定的 run UUID |
 | `AGENTUSE_AGENT` | 当前 Agent ID |
 | `AGENTUSE_RUN` | 适配器可设置的实际 run ID，用于附件来源标记 |
-| `AGENTUSE_MESSAGE_ID` | 本次来源消息 ID |
+| `AGENTUSE_MESSAGE_ID` | 原生进程启动时的来源消息；读取当前输入应使用 `context input` |
 | `AGENTUSE_WORK` | 仅协调者执行中提供的工作令牌 |
 
-实际 run ID 由适配器产生，`AGENTUSE_RUN` 是否已设置取决于适配器的执行上下文。协调者向新建线程上传附件时，上例显式使用工作令牌，可访问尚未分配给设备的线程。
+实际 run ID 由适配器产生，`AGENTUSE_RUN` 是否已设置取决于适配器的执行上下文。`context` 优先使用进入 shell 时固定的 `AGENTUSE_CONTEXT_RUN`，其次为适配器提供的 `AGENTUSE_RUN`，否则询问原生 status；不依赖启动时的消息环境变量判断当前输入。协调者向新建线程上传附件时，上例显式使用工作令牌，可访问尚未分配给设备的线程。
 
-用户手动运行远端命令时，可用 `AGENTUSE_TOKEN` 提供用户或工作令牌。`AGENTUSE_CONFIG` 的默认值读取适用于 `session` 和 `attachment`；其他接受配置文件的命令使用显式 `--config`。
+用户手动运行远端命令时，可用 `AGENTUSE_TOKEN` 提供用户或工作令牌。`AGENTUSE_CONFIG` 的默认值读取适用于 `conversation` 和 `attachment`；其他接受配置文件的命令使用显式 `--config`。
 
 ## 帮助、输出与退出码
 
@@ -372,7 +413,8 @@ Client 为远端 Agent 的命令准备相应上下文，便于在执行中调用
 agentuse help
 agentuse start --help
 agentuse register --help
-agentuse session help
+agentuse context --help
+agentuse conversation help
 agentuse work help
 agentuse version
 ```

@@ -128,7 +128,7 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 			t.Fatal(roots, e)
 		}
 		data, e := os.ReadFile(filepath.Join(roots[0], "agents.md"))
-		if e != nil || string(data) != want {
+		if e != nil || !strings.HasPrefix(string(data), want+"\n") || !strings.Contains(string(data), "context attachment FILE_ID") {
 			t.Fatal(string(data), e)
 		}
 		data, e = os.ReadFile(filepath.Join(roots[0], "skills", "review", "SKILL.md"))

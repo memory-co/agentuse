@@ -55,7 +55,7 @@ func TestNativeInitResourcesAndVersionSessionSelection(t *testing.T) {
 			root := filepath.Join(s.Sessions.Root, "local", conversation.ID, "sessions", first.SessionID)
 			resources := filepath.Join(root, "events.jsonl.d", "resources")
 			b, e := os.ReadFile(filepath.Join(resources, "agents.md"))
-			if e != nil || string(b) != request.AgentInstructions {
+			if e != nil || !strings.HasPrefix(string(b), request.AgentInstructions+"\n") || !strings.Contains(string(b), "context attachment FILE_ID") {
 				t.Fatal(string(b), e)
 			}
 			b, e = os.ReadFile(filepath.Join(resources, "skills", "reviewer", "SKILL.md"))
@@ -136,7 +136,7 @@ func TestRemoteResourceDownloadValidation(t *testing.T) {
 		t.Fatal(e)
 	}
 	cleanup()
-	if calls != 1 || len(a.InitArgs) != 2 {
+	if calls != 1 || len(a.InitArgs) != 4 {
 		t.Fatal(calls, a.InitArgs)
 	}
 	// A new session using the same immutable skill reuses the verified ZIP.
