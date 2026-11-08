@@ -36,8 +36,8 @@ func TestContextUploadsOutputsAndRecoversLostResponseFromServer(t *testing.T) {
 		path := "/api/sessions/" + conversation + "/attachments"
 		switch {
 		case r.Method == "GET" && r.URL.Path == path:
-			if r.URL.Query().Get("run_id") != run {
-				t.Error("listing the whole conversation")
+			if r.URL.Query().Get("run_id") != "" {
+				t.Error("list must not filter by run")
 				w.WriteHeader(400)
 				return
 			}
@@ -60,8 +60,16 @@ func TestContextUploadsOutputsAndRecoversLostResponseFromServer(t *testing.T) {
 			id := "at_report"
 			if number == 2 {
 				id = "at_lost"
+			} else if number == 3 {
+				id = "at_renamed"
 			}
-			metadata := sdk.Attachment{ID: id, SessionID: conversation, CreatedByRunID: run, Filename: head.Filename, ContentType: "text/plain", SizeBytes: int64(len(data)), SHA256: hex.EncodeToString(digest[:])}
+			metadata := sdk.Attachment{ID: id, SessionID: conversation, CreatedByRunID: run, Filename: head.Filename, RelativePath: r.FormValue("path"), ContentType: "text/plain", SizeBytes: int64(len(data)), SHA256: hex.EncodeToString(digest[:])}
+			if number == 2 {
+				metadata.RelativePath = "报告 (2).txt"
+			}
+			if number == 3 {
+				metadata.RelativePath = "reports/报告 (3).txt"
+			}
 			outputs = append(outputs, metadata)
 			contents[id] = data
 			if number == 2 {
@@ -75,6 +83,15 @@ func TestContextUploadsOutputsAndRecoversLostResponseFromServer(t *testing.T) {
 			}
 			w.WriteHeader(201)
 			json.NewEncoder(w).Encode(metadata)
+		case r.Method == "GET" && strings.HasPrefix(r.URL.Path, path+"/") && !strings.HasSuffix(r.URL.Path, "/content"):
+			id := strings.TrimPrefix(r.URL.Path, path+"/")
+			for _, file := range outputs {
+				if file.ID == id {
+					json.NewEncoder(w).Encode(file)
+					return
+				}
+			}
+			w.WriteHeader(404)
 		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/content"):
 			fields := strings.Split(r.URL.Path, "/")
 			w.Write(contents[fields[len(fields)-2]])
@@ -131,12 +148,24 @@ func TestContextUploadsOutputsAndRecoversLostResponseFromServer(t *testing.T) {
 	if _, err = fresh.UploadAttachment(context.Background(), fixture.workspace); err == nil || posts.Load() != 2 {
 		t.Fatal("directory was uploaded", err)
 	}
+	renamed, err := fresh.UploadAttachment(context.Background(), report)
+	if err != nil || renamed.RelativePath != "reports/报告 (3).txt" || renamed.LocalPath != filepath.Join(fixture.workspace, "reports", "报告 (3).txt") {
+		t.Fatal("Server-assigned path not mirrored", renamed, err)
+	}
+	if data, e := os.ReadFile(renamed.LocalPath); e != nil || string(data) != string(body) {
+		t.Fatal("renamed upload not materialized", e)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	os.WriteFile(outside, body, 0600)
+	if _, err = fresh.UploadAttachment(context.Background(), outside); err == nil || posts.Load() != 3 {
+		t.Fatal("uploaded outside workspace", err)
+	}
 	fixture.eventsFile(t, acceptedContextEvent(run, "one"), map[string]any{"type": "result", "run_id": run, "status": "completed"})
 	historical, err := OpenExecutionContext(context.Background(), fixture.path, run)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = historical.UploadAttachment(context.Background(), report); err == nil || posts.Load() != 2 {
+	if _, err = historical.UploadAttachment(context.Background(), report); err == nil || posts.Load() != 3 {
 		t.Fatal("historical context uploaded", err)
 	}
 }

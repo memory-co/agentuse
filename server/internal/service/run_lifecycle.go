@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
+	"github.com/memory-co/agentuse/internal/attachment"
 	"strings"
 
 	"github.com/memory-co/agentuse/internal/protocol"
@@ -67,7 +67,7 @@ func (s *Service) prepareMessage(ctx context.Context, tx *sql.Tx, p Delivery) (p
 	if json.Unmarshal(p.Content, &input) != nil || input.Prompt == "" {
 		input.Prompt = string(p.Content)
 	}
-	out := protocol.ConversationMessage{ConversationID: p.SessionID, MessageID: p.MessageID, AgentID: p.AgentID, AgentVersionID: p.AgentVersionID, Content: input.Prompt, Attachments: []protocol.LocalAttachment{}}
+	out := protocol.ConversationMessage{ConversationID: p.SessionID, MessageID: p.MessageID, AgentID: p.AgentID, AgentVersionID: p.AgentVersionID, Content: input.Prompt, Attachments: []attachment.Attachment{}}
 	instructions := ""
 	if ss.WorkID != "" {
 		w, err := scanWork(tx.QueryRowContext(ctx, workCols+` WHERE w.id=?`, ss.WorkID))
@@ -84,16 +84,16 @@ func (s *Service) prepareMessage(ctx context.Context, tx *sql.Tx, p Delivery) (p
 		return out, err
 	}
 	for _, file := range source.Attachments {
-		out.Attachments = append(out.Attachments, protocol.LocalAttachment{Attachment: file, Path: filepath.ToSlash(filepath.Join(".agentuse", "attachments", file.ID, file.Filename))})
+		out.Attachments = append(out.Attachments, file)
 	}
 	if strings.TrimSpace(input.Prompt) == "" && len(source.Attachments) > 0 {
 		out.Content = "Please review the attachments in this message."
 	}
 
 	if len(out.Attachments) > 0 {
-		instructions += "\n# Current message attachments\n"
+		instructions += "\n# Current message attachments\nFiles are fetched on demand. Use context attachment read FILE_ID to fetch a file into the workspace at its conversation-relative path before reading it.\n"
 		for _, file := range out.Attachments {
-			instructions += fmt.Sprintf("- %s (file ID: %s); local path: %s\n", file.Filename, file.ID, file.Path)
+			instructions += fmt.Sprintf("- %s (file ID: %s); conversation path: %s\n", file.Filename, file.ID, file.RelativePath)
 		}
 	}
 	// History is assembled by Server after Client selects its actual local session.

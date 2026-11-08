@@ -120,7 +120,13 @@ func contextCommand(args []string, bound bool) error {
 	}
 	ctx, stop := command.SignalContext()
 	defer stop()
-	selected, err := runservice.OpenExecutionContext(ctx, path, run)
+	var selected *runservice.ExecutionContext
+	var err error
+	if rest[0] == "attachment" && (rest[1] == "list" || rest[1] == "read") {
+		selected, err = runservice.OpenConversationContext(ctx, path)
+	} else {
+		selected, err = runservice.OpenExecutionContext(ctx, path, run)
+	}
 	if err != nil {
 		return err
 	}

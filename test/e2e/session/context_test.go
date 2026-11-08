@@ -125,6 +125,9 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 			})
 			workspace := filepath.Join(home, ".agentuse", "tmp", ep, conversation, "workspace")
 			if h == "fake" {
+				if _, err = os.Stat(filepath.Join(workspace, filepath.FromSlash(attachment.RelativePath))); !os.IsNotExist(err) {
+					t.Fatal("Client downloaded before context read", err)
+				}
 				future, err := c.UploadAttachment(ctx, user, conversation, "later.png", bytes.NewReader(image))
 				if err != nil {
 					t.Fatal(err)
@@ -159,10 +162,20 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 			if proof.Context.RunID != run.ID || proof.Context.SessionID == conversation || proof.Context.ConversationID != conversation || len(proof.Context.Inputs) != 1 || proof.Context.Inputs[0].MessageID != first.Message.ID || proof.Context.Inputs[0].Text != prompt {
 				t.Fatal("incorrect context binding", run.Output)
 			}
-			if len(proof.Attachments.Attachments) != 1 || proof.Attachments.Attachments[0].ID != attachment.ID || proof.File.MIMEType != "image/png" || proof.SHA256 != hex.EncodeToString(digest[:]) || !filepath.IsAbs(proof.File.LocalPath) {
+			expectedFiles := 1
+			if h == "fake" {
+				expectedFiles = 2
+			}
+			foundInput := false
+			for _, file := range proof.Attachments.Attachments {
+				if file.ID == attachment.ID {
+					foundInput = true
+				}
+			}
+			if len(proof.Attachments.Attachments) != expectedFiles || !foundInput || proof.File.MIMEType != "image/png" || proof.SHA256 != hex.EncodeToString(digest[:]) || proof.File.LocalPath != filepath.Join(workspace, filepath.FromSlash(attachment.RelativePath)) {
 				t.Fatal("incorrect image snapshot", run.Output)
 			}
-			if proof.Uploaded.RunID != run.ID || proof.Uploaded.ConversationID != conversation || proof.Uploaded.Direction != "output" || len(proof.Outputs.Attachments) != 2 {
+			if proof.Uploaded.RunID != run.ID || proof.Uploaded.ConversationID != conversation || proof.Uploaded.Direction != "output" || len(proof.Outputs.Attachments) != expectedFiles+1 {
 				t.Fatal("run output binding failed", run.Output)
 			}
 			output, err := c.GetAttachment(ctx, user, conversation, proof.Uploaded.ID)

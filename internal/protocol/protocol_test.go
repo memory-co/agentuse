@@ -9,7 +9,7 @@ import (
 func TestExecutionMessagesPreservePublicEventsAndOpaqueAnswers(t *testing.T) {
 	event := json.RawMessage(`{"type":"result","run_id":"550e8400-e29b-41d4-a716-446655440000","input_ids":["input"],"status":"completed","output":"中文","usage":{"input_tokens":7}}`)
 	messages := []Message{
-		DeliveryFrame(ConversationMessage{ConversationID: "conversation", MessageID: "message", AgentID: "agent", AgentVersionID: "version", Content: "input", Attachments: []LocalAttachment{}}),
+		DeliveryFrame(ConversationMessage{ConversationID: "conversation", MessageID: "message", AgentID: "agent", AgentVersionID: "version", Content: "input", Attachments: nil}),
 		EventFrame(ClientEvent{SessionID: "client-session", Seq: 99, Event: event}),
 		{Type: TypeAnswer, ID: "a:control", Control: &SessionControl{SessionID: "s1", RunID: "r1", RequestID: "request", Answer: json.RawMessage(`{"q":["one","two"]}`)}},
 	}

@@ -21,8 +21,8 @@ AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇�
 ## 命令與輸出
 
 - `context input`：實際 run 定位、狀態及該 UUID 的已受理輸入；context 讀取消息收據中實際送入 harnessctl 的組裝結果，包含必要的 `complete_messages` 補充，不重新查詢最新共享歷史。
-- `context attachment list`：固定輸入快照與本次 run 的輸出元數據，以 direction 區分。
-- `context attachment read FILE_ID`：驗證文件並返回本地絕對路徑及 MIME 類型。
+- `context attachment list`：直接查詢 Server 的 conversation 附件列表，不按 run 篩選，不下載文件。
+- `context attachment read FILE_ID`：查詢 Server 元資料，按需下載並校驗，保存到 `workspace/<relative_path>`，返回本地絕對路徑及 MIME 類型。
 - `context attachment upload FILE`：上傳本次 run 的輸出，自動關聯 conversation/run，返回可引用的下載路徑。
 - `context --help`：當前可用能力，不列出註冊、啓停等管理命令。
 
@@ -34,11 +34,13 @@ AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇�
 
 ## 文件範圍與圖片
 
-收到遠端 message 時，Client 按報文中的附件快照校驗及下載，不在執行前重新列舉 conversation 的最新文件。快照是該消息明確選定的附件，不自動攜帶整個 conversation 的文件。
+Client 收到遠端 message 時只保存附件元資料及向 AI 說明名稱、ID、conversation 相對路徑，不提前下載。消息選擇哪些附件，是本次輸入的提示與記錄，不限制文件工具的查詢範圍。
 
-工具將同一 run 全部已受理輸入的附件去重，同一 ID 的元數據衝突時報錯。其他排隊 run 的附件即使已下載到共享 workspace，也不能經本工具的當前視圖讀取。這個視圖不改變 conversation 共用 workspace 的既有模型。
+`list` 直接分頁讀取同一 Server 的 conversation 附件列表；`read` 依 ID 讀取該 conversation 的附件元資料，與是否附在當前消息、是否由當前 run 產生無關。因此先前 run 的文件、補齊消息的文件和後續上傳的文件都可查詢；Server 仍驗證設備有權訪問該 conversation，不允許跨 conversation 讀取。
 
-`attachment read` 先確認 ID 在輸入快照或本次 run 的輸出內，再驗證緩存的大小和 SHA-256；缺失或內容損壞時，通過描述文件指定的 endpoint 註冊配置取得設備身份，從同一 Server 重新下載。下載不跟隨重定向。文件緩存繼續使用 os.Root、受管子目錄校驗及獨立臨時文件，不跟隨符號鏈接。
+兩個命令只需要既有 context 描述文件的 conversation 綁定，不讀取 harness status、accepted 或 run 收據來選擇附件。`input`、`upload` 和 `enter` 才需要實際 run；上傳仍保留輸出歸屬和活動狀態檢查。
+
+Server 返回的 `relative_path` 是唯一文件路徑，Client 保存到 `<workspace>/<relative_path>`，不另建隱藏附件目錄。例如 `user_input/manual.pdf` 對應 `workspace/user_input/manual.pdf`。已下載且大小、SHA-256 一致時重用文件，缺失或損壞時按需下載；下載使用同 endpoint 的設備身份，不跟隨重定向，透過 os.Root 校驗父目錄、拒絕符號鏈接與越界路徑，校驗臨時文件後原子發布。
 
 返回本地路徑後，AI 使用原生看圖或文件工具讀取內容。Client 不把圖片 base64 塞進 CLI JSON，也不建立另一個圖片 RPC。Codex、Claude 及自定義適配器共用同一個命令實現。
 
@@ -46,17 +48,18 @@ AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇�
 
 附件只有輸入和輸出兩個方向：人類在 Server 上傳輸入，AI 通過 context 讀取；AI 通過 context 上傳輸出，人類在 Server 讀取。Client 不另設頂層 attachment 管理命令。
 
-上傳源必須是普通文件，目標固定為當前 conversation/run，禁止通過命令參數覆蓋 Server、令牌或執行身份。Client 使用同 endpoint 的設備憑據和 X-Agentuse-Run；Server 在讀取 body 之前及發布事務中兩次檢查 run 歸屬與活動狀態，結束的 run 不可再發布。上傳不發消息、不創建 run，也不觸發 result。
+上傳源必須是 workspace 內的普通文件，保留其相對路徑；`user_input/` 專供使用者上傳，生成文件應放在 `reports/` 等其他位置。Client 以設備憑據和 X-Agentuse-Run 發布，Server 校驗 run 的 conversation、設備與活動狀態。已結束的 run 不能上傳，但仍可查詢及讀取 conversation 文件。上傳不發消息、不創建 run，也不結束執行。
 
-輸出元數據以 Server 的 created_by_run_id 為事實來源。工具通過附件列表的 run_id 過濾查詢，不新增本機輸出賬本；列表游標同時綁定 conversation/run。來源 accepted 尚在上報時僅短暫重試只讀查詢，不重放 POST。回執丟失時再次 list 能發現已發布文件，防止盲目重傳。
+Server 若為避免重名而分配新 `relative_path`，Client 同時將已上傳的內容保存到該 workspace 路徑，返回相符的 `relative_path` 和 `local_path`。固定英文工具指令要求 AI 在承諾交付文件前完成 upload，並在回覆中引用返回的 `download_path`；不能把本地相對路徑當作瀏覽器下載連結。
 
-list 將輸入快照與當前 run 輸出去重，read 對兩者使用相同的摘要校驗與緩存。其他 run 的輸出不因位於同一 workspace 而自動可讀，除非後續輸入的固定快照明確包含它。歷史輸出可讀，發布能力只屬於活動 run。
+所有文件仍以 Server 附件元資料為事實來源，不新增本機附件賬本，不按 run 合併輸入／輸出列表。`direction` 表示使用者輸入或 Agent 產物，`run_id` 表示產物實際來源。回執丟失時先 list 核對，禁止盲目重放 POST。
 
 ## 準備及文件佈局
 
 ```text
 <work_root>/<endpoint>/<conversation>/
-  workspace/.agentuse/attachments/<file_id>/<filename>
+  workspace/user_input/<filename>
+  workspace/reports/<filename>
   .server/messages/<message-agent-key-hash>.json
   sessions/<session_id>/
     session.yaml

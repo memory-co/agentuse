@@ -410,7 +410,7 @@ func (d *endpointConnection) receiveMessage(ctx context.Context, p protocol.Conv
 		if e := d.saveReceipt(saved); e != nil {
 			return e
 		}
-		return d.syncAttachments(ctx, &p, sessionWorkspace(d.cfg.RunService.Sessions.Root, d.cfg.EndpointID, p.ConversationID))
+		return nil
 	}
 	request.preparePrompt = func(metadata session.Session) (string, error) {
 		client := agentuse.New(d.cfg.Server, d.cfg.Key)

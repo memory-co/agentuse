@@ -68,9 +68,9 @@ func (f contextFixture) eventsFile(t *testing.T, events ...map[string]any) {
 }
 func (f contextFixture) receipt(t *testing.T, run, input, message, text string, files ...sdk.Attachment) messageReceipt {
 	t.Helper()
-	p := protocol.ConversationMessage{ConversationID: f.metadata.ConversationID, MessageID: message, AgentID: f.metadata.AgentID, AgentVersionID: f.metadata.AgentVersionID, Content: text, Context: "shared history", Attachments: []protocol.LocalAttachment{}}
+	p := protocol.ConversationMessage{ConversationID: f.metadata.ConversationID, MessageID: message, AgentID: f.metadata.AgentID, AgentVersionID: f.metadata.AgentVersionID, Content: text, Context: "shared history", Attachments: []sdk.Attachment{}}
 	for _, a := range files {
-		p.Attachments = append(p.Attachments, protocol.LocalAttachment{Attachment: a})
+		p.Attachments = append(p.Attachments, a)
 	}
 	r := messageReceipt{Message: p, PreparedContext: p.Context, SessionID: f.metadata.ID, RunID: run, InputID: input, State: "accepted"}
 	if err := fileutil.WriteJSON(filepath.Join(f.service.Sessions.Root, f.metadata.EndpointID, f.metadata.ConversationID, ".server", "messages", receiptName(p.Key())), r); err != nil {
@@ -146,27 +146,35 @@ func TestContextLocalInputsAndHistoricalSelection(t *testing.T) {
 	}
 }
 
-func TestContextAttachmentSnapshotVerificationAndScopedDownload(t *testing.T) {
+func TestContextAttachmentsComeFromConversationAndDownloadOnDemand(t *testing.T) {
 	content := []byte("\x89PNG\r\n\x1a\nimage-data")
 	digest := sha256.Sum256(content)
-	requests := 0
-	var allowed, listPath, runID string
+	var image, other sdk.Attachment
+	downloads, lists := 0, 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
-		if r.URL.Path == listPath {
-			if r.URL.Query().Get("run_id") != runID || r.Header.Get("Authorization") != "Bearer dk_private" {
-				t.Error("unscoped list")
-			}
-			json.NewEncoder(w).Encode(sdk.AttachmentPage{Attachments: []sdk.Attachment{}})
-			return
-		}
-		requests++
-		if r.Header.Get("Authorization") != "Bearer dk_private" || r.URL.Path != allowed {
-			t.Errorf("unscoped request %s", r.URL.Path)
+		if r.Header.Get("Authorization") != "Bearer dk_private" {
+			t.Error("wrong credential")
 			w.WriteHeader(403)
 			return
 		}
-		w.Write(content)
+		prefix := "/api/sessions/" + image.SessionID + "/attachments"
+		switch r.URL.Path {
+		case prefix:
+			lists++
+			if r.URL.Query().Get("run_id") != "" {
+				t.Error("conversation list filtered by run")
+			}
+			json.NewEncoder(w).Encode(sdk.AttachmentPage{Attachments: []sdk.Attachment{image, other}})
+		case prefix + "/" + image.ID:
+			json.NewEncoder(w).Encode(image)
+		case prefix + "/" + other.ID:
+			json.NewEncoder(w).Encode(other)
+		case prefix + "/" + image.ID + "/content", prefix + "/" + other.ID + "/content":
+			downloads++
+			w.Write(content)
+		default:
+			w.WriteHeader(404)
+		}
 	}))
 	defer ts.Close()
 	ep := endpoint.Endpoint{ServerURL: ts.URL, DeviceID: "device", DeviceKey: "dk_private", Enabled: true}
@@ -174,53 +182,48 @@ func TestContextAttachmentSnapshotVerificationAndScopedDownload(t *testing.T) {
 	if err := (&endpoint.Service{Path: f.service.Path}).Save(ep); err != nil {
 		t.Fatal(err)
 	}
-	image := sdk.Attachment{ID: "at_image", SessionID: f.metadata.ConversationID, Filename: "截图.png", ContentType: "image/png", SizeBytes: int64(len(content)), SHA256: hex.EncodeToString(digest[:])}
-	future := image
-	future.ID = "at_future"
-	allowed = "/api/sessions/" + f.metadata.ConversationID + "/attachments/at_image/content"
-	listPath = "/api/sessions/" + f.metadata.ConversationID + "/attachments"
-	runID = f.first
+	image = sdk.Attachment{ID: "at_image", SessionID: f.metadata.ConversationID, Filename: "截图.png", RelativePath: "user_input/截图.png", ContentType: "image/png", SizeBytes: int64(len(content)), SHA256: hex.EncodeToString(digest[:])}
+	other = image
+	other.ID = "at_other"
+	other.RelativePath = "reports/earlier.png"
+	other.CreatedByRunID = f.first
 	f.eventsFile(t, acceptedContextEvent(f.first, "one"), acceptedContextEvent(f.next, "next"))
 	f.receipt(t, f.first, "one", "message", "inspect image", image)
-	f.receipt(t, f.next, "next", "later", "other image", future)
-	view, err := OpenExecutionContext(context.Background(), f.path, f.first)
+	// This later run has no attachment IDs, but sees all conversation files.
+	f.receipt(t, f.next, "next", "later", "continue")
+	view, err := OpenExecutionContext(context.Background(), f.path, f.next)
 	if err != nil {
 		t.Fatal(err)
 	}
 	listed, err := view.Attachments(context.Background())
-	if err != nil || len(listed) != 1 || listed[0].MIMEType != "image/png" {
-		t.Fatal(listed, err)
+	if err != nil || len(listed) != 2 || listed[1].RunID != f.first || listed[1].Direction != "output" || downloads != 0 {
+		t.Fatal(listed, err, downloads)
 	}
-	if _, err = view.Attachment(context.Background(), future.ID); err == nil || requests != 0 {
-		t.Fatal("fetched a future input file", err, requests)
+	if _, err = os.Stat(filepath.Join(f.workspace, "user_input")); !os.IsNotExist(err) {
+		t.Fatal("list downloaded files", err)
+	}
+	if _, err = view.Attachment(context.Background(), "at_missing"); err == nil || downloads != 0 {
+		t.Fatal("unknown file read", err)
 	}
 	file, err := view.Attachment(context.Background(), image.ID)
-	if err != nil || !filepath.IsAbs(file.LocalPath) || requests != 1 {
-		t.Fatal(file, err, requests)
+	if err != nil || file.LocalPath != filepath.Join(f.workspace, filepath.FromSlash(image.RelativePath)) || downloads != 1 {
+		t.Fatal(file, err)
 	}
-	actual, err := os.ReadFile(file.LocalPath)
-	if err != nil || string(actual) != string(content) {
-		t.Fatal("wrong image", err)
+	if _, err = view.Attachment(context.Background(), other.ID); err != nil || downloads != 2 {
+		t.Fatal("earlier output inaccessible", err)
 	}
-	if _, err = view.Attachment(context.Background(), image.ID); err != nil || requests != 1 {
-		t.Fatal("verified cache not reused", err, requests)
+	if _, err = view.Attachment(context.Background(), image.ID); err != nil || downloads != 2 {
+		t.Fatal("cache not reused", err)
 	}
-	if err = os.WriteFile(file.LocalPath, []byte("corrupt"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = view.Attachment(context.Background(), image.ID); err != nil || requests != 2 {
-		t.Fatal("corrupt image not repaired", err, requests)
-	}
-	if err = os.Remove(file.LocalPath); err != nil {
-		t.Fatal(err)
-	}
+	os.Remove(file.LocalPath)
 	outside := filepath.Join(t.TempDir(), "secret.png")
 	os.WriteFile(outside, content, 0600)
-	if err = os.Symlink(outside, file.LocalPath); err != nil {
-		t.Fatal(err)
-	}
+	os.Symlink(outside, file.LocalPath)
 	if _, err = view.Attachment(context.Background(), image.ID); err == nil {
-		t.Fatal("symbolic link exposed as an image")
+		t.Fatal("symbolic link accepted")
+	}
+	if _, err = view.Attachments(context.Background()); err != nil || lists != 2 {
+		t.Fatal("list did not query Server", err, lists)
 	}
 }
 
@@ -243,5 +246,32 @@ func TestContextDoesNotExposeCredentialsOrServerBusinessPolicy(t *testing.T) {
 	}
 	if info, err := os.Lstat(filepath.Join(view.BinPath(), "context")); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Fatal("missing context entrypoint", err)
+	}
+}
+
+func TestConversationFileContextDoesNotRequireAnActiveRun(t *testing.T) {
+	var conversation string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/sessions/"+conversation+"/attachments" || r.Header.Get("X-Agentuse-Run") != "" || r.URL.Query().Get("run_id") != "" {
+			t.Error("file listing unexpectedly bound to a run", r.URL)
+			w.WriteHeader(400)
+			return
+		}
+		json.NewEncoder(w).Encode(sdk.AttachmentPage{Attachments: []sdk.Attachment{}})
+	}))
+	defer server.Close()
+	ep := endpoint.Endpoint{ServerURL: server.URL, DeviceID: "device", DeviceKey: "dk_private", Enabled: true}
+	fixture := newContextFixture(t, ep.ID())
+	conversation = fixture.metadata.ConversationID
+	if err := (&endpoint.Service{Path: fixture.service.Path}).Save(ep); err != nil {
+		t.Fatal(err)
+	}
+	// No accepted events, run receipts or native process are needed for file access.
+	view, err := OpenConversationContext(context.Background(), fixture.path)
+	if err != nil || view.RunID != "" {
+		t.Fatal(view, err)
+	}
+	if files, e := view.Attachments(context.Background()); e != nil || len(files) != 0 {
+		t.Fatal(files, e)
 	}
 }

@@ -105,7 +105,7 @@ Client 缺少配置時，讀取已有 Agent 版本 API；按其 skills 引用讀
 ```text
 持久記錄正在處理的 message/Agent，預留容量
     → 讀取缺少的固定版本配置與資源
-    → 準備本機 context 描述文件、命令入口，校驗收到的附件快照
+    → 準備本機 context 描述文件與命令入口；附件只傳元資料，不提前下載
     → 校驗 ZIP 的版本、大小、SHA-256，安全解包到 workspace 外
     → harnessctl init，固定模型、指令及技能快照
     → init 成功後清理臨時資源
@@ -245,6 +245,6 @@ Work 由 Server 管理，可以跨多個 Client。message 不包含 work_id/work
 
 ## 當前執行的文件交互
 
-Client 的 `context attachment list/read/upload` 統一處理當前 run 的輸入與輸出。輸入仍是 message 中的固定附件快照；輸出通過既有 HTTP 附件接口發布，設備上傳必須提供當前 X-Agentuse-Run，Server 校驗本設備、本 conversation 和活動 run 的歸屬。列表的 run_id 過濾僅返回該 run 發布的輸出，與固定輸入合併展示。不增加文件上傳的 WebSocket 事件，不自動發消息或結束執行。
+Client 的 `context attachment list/read` 直接讀取 Server 的 conversation 附件，不按 run 篩選，無須活躍 run。message 只攜帶本次所選附件元資料，移除額外本地 path；relative_path 統一為 conversation 相對路徑。Client 不提前下載，read 才保存到 workspace/<relative_path>。upload 保留 workspace 相對路徑；若 Server 改名則同步保存在返回路徑。設備發布仍提供 X-Agentuse-Run，Server 校驗活動 run 歸屬。提示詞要求 AI 上傳產物並引用 download_path，不以本地路徑作為交付連結。不新增文件 WebSocket 事件。
 
 送入模型的 `complete_messages` 使用可讀的對話文字，按順序標示作者、@收件人、引用的消息正文及附件名稱／ID／路徑；不把 API JSON、消息 UUID、序號、雜湊或執行資料直接拼入提示詞。API 維持結構化資料，Client 只負責排版。程式產生的標題、工具說明與提示詞統一使用英文，使用者和 Agent 的原始正文保留原文；既有 native session 的初始化快照不改寫。

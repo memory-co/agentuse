@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"github.com/memory-co/agentuse/internal/attachment"
 	"strings"
 )
 
@@ -17,13 +18,13 @@ type SkillResource struct {
 // ConversationMessage refers directly to one saved message and its target Agent.
 // Agent configuration is read separately through the immutable version API.
 type ConversationMessage struct {
-	ConversationID string            `json:"conversation_id"`
-	MessageID      string            `json:"message_id"`
-	AgentID        string            `json:"agent_id"`
-	AgentVersionID string            `json:"agent_version_id"`
-	Content        string            `json:"content"`
-	Context        string            `json:"context,omitempty"`
-	Attachments    []LocalAttachment `json:"attachments"`
+	ConversationID string                  `json:"conversation_id"`
+	MessageID      string                  `json:"message_id"`
+	AgentID        string                  `json:"agent_id"`
+	AgentVersionID string                  `json:"agent_version_id"`
+	Content        string                  `json:"content"`
+	Context        string                  `json:"context,omitempty"`
+	Attachments    []attachment.Attachment `json:"attachments"`
 }
 
 func (m ConversationMessage) Key() string { return "m:" + m.MessageID + ":" + m.AgentID }

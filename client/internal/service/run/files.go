@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/attachment"
-	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
@@ -21,98 +23,88 @@ func openAttachmentDir(root *os.Root, name string) (*os.Root, error) {
 		return nil, err
 	}
 	if !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("附件目录不能是符号链接: %s", name)
+		return nil, fmt.Errorf("attachment directory must not be a symbolic link: %s", name)
 	}
 	return root.OpenRoot(name)
 }
-func (d *endpointConnection) syncAttachments(ctx context.Context, m *protocol.ConversationMessage, dir string) error {
-	c := agentuse.New(d.cfg.Server, d.cfg.Key)
-	list := make([]agentuse.Attachment, 0, len(m.Attachments))
-	for _, a := range m.Attachments {
-		list = append(list, a.Attachment)
+func validateContextAttachment(conversation string, a agentuse.Attachment) error {
+	if a.SessionID != conversation || !attachment.ValidID(a.ID, "at_") {
+		return fmt.Errorf("attachment does not belong to this conversation")
 	}
-	return cacheContextAttachments(ctx, c, m.ConversationID, dir, list)
+	_, err := attachment.RelativePath(a.RelativePath)
+	return err
 }
 
-var errAttachmentNotCached = errors.New("attachment is not cached")
-
-func cacheContextAttachments(ctx context.Context, c *agentuse.Client, conversation, dir string, list []agentuse.Attachment) error {
-	if len(list) == 0 {
-		return nil
+// materializeAttachment uses only the Server's conversation-relative path.
+// Existing verified bytes are reused. Otherwise write a verified temporary file
+// and atomically publish it; source is supplied directly after an upload.
+func materializeAttachment(ctx context.Context, client *agentuse.Client, conversation, workspace string, a agentuse.Attachment, source io.Reader) (string, error) {
+	if err := validateContextAttachment(conversation, a); err != nil {
+		return "", err
 	}
-	root, err := os.OpenRoot(dir)
+	root, err := os.OpenRoot(workspace)
 	if err != nil {
-		return err
+		return "", err
+	}
+	parts := strings.Split(a.RelativePath, "/")
+	for _, part := range parts[:len(parts)-1] {
+		sub, e := openAttachmentDir(root, part)
+		root.Close()
+		if e != nil {
+			return "", e
+		}
+		root = sub
 	}
 	defer root.Close()
-	managed, err := openAttachmentDir(root, ".agentuse")
-	if err != nil {
-		return err
-	}
-	defer managed.Close()
-	cache, err := openAttachmentDir(managed, "attachments")
-	if err != nil {
-		return err
-	}
-	defer cache.Close()
-	for _, a := range list {
-		name, e := attachment.Filename(a.Filename)
-		if e != nil || name != a.Filename || !attachment.ValidID(a.ID, "at_") || a.SessionID != conversation {
-			return fmt.Errorf("服务返回不合法的附件元数据")
+	name := parts[len(parts)-1]
+	local := filepath.Join(workspace, filepath.FromSlash(a.RelativePath))
+	if info, e := root.Lstat(name); e == nil {
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("attachment path is not a regular file")
 		}
-		sub, e := openAttachmentDir(cache, a.ID)
+		f, e := root.Open(name)
 		if e != nil {
-			return e
+			return "", e
 		}
-		e = func() error {
-			defer sub.Close()
-			if info, e := sub.Lstat(name); e == nil {
-				if !info.Mode().IsRegular() {
-					return fmt.Errorf("附件缓存不是普通文件")
-				}
-				f, e := sub.Open(name)
-				if e != nil {
-					return e
-				}
-				e = agentuse.CopyVerified(discardWriter{}, f, a)
-				f.Close()
-				if e == nil {
-					return nil
-				}
-			} else if !errors.Is(e, os.ErrNotExist) {
-				return e
-			}
-			if c == nil {
-				return errAttachmentNotCached
-			}
-			src, e := c.DownloadAttachment(ctx, "", a.SessionID, a.ID)
-			if e != nil {
-				return e
-			}
-			defer src.Close()
-			tmp := ".download-" + uuid.NewString()
-			f, e := sub.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-			if e != nil {
-				return e
-			}
-			defer sub.Remove(tmp)
-			defer f.Close()
-			if e = agentuse.CopyVerified(f, src, a); e != nil {
-				return e
-			}
-			if e = f.Sync(); e != nil {
-				return e
-			}
-			if e = f.Close(); e != nil {
-				return e
-			}
-			return renameAttachment(sub, tmp, name)
-		}()
-		if e != nil {
-			return e
+		e = agentuse.CopyVerified(discardWriter{}, f, a)
+		f.Close()
+		if e == nil {
+			return local, nil
 		}
+	} else if !errors.Is(e, os.ErrNotExist) {
+		return "", e
 	}
-	return nil
+	if source == nil {
+		if client == nil {
+			return "", fmt.Errorf("attachment download requires a Server connection")
+		}
+		stream, e := client.DownloadAttachment(ctx, "", conversation, a.ID)
+		if e != nil {
+			return "", e
+		}
+		defer stream.Close()
+		source = stream
+	}
+	tmp := ".download-" + uuid.NewString()
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return "", err
+	}
+	defer root.Remove(tmp)
+	defer f.Close()
+	if err = agentuse.CopyVerified(f, source, a); err != nil {
+		return "", err
+	}
+	if err = f.Sync(); err != nil {
+		return "", err
+	}
+	if err = f.Close(); err != nil {
+		return "", err
+	}
+	if err = renameAttachment(root, tmp, name); err != nil {
+		return "", err
+	}
+	return local, nil
 }
 
 type discardWriter struct{}

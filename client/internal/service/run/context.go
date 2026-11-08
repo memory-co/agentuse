@@ -17,16 +17,16 @@ import (
 	"github.com/memory-co/agentuse/client/internal/service/endpoint"
 	"github.com/memory-co/agentuse/client/internal/service/harness"
 	"github.com/memory-co/agentuse/client/internal/service/session"
-	sdk "github.com/memory-co/agentuse/sdk/golang"
 )
 
 const ContextInstructions = `# Execution context tools
 
 Call context directly; no Server, conversation or session ID is needed:
 - context input: read the current run's accepted inputs, including supplemental messages.
-- context attachment list: list current input attachments and files uploaded by this run.
-- context attachment read FILE_ID: validate the file and return its local absolute path, name and MIME type. Use your native image tool to view images at that path.
-- context attachment upload FILE: upload an output file to the current conversation, associated with this run. Cite the returned download_path in your reply. Uploading does not send a reply or finish execution.
+- context attachment list: fetch the current attachment list for the entire conversation from Server, including files from earlier messages and runs. Listing does not download files.
+- context attachment read FILE_ID: download on demand, verify, and return the local absolute path, name and MIME type. The file is stored at <workspace>/<relative_path> using the same conversation-relative path shown by Server. Reuse that path in later turns. Use your native image or file tools to read the returned path.
+- Create output files inside the workspace, for example reports/report.txt. user_input/ is reserved for user uploads. context attachment upload FILE publishes a file to the conversation at the same workspace-relative path and associates it with this run. If Server assigns a different path to avoid a conflict, use the returned relative_path and local_path.
+- Before telling the user that an output file is available, upload it and cite the returned download_path. A local workspace path is not a browser download link. Uploading does not send a reply or finish execution.
 - context --help: show available commands.
 `
 
@@ -51,7 +51,6 @@ type ExecutionContext struct {
 	Inputs         []ContextInput `json:"inputs"`
 	path           string
 	manifest       contextManifest
-	files          []sdk.Attachment
 }
 
 type ContextInput struct {
@@ -126,9 +125,8 @@ func (s *Service) prepareContext(m session.Session, a *harness.Adapter) error {
 	return nil
 }
 
-// OpenExecutionContext selects a declared run or asks the public harnessctl
-// status which run is active. Queued accepted inputs never pick the run.
-func OpenExecutionContext(ctx context.Context, path, runID string) (*ExecutionContext, error) {
+// OpenConversationContext binds file access to the declared conversation only.
+func OpenConversationContext(ctx context.Context, path string) (*ExecutionContext, error) {
 	if path == "" {
 		return nil, fmt.Errorf("未进入执行上下文；使用 agentuse context --path <context.json> --run <run UUID>，或在 Client 提供的运行环境中调用 context")
 	}
@@ -160,6 +158,23 @@ func OpenExecutionContext(ctx context.Context, path, runID string) (*ExecutionCo
 	if stored.AgentID != m.AgentID || stored.AgentVersionID != m.AgentVersionID || stored.Harness != m.Harness || stored.HarnessRevision != m.HarnessRevision {
 		return nil, fmt.Errorf("执行上下文与 session 不匹配")
 	}
+	workspace, err := fileutil.SafePath(manifest.Root, m.EndpointID, m.ConversationID, "workspace")
+	if err != nil {
+		return nil, err
+	}
+	out := &ExecutionContext{EndpointID: m.EndpointID, ConversationID: m.ConversationID, SessionID: m.ID, RunID: "",
+		AgentID: m.AgentID, Workspace: workspace, Status: "",
+		Inputs: []ContextInput{}, path: path, manifest: manifest}
+	return out, nil
+}
+
+// OpenExecutionContext selects the actual run for input, upload and shell access.
+func OpenExecutionContext(ctx context.Context, path, runID string) (*ExecutionContext, error) {
+	out, err := OpenConversationContext(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	manifest := out.manifest
 	events, err := fileutil.SafePath(filepath.Dir(path), "events.jsonl")
 	if err != nil {
 		return nil, err
@@ -177,13 +192,7 @@ func OpenExecutionContext(ctx context.Context, path, runID string) (*ExecutionCo
 	if id, e := uuid.Parse(runID); e != nil || id.String() != runID {
 		return nil, fmt.Errorf("无效的 run UUID")
 	}
-	workspace, err := fileutil.SafePath(manifest.Root, m.EndpointID, m.ConversationID, "workspace")
-	if err != nil {
-		return nil, err
-	}
-	out := &ExecutionContext{EndpointID: m.EndpointID, ConversationID: m.ConversationID, SessionID: m.ID, RunID: runID,
-		AgentID: m.AgentID, Workspace: workspace, Status: "running",
-		Inputs: []ContextInput{}, path: path, manifest: manifest, files: []sdk.Attachment{}}
+	out.RunID = runID
 	// The adapter fsyncs accepted before the Client's event poll saves its receipt.
 	// Wait for that exact input/run mapping instead of guessing by prompt text.
 	deadline := time.Now().Add(2 * time.Second)
@@ -250,9 +259,8 @@ func (c *ExecutionContext) readInputs(ctx context.Context, events string) error 
 	}
 	defer file.Close()
 	reader := bufio.NewReader(file)
-	c.Inputs, c.files = []ContextInput{}, []sdk.Attachment{}
+	c.Inputs = []ContextInput{}
 	c.Status = "running"
-	seenFiles := map[string]sdk.Attachment{}
 	pending := map[string]bool{}
 	for {
 		line, e := reader.ReadBytes('\n')
@@ -279,19 +287,12 @@ func (c *ExecutionContext) readInputs(ctx context.Context, events string) error 
 				}
 				input.MessageID, input.Text, input.Context = r.Message.MessageID, r.Message.Content, r.PreparedContext
 				for _, attachment := range r.Message.Attachments {
-					a := attachment.Attachment
+					a := attachment
 					if a.SessionID != c.ConversationID {
 						return fmt.Errorf("附件不属于当前 conversation")
 					}
 					input.AttachmentIDs = append(input.AttachmentIDs, a.ID)
-					if old, ok := seenFiles[a.ID]; ok {
-						if old != a {
-							return fmt.Errorf("附件元数据冲突")
-						}
-					} else {
-						seenFiles[a.ID] = a
-						c.files = append(c.files, a)
-					}
+
 				}
 			}
 			c.Inputs = append(c.Inputs, input)

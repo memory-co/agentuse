@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,9 +33,7 @@ func (c *ExecutionContext) client() (*sdk.Client, error) {
 	return client, nil
 }
 
-// Outputs come from Server attribution, never a freshly enumerated conversation.
-// Waiting here is read-only: native accepted can precede the Server's receipt.
-func (c *ExecutionContext) outputAttachments(ctx context.Context) ([]sdk.Attachment, error) {
+func (c *ExecutionContext) conversationAttachments(ctx context.Context) ([]sdk.Attachment, error) {
 	if c.EndpointID == endpoint.LocalID {
 		return []sdk.Attachment{}, nil
 	}
@@ -44,25 +41,13 @@ func (c *ExecutionContext) outputAttachments(ctx context.Context) ([]sdk.Attachm
 	if err != nil {
 		return nil, err
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	var files []sdk.Attachment
-	for {
-		files, err = client.AllRunAttachments(ctx, "", c.ConversationID, c.RunID)
-		if !sdk.IsStatus(err, 404) || time.Now().After(deadline) {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(20 * time.Millisecond):
-		}
-	}
+	files, err := client.AllAttachments(ctx, "", c.ConversationID)
 	if err != nil {
 		return nil, err
 	}
 	for _, file := range files {
-		if file.SessionID != c.ConversationID || file.CreatedByRunID != c.RunID || !attachment.ValidID(file.ID, "at_") {
-			return nil, fmt.Errorf("Server 返回了其他上下文的输出附件")
+		if err = validateContextAttachment(c.ConversationID, file); err != nil {
+			return nil, err
 		}
 	}
 	return files, nil
@@ -71,70 +56,35 @@ func (c *ExecutionContext) outputAttachments(ctx context.Context) ([]sdk.Attachm
 func (c *ExecutionContext) attachmentMetadata(a sdk.Attachment) ContextAttachment {
 	out := ContextAttachment{ID: a.ID, RelativePath: a.RelativePath, Name: a.Filename, MIMEType: a.ContentType, SizeBytes: a.SizeBytes, SHA256: a.SHA256, Direction: "input", ConversationID: c.ConversationID,
 		DownloadPath: "/api/sessions/" + url.PathEscape(c.ConversationID) + "/attachments/" + url.PathEscape(a.ID) + "/content"}
-	if a.CreatedByRunID == c.RunID {
+	if a.CreatedByRunID != "" {
 		out.Direction = "output"
-		out.RunID = c.RunID
+		out.RunID = a.CreatedByRunID
 	}
 	return out
 }
 
 func (c *ExecutionContext) Attachments(ctx context.Context) ([]ContextAttachment, error) {
-	outputs, err := c.outputAttachments(ctx)
+	files, err := c.conversationAttachments(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := []ContextAttachment{}
-	seen := map[string]sdk.Attachment{}
-	for _, group := range [][]sdk.Attachment{c.files, outputs} {
-		for _, file := range group {
-			if old, ok := seen[file.ID]; ok {
-				if old != file {
-					return nil, fmt.Errorf("附件元数据冲突")
-				}
-				continue
-			}
-			seen[file.ID] = file
-			out = append(out, c.attachmentMetadata(file))
-		}
+	out := make([]ContextAttachment, 0, len(files))
+	for _, file := range files {
+		out = append(out, c.attachmentMetadata(file))
 	}
 	return out, nil
 }
 
 func (c *ExecutionContext) Attachment(ctx context.Context, id string) (ContextAttachment, error) {
-	var selected *sdk.Attachment
-	for i := range c.files {
-		if c.files[i].ID == id {
-			selected = &c.files[i]
-			break
-		}
-	}
-	if selected == nil {
-		outputs, err := c.outputAttachments(ctx)
-		if err != nil {
-			return ContextAttachment{}, err
-		}
-		for i := range outputs {
-			if outputs[i].ID == id {
-				selected = &outputs[i]
-				break
-			}
-		}
-	}
-	if selected == nil {
-		return ContextAttachment{}, fmt.Errorf("附件不属于当前 run 的输入或输出")
-	}
-	err := cacheContextAttachments(ctx, nil, c.ConversationID, c.Workspace, []sdk.Attachment{*selected})
-	if errors.Is(err, errAttachmentNotCached) {
-		client, e := c.client()
-		if e != nil {
-			return ContextAttachment{}, e
-		}
-		err = cacheContextAttachments(ctx, client, c.ConversationID, c.Workspace, []sdk.Attachment{*selected})
-	}
+	client, err := c.client()
 	if err != nil {
 		return ContextAttachment{}, err
 	}
-	path, err := fileutil.SafePath(c.Workspace, ".agentuse", "attachments", selected.ID, selected.Filename)
+	selected, err := client.GetAttachment(ctx, "", c.ConversationID, id)
+	if err != nil {
+		return ContextAttachment{}, err
+	}
+	path, err := materializeAttachment(ctx, client, c.ConversationID, c.Workspace, *selected, nil)
 	if err != nil {
 		return ContextAttachment{}, err
 	}
@@ -149,6 +99,24 @@ func (c *ExecutionContext) UploadAttachment(ctx context.Context, path string) (C
 	}
 	if c.Status != "running" && c.Status != "waiting" {
 		return ContextAttachment{}, fmt.Errorf("run 已结束，无法上传输出附件")
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(c.Workspace, path)
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return ContextAttachment{}, err
+	}
+	relative, err := filepath.Rel(c.Workspace, absolute)
+	if err != nil {
+		return ContextAttachment{}, err
+	}
+	if _, err = attachment.RelativePath(filepath.ToSlash(relative)); err != nil {
+		return ContextAttachment{}, err
+	}
+	path, err = fileutil.SafePath(c.Workspace, strings.Split(filepath.ToSlash(relative), "/")...)
+	if err != nil {
+		return ContextAttachment{}, err
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -169,10 +137,6 @@ func (c *ExecutionContext) UploadAttachment(ctx context.Context, path string) (C
 	if !info.Mode().IsRegular() {
 		return ContextAttachment{}, fmt.Errorf("只能上传普通文件")
 	}
-	name, err := attachment.Filename(filepath.Base(path))
-	if err != nil {
-		return ContextAttachment{}, err
-	}
 	digest := sha256.New()
 	size, err := io.Copy(digest, file)
 	if err != nil {
@@ -181,20 +145,9 @@ func (c *ExecutionContext) UploadAttachment(ctx context.Context, path string) (C
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
 		return ContextAttachment{}, err
 	}
-	if _, err = c.outputAttachments(ctx); err != nil {
-		return ContextAttachment{}, err
-	}
 	client, err := c.client()
 	if err != nil {
 		return ContextAttachment{}, err
-	}
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return ContextAttachment{}, err
-	}
-	relative, err := filepath.Rel(c.Workspace, absolute)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) || strings.HasPrefix(relative, ".agentuse"+string(os.PathSeparator)) {
-		relative = name
 	}
 	uploaded, err := client.UploadAttachmentAt(ctx, "", c.ConversationID, filepath.ToSlash(relative), file)
 	if err != nil {
@@ -206,5 +159,14 @@ func (c *ExecutionContext) UploadAttachment(ctx context.Context, path string) (C
 	if uploaded.SizeBytes != size || uploaded.SHA256 != hex.EncodeToString(digest.Sum(nil)) {
 		return ContextAttachment{}, fmt.Errorf("文件已保存为 %s，但上传内容与读取的源文件不一致；请先列出附件核对", uploaded.ID)
 	}
-	return c.attachmentMetadata(*uploaded), nil
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		return ContextAttachment{}, err
+	}
+	canonical, err := materializeAttachment(ctx, nil, c.ConversationID, c.Workspace, *uploaded, file)
+	if err != nil {
+		return ContextAttachment{}, fmt.Errorf("file published as %s but could not be saved at its conversation path: %w", uploaded.ID, err)
+	}
+	out := c.attachmentMetadata(*uploaded)
+	out.LocalPath = canonical
+	return out, nil
 }

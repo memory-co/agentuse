@@ -4,88 +4,74 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/memory-co/agentuse/internal/attachment"
-	"github.com/memory-co/agentuse/internal/protocol"
+	sdk "github.com/memory-co/agentuse/sdk/golang"
 )
 
-func TestSyncAttachments(t *testing.T) {
-	content := "input\x00-data"
-	sum := sha256.Sum256([]byte(content))
-	a := attachment.Attachment{ID: "at_file", SessionID: "ss_test", Filename: "文档.txt", SHA256: hex.EncodeToString(sum[:]), SizeBytes: int64(len(content))}
+func TestMaterializeAttachmentUsesConversationPathAndVerifiesBytes(t *testing.T) {
+	content := []byte("input\x00-data")
+	sum := sha256.Sum256(content)
+	a := sdk.Attachment{ID: "at_file", SessionID: "conversation", Filename: "文档.txt", RelativePath: "user_input/文档.txt", SHA256: hex.EncodeToString(sum[:]), SizeBytes: int64(len(content))}
 	downloads := 0
 	bad := false
-	list := true
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer dk_ok" {
-			w.WriteHeader(401)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer dk_ok" || r.URL.Path != "/api/sessions/conversation/attachments/at_file/content" {
+			t.Error("wrong download scope")
+			w.WriteHeader(403)
 			return
 		}
-		if strings.HasSuffix(r.URL.Path, "/content") {
-			downloads++
-			if bad {
-				w.Write([]byte("corrupted"))
-			} else {
-				w.Write([]byte(content))
-			}
-			return
+		downloads++
+		if bad {
+			w.Write([]byte("corrupted"))
+		} else {
+			w.Write(content)
 		}
-		files := []attachment.Attachment{}
-		if list {
-			files = append(files, a)
-		}
-		json.NewEncoder(w).Encode(attachment.Page{Attachments: files})
 	}))
-	defer ts.Close()
-	d := &endpointConnection{cfg: Config{Server: ts.URL, Key: "dk_ok"}}
+	defer server.Close()
+	client := sdk.New(server.URL, "dk_ok")
 	dir := t.TempDir()
-	sync := func() (*protocol.ConversationMessage, error) {
-		m := protocol.ConversationMessage{ConversationID: a.SessionID, Attachments: []protocol.LocalAttachment{}}
-		if list {
-			m.Attachments = append(m.Attachments, protocol.LocalAttachment{Attachment: a, Path: filepath.ToSlash(filepath.Join(".agentuse", "attachments", a.ID, a.Filename))})
-		}
-		err := d.syncAttachments(context.Background(), &m, dir)
-		return &m, err
+	materialize := func() (string, error) {
+		return materializeAttachment(context.Background(), client, a.SessionID, dir, a, nil)
 	}
-	m, err := sync()
-	if err != nil || len(m.Attachments) != 1 {
-		t.Fatalf("sync %+v %v", m, err)
+	path, err := materialize()
+	if err != nil || path != filepath.Join(dir, filepath.FromSlash(a.RelativePath)) {
+		t.Fatal(path, err)
 	}
-	file := filepath.Join(dir, m.Attachments[0].Path)
-	b, _ := os.ReadFile(file)
-	if string(b) != content {
-		t.Fatal("content")
+	if b, e := os.ReadFile(path); e != nil || string(b) != string(content) {
+		t.Fatal("wrong file", e)
 	}
-	if _, err = sync(); err != nil || downloads != 1 {
-		t.Fatal("cache not reused", downloads, err)
+	if _, err = materialize(); err != nil || downloads != 1 {
+		t.Fatal("verified bytes not reused", downloads, err)
 	}
-	os.WriteFile(file, []byte("changed"), 0600)
-	if _, err = sync(); err != nil || downloads != 2 {
-		t.Fatal("corrupt cache", downloads, err)
+	os.WriteFile(path, []byte("changed"), 0600)
+	if _, err = materialize(); err != nil || downloads != 2 {
+		t.Fatal("corrupt download not repaired", downloads, err)
 	}
 	bad = true
-	os.WriteFile(file, []byte("changed"), 0600)
-	if _, err = sync(); err == nil {
+	os.WriteFile(path, []byte("changed"), 0600)
+	if _, err = materialize(); err == nil {
 		t.Fatal("corrupt download accepted")
 	}
-	list = false
-	m, err = sync()
-	if err != nil || len(m.Attachments) != 0 {
-		t.Fatal("deleted cache advertised")
+	if b, _ := os.ReadFile(path); string(b) != "changed" {
+		t.Fatal("unverified bytes replaced file")
 	}
-	list = true
-	os.RemoveAll(filepath.Join(dir, ".agentuse"))
+	for _, relative := range []string{"../escape", "/absolute", "a/../../escape", `a\escape`, ""} {
+		invalid := a
+		invalid.RelativePath = relative
+		if _, err = materializeAttachment(context.Background(), client, a.SessionID, dir, invalid, nil); err == nil {
+			t.Fatal("unsafe path accepted", relative)
+		}
+	}
+	os.RemoveAll(filepath.Join(dir, "user_input"))
 	outside := t.TempDir()
-	os.Symlink(outside, filepath.Join(dir, ".agentuse"))
-	if _, err = sync(); err == nil {
-		t.Fatal("symlink cache accepted")
+	os.Symlink(outside, filepath.Join(dir, "user_input"))
+	if _, err = materialize(); err == nil {
+		t.Fatal("symbolic-link parent accepted")
 	}
 	if files, _ := os.ReadDir(outside); len(files) != 0 {
 		t.Fatal("wrote outside workspace")

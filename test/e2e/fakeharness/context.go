@@ -67,7 +67,13 @@ func contextProof(hold bool) (string, error) {
 	if len(attachments.Attachments) == 0 {
 		return "", fmt.Errorf("missing image attachments")
 	}
-	file, err := call("attachment", "read", attachments.Attachments[0].ID)
+	var firstInput struct {
+		AttachmentIDs []string `json:"attachment_ids"`
+	}
+	if err = json.Unmarshal(view.Inputs[0], &firstInput); err != nil || len(firstInput.AttachmentIDs) == 0 {
+		return "", fmt.Errorf("missing current message attachment")
+	}
+	file, err := call("attachment", "read", firstInput.AttachmentIDs[0])
 	if err != nil {
 		return "", err
 	}
@@ -93,8 +99,8 @@ func contextProof(hold bool) (string, error) {
 		}
 	}
 	if future, err := os.ReadFile("future-file-id"); err == nil && hold {
-		if _, err = call("attachment", "read", strings.TrimSpace(string(future))); err == nil {
-			return "", fmt.Errorf("future attachment exposed")
+		if _, err = call("attachment", "read", strings.TrimSpace(string(future))); err != nil {
+			return "", fmt.Errorf("conversation attachment unavailable: %w", err)
 		}
 	}
 	if err = os.MkdirAll("reports", 0700); err != nil {

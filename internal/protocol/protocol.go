@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/memory-co/agentuse/internal/attachment"
 )
 
 const (
@@ -177,10 +175,6 @@ func ParseEventID(id string) (string, int64, error) {
 
 type PromptInput struct {
 	Prompt string `json:"prompt"`
-}
-type LocalAttachment struct {
-	attachment.Attachment
-	Path string `json:"path"`
 }
 
 func ParseMessageID(id string) (string, string, error) {

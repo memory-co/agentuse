@@ -1,36 +1,36 @@
-# 执行上下文：context
+# 執行上下文：context
 
-Client 为每个执行环境提供 `context`。AI 用它读取当前 run 的输入、补充消息和附件，并把输出文件交给 Server；人类用 `agentuse context` 调试同一份上下文，也可以进入绑定该 run 的 shell。
+Client 爲每個執行環境提供 `context`。AI 用它讀取當前 run 的輸入與補充消息，以及 conversation 下的全部附件，並把輸出文件交給 Server；人類用 `agentuse context` 調試同一份上下文，也可以進入綁定該 run 的 shell。
 
-文件交互采用两个方向：
+文件交互採用兩個方向：
 
-| 方向 | 上传 | 读取 |
+| 方向 | 上傳 | 讀取 |
 |---|---|---|
-| 输入文件 | 人类在 Server 页面或通过 API/SDK 上传 | Client AI 通过 context 读取 |
-| 输出文件 | Client AI 通过 context 上传 | 人类在 Server 页面查看、下载 |
+| 輸入文件 | 人類在 Server 頁面或通過 API/SDK 上傳 | Client AI 通過 context 讀取 |
+| 輸出文件 | Client AI 通過 context 上傳 | 人類在 Server 頁面查看、下載 |
 
-## 当前输入
+## 當前輸入
 
-Client 初始化 session 时注入工具说明，将 `context` 加入 harness 的 `PATH`。直接调用：
+Client 初始化 session 時注入英文工具說明，將 `context` 加入 harness 的 `PATH`。直接調用：
 
 ```bash
 context input
 ```
 
-| 字段 | 含义 |
+| 字段 | 含義 |
 |---|---|
-| `endpoint_id` | 输入来源；本地调试为 `local` |
+| `endpoint_id` | 輸入來源；本地調試爲 `local` |
 | `conversation_id` | Server 或本地 conversation ID |
-| `session_id` | Client 本机 session ID |
-| `run_id` | 适配器 accepted 事件公布的实际 run UUID |
-| `agent_id` | 当前 Agent |
-| `status` | `running`、`waiting` 或实际 result 的终态 |
-| `workspace` | conversation 共享工作目录的绝对路径 |
-| `inputs` | 归属该 run 的已受理输入，按 accepted 顺序排列 |
+| `session_id` | Client 本機 session ID |
+| `run_id` | 適配器 accepted 事件公佈的實際 run UUID |
+| `agent_id` | 當前 Agent |
+| `status` | `running`、`waiting` 或實際 result 的終態 |
+| `workspace` | conversation 共享工作目錄的絕對路徑 |
+| `inputs` | 歸屬該 run 的已受理輸入，按 accepted 順序排列 |
 
-每条输入包含 `input_id`、`text`、`attachment_ids`；远端输入另有 `message_id`，有业务上下文时包含 `context`。命令不返回设备密钥或工作令牌。
+每條輸入包含 `input_id`、`text`、`attachment_ids`；遠端輸入另有 `message_id`，有業務上下文時包含 `context`。命令不返回設備密鑰或工作令牌。
 
-同一个 run 可以受理多条输入。需要读取补充消息时，再调用一次 `context input`。默认由适配器公开的 status 判断当前 run；排队 run 的输入不会混入当前结果。
+同一個 run 可以受理多條輸入。需要讀取補充消息時，再調用一次 `context input`。默認由適配器公開的 status 判斷當前 run；排隊 run 的輸入不會混入當前結果。
 
 ## 列出文件
 
@@ -38,39 +38,38 @@ context input
 context attachment list
 ```
 
-结果为 `{"attachments": [...]}`，合并当前输入快照和本次 run 已上传的输出。附件包含：
+結果為 `{"attachments": [...]}`，直接查詢 Server 中整個 conversation 的附件，不按 run 篩選，也不下載文件。附件包含：
 
-| 字段 | 含义 |
+| 字段 | 含義 |
 |---|---|
-| `relative_path` | 当前 conversation 文件树中的相对路径 |
-| `id`、`name` | 文件 ID 和名称 |
-| `direction` | `input` 为当前输入文件，`output` 为本次 run 的输出 |
-| `conversation_id` | 当前 conversation |
-| `run_id` | 输出文件所属的 run；输入文件不填此字段 |
-| `mime_type`、`size_bytes`、`sha256` | 文件类型、大小、SHA-256 |
-| `download_path` | Server 上可供用户下载的路径 |
+| `relative_path` | 當前 conversation 文件樹中的相對路徑 |
+| `id`、`name` | 文件 ID 和名稱 |
+| `direction` | `input` 為使用者輸入文件，`output` 為 Agent 產物（包含其他 run） |
+| `conversation_id` | 當前 conversation |
+| `run_id` | 輸出文件所屬的 run；輸入文件不填此字段 |
+| `mime_type`、`size_bytes`、`sha256` | 文件類型、大小、SHA-256 |
+| `download_path` | Server 上可供用戶下載的路徑 |
 
-输入范围来自投递给该 run 的各条已受理消息的固定快照，可能包含该条消息明确选择的文件；补充输入可以扩展范围。输出按 Server 的 run 归属查询，其他排队 run 的输入或输出不会自动混入列表。
+列表以 Server 為準，包含歷史消息、補齊消息及後續上傳的文件；不依賴本地 run 附件收據。
 
-## 读取图片或其他文件
+## 讀取圖片或其他文件
 
 ```bash
 context attachment read FILE_ID
 ```
 
-命令检查文件属于当前输入或本次 run 的输出，校验大小和 SHA-256 后返回元数据及 `local_path`，例如 `/绝对路径/workspace/.agentuse/attachments/at_示例/截图.png`。缓存缺失或损坏时，从当前注册的 Server 下载并重新校验。
+命令從 Server 取得該 conversation 的文件元資料，按需下載、校驗大小和 SHA-256，返回 `local_path = workspace/<relative_path>`。例如 Server 的 `user_input/截圖.png` 就保存到 `/絕對路徑/workspace/user_input/截圖.png`。不提前下載，也不另建隱藏附件目錄；已下載且校驗一致的文件可重用。
+圖片用模型原生看圖工具讀取 `local_path`，例如 Codex 的 `view_image` 或 Claude Code 的 `Read`。文本、PDF 等文件使用模型已有的文件工具。命令返回的 JSON 本身只提供文件信息。
 
-图片用模型原生看图工具读取 `local_path`，例如 Codex 的 `view_image` 或 Claude Code 的 `Read`。文本、PDF 等文件使用模型已有的文件工具。命令返回的 JSON 本身只提供文件信息。
+## 上傳輸出文件
 
-## 上传输出文件
-
-生成文件后直接上传：
+生成文件後直接上傳：
 
 ```bash
 context attachment upload ./report.pdf
 ```
 
-只接受普通文件；workspace 内的文件保留相对路径，外部文件使用 basename。用户上传位于保留目录 user_input/，AI 不能写入该目录。目标自动绑定当前 conversation/run，不需要填写 Server、token、conversation 或 run ID。结果为 JSON，例如：
+只接受 workspace 內的普通文件，保留相對路徑；workspace 外的文件應先複製進來。`user_input/` 為使用者上傳保留，AI 產物應放在 `reports/` 等其他位置。Server 若為避開重名而改變路徑，Client 會保存至返回的相同路徑，後續使用返回的 relative_path/local_path。目標自動綁定當前 conversation/run，不需要填寫 Server、token、conversation 或 run ID。結果爲 JSON，例如：
 
 ```json
 {
@@ -78,48 +77,50 @@ context attachment upload ./report.pdf
   "name": "report.pdf",
   "relative_path": "report.pdf",
   "direction": "output",
-  "conversation_id": "当前conversation的UUID",
-  "run_id": "当前run的UUID",
+  "conversation_id": "當前conversation的UUID",
+  "run_id": "當前run的UUID",
   "mime_type": "application/pdf",
   "size_bytes": 12345,
-  "sha256": "文件内容的SHA256",
-  "download_path": "/api/sessions/当前conversation的UUID/attachments/at_示例/content"
+  "sha256": "文件內容的SHA256",
+  "download_path": "/api/sessions/當前conversation的UUID/attachments/at_示例/content"
 }
 ```
 
-在最终回复中引用返回的 `download_path`，人类可在 Server 页面查看、下载该附件。上传只保存文件，不自动发消息或结束执行；AI 继续按原流程回复用户。
+產物必須先 upload，再在最終回覆中引用返回的 `download_path`；本地相對路徑不是瀏覽器下載連結。人類可在 Server 頁面查看、下載該附件。上傳只保存文件，不自動發消息或結束執行；AI 繼續按原流程回覆用戶。
 
-Server 在接收和发布文件时检查 run 的设备、conversation 和活动状态。已结束的 run 无法继续上传。连接中断时 Server 可能已经保存，先用 `list` 核对再决定是否重传；工具不会自动重复上传。输出列表以 Server 记录为准，不依赖本机另存一份上传清单。
+Server 在接收和發佈文件時檢查 run 的設備、conversation 和活動狀態。已結束的 run 無法繼續上傳。連接中斷時 Server 可能已經保存，先用 `list` 覈對再決定是否重傳；工具不會自動重複上傳。輸出列表以 Server 記錄爲準，不依賴本機另存一份上傳清單。
 
-## 人类调试上下文
+## 人類調試上下文
 
-Client 为本机 session 生成描述文件：
+Client 爲本機 session 生成描述文件：
 
 ```text
 <session.work_root>/<endpoint_id>/<conversation_id>/sessions/<session_id>/context.json
 ```
 
-默认工作根目录是 `~/.agentuse/tmp`。在本机页面找到 endpoint、conversation、session 和 run 后，可显式查看：
+默認工作根目錄是 `~/.agentuse/tmp`。在本機頁面找到 endpoint、conversation、session 和 run 後，可顯式查看：
 
 ```bash
-agentuse context --path /绝对路径/context.json --run RUN_UUID input
-agentuse context --path /绝对路径/context.json --run RUN_UUID attachment list
-agentuse context --path /绝对路径/context.json --run RUN_UUID attachment read FILE_ID
-agentuse context enter --path /绝对路径/context.json --run RUN_UUID
-# 进入后：
+agentuse context --path /絕對路徑/context.json --run RUN_UUID input
+agentuse context --path /絕對路徑/context.json --run RUN_UUID attachment list
+agentuse context --path /絕對路徑/context.json --run RUN_UUID attachment read FILE_ID
+agentuse context enter --path /絕對路徑/context.json --run RUN_UUID
+# 進入後：
 context input
 context attachment list
 exit
 ```
 
-`--path` 默认读取 `AGENTUSE_CONTEXT`；省略 `--run` 时询问适配器当前执行。`enter` 使用 `$SHELL`，未设置时使用 `/bin/sh`，工作目录切换到 conversation workspace，并通过 `AGENTUSE_CONTEXT_RUN` 固定所选 run。裸 `context` 不提供切换 Server、session 或 run 的参数。
+`--path` 默認讀取 `AGENTUSE_CONTEXT`；省略 `--run` 時詢問適配器當前執行。`enter` 使用 `$SHELL`，未設置時使用 `/bin/sh`，工作目錄切換到 conversation workspace，並通過 `AGENTUSE_CONTEXT_RUN` 固定所選 run。裸 `context` 不提供切換 Server、session 或 run 的參數。
 
-文件保留期间可以显式读取历史输入和输出；查询输出需要 Server 可用，已经缓存的输入可以按 ID 在本机读取。历史 run 的上传会被拒绝。上下文文件和缓存随 conversation quota 回收。本地调试支持输入读取，没有 Server 上传目标。
+文件保留期間可以顯式讀取歷史輸入和輸出；查詢輸出需要 Server 可用，已經緩存的輸入可以按 ID 在本機讀取。歷史 run 的上傳會被拒絕。上下文文件和緩存隨 conversation quota 回收。本地調試支持輸入讀取，沒有 Server 上傳目標。
 
-## Server 业务工具
+## Server 業務工具
 
-Work 的协调、跨设备派发和工作授权由 Server 负责。协调 Agent 按 Server 随消息提供的说明获取独立工具；Client 和 context 不判断 Work 角色。操作其他线程的业务行为见 [Server Work 手册](../server/work.md)。
+Work 的協調、跨設備派發和工作授權由 Server 負責。協調 Agent 按 Server 隨消息提供的說明獲取獨立工具；Client 和 context 不判斷 Work 角色。操作其他線程的業務行爲見 [Server Work 手冊](../server/work.md)。
 
-远端 conversation 管理使用 `agentuse conversation`。文件操作统一为 `context attachment list/read/upload`；移除顶层 `agentuse attachment`、旧 `context attachments` 和省略 read 的入口，不保留别名。
+遠端 conversation 管理使用 `agentuse conversation`。文件操作統一爲 `context attachment list/read/upload`；移除頂層 `agentuse attachment`、舊 `context attachments` 和省略 read 的入口，不保留別名。
 
-命令成功时退出码为 `0`，执行或存储错误为 `1`，参数错误为 `2`。其他管理命令见 [Client CLI](cli.md)。
+命令成功時退出碼爲 `0`，執行或存儲錯誤爲 `1`，參數錯誤爲 `2`。其他管理命令見 [Client CLI](cli.md)。
+
+`attachment list/read` 只需 context 描述文件，不需要活躍 run，也不按 `--run` 過濾；`input/upload/enter` 仍綁定實際 run。
