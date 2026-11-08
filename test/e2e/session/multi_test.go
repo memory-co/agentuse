@@ -17,10 +17,10 @@ import (
 	"github.com/memory-co/agentuse/test/e2e/e2eutil"
 )
 
-func runDaemonForMulti(t *testing.T, c *agentuse.Client, user, home, cli, fake string, native bool) *agentuse.Daemon {
+func runDaemonForMulti(t *testing.T, c *agentuse.Client, user, home, cli, fake string, native bool) *agentuse.Device {
 	t.Helper()
 	ctx := context.Background()
-	d, err := c.CreateDaemon(ctx, user, filepath.Base(home))
+	d, err := c.CreateDevice(ctx, user, filepath.Base(home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func runDaemonForMulti(t *testing.T, c *agentuse.Client, user, home, cli, fake s
 	cmd.Env = e2eutil.Env(home)
 	e2eutil.Start(t, cmd)
 	e2eutil.WaitFor(t, 10*time.Second, "run daemon online", func() bool {
-		ds, e := c.ListDaemons(ctx, user)
+		ds, e := c.ListDevices(ctx, user)
 		if e != nil {
 			return false
 		}
@@ -59,7 +59,7 @@ func runDaemonForMulti(t *testing.T, c *agentuse.Client, user, home, cli, fake s
 		if name == "claude" && !native {
 			continue
 		}
-		if _, err = c.SetDaemonHarness(ctx, user, d.ID, name, true); err != nil {
+		if _, err = c.SetDeviceHarness(ctx, user, d.ID, name, true); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -77,16 +77,16 @@ func TestMultiAgentSession(t *testing.T) {
 	homeA, homeB := t.TempDir(), t.TempDir()
 	dA := runDaemonForMulti(t, c, user, homeA, cli, fake, false)
 	dB := runDaemonForMulti(t, c, user, homeB, cli, fake, false)
-	for _, a := range []agentuse.CreateAgentRequest{{ID: "coder", Name: "Coder", DaemonID: dA.ID, Harness: "fake"}, {ID: "reviewer", Name: "Reviewer", DaemonID: dB.ID, Harness: "fake"}} {
+	for _, a := range []agentuse.CreateAgentRequest{{ID: "coder", Name: "Coder", DeviceID: dA.ID, Harness: "fake"}, {ID: "reviewer", Name: "Reviewer", DeviceID: dB.ID, Harness: "fake"}} {
 		if _, err := c.CreateAgent(ctx, user, a); err != nil {
 			t.Fatal(err)
 		}
 	}
-	created, err := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Title: "Shared conversation"})
+	created, err := c.CreateConversation(ctx, user, agentuse.CreateConversationRequest{Title: "Shared conversation"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := created.Session.ID
+	id := created.Conversation.ID
 	sharedFile, err := c.UploadAttachment(ctx, user, id, "input.txt", strings.NewReader("shared input"))
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestMultiAgentSession(t *testing.T) {
 	}
 	var firstRun string
 	e2eutil.WaitFor(t, 10*time.Second, "client accepted coder input", func() bool {
-		detail, e := c.GetSession(ctx, user, id)
+		detail, e := c.GetConversation(ctx, user, id)
 		if e == nil {
 			for _, r := range detail.Runs {
 				if r.AgentID == "coder" && r.Status == "running" {
@@ -116,7 +116,7 @@ func TestMultiAgentSession(t *testing.T) {
 		t.Fatal(second, err)
 	}
 	e2eutil.WaitFor(t, 10*time.Second, "reviewer runs while coder is held", func() bool {
-		detail, e := c.GetSession(ctx, user, id)
+		detail, e := c.GetConversation(ctx, user, id)
 		if e != nil {
 			return false
 		}
@@ -171,23 +171,23 @@ func testMultiSDKs(t *testing.T, server, token string) {
 	}{
 		{"node", "node", ".mjs", fmt.Sprintf(`import {Client} from %q;
 import assert from 'node:assert/strict';const [baseUrl,token]=process.argv.slice(2);const c=new Client({baseUrl,token});
-const created=await c.createSession('alice',{prompt:'FYI',to_user_ids:['alice']});const {session}=created;
-assert.deepEqual(created.message.to_agent_ids,[]);assert.deepEqual(created.message.to_user_ids,['alice']);assert.equal(session.status,'idle');assert.equal(created.deliveries.length,0);
-const req={prompt:'multi:sdk',to_agent_ids:['coder','reviewer'],to_user_ids:['alice']};const first=await c.sendMessage('alice',session.id,req);
+const created=await c.createConversation('alice',{prompt:'FYI',to_user_ids:['alice']});const {conversation}=created;
+assert.deepEqual(created.message.to_agent_ids,[]);assert.deepEqual(created.message.to_user_ids,['alice']);assert.equal(conversation.status,'idle');assert.equal(created.deliveries.length,0);
+const req={prompt:'multi:sdk',to_agent_ids:['coder','reviewer'],to_user_ids:['alice']};const first=await c.sendMessage('alice',conversation.id,req);
 assert.deepEqual(first.message.to_agent_ids,req.to_agent_ids);assert.deepEqual(first.message.to_user_ids,req.to_user_ids);
-const d=await c.waitMessageRuns('alice',session.id,first.message.id,{interval:30,timeout:10000});assert.equal(d.runs.length,2);assert.ok(d.runs.every(r=>r.status==='completed'));
-assert.ok(d.messages.filter(m=>m.role==='assistant').every(m=>m.to_agent_ids.length===0 && m.to_user_ids.join(',')==='alice'));
-assert.equal((await c.getRun('alice',session.id,d.runs[0].id)).run.id,d.runs[0].id);
+const d=await c.waitMessageRuns('alice',conversation.id,first.message.id,{interval:30,timeout:10000});assert.equal(d.runs.length,2);assert.ok(d.runs.every(r=>r.status==='completed'));
+assert.ok(d.messages.filter(m=>m.author_role==='agent').every(m=>m.to_agent_ids.length===0 && m.to_user_ids.join(',')==='alice'));
+assert.equal((await c.getRun('alice',conversation.id,d.runs[0].id)).run.id,d.runs[0].id);
 `, filepath.Join(root, "sdk/nodejs/index.js")), nil},
 		{"python", "python3", ".py", `import sys
 from agentuse import Client
-c=Client(sys.argv[1],sys.argv[2]);created=c.create_session('alice',prompt='FYI',to_user_ids=['alice']);s=created['session']
+c=Client(sys.argv[1],sys.argv[2]);created=c.create_conversation('alice',prompt='FYI',to_user_ids=['alice']);s=created['conversation']
 assert s['status']=='idle' and created['deliveries']==[] and created['message']['to_agent_ids']==[] and created['message']['to_user_ids']==['alice']
 r=c.send_message('alice',s['id'],prompt='multi:sdk',to_agent_ids=['coder','reviewer'],to_user_ids=['alice'])
 assert r['message']['to_agent_ids']==['coder','reviewer'] and r['message']['to_user_ids']==['alice']
 d=c.wait_message_runs('alice',s['id'],r['message']['id'],interval=.03,timeout=10)
 assert len(d['runs'])==2 and all(x['status']=='completed' for x in d['runs'])
-assert all(m['to_agent_ids']==[] and m['to_user_ids']==['alice'] for m in d['messages'] if m['role']=='assistant')
+assert all(m['to_agent_ids']==[] and m['to_user_ids']==['alice'] for m in d['messages'] if m['author_role']=='agent')
 assert c.get_run('alice',s['id'],d['runs'][0]['id'])['run']['id']==d['runs'][0]['id']
 `, []string{"PYTHONPATH=" + filepath.Join(root, "sdk/python")}},
 	}
@@ -218,17 +218,17 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 	fake := e2eutil.Binary(t, "fakeharness")
 	d := runDaemonForMulti(t, c, user, t.TempDir(), cli, fake, true)
 	workerDevice := runDaemonForMulti(t, c, user, t.TempDir(), cli, fake, false)
-	for _, a := range []agentuse.CreateAgentRequest{{ID: "native", Name: "Native", DaemonID: d.ID, Harness: "claude"}, {ID: "worker", Name: "Worker", DaemonID: workerDevice.ID, Harness: "fake"}} {
+	for _, a := range []agentuse.CreateAgentRequest{{ID: "native", Name: "Native", DeviceID: d.ID, Harness: "claude"}, {ID: "worker", Name: "Worker", DeviceID: workerDevice.ID, Harness: "fake"}} {
 		if _, err := c.CreateAgent(ctx, user, a); err != nil {
 			t.Fatal(err)
 		}
 	}
-	created, err := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Mode: "multi_agent", Prompt: "wait-steer", ToAgentIDs: []string{"native"}})
+	created, err := c.CreateConversation(ctx, user, agentuse.CreateConversationRequest{Prompt: "wait-steer", ToAgentIDs: []string{"native"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := created.Session.ID
-	e2eutil.WaitFor(t, 10*time.Second, "native started", func() bool { v, e := c.GetSession(ctx, user, id); return e == nil && len(v.Events) > 1 })
+	id := created.Conversation.ID
+	e2eutil.WaitFor(t, 10*time.Second, "native started", func() bool { v, e := c.GetConversation(ctx, user, id); return e == nil && len(v.Events) > 1 })
 	extra, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "补一个测试", ToAgentIDs: []string{"native"}})
 	if err != nil || len(extra.Runs) != 0 || len(extra.Deliveries) != 1 {
 		t.Fatal("native steer", extra, err)
@@ -249,7 +249,7 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 	}
 	var question agentuse.Question
 	e2eutil.WaitFor(t, 10*time.Second, "public client request", func() bool {
-		detail, e := c.GetSession(ctx, user, id)
+		detail, e := c.GetConversation(ctx, user, id)
 		if e != nil {
 			return false
 		}
@@ -279,7 +279,7 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 	if r := lastResult(t, detail); !r.OK || !strings.Contains(r.Output, "answer=Go") {
 		t.Fatal("answer", r)
 	}
-	work, err := c.CreateWork(ctx, user, agentuse.CreateWorkRequest{Mode: "multi_agent", Name: "Multi work", AgentID: "native", Instructions: "Use shared session"})
+	work, err := c.CreateWork(ctx, user, agentuse.CreateWorkRequest{Name: "Multi work", AgentID: "native", Instructions: "Use shared session"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,28 +287,28 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	e2eutil.WaitFor(t, 15*time.Second, "work aggregation", func() bool {
-		v, e := c.GetSession(ctx, user, work.Coordinator.ID)
-		return e == nil && v.Session.Status == "idle" && len(v.Messages) == 4
+		v, e := c.GetConversation(ctx, user, work.Coordinator.ID)
+		return e == nil && v.Conversation.Status == "idle" && len(v.Messages) == 4
 	})
-	coor, err := c.GetSession(ctx, user, work.Coordinator.ID)
+	coor, err := c.GetConversation(ctx, user, work.Coordinator.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(coor.Runs) != 2 {
 		t.Fatal("coordinator runs", coor.Runs)
 	}
-	threads, err := c.ListWorkSessions(ctx, user, work.Work.ID)
-	if err != nil || len(threads) != 1 || threads[0].Mode != "multi_agent" {
+	threads, err := c.ListWorkConversations(ctx, user, work.Work.ID)
+	if err != nil || len(threads) != 1 {
 		t.Fatal("work thread", threads, err)
 	}
-	child, err := c.GetSession(ctx, user, threads[0].ID)
-	if err != nil || len(child.Runs) != 1 || child.Runs[0].AgentID != "worker" || child.Runs[0].DaemonID != workerDevice.ID || child.Runs[0].Status != "completed" {
+	child, err := c.GetConversation(ctx, user, threads[0].ID)
+	if err != nil || len(child.Runs) != 1 || child.Runs[0].AgentID != "worker" || child.Runs[0].DeviceID != workerDevice.ID || child.Runs[0].Status != "completed" {
 		t.Fatal("child", child, err)
 	}
-	if child.Session.Status != "resolved" {
-		t.Fatal("coordinator did not resolve the remote thread", child.Session.Status)
+	if child.Conversation.Status != "resolved" {
+		t.Fatal("coordinator did not resolve the remote thread", child.Conversation.Status)
 	}
-	files, err := c.AllAttachments(ctx, user, child.Session.ID)
+	files, err := c.AllAttachments(ctx, user, child.Conversation.ID)
 	if err != nil || len(files) != 1 {
 		t.Fatal("Server tool upload missing", files, err)
 	}

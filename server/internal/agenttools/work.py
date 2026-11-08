@@ -89,17 +89,17 @@ def main():
             time.sleep(0.05)
     token = authorization["token"]
     targets = lambda value: [part.strip() for part in value.split(",") if part.strip()]
-    thread_path = "/api/sessions/" + urllib.parse.quote(getattr(args, "thread", ""), safe="")
+    thread_path = "/api/conversations/" + urllib.parse.quote(getattr(args, "thread", ""), safe="")
     if args.action == "agents":
         result = request(token, "GET", "/api/agents")
     elif args.action == "threads":
-        result = request(token, "GET", "/api/sessions")
+        result = request(token, "GET", "/api/conversations")
     elif args.action in ("new", "send"):
         value = {} if args.action == "new" and args.defer_start else {
             "prompt": args.prompt, "to_agent_ids": targets(args.agents), "to_user_ids": targets(args.users)}
         if args.action == "send":
             value["attachment_ids"] = targets(args.attachments)
-        path = "/api/sessions" if args.action == "new" else thread_path + "/messages"
+        path = "/api/conversations" if args.action == "new" else thread_path + "/messages"
         result = request(token, "POST", path, value)
     elif args.action == "read":
         result = request(token, "GET", thread_path)

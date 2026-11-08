@@ -9,7 +9,6 @@ import (
 	"mime"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -41,17 +40,17 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 			s.workAuth(finish)(w, r)
 			return
 		}
-		d, err := s.service.DaemonByKey(r.Context(), token)
+		d, err := s.service.DeviceByKey(r.Context(), token)
 		if err != nil {
-			writeErr(w, 401, "daemon 密钥无效")
+			writeErr(w, 401, "device 密钥无效")
 			return
 		}
 		if r.Header.Get(actAsHeader) != "" {
-			writeErr(w, 403, "daemon 不能代为用户")
+			writeErr(w, 403, "device 不能代为用户")
 			return
 		}
 		if r.Method == http.MethodDelete {
-			writeErr(w, 403, "daemon 不能删除附件")
+			writeErr(w, 403, "device 不能删除附件")
 			return
 		}
 		u, err := s.service.GetUser(r.Context(), d.UserID)
@@ -59,7 +58,7 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 			s.attachmentErr(w, err)
 			return
 		}
-		a := service.AttachmentAccess{User: u, DaemonID: d.ID, Token: token, RunID: r.Header.Get("X-Agentuse-Run")}
+		a := service.AttachmentAccess{User: u, DeviceID: d.ID, Token: token, RunID: r.Header.Get("X-Agentuse-Run")}
 		h(w, r.WithContext(context.WithValue(r.Context(), attachmentKey{}, a)))
 	}
 }
@@ -69,7 +68,7 @@ func (s *Server) attachmentErr(w http.ResponseWriter, err error) {
 		writeErr(w, 401, err.Error())
 	case errors.Is(err, service.ErrNotFound):
 		writeErr(w, 404, "会话或附件不存在")
-	case errors.Is(err, service.ErrAttachmentReferenced), errors.Is(err, service.ErrAttachmentPathConflict), errors.Is(err, service.ErrAttachmentRun), errors.Is(err, service.ErrStaleMessage), errors.Is(err, service.ErrAttachmentCapability):
+	case errors.Is(err, service.ErrAttachmentReferenced), errors.Is(err, service.ErrAttachmentPathConflict), errors.Is(err, service.ErrAttachmentRun), errors.Is(err, service.ErrAttachmentCapability):
 		writeErr(w, 409, err.Error())
 	case errors.Is(err, service.ErrAttachmentQuota):
 		writeErr(w, 413, err.Error())
@@ -78,7 +77,7 @@ func (s *Server) attachmentErr(w http.ResponseWriter, err error) {
 		writeErr(w, 500, "附件存储失败")
 	}
 }
-func (s *Server) attachmentSession(w http.ResponseWriter, r *http.Request, upload bool) bool {
+func (s *Server) attachmentConversation(w http.ResponseWriter, r *http.Request, upload bool) bool {
 	id := r.PathValue("id")
 	if uuid.Validate(id) != nil {
 		writeErr(w, 404, "会话不存在")
@@ -86,7 +85,7 @@ func (s *Server) attachmentSession(w http.ResponseWriter, r *http.Request, uploa
 	}
 	a := attachmentAccess(r)
 	if a.WorkID != "" {
-		ss, err := s.service.GetSession(r.Context(), a.User, id)
+		ss, err := s.service.GetConversation(r.Context(), a.User, id)
 		if err != nil {
 			s.attachmentErr(w, err)
 			return false
@@ -96,19 +95,15 @@ func (s *Server) attachmentSession(w http.ResponseWriter, r *http.Request, uploa
 			return false
 		}
 	}
-	if _, err := s.service.AttachmentSession(r.Context(), a, id, upload); err != nil {
+	if _, err := s.service.AttachmentConversation(r.Context(), a, id, upload); err != nil {
 		s.attachmentErr(w, err)
 		return false
 	}
 	return true
 }
-func (s *Server) attachmentPath(session, id string) string {
-	return filepath.Join(s.cfg.AttachmentsDir, session, id, "content")
-}
-
 func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) {
-	// Authenticate the session before parsing potentially large request bodies.
-	if !s.attachmentSession(w, r, true) {
+	// Authenticate the conversation before parsing potentially large request bodies.
+	if !s.attachmentConversation(w, r, true) {
 		return
 	}
 	ct, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -122,12 +117,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 400, "multipart 格式不合法")
 		return
 	}
-	tmpdir := filepath.Join(s.cfg.AttachmentsDir, ".tmp")
-	if err = os.MkdirAll(tmpdir, 0700); err != nil {
-		s.attachmentErr(w, err)
-		return
-	}
-	f, err := os.CreateTemp(tmpdir, "upload-")
+	f, err := os.CreateTemp("", "agentuse-upload-*")
 	if err != nil {
 		s.attachmentErr(w, err)
 		return
@@ -246,7 +236,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 400, err.Error())
 		return
 	}
-	if a.DaemonID == "" && a.WorkID == "" {
+	if a.DeviceID == "" && a.WorkID == "" {
 		if !strings.HasPrefix(requestedPath, "user_input/") {
 			requestedPath = "user_input/" + requestedPath
 		}
@@ -268,10 +258,10 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		s.attachmentErr(w, err)
 		return
 	}
-	v := attachment.Attachment{RelativePath: requestedPath, ID: s.service.NewAttachmentID(), SessionID: r.PathValue("id"), Filename: filename, ContentType: ctype, SizeBytes: size, SHA256: digest, CreatedBy: a.User.ID, Source: "user", CreatedAt: time.Now().Unix()}
-	if a.DaemonID != "" {
-		v.Source = "daemon"
-		v.DaemonID = a.DaemonID
+	v := attachment.Attachment{RelativePath: requestedPath, ID: s.service.NewAttachmentID(), ConversationID: r.PathValue("id"), Filename: filename, ContentType: ctype, SizeBytes: size, SHA256: digest, CreatedBy: a.User.ID, Source: "user", CreatedAt: time.Now().Unix()}
+	if a.DeviceID != "" {
+		v.Source = "device"
+		v.DeviceID = a.DeviceID
 		v.CreatedByRunID = a.RunID
 	} else if a.WorkID != "" {
 		v.Source = "work"
@@ -285,9 +275,9 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 					return wk.CoordinatorID
 				}
 			}
-			return v.SessionID
+			return v.ConversationID
 		}(), a.RunID); e == nil {
-			v.CreatedByAgentKey = run.AgentID
+			v.CreatedByAgentID = run.AgentID
 		}
 	}
 	err = s.service.PublishAttachment(r.Context(), a, &v, tmp)
@@ -299,12 +289,12 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		s.attachmentErr(w, err)
 		return
 	}
-	v.DownloadPath = "/api/sessions/" + v.SessionID + "/attachments/" + v.ID + "/content"
+	v.DownloadPath = "/api/conversations/" + v.ConversationID + "/attachments/" + v.ID + "/content"
 	w.Header().Set("Location", strings.TrimSuffix(v.DownloadPath, "/content"))
 	writeJSON(w, 201, v)
 }
 func (s *Server) handleListAttachments(w http.ResponseWriter, r *http.Request) {
-	if !s.attachmentSession(w, r, false) {
+	if !s.attachmentConversation(w, r, false) {
 		return
 	}
 	limit := 100
@@ -339,7 +329,7 @@ func (s *Server) handleListAttachments(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, page)
 }
 func (s *Server) handleGetAttachment(w http.ResponseWriter, r *http.Request) {
-	if !s.attachmentSession(w, r, false) {
+	if !s.attachmentConversation(w, r, false) {
 		return
 	}
 	v, err := s.service.GetAttachment(r.Context(), r.PathValue("id"), r.PathValue("attachment_id"))
@@ -350,7 +340,7 @@ func (s *Server) handleGetAttachment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, v)
 }
 func (s *Server) handleAttachmentContent(w http.ResponseWriter, r *http.Request) {
-	if !s.attachmentSession(w, r, false) {
+	if !s.attachmentConversation(w, r, false) {
 		return
 	}
 	v, err := s.service.GetAttachment(r.Context(), r.PathValue("id"), r.PathValue("attachment_id"))
@@ -358,7 +348,7 @@ func (s *Server) handleAttachmentContent(w http.ResponseWriter, r *http.Request)
 		s.attachmentErr(w, err)
 		return
 	}
-	f, err := s.service.OpenAttachmentFile(v.SessionID, v.ID)
+	f, err := s.service.OpenAttachmentFile(r.Context(), v.ConversationID, v.ID)
 	if err != nil {
 		s.attachmentErr(w, err)
 		return
@@ -375,7 +365,7 @@ func (s *Server) handleAttachmentContent(w http.ResponseWriter, r *http.Request)
 	}
 }
 func (s *Server) handleDeleteAttachment(w http.ResponseWriter, r *http.Request) {
-	if !s.attachmentSession(w, r, false) {
+	if !s.attachmentConversation(w, r, false) {
 		return
 	}
 	if err := s.service.DeleteAttachment(r.Context(), attachmentAccess(r), r.PathValue("id"), r.PathValue("attachment_id")); err != nil {

@@ -33,7 +33,7 @@ func TestContextUploadsOutputsAndRecoversLostResponseFromServer(t *testing.T) {
 		}
 		mutex.Lock()
 		defer mutex.Unlock()
-		path := "/api/sessions/" + conversation + "/attachments"
+		path := "/api/conversations/" + conversation + "/attachments"
 		switch {
 		case r.Method == "GET" && r.URL.Path == path:
 			if r.URL.Query().Get("run_id") != "" {
@@ -63,7 +63,7 @@ func TestContextUploadsOutputsAndRecoversLostResponseFromServer(t *testing.T) {
 			} else if number == 3 {
 				id = "at_renamed"
 			}
-			metadata := sdk.Attachment{ID: id, SessionID: conversation, CreatedByRunID: run, Filename: head.Filename, RelativePath: r.FormValue("path"), ContentType: "text/plain", SizeBytes: int64(len(data)), SHA256: hex.EncodeToString(digest[:])}
+			metadata := sdk.Attachment{ID: id, ConversationID: conversation, CreatedByRunID: run, Filename: head.Filename, RelativePath: r.FormValue("path"), ContentType: "text/plain", SizeBytes: int64(len(data)), SHA256: hex.EncodeToString(digest[:])}
 			if number == 2 {
 				metadata.RelativePath = "报告 (2).txt"
 			}

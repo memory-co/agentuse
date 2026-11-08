@@ -21,10 +21,10 @@ Server 網頁透過 `GET /api/browser/ws` 建立一條 WebSocket，僅接收資�
 資料提交成功後送出：
 
 ```json
-{"type":"changed","changes":[{"resource":"sessions","id":"conversation_uuid","work_id":"work_uuid"}]}
+{"type":"changed","changes":[{"resource":"conversations","id":"conversation_uuid","work_id":"work_uuid"}]}
 ```
 
-`resource` 包含 `sessions`、`attachments`、`works`、`agents`、`skills`、`daemons`、`users`。`id` 指對應資源，附件通知的 id 是 conversation ID；`work_id` 僅在會話屬於 Work 時提供。通知不包含消息正文、附件內容、日誌、執行結果或憑證。
+`resource` 包含 `conversations`、`attachments`、`works`、`agents`、`skills`、`devices`、`users`。`id` 指對應資源，附件通知的 id 是 conversation ID；`work_id` 僅在會話屬於 Work 時提供。通知不包含消息正文、附件內容、日誌、執行結果或憑證。
 
 前端依資源精確使相關查詢失效，只重新讀取目前啟用的查詢。會話變更更新該會話詳情與相關列表，附件變更只更新該會話文件列表；Work 刪除也需要更新它包含的會話。Agent 回覆和 run detail 的輸出使用 Markdown 顯示，支援 GFM 表格、清單、連結及程式碼區塊；使用者消息仍顯示原文。停用原始 HTML，保留安全 URL 過濾，不使用 dangerouslySetInnerHTML。
 

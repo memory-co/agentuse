@@ -65,7 +65,6 @@ func runStart(args []string) error {
 	publicURL := fs.String("public-url", os.Getenv("AGENTUSE_PUBLIC_URL"), "用户电脑访问服务的地址(写进安装命令),空 = 按请求推断")
 	dist := fs.String("dist", command.EnvOr("AGENTUSE_DIST", defaultDist()), "各平台 agentuse 二进制所在目录(agentuse-<os>-<arch>)")
 	home, _ := os.UserHomeDir()
-	attachmentsDir := fs.String("attachments-dir", command.EnvOr("AGENTUSE_ATTACHMENTS_DIR", filepath.Join(home, ".agentuse", "attachments")), "附件存储目录")
 	filesDir := fs.String("files-dir", command.EnvOr("AGENTUSE_FILES_DIR", filepath.Join(home, ".agentuse", "files")), "fileService 本地存储目录")
 	filesBackend := fs.String("files-backend", command.EnvOr("AGENTUSE_FILES_BACKEND", "local"), "fileService 后端: local|s3")
 	s3Endpoint := fs.String("s3-endpoint", os.Getenv("AGENTUSE_S3_ENDPOINT"), "S3 兼容服务地址")
@@ -84,7 +83,7 @@ func runStart(args []string) error {
 		return n
 	}
 	maxBytes := fs.Int64("attachment-max-bytes", envInt("AGENTUSE_ATTACHMENT_MAX_BYTES", 100<<20), "单附件字节上限")
-	sessionMax := fs.Int64("attachment-session-max-bytes", envInt("AGENTUSE_ATTACHMENT_SESSION_MAX_BYTES", 1<<30), "会话附件总字节上限")
+	conversationMax := fs.Int64("attachment-conversation-max-bytes", envInt("AGENTUSE_ATTACHMENT_CONVERSATION_MAX_BYTES", 1<<30), "会话附件总字节上限")
 	resetAdmin := fs.Bool("reset-admin-token", false, "启动时给管理员换一个新令牌并打印(令牌丢了用)")
 	if err := command.Parse(fs, args); err != nil {
 		return err
@@ -102,12 +101,10 @@ func runStart(args []string) error {
 	if fileErr != nil {
 		return fileErr
 	}
-	if *maxBytes <= 0 || *sessionMax <= 0 || *maxBytes > (1<<63-1)-(1<<20) {
+	if *maxBytes <= 0 || *conversationMax <= 0 || *maxBytes > (1<<63-1)-(1<<20) {
 		return errors.New("附件容量必须是有效正整数")
 	}
-	if err := os.MkdirAll(*attachmentsDir, 0700); err != nil {
-		return err
-	}
+
 	if *dbPath != ":memory:" {
 		if err := os.MkdirAll(filepath.Dir(*dbPath), 0o700); err != nil {
 			return err
@@ -121,7 +118,7 @@ func runStart(args []string) error {
 	st := service.New(repository)
 	ctx, stop := command.SignalContext()
 	defer stop()
-	if err := st.MarkAllDaemonsOffline(ctx); err != nil {
+	if err := st.MarkAllDevicesOffline(ctx); err != nil {
 		return err
 	}
 
@@ -144,7 +141,7 @@ func runStart(args []string) error {
 	svc := st
 	transport := hub.New(svc, log.Default())
 	svc.SetNotifier(transport)
-	srv := server.New(st, server.Config{FileStore: files, DaemonHandler: transport, PublicURL: *publicURL, DistDir: *dist, AttachmentsDir: *attachmentsDir, AttachmentMaxBytes: *maxBytes, AttachmentSessionMaxBytes: *sessionMax})
+	srv := server.New(st, server.Config{FileStore: files, ClientHandler: transport, PublicURL: *publicURL, DistDir: *dist, AttachmentMaxBytes: *maxBytes, AttachmentConversationMaxBytes: *conversationMax})
 	go svc.Run(ctx)
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 	go func() {

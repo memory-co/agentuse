@@ -16,11 +16,11 @@ import (
 func TestMaterializeAttachmentUsesConversationPathAndVerifiesBytes(t *testing.T) {
 	content := []byte("input\x00-data")
 	sum := sha256.Sum256(content)
-	a := sdk.Attachment{ID: "at_file", SessionID: "conversation", Filename: "文档.txt", RelativePath: "user_input/文档.txt", SHA256: hex.EncodeToString(sum[:]), SizeBytes: int64(len(content))}
+	a := sdk.Attachment{ID: "at_file", ConversationID: "conversation", Filename: "文档.txt", RelativePath: "user_input/文档.txt", SHA256: hex.EncodeToString(sum[:]), SizeBytes: int64(len(content))}
 	downloads := 0
 	bad := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer dk_ok" || r.URL.Path != "/api/sessions/conversation/attachments/at_file/content" {
+		if r.Header.Get("Authorization") != "Bearer dk_ok" || r.URL.Path != "/api/conversations/conversation/attachments/at_file/content" {
 			t.Error("wrong download scope")
 			w.WriteHeader(403)
 			return
@@ -36,7 +36,7 @@ func TestMaterializeAttachmentUsesConversationPathAndVerifiesBytes(t *testing.T)
 	client := sdk.New(server.URL, "dk_ok")
 	dir := t.TempDir()
 	materialize := func() (string, error) {
-		return materializeAttachment(context.Background(), client, a.SessionID, dir, a, nil)
+		return materializeAttachment(context.Background(), client, a.ConversationID, dir, a, nil)
 	}
 	path, err := materialize()
 	if err != nil || path != filepath.Join(dir, filepath.FromSlash(a.RelativePath)) {
@@ -63,7 +63,7 @@ func TestMaterializeAttachmentUsesConversationPathAndVerifiesBytes(t *testing.T)
 	for _, relative := range []string{"../escape", "/absolute", "a/../../escape", `a\escape`, ""} {
 		invalid := a
 		invalid.RelativePath = relative
-		if _, err = materializeAttachment(context.Background(), client, a.SessionID, dir, invalid, nil); err == nil {
+		if _, err = materializeAttachment(context.Background(), client, a.ConversationID, dir, invalid, nil); err == nil {
 			t.Fatal("unsafe path accepted", relative)
 		}
 	}

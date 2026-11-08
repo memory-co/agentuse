@@ -40,7 +40,7 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 	user := "codex-steer-test"
 	home := t.TempDir()
 	cfg := filepath.Join(home, "endpoints.yaml")
-	d, err := c.CreateDaemon(ctx, user, "codex test machine")
+	d, err := c.CreateDevice(ctx, user, "codex test machine")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 	command.Env = e2eutil.Env(home, extra...)
 	e2eutil.Start(t, command)
 	e2eutil.WaitFor(t, 20*time.Second, "Codex steer daemon online", func() bool {
-		ds, e := c.ListDaemons(ctx, user)
+		ds, e := c.ListDevices(ctx, user)
 		if e != nil || len(ds) != 1 || ds[0].Status != "online" {
 			return false
 		}
@@ -72,21 +72,21 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 		}
 		return false
 	})
-	if _, err = c.SetDaemonHarness(ctx, user, d.ID, "codex", true); err != nil {
+	if _, err = c.SetDeviceHarness(ctx, user, d.ID, "codex", true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = c.CreateAgent(ctx, user, agentuse.CreateAgentRequest{ID: "codex-live", Name: "Codex live", DaemonID: d.ID, Harness: "codex"}); err != nil {
+	if _, err = c.CreateAgent(ctx, user, agentuse.CreateAgentRequest{ID: "codex-live", Name: "Codex live", DeviceID: d.ID, Harness: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 	prompt := "This is an integration test. Run exactly one shell command `sleep 12` and wait for it to finish. You will receive an additional user message during that command. After it finishes, follow the latest user instruction. If there is no additional instruction, respond ORIGINAL_ONLY. Do not modify files, do not use subagents, and do not read files except the session history if your instructions require it."
-	created, err := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Prompt: prompt, ToAgentIDs: []string{"codex-live"}})
+	created, err := c.CreateConversation(ctx, user, agentuse.CreateConversationRequest{Prompt: prompt, ToAgentIDs: []string{"codex-live"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := created.Session.ID
+	id := created.Conversation.ID
 	runID := ""
 	e2eutil.WaitFor(t, 90*time.Second, "real active Codex command", func() bool {
-		detail, e := c.GetSession(ctx, user, id)
+		detail, e := c.GetConversation(ctx, user, id)
 		if e != nil {
 			return false
 		}
@@ -134,13 +134,9 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 		}
 	}
 	for _, message := range detail.Messages {
-		if message.Role == "assistant" {
+		if message.AuthorRole == "agent" {
 			assistantCount++
-			var v struct {
-				Output string `json:"output"`
-			}
-			_ = json.Unmarshal(message.Content, &v)
-			output = v.Output
+			output = message.Content
 		}
 	}
 	if !acknowledged || assistantCount != 1 || !strings.Contains(output, nonce) {

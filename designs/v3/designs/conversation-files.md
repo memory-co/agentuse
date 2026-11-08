@@ -1,6 +1,6 @@
 # Conversation 文件树与消息附件
 
-每个 conversation 是一个独立文件命名空间。attachments.relative_path 保存规范化的相对文件路径，(session_id, relative_path) 唯一；实际字节内容仍按附件 ID 保存。文件树从路径派生，不读取或暴露 Server/Client 的主机目录。
+每个 conversation 是一个独立文件命名空间。attachments.relative_path 保存规范化的相对文件路径，(conversation_id, relative_path) 唯一；实际字节通过 fileService 保存在 conversations/<conversation_id>/<relative_path>，与通用 conversation 文件共用本地或 S3 后端。附件 ID 只标识消息引用的业务元数据。文件树从路径派生，不读取或暴露 Server/Client 的主机目录。
 
 ## 路径
 
@@ -29,7 +29,7 @@ Server 首次投递该消息时直接使用已保存快照。随后上传到文�
 
 ## 存储与版本
 
-schema 6 为 attachments 增加 relative_path，为 messages 增加 attachments JSON 快照。无旧数据迁移、旧字段别名或整会话附件回退。HTTP /api/sessions 和既有附件内容下载地址不变。
+schema 7 使用 conversations 表和 conversation_id；attachments 保存 relative_path，messages 保存 attachments JSON 快照。附件 API 和内容地址均位于 /api/conversations 下。无旧数据迁移、旧字段别名或旧路由回退。
 
 ## TODO
 

@@ -1,6 +1,6 @@
 # SDK
 
-给**网站后端**用的 agentuse 客户端，把 agentuse 嵌进自己的站点。思路见 [designs/embedding](../designs/v2/designs/embedding.md),接口见 [apis](../designs/v2/apis/README.md)。
+给**网站后端**用的 agentuse 客户端，把 agentuse 嵌进自己的站点。思路见 [Server 身份](../designs/v3/designs/server-user.md),接口见 [apis](../docs/server/conversations.md)。
 
 | 语言 | 目录 | 依赖 |
 |---|---|---|
@@ -16,38 +16,40 @@
 
 | 网站上的功能 | 方法(Python / Node / Go) |
 |---|---|
-| 「连接我的电脑」 | `create_daemon` / `createDaemon` / `CreateDaemon`,把返回的 `setup_command` 给用户复制 |
-| 看电脑在不在线 | `list_daemons` / `listDaemons` / `ListDaemons` |
-| 开关某台电脑上的 harness | `set_daemon_harness` / `setDaemonHarness` / `SetDaemonHarness` |
+| 「连接我的电脑」 | `create_device` / `createDevice` / `CreateDevice`,把返回的 `setup_command` 给用户复制 |
+| 看电脑在不在线 | `list_devices` / `listDevices` / `ListDevices` |
+| 开关某台电脑上的 harness | `set_device_harness` / `setDeviceHarness` / `SetDeviceHarness` |
 | 建一个 agent(起名字，绑定运行时：某台电脑上的某个 harness,以后可以切换) | `create_agent` / `createAgent` / `CreateAgent`;修改配置用 `publish_agent_version` / `publishAgentVersion` / `PublishAgentVersion`，提交完整配置与 `base_version_id` |
-| 用某个 agent 发起一次任务 | `create_session` / `createSession` / `CreateSession` |
+| 用某个 agent 发起一次任务 | `create_conversation` / `createConversation` / `CreateConversation` |
 | 接着回复 | `send_message` / `sendMessage` / `SendMessage`(harness 还没回时 409) |
-| 看进度和结果 | `get_session` / `getSession` / `GetSession`,或 `wait_session` 轮询到 `idle` |
+| 看进度和结果 | `get_conversation` / `getConversation` / `GetConversation`,或 `wait_conversation` 轮询到 `idle` |
 
-另外还有 `me`、`list_agents`、`get_agent`、`delete_agent`、`list_sessions`、`delete_session`、`list_harnesses`、`reset_daemon`、`delete_daemon`,以及 admin 用的 `list_users`、`create_user`、`reset_user_token`,和接口一一对应。
+另外还有 `me`、`list_agents`、`get_agent`、`delete_agent`、`list_conversations`、`delete_conversation`、`list_harnesses`、`reset_device`、`delete_device`,以及 admin 用的 `list_users`、`create_user`、`reset_user_token`,和接口一一对应。
 
 非 2xx 响应统一抛(Go 里返回)一个带 `status` 和服务端 `error` 说明的错误。
 
 ## 会话附件
 
-设计见 [attachment](../designs/v2/designs/attachment.md)，HTTP 约定见 [attachments](../designs/v2/apis/attachments.md)。三种 SDK 同步增加 `Attachment` 类型和以下方法，仍按第一个用户参数发送 `X-Agentuse-User`：
+设计见 [conversation 文件](../designs/v3/designs/conversation-files.md)，HTTP 约定见 [attachments](../docs/server/conversations.md)。三种 SDK 同步增加 `Attachment` 类型和以下方法，仍按第一个用户参数发送 `X-Agentuse-User`：
 
 | 操作 | Python / Node / Go |
 |---|---|
 | 上传一个文件流、指定文件名 | `upload_attachment` / `uploadAttachment` / `UploadAttachment` |
-| 分页列出 session 附件，接收 limit/cursor | `list_attachments` / `listAttachments` / `ListAttachments` |
+| 分页列出 conversation 附件，接收 limit/cursor | `list_attachments` / `listAttachments` / `ListAttachments` |
 | 取附件元数据 | `get_attachment` / `getAttachment` / `GetAttachment` |
 | 下载附件，返回可关闭的响应流 | `download_attachment` / `downloadAttachment` / `DownloadAttachment` |
 | 删除附件 | `delete_attachment` / `deleteAttachment` / `DeleteAttachment` |
 
-以上方法均显式传 session_id；get/download/delete 再传 attachment_id。列表返回 `{attachments, next_cursor}`，upload/get 返回 Attachment，delete 不返回内容。Go upload 接收 `io.Reader` 和 filename、download 返回 `io.ReadCloser`（另带响应头）；Python 接收二进制文件对象、返回可关闭的二进制响应；Node 接收文件流、返回含 headers 的流响应，调用方负责消费或关闭。传输取消与错误处理沿用各 SDK 约定。upload 必须流式生成 multipart，不能先缓冲整个文件或转 base64；download 不自动落盘。
+以上方法均显式传 conversation_id；get/download/delete 再传 attachment_id。列表返回 `{attachments, next_cursor}`，upload/get 返回 Attachment，delete 不返回内容。Go upload 接收 `io.Reader` 和 filename、download 返回 `io.ReadCloser`（另带响应头）；Python 接收二进制文件对象、返回可关闭的二进制响应；Node 接收文件流、返回含 headers 的流响应，调用方负责消费或关闭。传输取消与错误处理沿用各 SDK 约定。upload 必须流式生成 multipart，不能先缓冲整个文件或转 base64；download 不自动落盘。
 
-`create_session` / `createSession` / `CreateSession` 的可选参数增加 `defer_start`。为 true 时仅创建 idle 会话，返回中的 message 可缺省；调用者可先上传输入附件，再调用 send_message 开始执行。已有调用的默认行为保持不变。
+创建请求省略 prompt 即创建空 conversation，返回中的 message 可缺省；调用者先上传输入附件，再发送消息选择 attachment_ids。不再提供 mode、defer_start 或原生 input 包装字段。
 
-## 多 agent 共享 session
+## 多 agent 共享 conversation
 
-创建时显式传 mode=multi_agent，不传 agent_id。发送消息用 to_agent_ids 和 to_user_ids 指定 Agent 与用户收件人，返回 message、runs、deliveries；先建立输入分配，实际 run 由 client accepted 决定。只有 Agent 收件人会触发执行；用户必须已有会话读取权限。两组省略时均返回 []，只保存笔记，不默认调用上次 agent。
+所有 conversation 使用同一个共享消息模型，不传 mode。发送消息用 to_agent_ids 和 to_user_ids 指定 Agent 与用户收件人，返回 message、runs、deliveries；先建立输入分配，实际 run 由 client accepted 决定。只有 Agent 收件人会触发执行；用户必须已有会话读取权限。两组省略时均返回 []，只保存笔记，不默认调用上次 agent。
 
-三个 SDK 增加 get/cancel/wait run、wait message runs、reply run request 方法。等待一条消息完成要跟踪 deliveries（accepted 前 run_id 为空），不能只等最初返回的新 runs。WaitSession 对新模式默认等全部执行结束；returnOnWaiting / return_on_waiting / Go WaitOptions 可选择在提问时返回。
+三个 SDK 增加 get/cancel/wait run、wait message runs、reply run request 方法。等待一条消息完成要跟踪 deliveries（accepted 前 run_id 为空），不能只等最初返回的新 runs。WaitConversation 对新模式默认等全部执行结束；returnOnWaiting / return_on_waiting / Go WaitOptions 可选择在提问时返回。
 
 Agent 和共享 skill 独立版本化：创建 agent 会发布 v1，后续配置修改调用版本发布 API，旧版本不可变。先上传根目录含 SKILL.md 的 ZIP，再在 agent 配置的 skills 中固定 skill_id 与 skill_version_id；skill 发布新版本不会自动升级 agent。各 SDK 均提供版本查询、skill 上传和固定版本下载方法。完整规则见 [agentService](../designs/v3/designs/server-agent.md) 和 [skillService](../designs/v3/designs/server-skill.md)。
+
+Message 使用 author_role=user/agent、author_user_id / author_agent_id 和纯字符串 content。reply_to_message_id 引用同一 conversation 的消息，执行结果在 Run 中。session_id 只由 Client 生成，Server 记录同一个值；不存在 client_session_id。

@@ -12,30 +12,30 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Confirm, ErrorState, Loading } from '@/components/Shared';
 import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query';
-import type { Agent, AgentVersion, Skill, SkillVersion, User, Daemon } from '@/lib/types';
+import type { Agent, AgentVersion, Skill, SkillVersion, User, Device } from '@/lib/types';
 import { t, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 export const useAgents = () => useQuery({ queryKey: ['agents'], queryFn: () => api<Agent[]>('/api/agents'), staleTime: 30_000 });
 const refresh = () => queryClient.invalidateQueries({ queryKey: ['agents'] });
 
-// 运行时 = 某台 daemon + 上面可用并已开启的某个 harness,下拉框的值写成 "daemon_id/harness"。
-type Runtime = { daemon_id: string; harness: string };
-const rtKey = (r: Runtime) => `${r.daemon_id}/${r.harness}`;
-const parseRt = (k: string): Runtime => { const i = k.indexOf('/'); return { daemon_id: k.slice(0, i), harness: k.slice(i + 1) }; };
-const runtimesOf = (daemons: Daemon[] | undefined, userId: string) =>
-  (daemons || []).filter(d => d.user_id === userId).flatMap(d => d.harnesses.filter(h => h.available && h.enabled).map(h => ({
-    key: rtKey({ daemon_id: d.id, harness: h.harness }),
+// 运行时 = 某台 device + 上面可用并已开启的某个 harness,下拉框的值写成 "device_id/harness"。
+type Runtime = { device_id: string; harness: string };
+const rtKey = (r: Runtime) => `${r.device_id}/${r.harness}`;
+const parseRt = (k: string): Runtime => { const i = k.indexOf('/'); return { device_id: k.slice(0, i), harness: k.slice(i + 1) }; };
+const runtimesOf = (devices: Device[] | undefined, userId: string) =>
+  (devices || []).filter(d => d.user_id === userId).flatMap(d => d.harnesses.filter(h => h.available && h.enabled).map(h => ({
+    key: rtKey({ device_id: d.id, harness: h.harness }),
     label: `${d.name} · ${h.harness}${d.status === 'online' ? '' : t('agents.offline')}`,
   })));
 
-function RuntimeSelect({ value, onChange, daemons, userId, className }: { value: string; onChange: (v: string) => void; daemons?: Daemon[]; userId: string; className?: string }) {
+function RuntimeSelect({ value, onChange, devices, userId, className }: { value: string; onChange: (v: string) => void; devices?: Device[]; userId: string; className?: string }) {
   const t = useT();
-  const options = runtimesOf(daemons, userId);
+  const options = runtimesOf(devices, userId);
   // 当前选的运行时已经不能用了(harness 被关掉或本机没了):照样显示出来，标成不可用，不能再选
-  const stale = value && daemons && !options.some(o => o.key === value) ? (() => {
+  const stale = value && devices && !options.some(o => o.key === value) ? (() => {
     const rt = parseRt(value);
-    return { key: value, label: `${daemons.find(d => d.id === rt.daemon_id)?.name ?? rt.daemon_id} · ${rt.harness}${t('agents.unavailable')}` };
+    return { key: value, label: `${devices.find(d => d.id === rt.device_id)?.name ?? rt.device_id} · ${rt.harness}${t('agents.unavailable')}` };
   })() : null;
   return <Select value={value} onValueChange={onChange}>
     <SelectTrigger className={cn(className, stale && 'text-destructive')} title={stale ? t('agents.unavailableHint') : undefined}><SelectValue placeholder={t('agents.pickRuntime')} /></SelectTrigger>
@@ -51,7 +51,7 @@ function RuntimeSelect({ value, onChange, daemons, userId, className }: { value:
 export function Agents({ me }: { me: User }) {
  const t = useT();
  const agents = useAgents();
- const daemons = useQuery({queryKey:['daemons'],queryFn:()=>api<Daemon[]>('/api/daemons')});
+ const devices = useQuery({queryKey:['devices'],queryFn:()=>api<Device[]>('/api/devices')});
  const skills = useQuery({queryKey:['skills'],queryFn:()=>api<Skill[]>('/api/skills')});
  const versions = useQuery({queryKey:['skill-versions',skills.data?.map(s=>s.current_version_id)],enabled:!!skills.data,queryFn:async()=> (await Promise.all((skills.data||[]).map(s=>api<SkillVersion[]>(`/api/skills/${s.id}/versions`)))).flat()});
  const empty = {id:'',name:'',description:'',runtime:'',model:'',instructions:'',skills:[] as string[]};
@@ -60,7 +60,7 @@ export function Agents({ me }: { me: User }) {
  const [historyID,setHistoryID] = useState('');
  const history = useQuery({queryKey:['agent-versions',historyID],enabled:!!historyID,queryFn:()=>api<AgentVersion[]>(`/api/agents/${historyID}/versions`)});
  const label = (zh:string,en:string)=> t('nav.language')==='English'?zh:en;
- function load(a:Agent,v?:AgentVersion){setEditing(a);setForm({id:a.id,name:v?.name??a.name,description:v?.description??a.description,runtime:rtKey({daemon_id:v?.daemon_id??a.daemon_id??'',harness:v?.harness??a.harness}),model:v?.model??a.model??'',instructions:v?.instructions??a.instructions??'',skills:(v?.skills??a.skills??[]).map(s=>s.skill_version_id)});}
+ function load(a:Agent,v?:AgentVersion){setEditing(a);setForm({id:a.id,name:v?.name??a.name,description:v?.description??a.description,runtime:rtKey({device_id:v?.device_id??a.device_id??'',harness:v?.harness??a.harness}),model:v?.model??a.model??'',instructions:v?.instructions??a.instructions??'',skills:(v?.skills??a.skills??[]).map(s=>s.skill_version_id)});}
  const save = useMutation({mutationFn:()=>{
   const selected=form.skills.map(id=>{const v=versions.data?.find(v=>v.id===id);if(!v) {const old=editing?.skills.find(s=>s.skill_version_id===id);if(old)return old;throw new Error('Unknown skill version');}return {skill_id:v.skill_id,skill_version_id:v.id};});
   const body={name:form.name.trim(),description:form.description,...parseRt(form.runtime),model:form.model.trim(),instructions:form.instructions,skills:selected};
@@ -70,7 +70,7 @@ export function Agents({ me }: { me: User }) {
  return <div className="grid gap-4">
   <Card><CardHeader><CardTitle>{editing?label('发布 agent 新版本','Publish agent version'):t('agents.newTitle')}</CardTitle><CardDescription>{t('agents.newText')}</CardDescription></CardHeader><CardContent>
   <form className="grid gap-3" onSubmit={e=>{e.preventDefault();save.mutate();}}>
-   <div className="flex flex-wrap gap-2"><Input className="w-40" aria-label="Agent ID" placeholder={t('agents.idPlaceholder')} value={form.id} disabled={!!editing} onChange={e=>setForm({...form,id:e.target.value})}/><Input className="w-48" aria-label={t('common.name')} placeholder={t('agents.namePlaceholder')} required value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/><RuntimeSelect className="w-64" value={form.runtime} onChange={runtime=>setForm({...form,runtime})} daemons={daemons.data} userId={editing?.user_id??me.id}/></div>
+   <div className="flex flex-wrap gap-2"><Input className="w-40" aria-label="Agent ID" placeholder={t('agents.idPlaceholder')} value={form.id} disabled={!!editing} onChange={e=>setForm({...form,id:e.target.value})}/><Input className="w-48" aria-label={t('common.name')} placeholder={t('agents.namePlaceholder')} required value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/><RuntimeSelect className="w-64" value={form.runtime} onChange={runtime=>setForm({...form,runtime})} devices={devices.data} userId={editing?.user_id??me.id}/></div>
    <Input aria-label={t('common.description')} placeholder={t('common.description')} value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/>
    <Input aria-label="Model" placeholder={label('Model（可选）','Model (optional)')} value={form.model} onChange={e=>setForm({...form,model:e.target.value})}/>
    <Textarea aria-label="AGENTS.md" placeholder="AGENTS.md" rows={6} value={form.instructions} onChange={e=>setForm({...form,instructions:e.target.value})}/>
@@ -82,7 +82,7 @@ export function Agents({ me }: { me: User }) {
   </form></CardContent></Card>
   <Card><CardHeader><CardTitle>{t('agents.listTitle')}</CardTitle></CardHeader><CardContent>
    {del.isError&&<ErrorState error={del.error}/>}
-   {agents.isPending?<Loading/>:agents.isError?<ErrorState error={agents.error}/>:<Table><TableHeader><TableRow><TableHead>ID</TableHead><TableHead>{t('common.name')}</TableHead><TableHead>{t('agents.runtime')}</TableHead><TableHead>{label('版本','Version')}</TableHead><TableHead/></TableRow></TableHeader><TableBody>{agents.data.map(a=><TableRow key={a.id}><TableCell>{a.id}</TableCell><TableCell>{a.name}</TableCell><TableCell>{daemons.data?.find(d=>d.id===a.daemon_id)?.name??a.daemon_id} · {a.harness}</TableCell><TableCell>v{a.version}</TableCell><TableCell><Button variant="ghost" onClick={()=>load(a)}>{label('编辑','Edit')}</Button><Button variant="ghost" onClick={()=>setHistoryID(a.id)}>{label('历史版本','History')}</Button><Confirm title={t('agents.deleteTitle',{name:a.name})} description={t('agents.deleteText')} action={t('common.delete')} onConfirm={()=>del.mutate(a.id)}><Button variant="ghost" size="icon" aria-label={t('common.delete')}><Trash2/></Button></Confirm></TableCell></TableRow>)}</TableBody></Table>}
+   {agents.isPending?<Loading/>:agents.isError?<ErrorState error={agents.error}/>:<Table><TableHeader><TableRow><TableHead>ID</TableHead><TableHead>{t('common.name')}</TableHead><TableHead>{t('agents.runtime')}</TableHead><TableHead>{label('版本','Version')}</TableHead><TableHead/></TableRow></TableHeader><TableBody>{agents.data.map(a=><TableRow key={a.id}><TableCell>{a.id}</TableCell><TableCell>{a.name}</TableCell><TableCell>{devices.data?.find(d=>d.id===a.device_id)?.name??a.device_id} · {a.harness}</TableCell><TableCell>v{a.version}</TableCell><TableCell><Button variant="ghost" onClick={()=>load(a)}>{label('编辑','Edit')}</Button><Button variant="ghost" onClick={()=>setHistoryID(a.id)}>{label('历史版本','History')}</Button><Confirm title={t('agents.deleteTitle',{name:a.name})} description={t('agents.deleteText')} action={t('common.delete')} onConfirm={()=>del.mutate(a.id)}><Button variant="ghost" size="icon" aria-label={t('common.delete')}><Trash2/></Button></Confirm></TableCell></TableRow>)}</TableBody></Table>}
   </CardContent></Card>
   {historyID&&<Card><CardHeader><CardTitle>{historyID} · {label('历史版本','History')}</CardTitle></CardHeader><CardContent>{history.isPending?<Loading/>:history.isError?<ErrorState error={history.error}/>:history.data.map(v=><details key={v.id} className="border-b py-3"><summary className="cursor-pointer">v{v.version} · {v.name} · {new Date(v.created_at*1000).toLocaleString()}</summary><pre className="my-3 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(v,null,2)}</pre><Button variant="outline" onClick={()=>{const a=agents.data?.find(a=>a.id===historyID);if(a)load(a,v);}}>{label('以此配置发布新版本','Use this configuration')}</Button></details>)}<Button variant="ghost" onClick={()=>setHistoryID('')}>{t('common.close')}</Button></CardContent></Card>}
  </div>;

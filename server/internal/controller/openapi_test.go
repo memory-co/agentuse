@@ -58,7 +58,7 @@ func (d serverAPISpec) resolve(schema map[string]any) map[string]any {
 }
 
 func TestServerDocumentationAuthentication(t *testing.T) {
-	e := newEnv(t, Config{FilesDir: t.TempDir(), AttachmentsDir: t.TempDir()})
+	e := newEnv(t, Config{FilesDir: t.TempDir()})
 	_, token := e.user("alice", service.RoleUser)
 	paths := []string{"/api/docs", "/api/openapi.json", "/api/openapi.yaml", "/api/openapi-3.0.json", "/api/openapi-3.0.yaml", "/api/schemas/Message.json"}
 	for _, path := range paths {
@@ -98,7 +98,7 @@ func TestServerDocumentationAuthentication(t *testing.T) {
 }
 
 func TestServerOpenAPIRoutesSchemasAndCredentials(t *testing.T) {
-	e := newEnv(t, Config{FilesDir: t.TempDir(), AttachmentsDir: t.TempDir()})
+	e := newEnv(t, Config{FilesDir: t.TempDir()})
 	_, token := e.user("alice", service.RoleUser)
 	spec := readServerAPISpec(t, e, token)
 	if !strings.HasPrefix(spec.OpenAPI, "3.1.") || len(spec.Paths) < 35 {
@@ -153,39 +153,39 @@ func TestServerOpenAPIRoutesSchemasAndCredentials(t *testing.T) {
 			t.Fatal("device endpoint allows the wrong credentials", path)
 		}
 	}
-	if len(spec.Paths["/api/sessions/{id}"]["get"].Security) != 4 || len(spec.Paths["/api/sessions/{id}/attachments/{attachment_id}"]["delete"].Security) != 3 {
+	if len(spec.Paths["/api/conversations/{id}"]["get"].Security) != 4 || len(spec.Paths["/api/conversations/{id}/attachments/{attachment_id}"]["delete"].Security) != 3 {
 		t.Fatal("incorrect conversation or attachment credential scope")
 	}
-	for path, status := range map[string]string{"/api/sessions": "201", "/api/agents": "201", "/api/sessions/{id}/messages": "201", "/api/sessions/{id}/runs/{run_id}/requests/{request_id}/reply": "202"} {
+	for path, status := range map[string]string{"/api/conversations": "201", "/api/agents": "201", "/api/conversations/{id}/messages": "201", "/api/conversations/{id}/runs/{run_id}/requests/{request_id}/reply": "202"} {
 		if _, ok := spec.Paths[path]["post"].Responses[status]; !ok {
 			t.Fatal("incorrect success status", path, status)
 		}
 	}
-	for _, path := range []string{"/api/sessions/{id}", "/api/agents/{id}", "/api/skills/{id}", "/api/sessions/{id}/attachments/{attachment_id}"} {
+	for _, path := range []string{"/api/conversations/{id}", "/api/agents/{id}", "/api/skills/{id}", "/api/conversations/{id}/attachments/{attachment_id}"} {
 		if len(spec.Paths[path]["delete"].Responses["204"].Content) != 0 {
 			t.Fatal("204 response declares a body", path)
 		}
 	}
-	for _, path := range []string{"/api/sessions/{id}/resolve", "/api/sessions/{id}/runs/{run_id}/cancel", "/api/daemons/{id}/reset"} {
+	for _, path := range []string{"/api/conversations/{id}/resolve", "/api/conversations/{id}/runs/{run_id}/cancel", "/api/devices/{id}/reset"} {
 		if spec.Paths[path]["post"].RequestBody != nil {
 			t.Fatal("bodyless action requires a JSON request", path)
 		}
 	}
-	for _, path := range []string{"/api/sessions", "/api/sessions/{id}/messages"} {
+	for _, path := range []string{"/api/conversations", "/api/conversations/{id}/messages"} {
 		schema := spec.resolve(spec.Paths[path]["post"].RequestBody.Content["application/json"].Schema)
 		properties := schema["properties"].(map[string]any)
 		if properties["to_agent_ids"] == nil || properties["to_user_ids"] == nil || properties["target_agent_ids"] != nil || properties["agent_id"] != nil {
 			t.Fatal("incorrect message recipient schema", path, properties)
 		}
-		if input := properties["input"].(map[string]any); input["type"] != nil || input["contentEncoding"] != nil {
-			t.Fatal("native JSON input is incorrectly restricted", input)
+		if properties["input"] != nil || properties["mode"] != nil || properties["defer_start"] != nil {
+			t.Fatal("obsolete execution wrapper in conversation API", properties)
 		}
 	}
 	message := spec.Components.Schemas["Message"]["properties"].(map[string]any)
 	if message["to_agent_ids"] == nil || message["to_user_ids"] == nil {
 		t.Fatal("recipient response fields missing")
 	}
-	for _, path := range []string{"/api/skills", "/api/skills/{id}/versions", "/api/sessions/{id}/attachments"} {
+	for _, path := range []string{"/api/skills", "/api/skills/{id}/versions", "/api/conversations/{id}/attachments"} {
 		media := spec.Paths[path]["post"].RequestBody.Content
 		properties := media["multipart/form-data"].Schema["properties"].(map[string]any)
 		if properties["file"].(map[string]any)["format"] != "binary" || media["application/json"].Schema != nil {
@@ -225,7 +225,7 @@ func TestServerOpenAPIRoutesSchemasAndCredentials(t *testing.T) {
 }
 
 func TestServerDocumentationConcurrentFirstRequests(t *testing.T) {
-	e := newEnv(t, Config{FilesDir: t.TempDir(), AttachmentsDir: t.TempDir()})
+	e := newEnv(t, Config{FilesDir: t.TempDir()})
 	_, token := e.user("alice", service.RoleUser)
 	var requests sync.WaitGroup
 	for range 8 {

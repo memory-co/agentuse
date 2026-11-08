@@ -254,7 +254,7 @@ export AGENTUSE_TOKEN="ut_替换为用户令牌"
 
 ## conversation：远端会话
 
-这里的 `CONVERSATION_ID` 是 Server 的 conversation ID，即 `/api/sessions/{id}` 中的 ID。它与 Client 本机页面中的原生 harness session ID 含义不同。
+这里的 `CONVERSATION_ID` 是 Server 的 conversation ID，即 `/api/conversations/{id}` 中的 ID。它与 Client 本机页面中的原生 harness session ID 含义不同。
 
 ### 发送消息
 

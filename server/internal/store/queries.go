@@ -1,128 +1,130 @@
 // SQL used by the server metadata services. Native execution facts are client-owned.
 package store
 
-const CheckRuntimeSelect = `SELECT 1 FROM daemon_harnesses WHERE daemon_id = ? AND harness = ? AND user_id = ?`
+const CheckRuntimeSelect = `SELECT 1 FROM device_harnesses WHERE device_id = ? AND harness = ? AND user_id = ?`
 
-const RuntimeErrSelect = `SELECT available, enabled FROM daemon_harnesses WHERE daemon_id = ? AND harness = ?`
+const RuntimeErrSelect = `SELECT available, enabled FROM device_harnesses WHERE device_id = ? AND harness = ?`
 
-const AgentCols = `SELECT id,user_id,name,daemon_id,harness,description,created_at,updated_at,current_version_id,version,COALESCE(model,''),instructions FROM (SELECT a.id,a.user_id,v.name,v.device_id AS daemon_id,v.harness,v.description,a.created_at,a.updated_at,a.current_version_id,v.version,v.model,v.instructions FROM agents a JOIN agent_versions v ON v.id=a.current_version_id WHERE a.deleted_at IS NULL)`
+const AgentCols = `SELECT id,user_id,name,device_id,harness,description,created_at,updated_at,current_version_id,version,COALESCE(model,''),instructions FROM (SELECT a.id,a.user_id,v.name,v.device_id AS device_id,v.harness,v.description,a.created_at,a.updated_at,a.current_version_id,v.version,v.model,v.instructions FROM agents a JOIN agent_versions v ON v.id=a.current_version_id WHERE a.deleted_at IS NULL)`
 const GetAgentClause = ` WHERE id = ?`
 const GetAgentClause2 = ` AND user_id = ?`
 const ListAgentsClause = ` WHERE user_id = ?`
 const ListAgentsClause2 = ` ORDER BY name, id`
 
-const AttachmentSessionSelect = `SELECT user_id FROM daemons WHERE id=? AND key_hash=?`
+const AttachmentConversationSelect = `SELECT user_id FROM devices WHERE id=? AND key_hash=?`
 
-const AttachmentSessionSelect2 = `SELECT COUNT(*) FROM work_run_tokens t JOIN message_agents p ON p.message_id=t.message_id AND p.agent_id=t.agent_id WHERE t.work_id=? AND t.token_hash=? AND p.status IN ('sent','accepted') AND ?>=0`
+const ActiveWorkTokenFrom = ` FROM work_run_tokens t JOIN message_agents p ON p.message_id=t.message_id AND p.agent_id=t.agent_id JOIN works w ON w.id=t.work_id AND w.coordinator_id=p.conversation_id AND w.coordinator_agent_id=p.agent_id`
 
-const AttachmentSessionSelect3 = `SELECT id,role FROM users WHERE token_hash=?`
+const AttachmentConversationSelect2 = `SELECT COUNT(*)` + ActiveWorkTokenFrom + ` WHERE t.work_id=? AND t.token_hash=? AND p.status IN ('sent','accepted')`
 
-const CommitAttachmentSelect = `SELECT COALESCE(SUM(size_bytes),0) FROM attachments WHERE session_id=?`
+const AttachmentConversationSelect3 = `SELECT id,role FROM users WHERE token_hash=?`
 
-const CommitAttachmentInsert = `INSERT INTO attachments(id,session_id,filename,content_type,size_bytes,sha256,created_by,source,daemon_id,created_at,created_by_run_id,relative_path) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`
+const CommitAttachmentSelect = `SELECT COALESCE(SUM(size_bytes),0) FROM attachments WHERE conversation_id=?`
 
-const AttachmentCols = `SELECT id,session_id,filename,content_type,size_bytes,sha256,created_by,source,COALESCE(daemon_id,''),created_at,COALESCE(created_by_run_id,''),COALESCE((SELECT agent_id FROM runs r WHERE r.id=attachments.created_by_run_id),''),relative_path FROM attachments`
+const CommitAttachmentInsert = `INSERT INTO attachments(id,conversation_id,filename,content_type,size_bytes,sha256,created_by,source,device_id,created_at,created_by_run_id,relative_path) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`
 
-const GetAttachmentClause = ` WHERE session_id=? AND id=?`
+const AttachmentCols = `SELECT id,conversation_id,filename,content_type,size_bytes,sha256,created_by,source,COALESCE(device_id,''),created_at,COALESCE(created_by_run_id,''),COALESCE((SELECT agent_id FROM runs r WHERE r.id=attachments.created_by_run_id),''),relative_path FROM attachments`
 
-const ListAttachmentsClause = ` WHERE session_id=? AND (?='' OR created_by_run_id=?) AND (created_at>? OR (created_at=? AND id>?)) ORDER BY created_at,id LIMIT ?`
+const GetAttachmentClause = ` WHERE conversation_id=? AND id=?`
 
-const DeleteAttachmentDelete = `DELETE FROM attachments WHERE session_id=? AND id=?`
+const ListAttachmentsClause = ` WHERE conversation_id=? AND (?='' OR created_by_run_id=?) AND (created_at>? OR (created_at=? AND id>?)) ORDER BY created_at,id LIMIT ?`
 
-const AttachmentExistsSelect = `SELECT COUNT(*) FROM attachments WHERE session_id=? AND id=?`
+const DeleteAttachmentDelete = `DELETE FROM attachments WHERE conversation_id=? AND id=?`
 
-const DaemonCapabilitiesSelect = `SELECT capability FROM daemon_capabilities WHERE daemon_id=? ORDER BY capability`
+const AttachmentExistsSelect = `SELECT COUNT(*) FROM attachments WHERE conversation_id=? AND id=?`
 
-const CreateDaemonInsert = `INSERT INTO daemons (id, user_id, name, setup_token, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+const DeviceCapabilitiesSelect = `SELECT capability FROM device_capabilities WHERE device_id=? ORDER BY capability`
 
-const RegisterDaemonSelect = `SELECT id, user_id, name FROM daemons WHERE setup_token = ?`
+const CreateDeviceInsert = `INSERT INTO devices (id, user_id, name, setup_token, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`
 
-const RegisterDaemonUpdate = `UPDATE daemons SET name = ?, key_hash = ?, setup_token = NULL, status = ? WHERE id = ?`
+const RegisterDeviceSelect = `SELECT id, user_id, name FROM devices WHERE setup_token = ?`
 
-const ResetDaemonSetupSelect = `SELECT 1 FROM daemons WHERE id=?`
+const RegisterDeviceUpdate = `UPDATE devices SET name = ?, key_hash = ?, setup_token = NULL, status = ? WHERE id = ?`
 
-const ResetDaemonSetupClause = ` AND user_id=?`
+const ResetDeviceSetupSelect = `SELECT 1 FROM devices WHERE id=?`
 
-const ResetDaemonSetupUpdate = `UPDATE daemons SET setup_token=?,key_hash=NULL,status=? WHERE id=?`
+const ResetDeviceSetupClause = ` AND user_id=?`
 
-const DaemonByKeyClause = ` WHERE key_hash = ?`
+const ResetDeviceSetupUpdate = `UPDATE devices SET setup_token=?,key_hash=NULL,status=? WHERE id=?`
 
-const DaemonCols = `SELECT id, user_id, name, setup_token, status, last_seen_at, created_at FROM daemons`
+const DeviceByKeyClause = ` WHERE key_hash = ?`
 
-const GetDaemonClause = ` WHERE id = ?`
+const DeviceCols = `SELECT id, user_id, name, setup_token, status, last_seen_at, created_at FROM devices`
 
-const GetDaemonClause2 = ` AND user_id = ?`
+const GetDeviceClause = ` WHERE id = ?`
 
-const GetDaemonClause3 = `WHERE daemon_id = ?`
+const GetDeviceClause2 = ` AND user_id = ?`
 
-const ListDaemonsClause = ` WHERE user_id = ?`
+const GetDeviceClause3 = `WHERE device_id = ?`
 
-const ListDaemonsClause2 = ` ORDER BY created_at`
+const ListDevicesClause = ` WHERE user_id = ?`
 
-const ListDaemonsClause3 = `WHERE user_id = ?`
+const ListDevicesClause2 = ` ORDER BY created_at`
 
-const DaemonHarnessesSelect = `SELECT daemon_id, user_id, harness, version, revision, available, enabled, updated_at FROM daemon_harnesses `
+const ListDevicesClause3 = `WHERE user_id = ?`
 
-const DaemonHarnessesClause = ` ORDER BY harness`
+const DeviceHarnessesSelect = `SELECT device_id, user_id, harness, version, harness_revision, capabilities, available, enabled, updated_at FROM device_harnesses `
 
-const DeleteDaemonDelete = `DELETE FROM daemons WHERE id = ?`
+const DeviceHarnessesClause = ` ORDER BY harness`
 
-const DeleteDaemonClause = ` AND user_id = ?`
+const DeleteDeviceDelete = `DELETE FROM devices WHERE id = ?`
 
-const DeleteDaemonDelete2 = "DELETE FROM"
+const DeleteDeviceClause = ` AND user_id = ?`
 
-const DeleteDaemonSelect = "SELECT 1 FROM"
+const DeleteDeviceDelete2 = "DELETE FROM"
 
-const DaemonConnectedDelete = `DELETE FROM daemon_capabilities WHERE daemon_id=?`
+const DeleteDeviceSelect = "SELECT 1 FROM"
 
-const DaemonConnectedInsert = `INSERT OR IGNORE INTO daemon_capabilities VALUES(?,?)`
+const DeviceConnectedDelete = `DELETE FROM device_capabilities WHERE device_id=?`
 
-const DaemonConnectedUpdate = `UPDATE daemons SET status = ?, last_seen_at = ? WHERE id = ?`
+const DeviceConnectedInsert = `INSERT OR IGNORE INTO device_capabilities VALUES(?,?)`
 
-const DaemonConnectedUpdate2 = `UPDATE daemon_harnesses SET available = 0, updated_at = ? WHERE daemon_id = ?`
+const DeviceConnectedUpdate = `UPDATE devices SET status = ?, last_seen_at = ? WHERE id = ?`
 
-const DaemonConnectedInsert2 = `INSERT INTO daemon_harnesses (daemon_id,user_id,harness,version,revision,available,enabled,updated_at) VALUES(?,?,?,?,?,1,0,?) ON CONFLICT(daemon_id,harness) DO UPDATE SET version=excluded.version,revision=excluded.revision,available=1,updated_at=excluded.updated_at`
+const DeviceConnectedUpdate2 = `UPDATE device_harnesses SET available = 0, updated_at = ? WHERE device_id = ?`
 
-const DaemonDisconnectedUpdate = `UPDATE daemons SET status = ?, last_seen_at = ? WHERE id = ? AND status = ?`
+const DeviceConnectedInsert2 = `INSERT INTO device_harnesses (device_id,user_id,harness,version,harness_revision,capabilities,available,enabled,updated_at) VALUES(?,?,?,?,?,?,1,0,?) ON CONFLICT(device_id,harness) DO UPDATE SET version=excluded.version,harness_revision=excluded.harness_revision,capabilities=excluded.capabilities,available=1,updated_at=excluded.updated_at`
 
-const TouchDaemonUpdate = `UPDATE daemons SET last_seen_at = ? WHERE id = ?`
+const DeviceDisconnectedUpdate = `UPDATE devices SET status = ?, last_seen_at = ? WHERE id = ? AND status = ?`
 
-const MarkAllDaemonsOfflineUpdate = `UPDATE daemons SET status = ? WHERE status = ?`
+const TouchDeviceUpdate = `UPDATE devices SET last_seen_at = ? WHERE id = ?`
 
-const SetDaemonHarnessEnabledUpdate = `UPDATE daemon_harnesses SET enabled = ?, updated_at = ? WHERE daemon_id = ? AND harness = ?`
+const MarkAllDevicesOfflineUpdate = `UPDATE devices SET status = ? WHERE status = ?`
 
-const SetDaemonHarnessEnabledClause = ` AND user_id = ?`
+const SetDeviceHarnessEnabledUpdate = `UPDATE device_harnesses SET enabled = ?, updated_at = ? WHERE device_id = ? AND harness = ?`
 
-const CreateMultiWorkInsert = `INSERT INTO works(id,user_id,name,instructions,coordinator_id,coordinator_agent_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`
+const SetDeviceHarnessEnabledClause = ` AND user_id = ?`
 
-const CreateMultiWorkUpdate = `UPDATE works SET coordinator_id=? WHERE id=?`
+const CreateWorkInsert = `INSERT INTO works(id,user_id,name,instructions,coordinator_id,coordinator_agent_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`
 
-const InsertMultiInsert = `INSERT INTO sessions(id,user_id,created_by,work_id,title,status,created_at,updated_at) VALUES(?,?,?,?,?,'idle',?,?)`
+const CreateWorkUpdate = `UPDATE works SET coordinator_id=? WHERE id=?`
 
-const InsertMessageInsert = `INSERT INTO messages (id,seq,session_id,role,content,created_at) VALUES (?,?,?,?,?,?)`
+const InsertConversationInsert = `INSERT INTO conversations(id,user_id,created_by,work_id,title,status,created_at,updated_at) VALUES(?,?,?,?,?,'idle',?,?)`
+
+const InsertMessageInsert = `INSERT INTO messages (id,seq,conversation_id,author_role,content,created_at) VALUES (?,?,?,?,?,?)`
 
 // work_role 是算出来的：工作的 coordinator_id 指着它就是协调者，否则在工作里就是线程。
-const SessionCols = `SELECT id,user_id,created_by,work_id,
- CASE WHEN work_id IS NULL THEN '' WHEN EXISTS(SELECT 1 FROM works w WHERE w.coordinator_id=sessions.id) THEN 'coordinator' ELSE 'thread' END,
- title,status,created_at,updated_at,'multi_agent' FROM sessions`
+const ConversationCols = `SELECT id,user_id,created_by,work_id,
+ CASE WHEN work_id IS NULL THEN '' WHEN EXISTS(SELECT 1 FROM works w WHERE w.coordinator_id=conversations.id) THEN 'coordinator' ELSE 'thread' END,
+ title,status,created_at,updated_at FROM conversations`
 
-const MessageCols = `SELECT id,session_id,role,content,created_at,'',COALESCE(author_agent_id,''),COALESCE((SELECT name FROM agent_versions WHERE id=messages.author_agent_version_id),''),to_agent_ids,to_user_ids,COALESCE(author_user_id,''),COALESCE(reply_to_message_id,''),COALESCE(author_agent_version_id,''),seq,attachments FROM messages`
+const MessageCols = `SELECT id,conversation_id,author_role,content,created_at,COALESCE(author_agent_id,''),CASE WHEN author_role='agent' THEN COALESCE((SELECT name FROM agent_versions WHERE id=messages.author_agent_version_id),'') ELSE COALESCE((SELECT name FROM users WHERE id=messages.author_user_id),'') END,to_agent_ids,to_user_ids,COALESCE(author_user_id,''),COALESCE(reply_to_message_id,''),COALESCE(author_agent_version_id,''),seq,attachments FROM messages`
 
-const GetSessionClause = ` WHERE id = ?`
+const GetConversationClause = ` WHERE id = ?`
 
-const GetSessionClause2 = ` AND (user_id = ? OR created_by = ?)`
+const GetConversationClause2 = ` AND (user_id = ? OR created_by = ?)`
 
-const ListSessionsClause = ` WHERE work_id IS NULL`
+const ListConversationsClause = ` WHERE work_id IS NULL`
 
-const ListSessionsClause2 = ` AND (user_id = ? OR created_by = ?)`
+const ListConversationsClause2 = ` AND (user_id = ? OR created_by = ?)`
 
-const ListWorkSessionsClause = ` WHERE work_id = ? AND id != ?`
+const ListWorkConversationsClause = ` WHERE work_id = ? AND id != ?`
 
-const ListSessionsClause3 = ` ORDER BY updated_at DESC, id DESC LIMIT ?`
+const ListConversationsClause3 = ` ORDER BY updated_at DESC, id DESC LIMIT ?`
 
-const DeleteSessionDelete = `DELETE FROM sessions WHERE id = ?`
+const DeleteConversationDelete = `DELETE FROM conversations WHERE id = ?`
 
-const MessagesClause = ` WHERE session_id = ? ORDER BY seq`
+const MessagesClause = ` WHERE conversation_id = ? ORDER BY seq`
 
 const CreateUserInsert = `INSERT INTO users (id, name, role, token_hash, created_at) VALUES (?, ?, ?, ?, ?)`
 
@@ -139,9 +141,9 @@ const CountUsersSelect = `SELECT COUNT(*) FROM users`
 const ListUsersSelect = `SELECT id, name, role, created_at FROM users ORDER BY created_at, name`
 
 const WorkCols = `SELECT w.id, w.user_id, w.name, w.instructions, w.coordinator_id,
-  (SELECT COUNT(*) FROM sessions s WHERE s.work_id = w.id AND s.id != w.coordinator_id),
+  (SELECT COUNT(*) FROM conversations s WHERE s.work_id = w.id AND s.id != w.coordinator_id),
   w.created_at,
-  MAX(w.updated_at, COALESCE((SELECT MAX(s.updated_at) FROM sessions s WHERE s.work_id = w.id), 0)) AS last
+  MAX(w.updated_at, COALESCE((SELECT MAX(s.updated_at) FROM conversations s WHERE s.work_id = w.id), 0)) AS last
    , COALESCE(w.coordinator_agent_id,'') FROM works w`
 
 const GetWorkClause = ` WHERE w.id = ?`
@@ -156,14 +158,14 @@ const UpdateWorkClause = ` WHERE id=? AND user_id=?`
 
 const UpdateWorkUpdate = `UPDATE works SET coordinator_agent_id=? WHERE id=?`
 
-const UpdateWorkUpdate2 = `UPDATE sessions SET title = ? WHERE id = ?`
+const UpdateWorkUpdate2 = `UPDATE conversations SET title = ? WHERE id = ?`
 
 const UpdateWorkUpdate3 = `UPDATE works SET name = ?, instructions = ?, updated_at = ? WHERE id = ?`
 
-const DeleteWorkSelect = `SELECT COUNT(*) FROM sessions WHERE work_id = ? AND (status IN ('running', 'waiting') OR status='pending')`
+const DeleteWorkSelect = `SELECT COUNT(*) FROM conversations WHERE work_id = ? AND (status IN ('running', 'waiting') OR status='pending')`
 
-const DeleteWorkDelete = `DELETE FROM sessions WHERE work_id = ?`
+const DeleteWorkDelete = `DELETE FROM conversations WHERE work_id = ?`
 
 const DeleteWorkDelete2 = `DELETE FROM works WHERE id = ?`
 
-const SetResolvedUpdate = `UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?`
+const SetResolvedUpdate = `UPDATE conversations SET status = ?, updated_at = ? WHERE id = ?`

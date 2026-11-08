@@ -43,7 +43,7 @@ func (s Service) Register(ctx context.Context, server, token string) (Endpoint, 
 	if err := json.NewDecoder(resp.Body).Decode(&rr); err != nil {
 		return Endpoint{}, err
 	}
-	ep := Endpoint{Name: server, ServerURL: server, Enabled: true, DeviceID: rr.DaemonID, DeviceKey: rr.Key, Mode: ModeServer}
+	ep := Endpoint{Name: server, ServerURL: server, Enabled: true, DeviceID: rr.DeviceID, DeviceKey: rr.Key, Mode: ModeServer}
 	if err := s.Save(ep); err != nil {
 		return Endpoint{}, err
 	}

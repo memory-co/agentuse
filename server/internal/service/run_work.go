@@ -3,40 +3,40 @@ package service
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
-func (s *Service) CreateMultiWork(ctx context.Context, u User, name, agent, instructions string) (Work, Session, error) {
+func (s *Service) CreateWork(ctx context.Context, u User, name, agent, instructions string) (Work, Conversation, error) {
 	name, err := cleanWorkName(name)
 	if err != nil {
-		return Work{}, Session{}, err
+		return Work{}, Conversation{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Work{}, Session{}, err
+		return Work{}, Conversation{}, err
 	}
 	defer tx.Rollback()
 	a, err := scanAgent(tx.QueryRowContext(ctx, agentCols+` WHERE id=? AND user_id=?`, agent, u.ID))
 	if err != nil {
-		return Work{}, Session{}, err
+		return Work{}, Conversation{}, err
 	}
 	if err = runRuntime(ctx, tx, a); err != nil {
-		return Work{}, Session{}, err
+		return Work{}, Conversation{}, err
 	}
 	now := s.unix()
 	w := Work{ID: newUUID(), UserID: u.ID, Name: name, Instructions: instructions, CoordinatorID: newUUID(), CoordinatorAgentID: agent, CreatedAt: now, UpdatedAt: now}
-	if _, err = tx.ExecContext(ctx, store.CreateMultiWorkInsert, w.ID, u.ID, name, instructions, w.CoordinatorID, agent, now, now); err != nil {
-		return w, Session{}, err
+	if _, err = tx.ExecContext(ctx, store.CreateWorkInsert, w.ID, u.ID, name, instructions, w.CoordinatorID, agent, now, now); err != nil {
+		return w, Conversation{}, err
 	}
-	ss, err := s.insertMulti(ctx, tx, u, w.ID, name)
+	ss, err := s.insertConversation(ctx, tx, u, w.ID, name)
 	if err != nil {
 		return w, ss, err
 	}
-	if _, err = tx.ExecContext(ctx, store.CreateMultiWorkUpdate, ss.ID, w.ID); err != nil {
+	if _, err = tx.ExecContext(ctx, store.CreateWorkUpdate, ss.ID, w.ID); err != nil {
 		return w, ss, err
 	}
 	w.CoordinatorID = ss.ID
@@ -44,13 +44,13 @@ func (s *Service) CreateMultiWork(ctx context.Context, u User, name, agent, inst
 	err = tx.Commit()
 	if err == nil {
 		s.notifyResource("works", w.ID, w.UserID)
-		s.notifySession(ss, "sessions")
+		s.publishConversationChange(ss, "conversations")
 	}
 	return w, ss, err
 }
 func (s *Service) runWorkToken(ctx context.Context, token string) (Work, User, error) {
 	var id string
-	err := s.db.QueryRowContext(ctx, `SELECT t.work_id FROM work_run_tokens t JOIN message_agents p ON p.message_id=t.message_id AND p.agent_id=t.agent_id WHERE t.token_hash=? AND p.status IN ('sent','accepted')`, HashSecret(token)).Scan(&id)
+	err := s.db.QueryRowContext(ctx, `SELECT t.work_id`+store.ActiveWorkTokenFrom+` WHERE t.token_hash=? AND p.status IN ('sent','accepted')`, HashSecret(token)).Scan(&id)
 	if err == sql.ErrNoRows {
 		return Work{}, User{}, ErrNotFound
 	}
@@ -65,18 +65,18 @@ func (s *Service) runWorkToken(ctx context.Context, token string) (Work, User, e
 	return w, u, err
 }
 func (s *Service) WorkRunByToken(ctx context.Context, token string) (Run, error) {
-	return scanNativeRun(s.db.QueryRowContext(ctx, nativeRunCols+` WHERE id=(SELECT p.run_id FROM work_run_tokens t JOIN message_agents p ON p.message_id=t.message_id AND p.agent_id=t.agent_id WHERE t.token_hash=? AND p.status IN ('sent','accepted'))`, HashSecret(token)))
+	return scanNativeRun(s.db.QueryRowContext(ctx, nativeRunCols+` WHERE id=(SELECT p.run_id`+store.ActiveWorkTokenFrom+` WHERE t.token_hash=? AND p.status IN ('sent','accepted'))`, HashSecret(token)))
 }
 
 func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversation string) error {
-	ss, err := s.getSession(ctx, tx, User{Role: RoleAdmin}, conversation)
+	ss, err := s.getConversation(ctx, tx, User{Role: RoleAdmin}, conversation)
 	if err != nil {
 		return err
 	}
 	if ss.WorkRole != WorkThread {
 		return nil
 	}
-	prompts, err := deliveries(ctx, tx, `session_id=?`, conversation)
+	prompts, err := deliveries(ctx, tx, `conversation_id=?`, conversation)
 	if err != nil {
 		return err
 	}
@@ -89,6 +89,15 @@ func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversatio
 		for _, p := range group {
 			if p.Status != "completed" && p.Status != "failed" && p.Status != "cancelled" && p.Status != "rejected" {
 				done = false
+			}
+			if p.RunID != "" && p.Status != "cancelled" {
+				var reply sql.NullString
+				if err := tx.QueryRowContext(ctx, `SELECT result_message_id FROM runs WHERE id=?`, p.RunID).Scan(&reply); err != nil {
+					return err
+				}
+				if !reply.Valid {
+					done = false
+				}
 			}
 		}
 		if !done {
@@ -120,16 +129,69 @@ func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversatio
 		if err != nil {
 			return err
 		}
-		coord, err := s.getSession(ctx, tx, User{Role: RoleAdmin}, w.CoordinatorID)
+		coord, err := s.getConversation(ctx, tx, User{Role: RoleAdmin}, w.CoordinatorID)
 		if err != nil {
 			return err
 		}
-		payload, _ := json.Marshal(map[string]string{"prompt": fmt.Sprintf("[Thread %s (%s) replied]\n%s", ss.ID, ss.Title, summary.String())})
+		payload := fmt.Sprintf("[Thread %s (%s) replied]\n%s", ss.ID, ss.Title, summary.String())
 		targets := []string{}
 		if w.CoordinatorAgentID != "" {
 			targets = append(targets, w.CoordinatorAgentID)
 		}
-		if _, err = s.sendMultiTx(ctx, tx, User{ID: w.UserID}, coord, payload, targets, nil, nil); err != nil {
+		if _, err = s.sendMessageTx(ctx, tx, User{ID: w.UserID}, coord, payload, targets, nil, nil, ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Summaries have their own atomic message+dedup transaction after the final reply commits.
+func (s *Service) reconcileWorkConversation(ctx context.Context, conversation string) error {
+	err := s.repository.Tx(ctx, func(tx *sql.Tx) error { return s.notifyRunMessages(ctx, tx, conversation) })
+	if err == nil {
+		s.Notifier.KickAll()
+		s.notifyCoordinator(ctx, conversation)
+	}
+	return err
+}
+
+// ReconcileWorkNotifications recovers unreported terminal inputs after a restart
+// or a coordinator configuration/capability change. The dedup row and summary
+// message still commit together inside reconcileWorkConversation.
+func (s *Service) ReconcileWorkNotifications(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT c.id FROM conversations c JOIN works w ON c.work_id=w.id JOIN message_agents p ON p.conversation_id=c.id WHERE c.id<>w.coordinator_id AND p.status IN ('completed','failed','cancelled','rejected') AND NOT EXISTS(SELECT 1 FROM run_notifications n WHERE n.message_id=p.message_id)`)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	var failures []error
+	for _, id := range ids {
+		if err = s.reconcileWorkConversation(ctx, id); err != nil {
+			failures = append(failures, err)
+		}
+	}
+	return errors.Join(failures...)
+}
+
+func deleteWorkConversationReferences(ctx context.Context, tx *sql.Tx, id string) error {
+	for _, query := range []string{
+		`DELETE FROM work_run_tokens WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)`,
+		`DELETE FROM run_notifications WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)`,
+	} {
+		if _, err := tx.ExecContext(ctx, query, id); err != nil {
 			return err
 		}
 	}

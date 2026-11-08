@@ -2,7 +2,7 @@
 
 > 執行鏈路使用 [agentuse-client/2](protocol.md)：直接投遞 message，消息/Agent 關係見 [server-run.md](server-run.md)，不再有 task 或獨立輸入 ID。
 
-> 執行關係已採用 client 公共事件協議。本文的 conversation/device 是業務名稱，後面的元數據 SQL 仍爲目標結構，不是當前數據庫遷移腳本；實際命名及尚未落地的字段在“目標元數據與當前實現”中單獨說明。目標表不聲明數據庫外鍵，關聯校驗和清理由 service 完成。
+> 執行關係已採用 client 公共事件協議。本文的 conversation/device 是業務名稱，元數據已按下列結構實現；執行記錄及消息附件業務元數據分別見相關設計。目標表不聲明數據庫外鍵，關聯校驗和清理由 service 完成。
 
 ## 職責
 
@@ -59,9 +59,9 @@ Client 選定實際本地 session 後，向 Server 讀取 `complete_messages`：
 
 發送請求不做去重：每次成功發送創建新的 message UUID，不需要請求 key 或內容摘要字段。
 
-## 目標元數據與當前實現
+## 元數據實現
 
-本文下列 SQL 定義元數據的目標命名和字段。物理對話表仍名爲 sessions，HTTP 入口仍爲 /api/sessions。當前 schema 6 的 conversation/message ID 均為 UUID，messages.seq 是對話內順序；to_agent_ids 和 to_user_ids 已在存儲、發送 API、SDK、CLI 和前端統一實現。發送接口接受 prompt 或 input，以及獨立的收件人和 attachment_ids；messages.attachments 已保存所選附件的元數據快照。author_role 仍是目標命名，現行 role 使用 user/assistant。通用 fileService 的目錄/S3 後端已實現，conversation 附件仍使用獨立的附件存儲。執行關係見 [server-run.md](server-run.md)。只接受新字段及 schema 6，不保留舊字段別名或數據遷移。
+本文下列 SQL 定義元數據的目標命名和字段。物理對話表為 conversations，HTTP 入口為 /api/conversations，SDK 和響應字段亦使用 conversation；消息、附件和執行記錄使用 conversation_id。session_id 唯一表示 Client 上報的本地執行會話，不提供 client_session_id 別名。當前 schema 7 的 conversation/message ID 均為 UUID，messages.seq 是對話內順序；to_agent_ids 和 to_user_ids 已在存儲、發送 API、SDK、CLI 和前端統一實現。發送接口接受 prompt，以及獨立的收件人和 attachment_ids；messages.attachments 已保存所選附件的元數據快照。author_role 使用 user/agent，content 是未包裝的原始正文字符串；不再提供 role、agent_key、agent_name、消息 run_id、mode、input 或 defer_start 別名。作者名稱透過 users 或固定 Agent 版本讀取。通用 fileService 的目錄/S3 後端已實現，conversation 附件元數據歸本 service 管理，字節統一保存在 fileService 的 conversations 命名空間。執行關係見 [server-run.md](server-run.md)。只接受新字段及 schema 7，不保留舊字段別名或數據遷移。
 
 ## 表結構
 
@@ -109,11 +109,11 @@ service 校驗元素為非空 ID 字符串，分別去重，檢查 Agent 可在�
 {"prompt":"請查看這兩個文件","to_agent_ids":["coder"],"to_user_ids":["user-alice"],"attachment_ids":["at_input","at_report"]}
 ```
 
-文件先通過附件 API 上傳，再在消息中引用；省略或空數組表示本條消息沒有附件，不繼承會話的其他文件。service 在寫入消息的同一事務內校驗附件屬於當前 conversation，將完整元數據快照保存到 `messages.attachments` JSON 數組，包含 `id`、`relative_path`、文件名、大小和摘要等字段。字節內容按附件 ID 存儲，`attachments.relative_path` 定義會話內的文件樹；用戶上傳位於 `user_input/`，AI 輸出可以使用多級相對路徑。最終 Agent 回覆保存本次 run 上傳的輸出文件快照。路徑和刪除規則見 [conversation-files.md](conversation-files.md)。
+文件先通過附件 API 上傳，再在消息中引用；省略或空數組表示本條消息沒有附件，不繼承會話的其他文件。service 在寫入消息的同一事務內校驗附件屬於當前 conversation，將完整元數據快照保存到 `messages.attachments` JSON 數組，包含 `id`、`relative_path`、文件名、大小和摘要等字段。字節內容按 conversation_id/relative_path 存儲，`attachments.relative_path` 定義會話內的文件樹；用戶上傳位於 `user_input/`，AI 輸出可以使用多級相對路徑。最終 Agent 回覆保存本次 run 上傳的輸出文件快照。路徑和刪除規則見 [conversation-files.md](conversation-files.md)。
 
 service 寫入時保證 user 消息只填 author_user_id，agent 消息填寫 author_agent_id 和 author_agent_version_id，並檢查版本屬於該 agent。讀取作者用 LEFT JOIN；角色選擇器展示當前版本名稱，歷史 agent 回覆按作者版本展示，不受後來改名影響。軟刪除不清空消息作者或已發佈版本。
 
-message 永遠回覆另一條 message，不回覆 run。`reply_to_message_id` 表示被回覆的消息，字段保存被回覆消息的 UUID，開頭的根消息爲空；後續用戶消息、agent 回覆都可以引用同 conversation 中已有的消息。messages 不保存 run_id，也不以 run 爲對話層級。
+message 永遠回覆另一條 message，不回覆 run。發送請求可顯式填寫 `reply_to_message_id`；service 在同一事務檢查它是同一 conversation 的既有消息，跨對話引用整體回滾。`reply_to_message_id` 表示被回覆的消息，字段保存被回覆消息的 UUID，開頭的根消息爲空；後續用戶消息、agent 回覆都可以引用同 conversation 中已有的消息。messages 不保存 run_id，也不以 run 爲對話層級。
 
 `author_*` 表示誰發送，`to_*` 表示發給誰，`reply_to_message_id` 表示回覆哪條消息，三者獨立。寫入 Agent 最終回覆時，Server 明確填寫收件人；例如 user-alice 發給 coder 的消息，其 Agent 最終回覆設 `to_user_ids=["user-alice"]`、`to_agent_ids=[]`。僅引用 reply_to_message_id 不會再次喚起父消息中的 Agent；要讓另一個 Agent 繼續處理，須在新消息的 to_agent_ids 中明確指定。
 

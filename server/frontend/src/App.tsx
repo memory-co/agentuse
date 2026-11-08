@@ -16,10 +16,10 @@ import { api, ApiError } from '@/lib/api';
 import { setActAs, useActAs } from '@/lib/actas';
 import { queryClient } from '@/lib/query';
 import { cn } from '@/lib/utils';
-import type { Session, SessionDetail, User } from '@/lib/types';
+import type { Conversation, ConversationDetail, User } from '@/lib/types';
 import { Login } from '@/pages/Login';
-import { Daemons } from '@/pages/Daemons';
-import { Conversation, NewSession, STATUS_TONE, statusLabel, useSessions, useWorkSessions } from '@/pages/Sessions';
+import { Devices } from '@/pages/Devices';
+import { ConversationView, NewConversation, STATUS_TONE, statusLabel, useConversations, useWorkConversations } from '@/pages/Conversations';
 import { NewWork, WorkPage, useWorks } from '@/pages/Works';
 import { Agents } from '@/pages/Agents';
 import { Skills } from '@/pages/Skills';
@@ -39,22 +39,22 @@ export function App() {
   return <ShellProvider><Shell me={me.data} /></ShellProvider>;
 }
 
-type PageKey = 'skills' | 'agents' | 'daemons' | 'harnesses' | 'users';
+type PageKey = 'skills' | 'agents' | 'devices' | 'harnesses' | 'users';
 const PAGES: { key: PageKey; label: `nav.${PageKey}`; icon: ComponentType; Page: ComponentType<{ me: User }>; admin?: boolean }[] = [
   { key: 'agents', label: 'nav.agents', icon: Bot, Page: Agents },
   { key: 'skills', label: 'nav.skills', icon: Boxes, Page: Skills },
-  { key: 'daemons', label: 'nav.daemons', icon: MonitorSmartphone, Page: Daemons },
+  { key: 'devices', label: 'nav.devices', icon: MonitorSmartphone, Page: Devices },
   { key: 'harnesses', label: 'nav.harnesses', icon: Boxes, Page: Harnesses, admin: true },
   { key: 'users', label: 'nav.users', icon: UsersIcon, Page: Users, admin: true },
 ];
 
-// 路由放在 hash 里:#/ 新会话,#/s/<id> 某个会话,#/agents 等是管理页;
+// 路由放在 hash 里:#/ 新会话,#/conversations/<id> 某个会话,#/agents 等是管理页;
 // 工作:#/works/new 新建工作,#/w/<id> 工作页(和协调者对话)。线程只能由协调者开，没有手动开的页面。
-type Route = { page: 'new' } | { page: 'session'; id: string } | { page: PageKey }
+type Route = { page: 'new' } | { page: 'conversation'; id: string } | { page: PageKey }
   | { page: 'workNew' } | { page: 'work'; id: string };
 function parse(): Route {
   const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
-  if (h.startsWith('s/')) return { page: 'session', id: h.slice(2) };
+  if (h.startsWith('conversations/')) return { page: 'conversation', id: h.slice('conversations/'.length) };
   if (h === 'works/new') return { page: 'workNew' };
   if (h.startsWith('w/')) return { page: 'work', id: h.slice(2) };
   const p = PAGES.find(p => p.key === h);
@@ -63,7 +63,7 @@ function parse(): Route {
 function href(r: Route) {
   switch (r.page) {
     case 'new': return '/';
-    case 'session': return `/s/${encodeURIComponent(r.id)}`;
+    case 'conversation': return `/conversations/${encodeURIComponent(r.id)}`;
     case 'workNew': return '/works/new';
     case 'work': return `/w/${encodeURIComponent(r.id)}`;
     default: return `/${r.page}`;
@@ -113,20 +113,20 @@ function Shell({ me }: { me: User }) {
   // 代为别人时，页面按那个用户的身份看(普通用户权限)。
   const effective: User = admin && actAs ? { id: actAs, name: actAs, role: 'user', created_at: 0 } : me;
   const pages = PAGES.filter(p => !p.admin || admin);
-  const sessions = useSessions();
+  const conversations = useConversations();
   const works = useWorks();
   const { isMobile } = useSidebar();
   // 和会话页共用一份缓存：线程不在「会话」列表里，标题和所属工作从这里拿
   const detail = useQuery({
-    queryKey: ['sessions', route.page === 'session' ? route.id : ''],
-    queryFn: () => api<SessionDetail>(`/api/sessions/${route.page === 'session' ? route.id : ''}`),
-    enabled: route.page === 'session',
+    queryKey: ['conversations', route.page === 'conversation' ? route.id : ''],
+    queryFn: () => api<ConversationDetail>(`/api/conversations/${route.page === 'conversation' ? route.id : ''}`),
+    enabled: route.page === 'conversation',
   });
-  const current = route.page === 'session' ? detail.data?.session : undefined;
+  const current = route.page === 'conversation' ? detail.data?.conversation : undefined;
   const workId = routeWork(route) || current?.work_id || '';
   const work = workId ? works.data?.find(w => w.id === workId) : undefined;
   const page = pages.find(p => p.key === route.page);
-  const title = route.page === 'new' ? t('nav.new') : route.page === 'session' ? current?.title || route.id
+  const title = route.page === 'new' ? t('nav.new') : route.page === 'conversation' ? current?.title || route.id
     : route.page === 'workNew' ? t('work.newTitle') : route.page === 'work' ? work?.name || route.id
     : page ? t(page.label) : '';
   const heading = <>
@@ -135,13 +135,13 @@ function Shell({ me }: { me: User }) {
     {current && current.status !== 'idle' && <span className="shrink-0 whitespace-nowrap"><StatusBadge tone={STATUS_TONE[current.status]}>{statusLabel(current.status)}</StatusBadge></span>}
     {admin && actAs && <span className="ml-auto shrink-0 truncate text-xs text-muted-foreground">{t('actAs.acting', { id: actAs })}</span>}
   </>;
-  const content = route.page === 'session' ? <Conversation key={route.id} id={route.id} onDeleted={() => go(current?.work_id ? { page: 'work', id: current.work_id } : { page: 'new' })} />
+  const content = route.page === 'conversation' ? <ConversationView key={route.id} id={route.id} onDeleted={() => go(current?.work_id ? { page: 'work', id: current.work_id } : { page: 'new' })} />
     : route.page === 'workNew' ? <NewWork me={effective} onCreated={id => go({ page: 'work', id })} />
     : route.page === 'work' ? <WorkPage key={route.id} id={route.id} onDeleted={() => go({ page: 'new' })} />
     : page ? <div className="mx-auto w-full max-w-5xl px-4 py-6"><page.Page me={effective} /></div>
-    : <NewSession onCreated={id => go({ page: 'session', id })} />;
+    : <NewConversation onCreated={id => go({ page: 'conversation', id })} />;
   const body = (onNavigate: () => void, onClose?: () => void) =>
-    <SidebarBody me={me} pages={pages} route={route} workId={workId} sessions={sessions} works={works} onNavigate={onNavigate} onClose={onClose} />;
+    <SidebarBody me={me} pages={pages} route={route} workId={workId} conversations={conversations} works={works} onNavigate={onNavigate} onClose={onClose} />;
   if (isMobile) return <MobileShell route={route} body={body} heading={heading} page={content} />;
   return <>
     <Sidebar collapsible="icon">{body(() => undefined)}<SidebarRail /></Sidebar>
@@ -157,8 +157,8 @@ function Shell({ me }: { me: User }) {
 }
 
 /** 侧栏的内容：桌面放进 <Sidebar>,手机放进吸附列，同一份。 */
-function SidebarBody({ me, pages, route, workId, sessions, works, onNavigate, onClose }: {
-  me: User; pages: typeof PAGES; route: Route; workId: string; sessions: ReturnType<typeof useSessions>; works: ReturnType<typeof useWorks>;
+function SidebarBody({ me, pages, route, workId, conversations, works, onNavigate, onClose }: {
+  me: User; pages: typeof PAGES; route: Route; workId: string; conversations: ReturnType<typeof useConversations>; works: ReturnType<typeof useWorks>;
   onNavigate: () => void; onClose?: () => void;
 }) {
   const t = useT();
@@ -167,7 +167,7 @@ function SidebarBody({ me, pages, route, workId, sessions, works, onNavigate, on
   const nav = (r: Route) => { go(r); onNavigate(); };
   const [tab, setTab] = useSidebarTab();
   // 进了某个工作(工作页、线程)就切到「工作」tab,新会话页切到「会话」tab
-  useEffect(() => { if (workId || route.page === 'workNew') setTab('works'); else if (route.page === 'new') setTab('sessions'); }, [workId, route.page, setTab]);
+  useEffect(() => { if (workId || route.page === 'workNew') setTab('works'); else if (route.page === 'new') setTab('conversations'); }, [workId, route.page, setTab]);
   const logout = useMutation({
     mutationFn: () => api('/api/logout', { method: 'POST' }),
     onSuccess: () => { setActAs(''); queryClient.clear(); queryClient.setQueryData(['me'], null); },
@@ -193,13 +193,13 @@ function SidebarBody({ me, pages, route, workId, sessions, works, onNavigate, on
       <ActAsPicker me={me} value={admin ? actAs : ''} />
       <SidebarGroup className="group-data-[collapsible=icon]:hidden">
         <div className="mb-1 flex items-end gap-4 border-b px-2" role="tablist">
-          {(['sessions', 'works'] as const).map(k => <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+          {(['conversations', 'works'] as const).map(k => <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
             className={cn('-mb-px border-b-2 pb-1.5 text-sm transition-colors', tab === k ? 'border-foreground font-medium text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground')}>
-            {t(k === 'sessions' ? 'nav.tabSessions' : 'nav.tabWorks')}
+            {t(k === 'conversations' ? 'nav.tabConversations' : 'nav.tabWorks')}
           </button>)}
         </div>
-        {tab === 'sessions'
-          ? <SessionList sessions={sessions} route={route} nav={nav} />
+        {tab === 'conversations'
+          ? <ConversationList conversations={conversations} route={route} nav={nav} />
           : <WorkList works={works} route={route} workId={workId} nav={nav} />}
       </SidebarGroup>
     </SidebarContent>
@@ -215,38 +215,38 @@ function SidebarBody({ me, pages, route, workId, sessions, works, onNavigate, on
   </>;
 }
 
-type SidebarTab = 'sessions' | 'works';
+type SidebarTab = 'conversations' | 'works';
 const TAB_KEY = 'agentuse.sidebarTab';
 function useSidebarTab() {
-  const [tab, setTabState] = useState<SidebarTab>(() => { try { return localStorage.getItem(TAB_KEY) === 'works' ? 'works' : 'sessions'; } catch { return 'sessions'; } });
+  const [tab, setTabState] = useState<SidebarTab>(() => { try { return localStorage.getItem(TAB_KEY) === 'works' ? 'works' : 'conversations'; } catch { return 'conversations'; } });
   const setTab = useCallback((v: SidebarTab) => { setTabState(v); try { localStorage.setItem(TAB_KEY, v); } catch { /* 无痕模式 */ } }, []);
   return [tab, setTab] as const;
 }
 
-const dotClass = (s: Session['status']) => s === 'running' ? 'animate-pulse bg-sky-500' : s === 'waiting' ? 'animate-pulse bg-amber-500' : 'bg-amber-500';
+const dotClass = (s: Conversation['status']) => s === 'running' ? 'animate-pulse bg-sky-500' : s === 'waiting' ? 'animate-pulse bg-amber-500' : 'bg-amber-500';
 
 /** 「会话」tab:新会话 + 会话列表，和「工作」tab 一样：一个都没有时是虚线框空状态。 */
-function SessionList({ sessions, route, nav }: { sessions: ReturnType<typeof useSessions>; route: Route; nav: (r: Route) => void }) {
+function ConversationList({ conversations, route, nav }: { conversations: ReturnType<typeof useConversations>; route: Route; nav: (r: Route) => void }) {
   const t = useT();
-  if (sessions.isPending) return <SidebarMenu>{[1, 2, 3].map(i => <SidebarMenuItem key={i}><SidebarMenuSkeleton /></SidebarMenuItem>)}</SidebarMenu>;
-  if (sessions.isError) return <p className="px-2 text-xs text-destructive">{t('nav.sessionsFailed')}</p>;
-  if (!sessions.data.length) return <div className="m-2 grid justify-items-center gap-3 rounded-xl border border-dashed px-3 py-6 text-center">
-    <p className="text-sm text-muted-foreground">{t('nav.noSessions')}</p>
+  if (conversations.isPending) return <SidebarMenu>{[1, 2, 3].map(i => <SidebarMenuItem key={i}><SidebarMenuSkeleton /></SidebarMenuItem>)}</SidebarMenu>;
+  if (conversations.isError) return <p className="px-2 text-xs text-destructive">{t('nav.sessionsFailed')}</p>;
+  if (!conversations.data.length) return <div className="m-2 grid justify-items-center gap-3 rounded-xl border border-dashed px-3 py-6 text-center">
+    <p className="text-sm text-muted-foreground">{t('nav.noConversations')}</p>
     <Button variant="secondary" size="sm" className="rounded-full" onClick={() => nav({ page: 'new' })}><Plus />{t('nav.new')}</Button>
   </div>;
   return <SidebarMenu>
     <SidebarMenuItem><SidebarMenuButton isActive={route.page === 'new'} onClick={() => nav({ page: 'new' })} className="text-muted-foreground"><Plus /><span>{t('nav.new')}</span></SidebarMenuButton></SidebarMenuItem>
-    <SessionItems list={sessions.data} route={route} nav={nav} />
+    <ConversationItems list={conversations.data} route={route} nav={nav} />
   </SidebarMenu>;
 }
 
 /** 会话列表：没完成的在上面，已完成的收在最下面的「已完成 (n)」里，默认折叠。 */
-function SessionItems({ list, route, nav }: { list: Session[]; route: Route; nav: (r: Route) => void }) {
+function ConversationItems({ list, route, nav }: { list: Conversation[]; route: Route; nav: (r: Route) => void }) {
   const t = useT();
   const open = list.filter(s => s.status !== 'resolved');
   const done = list.filter(s => s.status === 'resolved');
-  const item = (s: Session) => <SidebarMenuItem key={s.id}>
-    <SidebarMenuButton isActive={route.page === 'session' && route.id === s.id} onClick={() => nav({ page: 'session', id: s.id })} title={s.title || s.id}
+  const item = (s: Conversation) => <SidebarMenuItem key={s.id}>
+    <SidebarMenuButton isActive={route.page === 'conversation' && route.id === s.id} onClick={() => nav({ page: 'conversation', id: s.id })} title={s.title || s.id}
       className={cn(s.status === 'resolved' && 'text-muted-foreground')}>
       <span className="truncate pr-3">{s.title || s.id}</span>
     </SidebarMenuButton>
@@ -254,9 +254,9 @@ function SessionItems({ list, route, nav }: { list: Session[]; route: Route; nav
   </SidebarMenuItem>;
   return <>
     {open.map(item)}
-    {done.length > 0 && <details className="group/done" open={done.some(s => route.page === 'session' && route.id === s.id) || undefined}>
+    {done.length > 0 && <details className="group/done" open={done.some(s => route.page === 'conversation' && route.id === s.id) || undefined}>
       <summary className="flex cursor-pointer list-none items-center gap-1 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground">
-        <ChevronRight className="size-3.5 transition-transform group-open/done:rotate-90" />{t('session.resolved', { n: done.length })}
+        <ChevronRight className="size-3.5 transition-transform group-open/done:rotate-90" />{t('conversation.resolved', { n: done.length })}
       </summary>
       {done.map(item)}
     </details>}
@@ -290,12 +290,12 @@ function WorkList({ works, route, workId, nav }: { works: ReturnType<typeof useW
 
 function WorkThreads({ workId, route, nav }: { workId: string; route: Route; nav: (r: Route) => void }) {
   const t = useT();
-  const threads = useWorkSessions(workId);
+  const threads = useWorkConversations(workId);
   if (!threads.data) return null;
   const open = threads.data.filter(s => s.status !== 'resolved');
   const done = threads.data.filter(s => s.status === 'resolved');
-  const item = (s: Session) => <SidebarMenuSubItem key={s.id} className="relative">
-    <SidebarMenuSubButton isActive={route.page === 'session' && route.id === s.id} onClick={() => nav({ page: 'session', id: s.id })} title={s.title || s.id}
+  const item = (s: Conversation) => <SidebarMenuSubItem key={s.id} className="relative">
+    <SidebarMenuSubButton isActive={route.page === 'conversation' && route.id === s.id} onClick={() => nav({ page: 'conversation', id: s.id })} title={s.title || s.id}
       className={cn('cursor-pointer', s.status === 'resolved' && 'text-muted-foreground')}>
       <span className="truncate pr-3">{s.title || s.id}</span>
     </SidebarMenuSubButton>
@@ -304,9 +304,9 @@ function WorkThreads({ workId, route, nav }: { workId: string; route: Route; nav
   return <SidebarMenuSub>
     {!threads.data.length && <li className="px-2 py-1 text-xs text-muted-foreground">{t('nav.noThreads')}</li>}
     {open.map(item)}
-    {done.length > 0 && <details className="group/done" open={done.some(s => route.page === 'session' && route.id === s.id) || undefined}>
+    {done.length > 0 && <details className="group/done" open={done.some(s => route.page === 'conversation' && route.id === s.id) || undefined}>
       <summary className="flex cursor-pointer list-none items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground">
-        <ChevronRight className="size-3.5 transition-transform group-open/done:rotate-90" />{t('session.resolved', { n: done.length })}
+        <ChevronRight className="size-3.5 transition-transform group-open/done:rotate-90" />{t('conversation.resolved', { n: done.length })}
       </summary>
       {done.map(item)}
     </details>}

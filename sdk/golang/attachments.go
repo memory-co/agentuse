@@ -17,20 +17,20 @@ import (
 )
 
 type Attachment struct {
-	RelativePath      string `json:"relative_path"`
-	CreatedByAgentKey string `json:"created_by_agent_key,omitempty"`
-	CreatedByRunID    string `json:"created_by_run_id,omitempty"`
-	ID                string `json:"id"`
-	SessionID         string `json:"session_id"`
-	Filename          string `json:"filename"`
-	ContentType       string `json:"content_type"`
-	SizeBytes         int64  `json:"size_bytes"`
-	SHA256            string `json:"sha256"`
-	CreatedBy         string `json:"created_by"`
-	Source            string `json:"source"`
-	DaemonID          string `json:"daemon_id,omitempty"`
-	CreatedAt         int64  `json:"created_at"`
-	DownloadPath      string `json:"download_path"`
+	RelativePath     string `json:"relative_path"`
+	CreatedByAgentID string `json:"created_by_agent_id,omitempty"`
+	CreatedByRunID   string `json:"created_by_run_id,omitempty"`
+	ID               string `json:"id"`
+	ConversationID   string `json:"conversation_id"`
+	Filename         string `json:"filename"`
+	ContentType      string `json:"content_type"`
+	SizeBytes        int64  `json:"size_bytes"`
+	SHA256           string `json:"sha256"`
+	CreatedBy        string `json:"created_by"`
+	Source           string `json:"source"`
+	DeviceID         string `json:"device_id,omitempty"`
+	CreatedAt        int64  `json:"created_at"`
+	DownloadPath     string `json:"download_path"`
 }
 type AttachmentPage struct {
 	Attachments []Attachment `json:"attachments"`
@@ -43,7 +43,9 @@ type AttachmentDownload struct {
 	Header http.Header
 }
 
-func attachmentPath(session string) string { return "/api/sessions/" + esc(session) + "/attachments" }
+func attachmentPath(conversation string) string {
+	return "/api/conversations/" + esc(conversation) + "/attachments"
+}
 func (c *Client) attachmentRequest(ctx context.Context, user, method, path, ctype string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.BaseURL, "/")+path, body)
 	if err != nil {
@@ -76,13 +78,13 @@ func (c *Client) attachmentRequest(ctx context.Context, user, method, path, ctyp
 	}
 	return res, nil
 }
-func (c *Client) UploadAttachment(ctx context.Context, user, session, filename string, src io.Reader) (*Attachment, error) {
-	return c.uploadAttachment(ctx, user, session, filename, "", src)
+func (c *Client) UploadAttachment(ctx context.Context, user, conversation, filename string, src io.Reader) (*Attachment, error) {
+	return c.uploadAttachment(ctx, user, conversation, filename, "", src)
 }
-func (c *Client) UploadAttachmentAt(ctx context.Context, user, session, relativePath string, src io.Reader) (*Attachment, error) {
-	return c.uploadAttachment(ctx, user, session, filepath.Base(relativePath), relativePath, src)
+func (c *Client) UploadAttachmentAt(ctx context.Context, user, conversation, relativePath string, src io.Reader) (*Attachment, error) {
+	return c.uploadAttachment(ctx, user, conversation, filepath.Base(relativePath), relativePath, src)
 }
-func (c *Client) uploadAttachment(ctx context.Context, user, session, filename, relativePath string, src io.Reader) (*Attachment, error) {
+func (c *Client) uploadAttachment(ctx context.Context, user, conversation, filename, relativePath string, src io.Reader) (*Attachment, error) {
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
 	defer pr.Close()
@@ -103,7 +105,7 @@ func (c *Client) uploadAttachment(ctx context.Context, user, session, filename, 
 		}
 		pw.CloseWithError(err)
 	}()
-	res, err := c.attachmentRequest(ctx, user, "POST", attachmentPath(session), mw.FormDataContentType(), pr)
+	res, err := c.attachmentRequest(ctx, user, "POST", attachmentPath(conversation), mw.FormDataContentType(), pr)
 	if err != nil {
 		return nil, err
 	}
@@ -112,15 +114,15 @@ func (c *Client) uploadAttachment(ctx context.Context, user, session, filename, 
 	err = json.NewDecoder(res.Body).Decode(&a)
 	return &a, err
 }
-func (c *Client) ListAttachments(ctx context.Context, user, session string, limit int, cursor string) (*AttachmentPage, error) {
-	return c.listAttachments(ctx, user, session, "", limit, cursor)
+func (c *Client) ListAttachments(ctx context.Context, user, conversation string, limit int, cursor string) (*AttachmentPage, error) {
+	return c.listAttachments(ctx, user, conversation, "", limit, cursor)
 }
 
 // ListRunAttachments only lists files produced by one run in the conversation.
-func (c *Client) ListRunAttachments(ctx context.Context, user, session, run string, limit int, cursor string) (*AttachmentPage, error) {
-	return c.listAttachments(ctx, user, session, run, limit, cursor)
+func (c *Client) ListRunAttachments(ctx context.Context, user, conversation, run string, limit int, cursor string) (*AttachmentPage, error) {
+	return c.listAttachments(ctx, user, conversation, run, limit, cursor)
 }
-func (c *Client) listAttachments(ctx context.Context, user, session, run string, limit int, cursor string) (*AttachmentPage, error) {
+func (c *Client) listAttachments(ctx context.Context, user, conversation, run string, limit int, cursor string) (*AttachmentPage, error) {
 	v := url.Values{}
 	if run != "" {
 		v.Set("run_id", run)
@@ -132,23 +134,23 @@ func (c *Client) listAttachments(ctx context.Context, user, session, run string,
 		v.Set("cursor", cursor)
 	}
 	var p AttachmentPage
-	err := c.do(ctx, user, "GET", attachmentPath(session)+"?"+v.Encode(), nil, &p)
+	err := c.do(ctx, user, "GET", attachmentPath(conversation)+"?"+v.Encode(), nil, &p)
 	return &p, err
 }
-func (c *Client) GetAttachment(ctx context.Context, user, session, id string) (*Attachment, error) {
+func (c *Client) GetAttachment(ctx context.Context, user, conversation, id string) (*Attachment, error) {
 	var a Attachment
-	err := c.do(ctx, user, "GET", attachmentPath(session)+"/"+esc(id), nil, &a)
+	err := c.do(ctx, user, "GET", attachmentPath(conversation)+"/"+esc(id), nil, &a)
 	return &a, err
 }
-func (c *Client) DownloadAttachment(ctx context.Context, user, session, id string) (*AttachmentDownload, error) {
-	r, e := c.attachmentRequest(ctx, user, "GET", attachmentPath(session)+"/"+esc(id)+"/content", "", nil)
+func (c *Client) DownloadAttachment(ctx context.Context, user, conversation, id string) (*AttachmentDownload, error) {
+	r, e := c.attachmentRequest(ctx, user, "GET", attachmentPath(conversation)+"/"+esc(id)+"/content", "", nil)
 	if e != nil {
 		return nil, e
 	}
 	return &AttachmentDownload{ReadCloser: r.Body, Header: r.Header}, nil
 }
-func (c *Client) DeleteAttachment(ctx context.Context, user, session, id string) error {
-	return c.do(ctx, user, "DELETE", attachmentPath(session)+"/"+esc(id), nil, nil)
+func (c *Client) DeleteAttachment(ctx context.Context, user, conversation, id string) error {
+	return c.do(ctx, user, "DELETE", attachmentPath(conversation)+"/"+esc(id), nil, nil)
 }
 
 func CopyVerified(dst io.Writer, src io.Reader, a Attachment) error {
@@ -167,7 +169,7 @@ func CopyVerified(dst io.Writer, src io.Reader, a Attachment) error {
 }
 
 func (c *Client) DownloadAttachmentFile(ctx context.Context, user string, a Attachment, path string, force bool) error {
-	src, err := c.DownloadAttachment(ctx, user, a.SessionID, a.ID)
+	src, err := c.DownloadAttachment(ctx, user, a.ConversationID, a.ID)
 	if err != nil {
 		return err
 	}
@@ -194,17 +196,17 @@ func (c *Client) DownloadAttachmentFile(ctx context.Context, user string, a Atta
 	return os.Link(f.Name(), path)
 }
 
-func (c *Client) AllAttachments(ctx context.Context, user, session string) ([]Attachment, error) {
-	return c.allAttachments(ctx, user, session, "")
+func (c *Client) AllAttachments(ctx context.Context, user, conversation string) ([]Attachment, error) {
+	return c.allAttachments(ctx, user, conversation, "")
 }
-func (c *Client) AllRunAttachments(ctx context.Context, user, session, run string) ([]Attachment, error) {
-	return c.allAttachments(ctx, user, session, run)
+func (c *Client) AllRunAttachments(ctx context.Context, user, conversation, run string) ([]Attachment, error) {
+	return c.allAttachments(ctx, user, conversation, run)
 }
-func (c *Client) allAttachments(ctx context.Context, user, session, run string) ([]Attachment, error) {
+func (c *Client) allAttachments(ctx context.Context, user, conversation, run string) ([]Attachment, error) {
 	out := []Attachment{}
 	cursor := ""
 	for {
-		p, e := c.listAttachments(ctx, user, session, run, 100, cursor)
+		p, e := c.listAttachments(ctx, user, conversation, run, 100, cursor)
 		if e != nil {
 			return nil, e
 		}

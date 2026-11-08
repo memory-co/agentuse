@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 )
@@ -12,20 +11,20 @@ func TestBrowserChangesCommitFailureDeletionAndBoundedQueue(t *testing.T) {
 	sub, unsubscribe := s.BrowserChanges.Subscribe(u)
 	defer unsubscribe()
 	ctx := context.Background()
-	ss, _, err := s.CreateMultiSession(ctx, u, "", "notice", nil, nil, nil)
+	ss, _, err := s.CreateConversation(ctx, u, "", "notice", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if changes := sub.Drain(); len(changes) != 1 || changes[0].ID != ss.ID {
 		t.Fatal(changes)
 	}
-	if _, err = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"bad"}`), []string{"missing-agent"}, nil, nil); err == nil {
+	if _, err = s.SendMessage(ctx, u, ss.ID, "bad", []string{"missing-agent"}, nil, nil, ""); err == nil {
 		t.Fatal("expected rejection")
 	}
 	if changes := sub.Drain(); len(changes) != 0 {
 		t.Fatal("failed mutation notified", changes)
 	}
-	if err = s.DeleteSession(ctx, u, ss.ID); err != nil {
+	if err = s.DeleteConversation(ctx, u, ss.ID); err != nil {
 		t.Fatal(err)
 	}
 	if changes := sub.Drain(); len(changes) != 1 || changes[0].ID != ss.ID {

@@ -3,18 +3,18 @@ import { ApiError, api } from '@/lib/api';
 import { queryClient } from '@/lib/query';
 import type { Attachment } from '@/lib/types';
 
-export async function listAttachments(session: string): Promise<Attachment[]> {
+export async function listAttachments(conversation: string): Promise<Attachment[]> {
   const out: Attachment[] = [];
   let cursor: string | null = null;
   do {
-    const page: { attachments: Attachment[]; next_cursor: string | null } = await api(`/api/sessions/${session}/attachments${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
+    const page: { attachments: Attachment[]; next_cursor: string | null } = await api(`/api/conversations/${conversation}/attachments${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
     out.push(...page.attachments); cursor = page.next_cursor;
   } while (cursor);
   return out;
 }
-export function uploadAttachment(session: string, file: File, progress: (percent: number) => void): Promise<Attachment> {
+export function uploadAttachment(conversation: string, file: File, progress: (percent: number) => void): Promise<Attachment> {
   return new Promise((resolve, reject) => {
-    const path = `/api/sessions/${session}/attachments`;
+    const path = `/api/conversations/${conversation}/attachments`;
     const xhr = new XMLHttpRequest();
     xhr.open('POST', path);
     for (const [key, value] of Object.entries(actAsHeaders(path))) xhr.setRequestHeader(key, value);

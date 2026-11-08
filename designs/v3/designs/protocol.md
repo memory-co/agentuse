@@ -71,7 +71,7 @@ Server 在保存消息及目標 Agent 關係時，固定 agent_version_id 和目
 
 - content 是 conversation message 的正文，attachments 沿用該消息的檔案引用。
 - `context` 只承載必要的 Work 業務說明及本次文件說明，不夾帶整份共享歷史。Server 固定派發快照，Client 不自行推斷業務角色。
-- Client 選定實際本地 session 後，以設備憑據讀取 `GET /api/sessions/{id}/messages/{message_id}/agents/{agent_id}/context?client_session_id=...`，取得 `complete_messages`。Server 只返回該 session 最後受理輸入之後、本次之前尚需補齊的共享消息，排除該 session 自己的回覆；新 session 補齊先前歷史。每條只保留作者、正文、收件人和附件。
+- Client 選定實際本地 session 後，以設備憑據讀取 `GET /api/conversations/{id}/messages/{message_id}/agents/{agent_id}/context?session_id=...`，取得 `complete_messages`。Server 只返回該 session 最後受理輸入之後、本次之前尚需補齊的共享消息，排除該 session 自己的回覆；新 session 補齊先前歷史。每條只保留作者、正文、收件人和附件。
 - Client 將 `complete_messages` 作為背景補充，與業務說明、本次正文組成一次 send；空列表不生成補充區塊。本次消息不出現在補充列表，舊任務不重複執行。此讀取沿用已投遞的 message/Agent 權限，不增加 WebSocket 類型、資料表或 harnessctl 命令。
 - 報文不攜帶 model、instructions、skills 或下載清單；這些由 Client 按固定 agent_version_id 讀取。
 - 同一 `(message_id, agent_id)` 不得重複提交已受理或受理結果不確定的 send；相同 id 的重送內容、版本和目標必須一致，衝突直接拒絕。
@@ -235,9 +235,9 @@ Local 與遠端共用相同的資源校驗、session 綁定和 harnessctl 執行
 
 ## 升級與持久化
 
-只支持 schema 6：消息及消息引用直接使用 UUID，messages.seq 保存順序；message_agents 以消息/Agent 複合鍵保存投遞和受理關係。舊版資料庫、inputs 收據和控制收據不讀取、不轉換，也不保留升級兼容邏輯。升級時重建 Server 資料庫、清空 Client 本地工作目錄並重新初始化和註冊設備。
+只支持 schema 7：消息及消息引用直接使用 UUID，messages.seq 保存順序；message_agents 以消息/Agent 複合鍵保存投遞和受理關係。舊版資料庫、inputs 收據和控制收據不讀取、不轉換，也不保留升級兼容邏輯。升級時重建 Server 資料庫、清空 Client 本地工作目錄並重新初始化和註冊設備。
 
-公開 HTTP 入口暫沿用 /api/sessions 和 daemon_id 命名。與網路協議無關的目標元數據命名不在本次更名；WebSocket 則只支持本文的 /api/client/ws 和 agentuse-client/2，兩端需一起升級。
+公開 HTTP 入口使用 /api/conversations，設備標識使用 device_id，不保留舊入口或字段別名。WebSocket 只支持本文的 /api/client/ws 和 agentuse-client/2，兩端需一起升級。
 
 ## Work 的業務邊界
 

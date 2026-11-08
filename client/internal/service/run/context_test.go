@@ -123,7 +123,7 @@ func TestContextAttachmentsComeFromConversationAndDownloadOnDemand(t *testing.T)
 			w.WriteHeader(403)
 			return
 		}
-		prefix := "/api/sessions/" + image.SessionID + "/attachments"
+		prefix := "/api/conversations/" + image.ConversationID + "/attachments"
 		switch r.URL.Path {
 		case prefix:
 			lists++
@@ -144,7 +144,7 @@ func TestContextAttachmentsComeFromConversationAndDownloadOnDemand(t *testing.T)
 	if err := (&endpoint.Service{Path: f.service.Path}).Save(ep); err != nil {
 		t.Fatal(err)
 	}
-	image = sdk.Attachment{ID: "at_image", SessionID: f.metadata.ConversationID, Filename: "截图.png", RelativePath: "user_input/截图.png", ContentType: "image/png", SizeBytes: int64(len(content)), SHA256: hex.EncodeToString(digest[:])}
+	image = sdk.Attachment{ID: "at_image", ConversationID: f.metadata.ConversationID, Filename: "截图.png", RelativePath: "user_input/截图.png", ContentType: "image/png", SizeBytes: int64(len(content)), SHA256: hex.EncodeToString(digest[:])}
 	other = image
 	other.ID = "at_other"
 	other.RelativePath = "reports/earlier.png"
@@ -215,7 +215,7 @@ func TestContextDoesNotExposeCredentialsOrServerBusinessPolicy(t *testing.T) {
 func TestConversationFileContextDoesNotRequireAnActiveRun(t *testing.T) {
 	var conversation string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/sessions/"+conversation+"/attachments" || r.Header.Get("X-Agentuse-Run") != "" || r.URL.Query().Get("run_id") != "" {
+		if r.URL.Path != "/api/conversations/"+conversation+"/attachments" || r.Header.Get("X-Agentuse-Run") != "" || r.URL.Query().Get("run_id") != "" {
 			t.Error("file listing unexpectedly bound to a run", r.URL)
 			w.WriteHeader(400)
 			return

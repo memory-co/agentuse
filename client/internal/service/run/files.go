@@ -28,7 +28,7 @@ func openAttachmentDir(root *os.Root, name string) (*os.Root, error) {
 	return root.OpenRoot(name)
 }
 func validateContextAttachment(conversation string, a agentuse.Attachment) error {
-	if a.SessionID != conversation || !attachment.ValidID(a.ID, "at_") {
+	if a.ConversationID != conversation || !attachment.ValidID(a.ID, "at_") {
 		return fmt.Errorf("attachment does not belong to this conversation")
 	}
 	_, err := attachment.RelativePath(a.RelativePath)

@@ -109,11 +109,11 @@ func TestBaseURL(t *testing.T) {
 func TestStoreErr(t *testing.T) {
 	s := &Server{}
 	for err, code := range map[error]int{
-		service.ErrNotFound:                         404,
-		fmt.Errorf("wrap: %w", service.ErrNotFound): 404,
-		service.ErrSessionBusy:                      409,
-		errors.New("名字不对"):                          400,
-		fmt.Errorf("x: %w", service.ErrSessionBusy): 409,
+		service.ErrNotFound:                              404,
+		fmt.Errorf("wrap: %w", service.ErrNotFound):      404,
+		service.ErrConversationBusy:                      409,
+		errors.New("名字不对"):                               400,
+		fmt.Errorf("x: %w", service.ErrConversationBusy): 409,
 	} {
 		w := httptest.NewRecorder()
 		s.storeErr(w, err)

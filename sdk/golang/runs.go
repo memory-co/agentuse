@@ -10,11 +10,11 @@ import (
 type Run struct {
 	AgentVersionID  string          `json:"agent_version_id"`
 	ID              string          `json:"id"`
-	SessionID       string          `json:"session_id"`
+	ConversationID  string          `json:"conversation_id"`
 	FirstMessageID  string          `json:"first_message_id"`
 	AgentID         string          `json:"agent_id"`
-	DaemonID        string          `json:"daemon_id"`
-	ClientSessionID string          `json:"client_session_id"`
+	DeviceID        string          `json:"device_id"`
+	SessionID       string          `json:"session_id"`
 	Harness         string          `json:"harness"`
 	HarnessRevision string          `json:"harness_revision"`
 	Status          string          `json:"status"`
@@ -29,37 +29,37 @@ type Run struct {
 // Delivery is the metadata of a message/Agent target, with no independent ID.
 // RunID is empty until the adapter reports accepted.
 type Delivery struct {
-	AgentVersionID  string          `json:"agent_version_id"`
-	MessageID       string          `json:"message_id"`
-	SessionID       string          `json:"session_id"`
-	AgentID         string          `json:"agent_id"`
-	DaemonID        string          `json:"daemon_id"`
-	Harness         string          `json:"harness"`
-	Content         json.RawMessage `json:"content"`
-	Status          string          `json:"status"`
-	RunID           string          `json:"run_id,omitempty"`
-	InputID         string          `json:"input_id,omitempty"`
-	ClientSessionID string          `json:"client_session_id,omitempty"`
-	Error           string          `json:"error,omitempty"`
+	AgentVersionID string `json:"agent_version_id"`
+	MessageID      string `json:"message_id"`
+	ConversationID string `json:"conversation_id"`
+	AgentID        string `json:"agent_id"`
+	DeviceID       string `json:"device_id"`
+	Harness        string `json:"harness"`
+	Content        string `json:"content"`
+	Status         string `json:"status"`
+	RunID          string `json:"run_id,omitempty"`
+	InputID        string `json:"input_id,omitempty"`
+	SessionID      string `json:"session_id,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 type RunDetail struct {
-	Run    Run            `json:"run"`
-	Events []SessionEvent `json:"events"`
+	Run    Run                 `json:"run"`
+	Events []ConversationEvent `json:"events"`
 }
 type WaitOptions struct{ ReturnOnWaiting bool }
 
 func (c *Client) GetRun(ctx context.Context, as, conversation, run string) (*RunDetail, error) {
 	var out RunDetail
-	err := c.do(ctx, as, "GET", "/api/sessions/"+esc(conversation)+"/runs/"+esc(run), nil, &out)
+	err := c.do(ctx, as, "GET", "/api/conversations/"+esc(conversation)+"/runs/"+esc(run), nil, &out)
 	return &out, err
 }
 func (c *Client) CancelRun(ctx context.Context, as, conversation, run string) (*Run, error) {
 	var out Run
-	err := c.do(ctx, as, "POST", "/api/sessions/"+esc(conversation)+"/runs/"+esc(run)+"/cancel", map[string]any{}, &out)
+	err := c.do(ctx, as, "POST", "/api/conversations/"+esc(conversation)+"/runs/"+esc(run)+"/cancel", map[string]any{}, &out)
 	return &out, err
 }
 func (c *Client) ReplyRunRequest(ctx context.Context, as, conversation, run, request string, answer any) error {
-	return c.do(ctx, as, "POST", "/api/sessions/"+esc(conversation)+"/runs/"+esc(run)+"/requests/"+esc(request)+"/reply", map[string]any{"answer": answer}, nil)
+	return c.do(ctx, as, "POST", "/api/conversations/"+esc(conversation)+"/runs/"+esc(run)+"/requests/"+esc(request)+"/reply", map[string]any{"answer": answer}, nil)
 }
 func (c *Client) WaitRun(ctx context.Context, as, conversation, run string, poll time.Duration, opts ...WaitOptions) (*RunDetail, error) {
 	if poll <= 0 {
@@ -83,14 +83,14 @@ func (c *Client) WaitRun(ctx context.Context, as, conversation, run string, poll
 		}
 	}
 }
-func (c *Client) WaitMessageRuns(ctx context.Context, as, conversation string, message string, poll time.Duration) (*SessionDetail, error) {
+func (c *Client) WaitMessageRuns(ctx context.Context, as, conversation string, message string, poll time.Duration) (*ConversationDetail, error) {
 	if poll <= 0 {
 		poll = 200 * time.Millisecond
 	}
 	ticker := time.NewTicker(poll)
 	defer ticker.Stop()
 	for {
-		out, err := c.GetSession(ctx, as, conversation)
+		out, err := c.GetConversation(ctx, as, conversation)
 		if err != nil {
 			return out, err
 		}

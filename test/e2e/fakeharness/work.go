@@ -40,9 +40,9 @@ func serverWorkSpawn(agent, prompt string) ([]byte, error) {
 		return data, err
 	}
 	var created struct {
-		Session struct {
+		Conversation struct {
 			ID string `json:"id"`
-		} `json:"session"`
+		} `json:"conversation"`
 	}
 	if err = json.Unmarshal(data, &created); err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ func serverWorkSpawn(agent, prompt string) ([]byte, error) {
 	if err = file.Close(); err != nil {
 		return nil, err
 	}
-	uploaded, err := serverWorkTool("upload", created.Session.ID, file.Name())
+	uploaded, err := serverWorkTool("upload", created.Conversation.ID, file.Name())
 	if err != nil {
 		return uploaded, err
 	}
@@ -69,13 +69,13 @@ func serverWorkSpawn(agent, prompt string) ([]byte, error) {
 	if err = json.Unmarshal(uploaded, &fileInfo); err != nil {
 		return nil, err
 	}
-	if b, err := serverWorkTool("send", "--agents", agent, "--attachments", fileInfo.ID, created.Session.ID, prompt); err != nil {
+	if b, err := serverWorkTool("send", "--agents", agent, "--attachments", fileInfo.ID, created.Conversation.ID, prompt); err != nil {
 		return b, err
 	}
 	if b, err := serverWorkTool("threads"); err != nil {
 		return b, err
 	}
-	if b, err := serverWorkTool("read", created.Session.ID); err != nil {
+	if b, err := serverWorkTool("read", created.Conversation.ID); err != nil {
 		return b, err
 	}
 	return data, nil

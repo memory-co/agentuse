@@ -40,7 +40,7 @@ func (d *endpointConnection) resolveResources(ctx context.Context, p protocol.Co
 	if version.ID != p.AgentVersionID || version.AgentID != p.AgentID || !fileutil.Segment(version.Harness) || len(version.Skills) > 64 {
 		return Request{}, fmt.Errorf("Agent version identity mismatch")
 	}
-	if d.cfg.DaemonID != "" && version.DaemonID != d.cfg.DaemonID {
+	if d.cfg.DeviceID != "" && version.DeviceID != d.cfg.DeviceID {
 		return Request{}, fmt.Errorf("Agent version belongs to another device")
 	}
 	if err = fileutil.WriteJSON(path, version); err != nil {

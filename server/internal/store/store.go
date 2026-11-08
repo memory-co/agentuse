@@ -1,4 +1,4 @@
-// Package store 是 agentuse 服务的 SQLite 存储，表结构见 designs/v2/tables/。
+// Package store 是 agentuse 服务的 SQLite 存储，表结构见 designs/v3/designs/。
 package store
 
 import (
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_token ON users(token_hash);
 
-CREATE TABLE IF NOT EXISTS daemons (
+CREATE TABLE IF NOT EXISTS devices (
   id           TEXT PRIMARY KEY,
   user_id      TEXT NOT NULL,
   name         TEXT NOT NULL,
@@ -37,23 +37,24 @@ CREATE TABLE IF NOT EXISTS daemons (
   last_seen_at INTEGER,
   created_at   INTEGER NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS daemons_key ON daemons(key_hash);
-CREATE UNIQUE INDEX IF NOT EXISTS daemons_setup_token ON daemons(setup_token);
+CREATE UNIQUE INDEX IF NOT EXISTS devices_key ON devices(key_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS devices_setup_token ON devices(setup_token);
 
-CREATE TABLE IF NOT EXISTS daemon_harnesses (
-  daemon_id  TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS device_harnesses (
+  device_id  TEXT NOT NULL,
   user_id    TEXT NOT NULL,
   harness    TEXT NOT NULL,
   version    TEXT,
-  revision   TEXT NOT NULL DEFAULT '',
-  available  INTEGER NOT NULL DEFAULT 1,
+  harness_revision TEXT NOT NULL DEFAULT '',
+  capabilities TEXT NOT NULL DEFAULT '[]',
+  available  INTEGER NOT NULL DEFAULT 0,
   enabled    INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL,
-  PRIMARY KEY (daemon_id, harness)
+  PRIMARY KEY (device_id, harness)
 );
-CREATE INDEX IF NOT EXISTS daemon_harnesses_user_harness ON daemon_harnesses(user_id, harness);
+CREATE INDEX IF NOT EXISTS device_harnesses_user_harness ON device_harnesses(user_id, harness);
 
-CREATE TABLE IF NOT EXISTS sessions (
+CREATE TABLE IF NOT EXISTS conversations (
   id                 TEXT PRIMARY KEY,
   user_id            TEXT NOT NULL,
   created_by         TEXT NOT NULL,
@@ -63,10 +64,10 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at         INTEGER NOT NULL,
   updated_at         INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS sessions_work ON sessions(work_id,updated_at);
-CREATE INDEX IF NOT EXISTS sessions_status ON sessions(status, updated_at);
-CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id, updated_at);
-CREATE INDEX IF NOT EXISTS sessions_created_by ON sessions(created_by, updated_at);
+CREATE INDEX IF NOT EXISTS conversations_work ON conversations(work_id,updated_at);
+CREATE INDEX IF NOT EXISTS conversations_status ON conversations(status, updated_at);
+CREATE INDEX IF NOT EXISTS conversations_user ON conversations(user_id, updated_at);
+CREATE INDEX IF NOT EXISTS conversations_created_by ON conversations(created_by, updated_at);
 
 CREATE TABLE IF NOT EXISTS works (
   id             TEXT PRIMARY KEY,
@@ -83,13 +84,14 @@ CREATE INDEX IF NOT EXISTS works_user ON works(user_id, updated_at);
 CREATE TABLE IF NOT EXISTS messages (
   id         TEXT PRIMARY KEY,
   seq        INTEGER NOT NULL,
-  session_id TEXT NOT NULL,
-  role       TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  author_role TEXT NOT NULL CHECK(author_role IN ('user','agent')),
   content    TEXT NOT NULL,
   attachments TEXT NOT NULL DEFAULT '[]', author_user_id TEXT, author_agent_id TEXT, to_agent_ids TEXT NOT NULL DEFAULT '[]', to_user_ids TEXT NOT NULL DEFAULT '[]', reply_to_message_id TEXT, author_agent_version_id TEXT,
   created_at INTEGER NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS messages_session ON messages(session_id, seq);
+CREATE UNIQUE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id, seq);
+CREATE INDEX IF NOT EXISTS messages_replies ON messages(conversation_id,reply_to_message_id,seq);
 
 `
 
@@ -116,15 +118,15 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	var existing int
-	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sessions'").Scan(&existing); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&existing); err != nil {
 		db.Close()
 		return nil, err
 	}
-	if existing > 0 && revision != 6 {
+	if revision != 7 && (existing > 0 || revision != 0) {
 		db.Close()
 		return nil, errors.New("unsupported database schema: reset the database before starting this version")
 	}
-	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=6;"); err != nil {
+	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=7;"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("store: initialize: %w", err)
 	}

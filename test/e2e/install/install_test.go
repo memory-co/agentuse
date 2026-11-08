@@ -143,7 +143,7 @@ func TestInstall(t *testing.T) {
 func testSetup(t *testing.T, gh *fakeGitHub, srv *e2eutil.Server) {
 	ctx := context.Background()
 	c := agentuse.New(srv.URL, srv.AdminToken)
-	dv, err := c.CreateDaemon(ctx, "alice", "")
+	dv, err := c.CreateDevice(ctx, "alice", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,10 +158,10 @@ func testSetup(t *testing.T, gh *fakeGitHub, srv *e2eutil.Server) {
 	}
 
 	e2eutil.WaitFor(t, 20*time.Second, "设备上线", func() bool {
-		ds, err := c.ListDaemons(ctx, "alice")
+		ds, err := c.ListDevices(ctx, "alice")
 		return err == nil && len(ds) == 1 && ds[0].ID == dv.ID && ds[0].Status == "online"
 	})
-	ds, _ := c.ListDaemons(ctx, "alice")
+	ds, _ := c.ListDevices(ctx, "alice")
 	if host, _ := os.Hostname(); ds[0].Name != host {
 		t.Fatalf("没起名字的设备用主机名: %q", ds[0].Name)
 	}

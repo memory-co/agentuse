@@ -125,7 +125,7 @@ func (s *Service) Run(ctx context.Context) error {
 			continue
 		}
 		id := ep.ID()
-		cfg := Config{ConfigPath: s.Path, Server: ep.ServerURL, DaemonID: ep.DeviceID, Key: ep.DeviceKey, EndpointID: id, Enabled: true, Settings: settings, RunService: s, Slots: s.slots, Sessions: s.Sessions, Harness: s.Harness}
+		cfg := Config{ConfigPath: s.Path, Server: ep.ServerURL, DeviceID: ep.DeviceID, Key: ep.DeviceKey, EndpointID: id, Enabled: true, Settings: settings, RunService: s, Slots: s.slots, Sessions: s.Sessions, Harness: s.Harness}
 		connection, err := newConnection(cfg, nil)
 		if err != nil {
 			s.mu.Unlock()

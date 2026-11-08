@@ -15,14 +15,14 @@ import (
 func TestCompleteMessagesUsesActualSessionAndAcceptedBoundary(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, _, err := s.CreateMultiSession(ctx, u, "", "", nil, nil, nil)
+	ss, _, err := s.CreateConversation(ctx, u, "", "", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	send := func(text string, targets ...string) Message {
 		t.Helper()
-		raw, _ := json.Marshal(map[string]string{"prompt": text})
-		r, e := s.SendMultiMessage(ctx, u, ss.ID, raw, targets, nil, nil)
+
+		r, e := s.SendMessage(ctx, u, ss.ID, text, targets, nil, nil, "")
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -57,7 +57,7 @@ func TestCompleteMessagesUsesActualSessionAndAcceptedBoundary(t *testing.T) {
 	rb := uuid.NewString()
 	reportNative(t, s, d, bp, "native-b", 1, acceptedEvent(rb, "b1", bp.Content))
 	reportNative(t, s, d, bp, "native-b", 2, map[string]any{"type": "result", "run_id": rb, "input_ids": []string{"b1"}, "status": "completed", "output": "other-agent-answer", "usage": map[string]int{"input_tokens": 12345}})
-	detail, _ := s.ReadSession(ctx, u, ss.ID)
+	detail, _ := s.ReadConversation(ctx, u, ss.ID)
 	bReply := detail.Messages[len(detail.Messages)-1]
 	note := send("unaddressed shared note")
 	current := send("current-agent-input", a.ID)
@@ -90,16 +90,16 @@ func TestCompleteMessagesUsesActualSessionAndAcceptedBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(fresh.CompleteMessages) != int(current.Seq)-1 {
-		t.Fatalf("fresh session lost history: %+v", fresh)
+		t.Fatalf("fresh conversation lost history: %+v", fresh)
 	}
 	if _, err = s.CompleteMessages(ctx, d.ID, ss.ID, current.ID, a.ID, "native-b"); err == nil {
-		t.Fatal("cross-agent session accepted")
+		t.Fatal("cross-agent conversation accepted")
 	}
 	if _, err = s.CompleteMessages(ctx, "other-device", ss.ID, current.ID, a.ID, "native-a"); !errors.Is(err, ErrNotFound) {
 		t.Fatal("unassigned device obtained context", err)
 	}
 	// A new version needs full context; an old native address cannot be rebound.
-	next, err := s.PublishAgentVersion(ctx, u, a.ID, a.CurrentVersionID, agentuse.AgentConfig{Name: a.Name, DaemonID: d.ID, Harness: a.Harness, Instructions: "version-two"})
+	next, err := s.PublishAgentVersion(ctx, u, a.ID, a.CurrentVersionID, agentuse.AgentConfig{Name: a.Name, DeviceID: d.ID, Harness: a.Harness, Instructions: "version-two"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestCompleteMessagesUsesActualSessionAndAcceptedBoundary(t *testing.T) {
 		t.Fatal(np, err)
 	}
 	if _, err = s.CompleteMessages(ctx, d.ID, ss.ID, nextInput.ID, a.ID, "native-a"); err == nil {
-		t.Fatal("old version session accepted")
+		t.Fatal("old version conversation accepted")
 	}
 	nv, err := s.CompleteMessages(ctx, d.ID, ss.ID, nextInput.ID, a.ID, "native-a-v2")
 	if err != nil || len(nv.CompleteMessages) != int(nextInput.Seq)-1 {

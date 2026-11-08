@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-// agentuse HTTP API 的薄封装，用 Node 18+ 自带的 fetch,没有依赖。接口见 designs/v2/apis。
+// agentuse HTTP API 的薄封装，用 Node 18+ 自带的 fetch,没有依赖。接口见 docs/server/conversations.md。
 
 export const USER_HEADER = "X-Agentuse-User";
 
@@ -56,10 +56,10 @@ export class Client {
 
   // agents
   listAgents(user) { return this._request("GET", "/api/agents", user); }
-  // { id?, name, daemon_id, harness, description? };id 全局唯一，不传时服务生成。
+  // { id?, name, device_id, harness, description? };id 全局唯一，不传时服务生成。
   createAgent(user, agent) { return this._request("POST", "/api/agents", user, agent); }
   getAgent(user, agentId) { return this._request("GET", `/api/agents/${q(agentId)}`, user); }
-  // 改名字、切换运行时、改说明:{ name?, daemon_id?, harness?, description? };daemon_id 和 harness 一起给。切换运行时只影响之后新建的会话。
+  // 改名字、切换运行时、改说明:{ name?, device_id?, harness?, description? };device_id 和 harness 一起给。切换运行时只影响之后新建的会话。
   publishAgentVersion(user, agentId, config) { return this._request("POST", `/api/agents/${q(agentId)}/versions`, user, config); }
   listAgentVersions(user, agentId) { return this._request("GET", `/api/agents/${q(agentId)}/versions`, user); }
   getAgentVersion(user, agentId, versionId) { return this._request("GET", `/api/agents/${q(agentId)}/versions/${q(versionId)}`, user); }
@@ -68,15 +68,15 @@ export class Client {
   deleteSkill(user, skillId) { return this._request("DELETE", `/api/skills/${q(skillId)}`, user); }
   async deleteAgent(user, agentId) { await this._request("DELETE", `/api/agents/${q(agentId)}`, user); }
 
-  // daemons
-  listDaemons(user) { return this._request("GET", "/api/daemons", user); }
-  // 添加一台 daemon,返回的 setup_command 给用户复制到自己电脑上跑。
-  createDaemon(user, name) { return this._request("POST", "/api/daemons", user, name ? { name } : {}); }
-  resetDaemon(user, daemonId) { return this._request("POST", `/api/daemons/${q(daemonId)}/reset`, user); }
-  setDaemonHarness(user, daemonId, harness, enabled) {
-    return this._request("PUT", `/api/daemons/${q(daemonId)}/harnesses/${q(harness)}`, user, { enabled: !!enabled });
+  // devices
+  listDevices(user) { return this._request("GET", "/api/devices", user); }
+  // 添加一台 device,返回的 setup_command 给用户复制到自己电脑上跑。
+  createDevice(user, name) { return this._request("POST", "/api/devices", user, name ? { name } : {}); }
+  resetDevice(user, deviceId) { return this._request("POST", `/api/devices/${q(deviceId)}/reset`, user); }
+  setDeviceHarness(user, deviceId, harness, enabled) {
+    return this._request("PUT", `/api/devices/${q(deviceId)}/harnesses/${q(harness)}`, user, { enabled: !!enabled });
   }
-  async deleteDaemon(user, daemonId) { await this._request("DELETE", `/api/daemons/${q(daemonId)}`, user); }
+  async deleteDevice(user, deviceId) { await this._request("DELETE", `/api/devices/${q(deviceId)}`, user); }
 
   async _attachmentRequest(method, path, user, body, contentType) {
     const headers = { Authorization: `Bearer ${this.token}` };
@@ -103,7 +103,7 @@ export class Client {
   getSkill(user, skillId) { return this._request("GET", `/api/skills/${q(skillId)}`, user); }
   getSkillVersion(user, skillId, versionId) { return this._request("GET", `/api/skills/${q(skillId)}/versions/${q(versionId)}`, user); }
   downloadSkillPackage(user, skillId, versionId) { return this._attachmentRequest("GET", `/api/skills/${q(skillId)}/versions/${q(versionId)}/package`, user); }
-  async uploadAttachment(user, sessionId, filename, stream) {
+  async uploadAttachment(user, conversationId, filename, stream) {
     const boundary = "agentuse-" + randomBytes(24).toString("hex");
     async function* body() {
       yield Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="filename"\r\n\r\n${filename}\r\n--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="file"\r\nContent-Type: application/octet-stream\r\n\r\n`);
@@ -111,45 +111,45 @@ export class Client {
       for await (const chunk of source) yield chunk;
       yield Buffer.from(`\r\n--${boundary}--\r\n`);
     }
-    const res = await this._attachmentRequest("POST", `/api/sessions/${q(sessionId)}/attachments`, user, body(), `multipart/form-data; boundary=${boundary}`);
+    const res = await this._attachmentRequest("POST", `/api/conversations/${q(conversationId)}/attachments`, user, body(), `multipart/form-data; boundary=${boundary}`);
     return res.json();
   }
-  listAttachments(user, sessionId, {limit, cursor} = {}) {
+  listAttachments(user, conversationId, {limit, cursor} = {}) {
     const params = new URLSearchParams();
     if (limit !== undefined) params.set("limit", limit);
     if (cursor) params.set("cursor", cursor);
-    return this._request("GET", `/api/sessions/${q(sessionId)}/attachments?${params}`, user);
+    return this._request("GET", `/api/conversations/${q(conversationId)}/attachments?${params}`, user);
   }
-  getAttachment(user, sessionId, id) { return this._request("GET", `/api/sessions/${q(sessionId)}/attachments/${q(id)}`, user); }
-  downloadAttachment(user, sessionId, id) { return this._attachmentRequest("GET", `/api/sessions/${q(sessionId)}/attachments/${q(id)}/content`, user); }
-  deleteAttachment(user, sessionId, id) { return this._request("DELETE", `/api/sessions/${q(sessionId)}/attachments/${q(id)}`, user); }
+  getAttachment(user, conversationId, id) { return this._request("GET", `/api/conversations/${q(conversationId)}/attachments/${q(id)}`, user); }
+  downloadAttachment(user, conversationId, id) { return this._attachmentRequest("GET", `/api/conversations/${q(conversationId)}/attachments/${q(id)}/content`, user); }
+  deleteAttachment(user, conversationId, id) { return this._request("DELETE", `/api/conversations/${q(conversationId)}/attachments/${q(id)}`, user); }
 
-  // sessions
-  listSessions(user) { return this._request("GET", "/api/sessions", user); }
+  // conversations
+  listConversations(user) { return this._request("GET", "/api/conversations", user); }
   // 创建共享会话，可带首条消息与 to_agent_ids、to_user_ids。
-  createSession(user, req) { return this._request("POST", "/api/sessions", user, req); }
+  createConversation(user, req) { return this._request("POST", "/api/conversations", user, req); }
   // 回复:{ prompt? , input? }。会话不是 idle 时抛 AgentuseError(409)。
   // 会话 idle 时返回 message;忙时是插话，返回 steer。
-  sendMessage(user, sessionId, req, {idempotencyKey} = {}) { return this._request("POST", `/api/sessions/${q(sessionId)}/messages`, user, req, idempotencyKey ? {"Idempotency-Key": idempotencyKey} : {}); }
-  // → { session, messages, runs, deliveries, questions, events }
-  getSession(user, sessionId) { return this._request("GET", `/api/sessions/${q(sessionId)}`, user); }
+  sendMessage(user, conversationId, req) { return this._request("POST", `/api/conversations/${q(conversationId)}/messages`, user, req); }
+  // → { conversation, messages, runs, deliveries, questions, events }
+  getConversation(user, conversationId) { return this._request("GET", `/api/conversations/${q(conversationId)}`, user); }
   // 回答 harness 的提问(会话 waiting 时):answers 是 { 问题: 答案 },多选用 ", " 拼起来。已答过或过期抛 409。
-  async deleteSession(user, sessionId) { await this._request("DELETE", `/api/sessions/${q(sessionId)}`, user); }
+  async deleteConversation(user, conversationId) { await this._request("DELETE", `/api/conversations/${q(conversationId)}`, user); }
   // 把 idle 的会话标记为已完成;再发消息就重新打开。
-  resolveSession(user, sessionId) { return this._request("POST", `/api/sessions/${q(sessionId)}/resolve`, user); }
-  reopenSession(user, sessionId) { return this._request("POST", `/api/sessions/${q(sessionId)}/reopen`, user); }
+  resolveConversation(user, conversationId) { return this._request("POST", `/api/conversations/${q(conversationId)}/resolve`, user); }
+  reopenConversation(user, conversationId) { return this._request("POST", `/api/conversations/${q(conversationId)}/reopen`, user); }
 
-  getRun(user, session, run) { return this._request("GET", `/api/sessions/${q(session)}/runs/${q(run)}`, user); }
-  cancelRun(user, session, run) { return this._request("POST", `/api/sessions/${q(session)}/runs/${q(run)}/cancel`, user); }
-  replyRunRequest(user, session, run, request, answer) { return this._request("POST", `/api/sessions/${q(session)}/runs/${q(run)}/requests/${q(request)}/reply`, user, {answer}); }
-  async waitRun(user, session, run, {interval=2000, timeout, returnOnWaiting=false}={}) {
+  getRun(user, conversation, run) { return this._request("GET", `/api/conversations/${q(conversation)}/runs/${q(run)}`, user); }
+  cancelRun(user, conversation, run) { return this._request("POST", `/api/conversations/${q(conversation)}/runs/${q(run)}/cancel`, user); }
+  replyRunRequest(user, conversation, run, request, answer) { return this._request("POST", `/api/conversations/${q(conversation)}/runs/${q(run)}/requests/${q(request)}/reply`, user, {answer}); }
+  async waitRun(user, conversation, run, {interval=2000, timeout, returnOnWaiting=false}={}) {
     const start=Date.now();
-    for (;;) { const d=await this.getRun(user,session,run); if (["completed","failed","cancelled","rejected"].includes(d.run.status) || (returnOnWaiting && d.run.status==="waiting")) return d;
+    for (;;) { const d=await this.getRun(user,conversation,run); if (["completed","failed","cancelled","rejected"].includes(d.run.status) || (returnOnWaiting && d.run.status==="waiting")) return d;
       if (timeout!=null && Date.now()-start>=timeout) throw new Error("agentuse: waitRun timed out"); await new Promise(r=>setTimeout(r,interval)); }
   }
-  async waitMessageRuns(user, session, message, {interval=2000,timeout}={}) {
+  async waitMessageRuns(user, conversation, message, {interval=2000,timeout}={}) {
     const start=Date.now();
-    for (;;) { const d=await this.getSession(user,session); if ((d.deliveries||[]).filter(x=>x.message_id===message).every(x=>["completed","failed","cancelled","rejected"].includes(x.status))) return d;
+    for (;;) { const d=await this.getConversation(user,conversation); if ((d.deliveries||[]).filter(x=>x.message_id===message).every(x=>["completed","failed","cancelled","rejected"].includes(x.status))) return d;
       if (timeout!=null && Date.now()-start>=timeout) throw new Error("agentuse: waitMessageRuns timed out"); await new Promise(r=>setTimeout(r,interval)); }
   }
 
@@ -162,16 +162,16 @@ export class Client {
   // 连协调者和所有线程一起删。
   async deleteWork(user, workId) { await this._request("DELETE", `/api/works/${q(workId)}`, user); }
   // 工作的线程(不含协调者)
-  listWorkSessions(user, workId) { return this._request("GET", `/api/sessions?work_id=${q(workId)}`, user); }
+  listWorkConversations(user, workId) { return this._request("GET", `/api/conversations?work_id=${q(workId)}`, user); }
 
-  // 轮询直到会话回到 idle(或已完成)或在等回答提问(waiting),返回最后一次 getSession 的结果。超时抛错。
-  async waitSession(user, sessionId, { interval = 2000, timeout, returnOnWaiting = false } = {}) {
+  // 轮询直到会话回到 idle(或已完成)或在等回答提问(waiting),返回最后一次 getConversation 的结果。超时抛错。
+  async waitConversation(user, conversationId, { interval = 2000, timeout, returnOnWaiting = false } = {}) {
     const deadline = timeout === undefined ? Infinity : Date.now() + timeout;
     for (;;) {
-      const detail = await this.getSession(user, sessionId);
-      if (["idle", "resolved"].includes(detail.session.status) || (detail.session.status === "waiting" && (returnOnWaiting))) return detail;
+      const detail = await this.getConversation(user, conversationId);
+      if (["idle", "resolved"].includes(detail.conversation.status) || (detail.conversation.status === "waiting" && (returnOnWaiting))) return detail;
       if (Date.now() >= deadline) {
-        throw new Error(`agentuse: session ${sessionId} still ${detail.session.status}`);
+        throw new Error(`agentuse: conversation ${conversationId} still ${detail.conversation.status}`);
       }
       await new Promise((r) => setTimeout(r, interval));
     }

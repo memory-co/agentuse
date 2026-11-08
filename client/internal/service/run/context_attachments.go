@@ -55,7 +55,7 @@ func (c *ExecutionContext) conversationAttachments(ctx context.Context) ([]sdk.A
 
 func (c *ExecutionContext) attachmentMetadata(a sdk.Attachment) ContextAttachment {
 	out := ContextAttachment{ID: a.ID, RelativePath: a.RelativePath, Name: a.Filename, MIMEType: a.ContentType, SizeBytes: a.SizeBytes, SHA256: a.SHA256, Direction: "input", ConversationID: c.ConversationID,
-		DownloadPath: "/api/sessions/" + url.PathEscape(c.ConversationID) + "/attachments/" + url.PathEscape(a.ID) + "/content"}
+		DownloadPath: "/api/conversations/" + url.PathEscape(c.ConversationID) + "/attachments/" + url.PathEscape(a.ID) + "/content"}
 	if a.CreatedByRunID != "" {
 		out.Direction = "output"
 		out.RunID = a.CreatedByRunID
@@ -166,7 +166,7 @@ func (c *ExecutionContext) UploadAttachment(ctx context.Context, path string) (C
 	if err != nil {
 		return ContextAttachment{}, fmt.Errorf("上传失败；连接中断时可能已保存，请先用 context attachment list 核对: %w", err)
 	}
-	if uploaded.SessionID != c.ConversationID || uploaded.CreatedByRunID != c.RunID || !attachment.ValidID(uploaded.ID, "at_") {
+	if uploaded.ConversationID != c.ConversationID || uploaded.CreatedByRunID != c.RunID || !attachment.ValidID(uploaded.ID, "at_") {
 		return ContextAttachment{}, fmt.Errorf("Server 返回的上传归属不匹配")
 	}
 	if uploaded.SizeBytes != size || uploaded.SHA256 != hex.EncodeToString(digest.Sum(nil)) {

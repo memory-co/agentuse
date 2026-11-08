@@ -12,7 +12,7 @@ import (
 func TestPublishAttachmentSingleFileLimit(t *testing.T) {
 	s := newStore(t)
 	dir := t.TempDir()
-	s.ConfigureAttachments(dir, 3, 100, nil)
+	s.ConfigureAttachments(3, 100, nil)
 	temp := filepath.Join(dir, "incoming")
 	if err := os.WriteFile(temp, []byte("four"), 0600); err != nil {
 		t.Fatal(err)

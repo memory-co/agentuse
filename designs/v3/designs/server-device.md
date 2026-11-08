@@ -1,6 +1,6 @@
 # deviceService：執行設備
 
-> v3 目標設計，尚未據此修改代碼或數據庫。統一使用 device 命名；本文 SQL 表示目標結構，不是線上遷移腳本。時間字段除另行說明外，均爲 Unix 秒，布爾值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。表之間只保留關聯字段，不聲明數據庫外鍵；引用校驗和關聯清理由 service 在事務內完成。
+> 本文規則已落實到 schema 7、Server API 與業務 service。使用 device/conversation 命名；session_id 只引用 Client 本地執行會話。時間為 Unix 秒，JSON 使用 TEXT，關聯由 service 在事務內校驗與清理，不聲明數據庫外鍵。
 
 ## 職責
 
@@ -19,7 +19,7 @@ device 是一臺用戶的執行設備，client 是設備上運行的程序。dev
 | 上線 | 驗證設備密鑰，更新 client 上報的 run 協議能力與本地 harness 探測結果，不把 available 自動等同於 enabled |
 | 心跳/離線 | 更新最近活動時間和連接狀態；在線連接對象由連接管理組件維護 |
 | 開關 harness | 修改 enabled；重新開啓後通知派活 |
-| 刪除/重置 | 失敗未領取輸入，撤銷憑據後關閉連接，不僞造原生執行結果 |
+| 刪除/重置 | pending 輸入標記 rejected，sent 輸入標記 unknown，撤銷憑據並關閉連接；不改 accepted run 的實際終態 |
 
 agentService 發佈版本時檢查設備歸屬和運行能力，runService 根據輸入固定的 agent 版本選擇可領取任務。設備刪除只改變可用性，不 UPDATE 歷史 agent_versions.device_id；用戶選擇新設備時需發佈新 agent 版本。探測由 client 本地 harnessService 讀取 YAML 完成；deviceService 保存上報的 harness 標識、接入包版本、程序版本及業務能力。Server 不保存全局 harnesses 定義或 YAML，也不向設備發送探測命令。
 
@@ -88,3 +88,7 @@ CREATE TABLE device_capabilities (
 ## 相關設計
 
 [Server 總覽](server-main.md) · [userService](server-user.md) · [agentService](server-agent.md) · [skillService](server-skill.md) · [Client harnessService](client-harness.md) · [conversationService](server-conversation.md) · [runService](server-run.md) · [fileService](server-file.md) · [workService](server-work.md)
+
+## HTTP 入口
+
+管理端只使用 `/api/devices`、`/api/devices/{id}`、`/api/devices/{id}/reset` 和 `/api/devices/{id}/harnesses/{harness}`。Client 使用 `/api/client/register`、`/api/client/me`、`/api/client/ws`。不保留 daemon 路由、daemon_id 或 SDK Daemon 類型別名。`agentuse daemon` 仍是 Client 啟動本機後臺程序的命令，不是 Server 業務對象。

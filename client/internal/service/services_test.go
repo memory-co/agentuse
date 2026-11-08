@@ -22,7 +22,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	if _, err := LoadConfig(path); !os.IsNotExist(err) {
 		t.Fatalf("missing: %v", err)
 	}
-	c := run.Config{Server: "http://x", DaemonID: "dm_1", Key: "dk_1",
+	c := run.Config{Server: "http://x", DeviceID: "dm_1", Key: "dk_1",
 		Harnesses: map[string]harness.HarnessConfig{"mine": {Command: "/bin/mine", Args: []string{"-v"}}, "codex": {Disabled: true}}}
 	if err := saveExecutionConfig(path, c); err != nil {
 		t.Fatal(err)
@@ -32,7 +32,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 	c.ConfigPath = path
 	got, err := LoadConfig(path)
-	if err != nil || got.Server != c.Server || got.DaemonID != c.DaemonID || got.Key != c.Key || got.EndpointID != "http---x" {
+	if err != nil || got.Server != c.Server || got.DeviceID != c.DeviceID || got.Key != c.Key || got.EndpointID != "http---x" {
 		t.Fatalf("%v %+v", err, got)
 	}
 	os.WriteFile(path, []byte("{"), 0o600)
@@ -49,7 +49,7 @@ func TestRegister(t *testing.T) {
 		case r.URL.Path != protocol.RegisterPath || r.Method != http.MethodPost:
 			http.NotFound(w, r)
 		case req.Token == "st_ok" && req.Hostname != "":
-			json.NewEncoder(w).Encode(protocol.RegisterResponse{DaemonID: "dm_1", Name: req.Hostname, Key: "dk_1"})
+			json.NewEncoder(w).Encode(protocol.RegisterResponse{DeviceID: "dm_1", Name: req.Hostname, Key: "dk_1"})
 		case req.Token == "st_text":
 			http.Error(w, "boom", http.StatusInternalServerError)
 		default:
@@ -64,7 +64,7 @@ func TestRegister(t *testing.T) {
 	saveExecutionConfig(path, run.Config{Harnesses: map[string]harness.HarnessConfig{"mine": {Command: "m"}}})
 
 	cfg, err := Register(ctx, ts.URL+"/", "st_ok", path)
-	if err != nil || cfg.Server != ts.URL || cfg.DaemonID != "dm_1" || cfg.Key != "dk_1" {
+	if err != nil || cfg.Server != ts.URL || cfg.DeviceID != "dm_1" || cfg.Key != "dk_1" {
 		t.Fatalf("register: %v %+v", err, cfg)
 	}
 	if saved, _ := LoadConfig(path); saved.Server != cfg.Server || saved.Key != cfg.Key {
@@ -88,7 +88,7 @@ func saveExecutionConfig(path string, c run.Config) error {
 	if c.Server == "" {
 		return nil
 	}
-	return (endpoint.Service{Path: path}).Save(endpoint.Endpoint{Name: c.Server, ServerURL: c.Server, Enabled: true, DeviceID: c.DaemonID, DeviceKey: c.Key})
+	return (endpoint.Service{Path: path}).Save(endpoint.Endpoint{Name: c.Server, ServerURL: c.Server, Enabled: true, DeviceID: c.DeviceID, DeviceKey: c.Key})
 }
 
 func TestUnknownServerNeverFallsBackToAnotherEndpointsKey(t *testing.T) {

@@ -18,42 +18,41 @@ const attachmentCols = store.AttachmentCols
 
 var scanAttachment = store.ScanAttachment
 
-const DaemonPending = store.DaemonPending
-const DaemonOnline = store.DaemonOnline
-const DaemonOffline = store.DaemonOffline
+const DevicePending = store.DevicePending
+const DeviceOnline = store.DeviceOnline
+const DeviceOffline = store.DeviceOffline
 
-type Daemon = store.Daemon
-type DaemonHarness = store.DaemonHarness
+type Device = store.Device
+type DeviceHarness = store.DeviceHarness
 type ReportedHarness = store.ReportedHarness
 
-const daemonCols = store.DaemonCols
+const deviceCols = store.DeviceCols
 
 type Harness = store.Harness
 type Question = store.Question
 
-const MultiAgent = store.MultiAgent
 const RunCapability = store.RunCapability
 
 type Run = store.Run
 type Delivery = store.Delivery
-type MultiReply = store.MultiReply
-type SessionDetail = store.SessionDetail
+type Reply = store.Reply
+type ConversationDetail = store.ConversationDetail
 
-const SessionIdle = store.SessionIdle
-const SessionPending = store.SessionPending
-const SessionRunning = store.SessionRunning
-const SessionWaiting = store.SessionWaiting
-const SessionResolved = store.SessionResolved
+const ConversationIdle = store.ConversationIdle
+const ConversationPending = store.ConversationPending
+const ConversationRunning = store.ConversationRunning
+const ConversationWaiting = store.ConversationWaiting
+const ConversationResolved = store.ConversationResolved
 const WorkCoordinator = store.WorkCoordinator
 const WorkThread = store.WorkThread
 const RoleUserMsg = store.RoleUserMsg
-const RoleAssistantMsg = store.RoleAssistantMsg
+const RoleAgentMsg = store.RoleAgentMsg
 
-type Session = store.Session
+type Conversation = store.Conversation
 type Message = store.Message
-type SessionEvent = store.SessionEvent
+type ConversationEvent = store.ConversationEvent
 
-const sessionCols = store.SessionCols
+const conversationCols = store.ConversationCols
 const messageCols = store.MessageCols
 
 var scanMessage = store.ScanMessage

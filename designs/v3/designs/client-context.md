@@ -28,13 +28,13 @@ AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇�
 
 輸入由 harnessctl 統一定義：send 負責投遞，accepted 確認 input/run 歸屬，result 明確覆蓋的 input_ids。Client 保存 Server message 與 accepted 的業務關聯，不向 AI 提供第二份輸入模型，也不要求 AI 輪詢補充消息。
 
-status 僅根據公共事件確認所選 run 的歸屬和 request/result 狀態，不讀取或等待 Client 消息收據，不返回設備密鑰及註冊配置位置。Server API 仍沿用 `/api/sessions`。
+status 僅根據公共事件確認所選 run 的歸屬和 request/result 狀態，不讀取或等待 Client 消息收據，不返回設備密鑰及註冊配置位置。Server API 統一使用 `/api/conversations`。
 
 ## 文件範圍與圖片
 
 Client 收到遠端 message 時只保存附件元資料及向 AI 說明名稱、ID、conversation 相對路徑，不提前下載。消息選擇哪些附件，是本次輸入的提示與記錄，不限制文件工具的查詢範圍。
 
-`list` 直接分頁讀取同一 Server 的 conversation 附件列表；`read` 依 ID 讀取該 conversation 的附件元資料，與是否附在當前消息、是否由當前 run 產生無關。因此先前 run 的文件、補齊消息的文件和後續上傳的文件都可查詢；Server 仍驗證設備有權訪問該 conversation，不允許跨 conversation 讀取。
+`list` 直接分頁讀取同一 Server 的 conversation 附件列表；`download PATH` 依 conversation 相對路徑讀取該 conversation 的附件元資料，與是否附在當前消息、是否由當前 run 產生無關。因此先前 run 的文件、補齊消息的文件和後續上傳的文件都可查詢；Server 仍驗證設備有權訪問該 conversation，不允許跨 conversation 讀取。
 
 兩個命令只需要既有 context 描述文件的 conversation 綁定，不讀取 harness status、accepted 或 run 收據來選擇附件。`status`、`upload` 和 `enter` 才需要實際 run；上傳仍保留輸出歸屬和活動狀態檢查。
 

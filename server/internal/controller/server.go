@@ -17,12 +17,11 @@ import (
 )
 
 type Config struct {
-	FileStore                 *fileservice.Service
-	FilesDir                  string
-	DaemonHandler             http.Handler
-	AttachmentsDir            string
-	AttachmentMaxBytes        int64
-	AttachmentSessionMaxBytes int64
+	FileStore                      *fileservice.Service
+	FilesDir                       string
+	ClientHandler                  http.Handler
+	AttachmentMaxBytes             int64
+	AttachmentConversationMaxBytes int64
 	// PublicURL 是用户电脑访问服务的地址，写进安装命令和 setup.sh。空 = 按请求的 Host 推断。
 	PublicURL string
 	// DistDir 放各平台的 agentuse 二进制(agentuse-<os>-<arch>),setup.sh 从这里下载。
@@ -41,24 +40,21 @@ func New(st *service.Service, cfg Config) *Server {
 	if cfg.Logger == nil {
 		cfg.Logger = log.Default()
 	}
-	if cfg.AttachmentsDir == "" {
-		home, _ := os.UserHomeDir()
-		cfg.AttachmentsDir = filepath.Join(home, ".agentuse", "attachments")
-	}
+
 	if cfg.AttachmentMaxBytes <= 0 {
 		cfg.AttachmentMaxBytes = 100 << 20
 	}
-	if cfg.AttachmentSessionMaxBytes <= 0 {
-		cfg.AttachmentSessionMaxBytes = 1 << 30
+	if cfg.AttachmentConversationMaxBytes <= 0 {
+		cfg.AttachmentConversationMaxBytes = 1 << 30
 	}
 	cfg.PublicURL = strings.TrimRight(cfg.PublicURL, "/")
 	s := &Server{cfg: cfg, log: cfg.Logger, mux: http.NewServeMux()}
 	s.service = st
 	if st != nil {
-		s.service.ConfigureAttachments(cfg.AttachmentsDir, cfg.AttachmentMaxBytes, cfg.AttachmentSessionMaxBytes, cfg.Logger)
+		s.service.ConfigureAttachments(cfg.AttachmentMaxBytes, cfg.AttachmentConversationMaxBytes, cfg.Logger)
 	}
-	if s.cfg.DaemonHandler == nil {
-		s.cfg.DaemonHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeErr(w, 503, "daemon transport not configured") })
+	if s.cfg.ClientHandler == nil {
+		s.cfg.ClientHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeErr(w, 503, "device transport not configured") })
 	}
 	if st != nil {
 		files := cfg.FileStore
@@ -83,12 +79,33 @@ func New(st *service.Service, cfg Config) *Server {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
 
 func (s *Server) routes() {
-	s.mux.HandleFunc("GET /", s.handleWeb)
+	s.mux.HandleFunc("/", s.handleWeb)
+	s.mux.HandleFunc("/api/", s.handleUnknownAPI)
 	s.mux.HandleFunc("GET /login", s.handleLoginLink)
 	s.mux.HandleFunc("GET /setup.sh", s.handleSetupScript)
 	s.mux.HandleFunc("GET /download/{file}", s.handleDownload)
 
 	s.registerAPI()
+}
+
+// Keep missing resources at 404, including removed namespaces, while retaining
+// 405 and Allow for a known resource requested with an unsupported method.
+func (s *Server) handleUnknownAPI(w http.ResponseWriter, r *http.Request) {
+	var allowed []string
+	for _, method := range []string{"DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"} {
+		probe := r.Clone(r.Context())
+		probe.Method = method
+		_, pattern := s.mux.Handler(probe)
+		if strings.HasPrefix(pattern, method+" ") || (method == "HEAD" && strings.HasPrefix(pattern, "GET ")) {
+			allowed = append(allowed, method)
+		}
+	}
+	if len(allowed) > 0 {
+		w.Header().Set("Allow", strings.Join(allowed, ", "))
+		writeErr(w, http.StatusMethodNotAllowed, "HTTP method not allowed")
+		return
+	}
+	writeErr(w, http.StatusNotFound, "API endpoint not found")
 }
 
 // baseURL 是安装命令里的服务地址。
@@ -125,7 +142,7 @@ func (s *Server) storeErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusNotFound, "不存在")
 		return
 	}
-	if errors.Is(err, skillservice.ErrConflict) || errors.Is(err, service.ErrStaleMessage) || errors.Is(err, service.ErrSessionBusy) || errors.Is(err, service.ErrQuestionClosed) || errors.Is(err, service.ErrSessionState) {
+	if errors.Is(err, skillservice.ErrConflict) || errors.Is(err, service.ErrConversationBusy) || errors.Is(err, service.ErrQuestionClosed) || errors.Is(err, service.ErrConversationState) || errors.Is(err, service.ErrAttachmentReferenced) || errors.Is(err, service.ErrAttachmentPathConflict) || errors.Is(err, fileservice.ErrExists) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -134,6 +151,7 @@ func (s *Server) storeErr(w http.ResponseWriter, err error) {
 
 func readJSON(r *http.Request, v any) error {
 	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		return errors.New("请求体不是合法 JSON")
 	}

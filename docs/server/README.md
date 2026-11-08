@@ -12,8 +12,12 @@
 
 文件交互采用两个方向：用户在 Server 上传输入供 AI 读取，AI 通过 `context attachment upload` 上传输出供用户在 Server 查看和下载。
 
+[Conversation 接口与命名](conversations.md) 说明统一的 `/api/conversations`、SDK 方法、响应字段以及 Client 唯一的 `session_id`。
+
 [对话文件与消息附件](conversation-files.md) 说明右侧文件树、user_input/ 路径和逐条消息的附件选择。
 
-共享對話採用增量補齊：Client 選定實際本地 session 後，Server 用 `complete_messages` 提供上次已受理輸入之後、本次之前的消息，排除該 session 已產生的回覆；新 session 才補回先前歷史。本次正文不在補充列表重複出現。設備可通過 `GET /api/sessions/{id}/messages/{message_id}/agents/{agent_id}/context?client_session_id=...` 讀取此補充，權限限於已投遞給本設備的消息與 Agent。
+共享對話採用增量補齊：Client 選定實際本地 session 後，Server 用 `complete_messages` 提供上次已受理輸入之後、本次之前的消息，排除該 session 已產生的回覆；新 session 才補回先前歷史。本次正文不在補充列表重複出現。設備可通過 `GET /api/conversations/{id}/messages/{message_id}/agents/{agent_id}/context?session_id=...` 讀取此補充，權限限於已投遞給本設備的消息與 Agent。
 
 網頁使用 `/api/browser/ws` 接收資源變更通知，並透過 HTTP 取得具體內容，不再固定輪詢。登入與 Acting as 沿用既有權限，斷線重連會補讀目前頁面。Agent 回覆與 Run details 的輸出支援 Markdown；使用者消息保留原文。
+
+Server 按 v3 的 user/device/agent/skill/conversation/run/file/work 职责实现。设备管理统一 `/api/devices`，Client 注册和身份查询为 `/api/client/register`、`/api/client/me`；旧 daemon 接口已移除。消息正文与执行结果分开保存，文件字节共享 fileService 本地/S3 后端。

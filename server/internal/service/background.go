@@ -6,8 +6,8 @@ import (
 )
 
 func (s *Service) Run(ctx context.Context) {
-	if err := s.CleanupAttachments(ctx); err != nil {
-		s.log.Printf("file cleanup: %v", err)
+	if err := s.ReconcileWorkNotifications(ctx); err != nil {
+		s.log.Printf("work reconciliation: %v", err)
 	}
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()

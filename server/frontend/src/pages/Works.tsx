@@ -11,31 +11,31 @@ import { Confirm, ErrorState, Loading } from '@/components/Shared';
 import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query';
 import { useAgents } from '@/pages/Agents';
-import { Conversation } from '@/pages/Sessions';
-import type { Daemon, Session, User, Work } from '@/lib/types';
+import { ConversationView } from '@/pages/Conversations';
+import type { Device, Conversation, User, Work } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 
-// 工作：协调者 + 线程 + 共用说明(designs/v2/designs/work.md)。
+// 工作：协调者 + 线程 + 共用说明(designs/v3/designs/server-work.md)。
 export const useWorks = () => useQuery({ queryKey: ['works'], queryFn: () => api<Work[]>('/api/works') });
 export const useWork = (id: string) => useQuery({ queryKey: ['works', id], queryFn: () => api<Work>(`/api/works/${encodeURIComponent(id)}`) });
-const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['works'] }), queryClient.invalidateQueries({ queryKey: ['sessions'] })]);
+const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['works'] }), queryClient.invalidateQueries({ queryKey: ['conversations'] })]);
 
 /** 新建工作：名字、协调者用的 agent(下拉，只列自己的;运行时用不了的灰掉)、说明。 */
 export function NewWork({ me, onCreated }: { me: User; onCreated: (id: string) => void }) {
   const t = useT();
   const agents = useAgents();
-  const daemons = useQuery({ queryKey: ['daemons'], queryFn: () => api<Daemon[]>('/api/daemons'), staleTime: 10_000 });
+  const devices = useQuery({ queryKey: ['devices'], queryFn: () => api<Device[]>('/api/devices'), staleTime: 10_000 });
   const [name, setName] = useState('');
   const [agent, setAgent] = useState('');
   const [instructions, setInstructions] = useState('');
   const options = (agents.data || []).filter(a => a.user_id === me.id).map(a => {
-    const d = daemons.data?.find(d => d.id === a.daemon_id);
+    const d = devices.data?.find(d => d.id === a.device_id);
     const ok = !!d?.capabilities.includes("agentuse-client/2") && !!d?.harnesses.some(h => h.harness === a.harness && h.available && h.enabled);
     return { id: a.id, ok, label: `${a.name} · ${d?.name ?? '?'} · ${a.harness}${!ok ? t('agents.unavailable') : d?.status === 'online' ? '' : t('agents.offline')}` };
   });
-  useEffect(() => { if (!agent && daemons.data) { const o = options.find(o => o.ok); if (o) setAgent(o.id); } }, [agent, daemons.data, options]);
+  useEffect(() => { if (!agent && devices.data) { const o = options.find(o => o.ok); if (o) setAgent(o.id); } }, [agent, devices.data, options]);
   const create = useMutation({
-    mutationFn: () => api<{ work: Work; coordinator: Session }>('/api/works', { method: 'POST', body: { mode:"multi_agent", name, agent_id: agent, instructions } }),
+    mutationFn: () => api<{ work: Work; coordinator: Conversation }>('/api/works', { method: 'POST', body: {  name, agent_id: agent, instructions } }),
     onSuccess: r => { void refresh(); onCreated(r.work.id); },
   });
   const submit = (e: FormEvent) => { e.preventDefault(); if (name.trim() && agent) create.mutate(); };
@@ -84,7 +84,7 @@ export function WorkPage({ id, onDeleted }: { id: string; onDeleted: () => void 
     </div>
     {showInstructions && <WorkSettings key={work.id + work.updated_at} work={work} />}
     </div>
-    <Conversation defaultAgent={work.coordinator_agent_id} id={work.coordinator_id} onDeleted={onDeleted} placeholder={t('work.coordinatorPlaceholder')} />
+    <ConversationView defaultAgent={work.coordinator_agent_id} id={work.coordinator_id} onDeleted={onDeleted} placeholder={t('work.coordinatorPlaceholder')} />
   </div>;
 }
 

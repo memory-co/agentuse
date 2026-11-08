@@ -30,7 +30,6 @@ agentuse-server start \
   --public-url https://agentuse.example.com \
   --db /srv/agentuse/server.db \
   --files-dir /srv/agentuse/files \
-  --attachments-dir /srv/agentuse/attachments \
   --dist /opt/agentuse/dist
 ```
 
@@ -63,9 +62,8 @@ agentuse-server start [参数]
 | `--db` | `AGENTUSE_DB` | `~/.agentuse/server.db` | SQLite 数据库文件；`:memory:` 使用临时数据库 |
 | `--public-url` | `AGENTUSE_PUBLIC_URL` | 空 | 用户和 Client 访问 Server 的地址，用于生成登录链接和安装命令；省略时按监听地址或请求推导 |
 | `--dist` | `AGENTUSE_DIST` | `~/.agentuse/dist` | 各平台 Client 二进制所在目录 |
-| `--attachments-dir` | `AGENTUSE_ATTACHMENTS_DIR` | `~/.agentuse/attachments` | 会话附件的本地存储目录 |
 | `--attachment-max-bytes` | `AGENTUSE_ATTACHMENT_MAX_BYTES` | `104857600`，100 MiB | 单个附件的最大字节数 |
-| `--attachment-session-max-bytes` | `AGENTUSE_ATTACHMENT_SESSION_MAX_BYTES` | `1073741824`，1 GiB | 每个会话全部附件的最大总字节数 |
+| `--attachment-conversation-max-bytes` | `AGENTUSE_ATTACHMENT_CONVERSATION_MAX_BYTES` | `1073741824`，1 GiB | 每个会话全部附件的最大总字节数 |
 | `--files-backend` | `AGENTUSE_FILES_BACKEND` | `local` | 会话文件和 skill 包的存储后端：`local` 或 `s3` |
 | `--files-dir` | `AGENTUSE_FILES_DIR` | `~/.agentuse/files` | `local` 后端的根目录 |
 | `--s3-endpoint` | `AGENTUSE_S3_ENDPOINT` | 空 | S3 兼容服务地址；省略时使用 AWS S3 默认地址 |
@@ -105,13 +103,12 @@ agentuse-server start \
   --s3-prefix production
 ```
 
-`--files-backend s3` 影响会话文件和 skill 包。会话附件仍写入 `--attachments-dir`。保存部署数据时，应同时保存数据库、附件目录，以及所选文件后端中的数据。
 
 ### 启停与数据库
 
 `start` 在前台运行，通过 `Ctrl+C` 或 `SIGTERM` 停止。长期部署可由 systemd、容器或其他进程管理器托管。
 
-当前 Server 使用 schema 5。若启动报 `unsupported database schema: reset the database before starting this version`，需使用新的数据库文件启动，再重新创建资源和注册设备；程序不迁移旧数据库。
+当前 Server 使用 schema 7。若启动报 `unsupported database schema: reset the database before starting this version`，需使用新的数据库文件启动，再重新创建资源和注册设备；程序不迁移旧数据库。
 
 ## 管理命令的地址与凭据
 
@@ -259,7 +256,7 @@ agentuse-server work resolve --work WORK_ID THREAD_ID
 | `--defer-start` | `new` 仅创建空线程；不能同时给消息或收件人 |
 | `--server`、`--token`、`--config` | 沿用管理命令的地址、令牌和配置优先级 |
 
-参数放在消息或线程 ID 之前。所有结果为 JSON；`new` 的线程 ID 位于 `session.id`。先创建空线程时，在 Server 页面或通过 HTTP API/SDK 上传输入文件，再 `send` 给目标 Agent。
+参数放在消息或线程 ID 之前。所有结果为 JSON；`new` 的线程 ID 位于 `conversation.id`。先创建空线程时，在 Server 页面或通过 HTTP API/SDK 上传输入文件，再 `send` 给目标 Agent。
 
 用户只能访问有权限的工作，管理员可管理其他用户的工作；创建的线程仍归属工作所有者。工作范围由 Server 路径校验，不能通过更换线程 ID 访问另一个工作。创建 Work、修改协调者与工作说明使用管理页面或 `/api/works` API。`login` 仍要求管理员；普通用户可通过 `--token` 或 `AGENTUSE_TOKEN` 调用有权使用的 Work 命令。
 

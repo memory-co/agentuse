@@ -24,19 +24,19 @@ export function useMessageFiles() {
   };
   const remove = (key: string) => setFiles(current => current.filter(item => item.key !== key));
   const clear = () => { setFiles([]); uploaded.current.clear(); };
-  const upload = async (session: string) => {
+  const upload = async (conversation: string) => {
     const ids: string[] = [];
     try {
       for (const item of files) {
         let attachment = item.attachment || uploaded.current.get(item.key);
         if (!attachment && item.file) {
-          attachment = await uploadAttachment(session, item.file, progress => setFiles(current => current.map(file => file.key === item.key ? { ...file, progress } : file)));
+          attachment = await uploadAttachment(conversation, item.file, progress => setFiles(current => current.map(file => file.key === item.key ? { ...file, progress } : file)));
           uploaded.current.set(item.key, attachment);
         }
         if (attachment) ids.push(attachment.id);
       }
       return ids;
-    } finally { void queryClient.invalidateQueries({ queryKey: ['attachments', session] }); }
+    } finally { void queryClient.invalidateQueries({ queryKey: ['attachments', conversation] }); }
   };
   return { files, addFiles, addExisting, remove, clear, upload };
 }

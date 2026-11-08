@@ -32,9 +32,9 @@ AI 使用 `context attachment upload` 上傳產物。在 workspace 內上傳 `re
 
 ## API
 
-上傳仍使用 `POST /api/sessions/{id}/attachments`，multipart 可提供 `path` 指定相對路徑；用戶路徑始終位於 `user_input/` 下。Attachment 返回 `relative_path`。
+上傳仍使用 `POST /api/conversations/{id}/attachments`，multipart 可提供 `path` 指定相對路徑；用戶路徑始終位於 `user_input/` 下。Attachment 返回 `relative_path`。
 
-消息通過 `POST /api/sessions/{id}/messages` 的 `attachment_ids` 選擇文件：
+消息通過 `POST /api/conversations/{id}/messages` 的 `attachment_ids` 選擇文件：
 
 ```json
 {
@@ -46,6 +46,8 @@ AI 使用 `context attachment upload` 上傳產物。在 workspace 內上傳 `re
 
 省略或空數組表示本條消息沒有附件。附件必須屬於當前 conversation，最多 64 個；重複 ID 去重。沒有文本時可以只提供附件。Message 的 `attachments` 保存所選文件的元數據快照，最終 AI 回覆同樣記錄該 run 的輸出文件。
 
-當前使用數據庫 schema 6。不提供舊數據遷移或兼容讀取；升級時按項目約定重建數據庫，兩端一起更新。
+當前使用數據庫 schema 7。不提供舊數據遷移或兼容讀取；升級時按項目約定重建數據庫，兩端一起更新。
 
 目錄創建、移動、重命名等後續操作列在 [文件樹設計的 TODO](../../designs/v3/designs/conversation-files.md#todo)。
+
+附件字节统一使用 fileService 的 conversations/<conversation_id>/<relative_path>，与通用对话文件使用相同的本地/S3 后端。消息引用的元数据属于 conversation 业务；不再配置独立 attachments-dir。通用 PUT 无法覆盖已登记的附件，删除对话仅清理对应 conversations 前缀。

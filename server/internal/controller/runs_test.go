@@ -15,8 +15,8 @@ import (
 func TestRunAPIUsesClientIdentityAndGenericReply(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
 	ctx := context.Background()
-	var reply service.MultiReply
-	response := f.e.req(f.token, "POST", "/api/sessions/"+f.session.ID+"/messages", map[string]any{"prompt": "input", "to_agent_ids": []string{f.agent}}, &reply)
+	var reply service.Reply
+	response := f.e.req(f.token, "POST", "/api/conversations/"+f.conversation.ID+"/messages", map[string]any{"prompt": "input", "to_agent_ids": []string{f.agent}}, &reply)
 	if response.StatusCode != 201 || len(reply.Runs) != 0 || len(reply.Deliveries) != 1 {
 		t.Fatal("server predicted run membership", response.StatusCode, reply)
 	}
@@ -27,13 +27,13 @@ func TestRunAPIUsesClientIdentityAndGenericReply(t *testing.T) {
 	run := uuid.NewString()
 	report := func(seq int64, event any) {
 		data, _ := json.Marshal(event)
-		if err := f.e.st.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.session.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: p.AgentVersionID, Revision: "reported", MessageID: p.MessageID, Seq: seq, Event: data}); err != nil {
+		if err := f.e.st.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: p.AgentVersionID, Revision: "reported", MessageID: p.MessageID, Seq: seq, Event: data}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	report(1, map[string]any{"type": "accepted", "run_id": run, "input_id": "input", "text": "input"})
-	var detail service.SessionDetail
-	if r := f.e.req(f.token, "GET", "/api/sessions/"+f.session.ID, nil, &detail); r.StatusCode != 200 || len(detail.Runs) != 1 || detail.Runs[0].ID != run {
+	var detail service.ConversationDetail
+	if r := f.e.req(f.token, "GET", "/api/conversations/"+f.conversation.ID, nil, &detail); r.StatusCode != 200 || len(detail.Runs) != 1 || detail.Runs[0].ID != run {
 		t.Fatal(r.StatusCode, detail)
 	}
 	raw, _ := json.Marshal(detail)
@@ -43,22 +43,22 @@ func TestRunAPIUsesClientIdentityAndGenericReply(t *testing.T) {
 		}
 	}
 	report(2, map[string]any{"type": "request", "run_id": run, "request_id": "request", "state": "pending", "kind": "permission", "message": "Proceed?"})
-	if code := f.e.code(f.token, "POST", "/api/sessions/"+f.session.ID+"/runs/"+run+"/requests/request/reply", map[string]any{"answer": "deny"}); code != http.StatusAccepted {
+	if code := f.e.code(f.token, "POST", "/api/conversations/"+f.conversation.ID+"/runs/"+run+"/requests/request/reply", map[string]any{"answer": "deny"}); code != http.StatusAccepted {
 		t.Fatal(code)
 	}
 	controls, err := f.e.st.PendingControls(ctx, f.d.ID)
 	if err != nil || len(controls) != 1 || string(controls[0].Control.Answer) != `"deny"` {
 		t.Fatal(controls, err)
 	}
-	if code := f.e.code(f.token, "POST", "/api/sessions/"+f.session.ID+"/runs/"+run+"/cancel", map[string]any{}); code != 200 {
+	if code := f.e.code(f.token, "POST", "/api/conversations/"+f.conversation.ID+"/runs/"+run+"/cancel", map[string]any{}); code != 200 {
 		t.Fatal(code)
 	}
-	r, err := f.e.st.GetRun(ctx, f.u, f.session.ID, run)
+	r, err := f.e.st.GetRun(ctx, f.u, f.conversation.ID, run)
 	if err != nil || r.Status != "waiting" {
 		t.Fatal("cancel request fabricated terminal state", r, err)
 	}
 	report(3, map[string]any{"type": "result", "run_id": run, "status": "cancelled", "input_ids": []string{"input"}, "output": ""})
-	r, _ = f.e.st.GetRun(ctx, f.u, f.session.ID, run)
+	r, _ = f.e.st.GetRun(ctx, f.u, f.conversation.ID, run)
 	if r.Status != "cancelled" {
 		t.Fatal(r)
 	}
@@ -67,8 +67,8 @@ func TestMessageSubmissionDoesNotDeduplicateUserText(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
 	ids := map[string]bool{}
 	for i := 0; i < 2; i++ {
-		var reply service.MultiReply
-		r := f.e.req(f.token, "POST", "/api/sessions/"+f.session.ID+"/messages", map[string]any{"prompt": "same", "to_agent_ids": []string{f.agent}}, &reply)
+		var reply service.Reply
+		r := f.e.req(f.token, "POST", "/api/conversations/"+f.conversation.ID+"/messages", map[string]any{"prompt": "same", "to_agent_ids": []string{f.agent}}, &reply)
 		if r.StatusCode != 201 || reply.Message == nil || ids[reply.Message.ID] {
 			t.Fatal(r.StatusCode, reply)
 		}

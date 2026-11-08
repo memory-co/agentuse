@@ -82,9 +82,9 @@ func (c *Client) DownloadSkillPackage(ctx context.Context, user, id, version str
 }
 
 // GetMessageContext asks Server to assemble the missing shared messages for the
-// local session Client has selected. It does not create or submit native input.
+// local conversation Client has selected. It does not create or submit native input.
 func (c *Client) GetMessageContext(ctx context.Context, conversation, message, agent, localSession string) (*MessageContext, error) {
 	var out MessageContext
-	path := "/api/sessions/" + esc(conversation) + "/messages/" + esc(message) + "/agents/" + esc(agent) + "/context?client_session_id=" + esc(localSession)
+	path := "/api/conversations/" + esc(conversation) + "/messages/" + esc(message) + "/agents/" + esc(agent) + "/context?session_id=" + esc(localSession)
 	return &out, c.do(ctx, "", "GET", path, nil, &out)
 }

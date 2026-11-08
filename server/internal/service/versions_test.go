@@ -39,16 +39,16 @@ func TestVersionsPinQueuedInputAndPreserveHistoricalResources(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	config := agentuse.AgentConfig{Name: a.Name, DaemonID: d.ID, Harness: a.Harness, Instructions: "Agent v2", Model: "model-one", Skills: []agentuse.SkillRef{{SkillID: v1.ID, SkillVersionID: v1.CurrentVersionID}}}
+	config := agentuse.AgentConfig{Name: a.Name, DeviceID: d.ID, Harness: a.Harness, Instructions: "Agent v2", Model: "model-one", Skills: []agentuse.SkillRef{{SkillID: v1.ID, SkillVersionID: v1.CurrentVersionID}}}
 	a, e = s.PublishAgentVersion(ctx, u, a.ID, a.CurrentVersionID, config)
 	if e != nil {
 		t.Fatal(e)
 	}
-	another, e := s.CreateConfiguredAgent(ctx, u.ID, "reviewer", agentuse.AgentConfig{Name: "Reviewer", DaemonID: d.ID, Harness: a.Harness, Skills: config.Skills})
+	another, e := s.CreateConfiguredAgent(ctx, u.ID, "reviewer", agentuse.AgentConfig{Name: "Reviewer", DeviceID: d.ID, Harness: a.Harness, Skills: config.Skills})
 	if e != nil {
 		t.Fatal(e)
 	}
-	ss, _, e := s.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"first"}`), []string{a.ID}, nil)
+	ss, _, e := s.CreateConversation(ctx, u, "", "", "first", []string{a.ID}, nil)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -87,7 +87,7 @@ func TestVersionsPinQueuedInputAndPreserveHistoricalResources(t *testing.T) {
 	}
 	runID := uuid.NewString()
 	reportNative(t, s, d, p, "native-v2", 1, acceptedEvent(runID, "input1", p.Content))
-	if _, e = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"next"}`), []string{a.ID}, nil, nil); e != nil {
+	if _, e = s.SendMessage(ctx, u, ss.ID, "next", []string{a.ID}, nil, nil, ""); e != nil {
 		t.Fatal(e)
 	}
 	p2, e := s.DispatchMessage(ctx, d)
@@ -106,7 +106,7 @@ func TestVersionsPinQueuedInputAndPreserveHistoricalResources(t *testing.T) {
 	if _, e = s.Skills.Version(ctx, s.db, u, v1.ID, v1.CurrentVersionID, false); e != nil {
 		t.Fatal("historical package disappeared", e)
 	}
-	if _, e = s.PublishAgentVersion(ctx, u, another.ID, another.CurrentVersionID, agentuse.AgentConfig{Name: "Renamed", DaemonID: d.ID, Harness: a.Harness, Skills: []agentuse.SkillRef{{SkillID: v1.ID, SkillVersionID: v1.CurrentVersionID}}}); e == nil {
+	if _, e = s.PublishAgentVersion(ctx, u, another.ID, another.CurrentVersionID, agentuse.AgentConfig{Name: "Renamed", DeviceID: d.ID, Harness: a.Harness, Skills: []agentuse.SkillRef{{SkillID: v1.ID, SkillVersionID: v1.CurrentVersionID}}}); e == nil {
 		t.Fatal("deleted skill selected for new publication")
 	}
 	if e = s.DeleteAgent(ctx, u, a.ID); e != nil {

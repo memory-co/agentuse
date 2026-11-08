@@ -29,7 +29,7 @@ func (s *Server) handleAuthorizeWorkTool(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusUnauthorized, "需要执行设备身份")
 		return
 	}
-	device, err := s.service.DaemonByKey(r.Context(), requestToken(r))
+	device, err := s.service.DeviceByKey(r.Context(), requestToken(r))
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, "设备密钥无效")
 		return

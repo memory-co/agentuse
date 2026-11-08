@@ -29,14 +29,14 @@ func TestClientMultiEndpointFilesAndUI(t *testing.T) {
 	writeAdapterConfig(t, cfg, map[string]any{"harnesses": map[string]any{"claude": map[string]any{"disabled": true}, "codex": map[string]any{"disabled": true}, "fake": map[string]any{"command": fake}}})
 	type platform struct {
 		c        *agentuse.Client
-		device   *agentuse.Daemon
+		device   *agentuse.Device
 		endpoint string
 	}
 	platforms := []platform{}
 	for i := 0; i < 2; i++ {
 		server := e2eutil.StartServer(t, e2eutil.Binary(t, "agentuse-server"), t.TempDir())
 		c := agentuse.New(server.URL, server.AdminToken)
-		d, e := c.CreateDaemon(ctx, "client-user", "client machine")
+		d, e := c.CreateDevice(ctx, "client-user", "client machine")
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -56,7 +56,7 @@ func TestClientMultiEndpointFilesAndUI(t *testing.T) {
 	var base, token string
 	e2eutil.WaitFor(t, 10*time.Second, "both endpoint connections", func() bool {
 		for _, p := range platforms {
-			ds, e := p.c.ListDaemons(ctx, "client-user")
+			ds, e := p.c.ListDevices(ctx, "client-user")
 			if e != nil || len(ds) != 1 || ds[0].Status != "online" {
 				return false
 			}
@@ -101,20 +101,20 @@ func TestClientMultiEndpointFilesAndUI(t *testing.T) {
 		}
 	}
 	for _, p := range platforms {
-		if _, e = p.c.SetDaemonHarness(ctx, "client-user", p.device.ID, "fake", true); e != nil {
+		if _, e = p.c.SetDeviceHarness(ctx, "client-user", p.device.ID, "fake", true); e != nil {
 			t.Fatal(e)
 		}
-		if _, e = p.c.CreateAgent(ctx, "client-user", agentuse.CreateAgentRequest{ID: "client-agent", Name: "Client agent", DaemonID: p.device.ID, Harness: "fake"}); e != nil {
+		if _, e = p.c.CreateAgent(ctx, "client-user", agentuse.CreateAgentRequest{ID: "client-agent", Name: "Client agent", DeviceID: p.device.ID, Harness: "fake"}); e != nil {
 			t.Fatal(e)
 		}
-		created, e := p.c.CreateSession(ctx, "client-user", agentuse.CreateSessionRequest{Prompt: "ledger", ToAgentIDs: []string{"client-agent"}})
+		created, e := p.c.CreateConversation(ctx, "client-user", agentuse.CreateConversationRequest{Prompt: "ledger", ToAgentIDs: []string{"client-agent"}})
 		if e != nil {
 			t.Fatal(e)
 		}
-		if _, e = p.c.WaitMessageRuns(ctx, "client-user", created.Session.ID, created.Message.ID, 30*time.Millisecond); e != nil {
+		if _, e = p.c.WaitMessageRuns(ctx, "client-user", created.Conversation.ID, created.Message.ID, 30*time.Millisecond); e != nil {
 			t.Fatal(e)
 		}
-		prefix := "/api/conversations/" + url.PathEscape(p.endpoint) + "/" + created.Session.ID
+		prefix := "/api/conversations/" + url.PathEscape(p.endpoint) + "/" + created.Conversation.ID
 		var sessions struct {
 			Items []struct {
 				ID     string `json:"id"`
@@ -140,7 +140,7 @@ func TestClientMultiEndpointFilesAndUI(t *testing.T) {
 		if status := get(path+"/usage", &usage); status != 200 {
 			t.Fatal(status)
 		}
-		dir := filepath.Join(home, ".agentuse", "tmp", p.endpoint, created.Session.ID)
+		dir := filepath.Join(home, ".agentuse", "tmp", p.endpoint, created.Conversation.ID)
 		if st, e := os.Stat(filepath.Join(dir, "workspace")); e != nil || !st.IsDir() {
 			t.Fatal("workspace missing", e)
 		}
@@ -149,11 +149,11 @@ func TestClientMultiEndpointFilesAndUI(t *testing.T) {
 			t.Fatal(runs, e)
 		}
 		// A second run reuses the same local session and workspace.
-		next, e := p.c.SendMessage(ctx, "client-user", created.Session.ID, agentuse.MessageRequest{Prompt: "ledger again", ToAgentIDs: []string{"client-agent"}})
+		next, e := p.c.SendMessage(ctx, "client-user", created.Conversation.ID, agentuse.MessageRequest{Prompt: "ledger again", ToAgentIDs: []string{"client-agent"}})
 		if e != nil {
 			t.Fatal(e)
 		}
-		if _, e = p.c.WaitMessageRuns(ctx, "client-user", created.Session.ID, next.Message.ID, 30*time.Millisecond); e != nil {
+		if _, e = p.c.WaitMessageRuns(ctx, "client-user", created.Conversation.ID, next.Message.ID, 30*time.Millisecond); e != nil {
 			t.Fatal(e)
 		}
 		e2eutil.WaitFor(t, 5*time.Second, "second local run", func() bool { return get(path+"/runs", &rows) == 200 && len(rows.Items) == 2 })
@@ -195,7 +195,7 @@ func TestClientNativeSessionsShareWorkspaceAndRunConcurrently(t *testing.T) {
 	os.MkdirAll(filepath.Dir(cfg), 0700)
 	writeAdapterConfig(t, cfg, map[string]any{"harnesses": map[string]any{"claude": map[string]any{"command": fake}, "codex": map[string]any{"command": fake}}})
 	c := agentuse.New(server.URL, server.AdminToken)
-	d, e := c.CreateDaemon(ctx, "native-user", "shared workspace")
+	d, e := c.CreateDevice(ctx, "native-user", "shared workspace")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -207,19 +207,19 @@ func TestClientNativeSessionsShareWorkspaceAndRunConcurrently(t *testing.T) {
 	e2eutil.Start(t, cmd)
 	waitOnline(t, c, "native-user", d.ID, 2)
 	for _, h := range []string{"codex", "claude"} {
-		if _, e = c.SetDaemonHarness(ctx, "native-user", d.ID, h, true); e != nil {
+		if _, e = c.SetDeviceHarness(ctx, "native-user", d.ID, h, true); e != nil {
 			t.Fatal(e)
 		}
-		if _, e = c.CreateAgent(ctx, "native-user", agentuse.CreateAgentRequest{ID: h, Name: h, DaemonID: d.ID, Harness: h}); e != nil {
+		if _, e = c.CreateAgent(ctx, "native-user", agentuse.CreateAgentRequest{ID: h, Name: h, DeviceID: d.ID, Harness: h}); e != nil {
 			t.Fatal(e)
 		}
 	}
-	first, e := c.CreateSession(ctx, "native-user", agentuse.CreateSessionRequest{Prompt: "wait-steer", ToAgentIDs: []string{"codex", "claude"}})
+	first, e := c.CreateConversation(ctx, "native-user", agentuse.CreateConversationRequest{Prompt: "wait-steer", ToAgentIDs: []string{"codex", "claude"}})
 	if e != nil {
 		t.Fatal(e)
 	}
 	e2eutil.WaitFor(t, 10*time.Second, "two native runs active for the same message", func() bool {
-		detail, e := c.GetSession(ctx, "native-user", first.Session.ID)
+		detail, e := c.GetConversation(ctx, "native-user", first.Conversation.ID)
 		if e != nil || len(detail.Runs) != 2 {
 			return false
 		}
@@ -227,7 +227,7 @@ func TestClientNativeSessionsShareWorkspaceAndRunConcurrently(t *testing.T) {
 	})
 	u, _ := url.Parse(server.URL)
 	ep := "http---" + strings.ReplaceAll(u.Host, ":", "%3A")
-	dir := filepath.Join(home, ".agentuse", "tmp", ep, first.Session.ID)
+	dir := filepath.Join(home, ".agentuse", "tmp", ep, first.Conversation.ID)
 	sessions, e := filepath.Glob(filepath.Join(dir, "sessions", "*", "session.yaml"))
 	if e != nil || len(sessions) != 2 {
 		t.Fatal("missing parallel sessions", sessions, e)
@@ -241,11 +241,11 @@ func TestClientNativeSessionsShareWorkspaceAndRunConcurrently(t *testing.T) {
 	if _, e = os.Stat(filepath.Join(dir, "workspace")); e != nil {
 		t.Fatal(e)
 	}
-	extra, e := c.SendMessage(ctx, "native-user", first.Session.ID, agentuse.MessageRequest{Prompt: "parallel-proof", ToAgentIDs: []string{"codex", "claude"}})
+	extra, e := c.SendMessage(ctx, "native-user", first.Conversation.ID, agentuse.MessageRequest{Prompt: "parallel-proof", ToAgentIDs: []string{"codex", "claude"}})
 	if e != nil || len(extra.Runs) != 0 {
 		t.Fatal("did not steer both active runs", extra, e)
 	}
-	detail, e := c.WaitMessageRuns(ctx, "native-user", first.Session.ID, extra.Message.ID, 30*time.Millisecond)
+	detail, e := c.WaitMessageRuns(ctx, "native-user", first.Conversation.ID, extra.Message.ID, 30*time.Millisecond)
 	if e != nil {
 		t.Fatal(e)
 	}

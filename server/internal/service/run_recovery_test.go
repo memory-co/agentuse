@@ -27,7 +27,7 @@ func TestInputWakeupRunsAfterCommit(t *testing.T) {
 		}
 		calls++
 	}})
-	_, _, err := s.CreateMultiSession(ctx, u, "", "task", json.RawMessage(`{"prompt":"hello"}`), []string{a.ID}, nil)
+	_, _, err := s.CreateConversation(ctx, u, "", "task", "hello", []string{a.ID}, nil)
 	if err != nil || calls != 1 {
 		t.Fatal(calls, err)
 	}
@@ -36,11 +36,11 @@ func TestInputWakeupRunsAfterCommit(t *testing.T) {
 func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	work, coordinator, err := s.CreateMultiWork(ctx, u, "work", a.ID, "shared work instructions")
+	work, coordinator, err := s.CreateWork(ctx, u, "work", a.ID, "shared work instructions")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.SendMultiMessage(ctx, u, coordinator.ID, json.RawMessage(`{"prompt":"first"}`), []string{a.ID}, nil, nil); err != nil {
+	if _, err = s.SendMessage(ctx, u, coordinator.ID, "first", []string{a.ID}, nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	original, err := s.DispatchMessage(ctx, d)
@@ -50,7 +50,7 @@ func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
 	if !strings.Contains(original.Context, "shared work instructions") {
 		t.Fatal("server omitted work context")
 	}
-	if _, err = s.SendMultiMessage(ctx, u, coordinator.ID, json.RawMessage(`{"prompt":"later"}`), []string{a.ID}, nil, nil); err != nil {
+	if _, err = s.SendMessage(ctx, u, coordinator.ID, "later", []string{a.ID}, nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	recovered, err := s.PendingMessages(ctx, d.ID)
@@ -82,7 +82,7 @@ func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
 func TestCompletedConversationDeletesExecutionRows(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, _, err := s.CreateMultiSession(ctx, u, "", "task", json.RawMessage(`{"prompt":"hello"}`), []string{a.ID}, nil)
+	ss, _, err := s.CreateConversation(ctx, u, "", "task", "hello", []string{a.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestCompletedConversationDeletesExecutionRows(t *testing.T) {
 	id := "550e8400-e29b-41d4-a716-446655440000"
 	reportNative(t, s, d, p, "native", 1, acceptedEvent(id, "one", p.Content))
 	reportNative(t, s, d, p, "native", 2, map[string]any{"type": "result", "run_id": id, "status": "completed", "input_ids": []string{"one"}, "output": "done"})
-	if err = s.DeleteSession(ctx, u, ss.ID); err != nil {
+	if err = s.DeleteConversation(ctx, u, ss.ID); err != nil {
 		t.Fatal(err)
 	}
 	for _, table := range []string{"message_agents", "runs", "run_events", "run_requests", "run_controls", "run_notifications", "work_run_tokens"} {
@@ -107,7 +107,7 @@ func TestCompletedConversationDeletesExecutionRows(t *testing.T) {
 func TestRejectedReplyCanRetryWithoutInventingRequestState(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, _, err := s.CreateMultiSession(ctx, u, "", "task", json.RawMessage(`{"prompt":"hello"}`), []string{a.ID}, nil)
+	ss, _, err := s.CreateConversation(ctx, u, "", "task", "hello", []string{a.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

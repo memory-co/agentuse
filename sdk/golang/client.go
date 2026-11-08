@@ -1,5 +1,5 @@
 // Package agentuse 是 agentuse HTTP API 的 Go 客户端，给网站后端嵌入 agentuse 用。
-// 只依赖标准库。接口见 designs/v2/apis,用法见 sdk/golang/README.md。
+// 只依赖标准库。接口见 docs/server/conversations.md,用法见 sdk/golang/README.md。
 package agentuse
 
 import (
@@ -156,83 +156,71 @@ func (c *Client) DeleteAgent(ctx context.Context, user, agentID string) error {
 	return c.do(ctx, user, "DELETE", "/api/agents/"+esc(agentID), nil, nil)
 }
 
-// ---- daemons ----
+// ---- devices ----
 
-func (c *Client) ListDaemons(ctx context.Context, user string) ([]Daemon, error) {
-	var ds []Daemon
-	return ds, c.do(ctx, user, "GET", "/api/daemons", nil, &ds)
+func (c *Client) ListDevices(ctx context.Context, user string) ([]Device, error) {
+	var ds []Device
+	return ds, c.do(ctx, user, "GET", "/api/devices", nil, &ds)
 }
 
-// CreateDaemon 添加一台 daemon,返回的 SetupCommand 给用户复制到自己电脑上跑。name 可为空。
-func (c *Client) CreateDaemon(ctx context.Context, user, name string) (*Daemon, error) {
-	var d Daemon
-	return &d, c.do(ctx, user, "POST", "/api/daemons", map[string]string{"name": name}, &d)
+// CreateDevice 添加一台 device,返回的 SetupCommand 给用户复制到自己电脑上跑。name 可为空。
+func (c *Client) CreateDevice(ctx context.Context, user, name string) (*Device, error) {
+	var d Device
+	return &d, c.do(ctx, user, "POST", "/api/devices", map[string]string{"name": name}, &d)
 }
 
-func (c *Client) ResetDaemon(ctx context.Context, user, daemonID string) (*Daemon, error) {
-	var d Daemon
-	return &d, c.do(ctx, user, "POST", "/api/daemons/"+esc(daemonID)+"/reset", nil, &d)
+func (c *Client) ResetDevice(ctx context.Context, user, deviceID string) (*Device, error) {
+	var d Device
+	return &d, c.do(ctx, user, "POST", "/api/devices/"+esc(deviceID)+"/reset", nil, &d)
 }
 
-func (c *Client) SetDaemonHarness(ctx context.Context, user, daemonID, harness string, enabled bool) (*Daemon, error) {
-	var d Daemon
-	return &d, c.do(ctx, user, "PUT", "/api/daemons/"+esc(daemonID)+"/harnesses/"+esc(harness), map[string]bool{"enabled": enabled}, &d)
+func (c *Client) SetDeviceHarness(ctx context.Context, user, deviceID, harness string, enabled bool) (*Device, error) {
+	var d Device
+	return &d, c.do(ctx, user, "PUT", "/api/devices/"+esc(deviceID)+"/harnesses/"+esc(harness), map[string]bool{"enabled": enabled}, &d)
 }
 
-func (c *Client) DeleteDaemon(ctx context.Context, user, daemonID string) error {
-	return c.do(ctx, user, "DELETE", "/api/daemons/"+esc(daemonID), nil, nil)
+func (c *Client) DeleteDevice(ctx context.Context, user, deviceID string) error {
+	return c.do(ctx, user, "DELETE", "/api/devices/"+esc(deviceID), nil, nil)
 }
 
-// ---- sessions ----
+// ---- conversations ----
 
-func (c *Client) ListSessions(ctx context.Context, user string) ([]Session, error) {
-	var ss []Session
-	return ss, c.do(ctx, user, "GET", "/api/sessions", nil, &ss)
+func (c *Client) ListConversations(ctx context.Context, user string) ([]Conversation, error) {
+	var ss []Conversation
+	return ss, c.do(ctx, user, "GET", "/api/conversations", nil, &ss)
 }
 
-// CreateSession 新建会话并发出第一条消息。
-func (c *Client) CreateSession(ctx context.Context, user string, req CreateSessionRequest) (*CreateSessionResponse, error) {
-	var r CreateSessionResponse
-	return &r, c.do(ctx, user, "POST", "/api/sessions", req, &r)
+// CreateConversation 新建会话并发出第一条消息。
+func (c *Client) CreateConversation(ctx context.Context, user string, req CreateConversationRequest) (*CreateConversationResponse, error) {
+	var r CreateConversationResponse
+	return &r, c.do(ctx, user, "POST", "/api/conversations", req, &r)
 }
 
 // SendMessage atomically saves a message and routes its target deliveries.
-func (c *Client) SendMessage(ctx context.Context, user, sessionID string, req MessageRequest) (*Reply, error) {
-	var raw map[string]json.RawMessage
-	if err := c.do(ctx, user, "POST", "/api/sessions/"+esc(sessionID)+"/messages", req, &raw, func() http.Header {
-		h := http.Header{}
-		if req.IdempotencyKey != "" {
-			h.Set("Idempotency-Key", req.IdempotencyKey)
-		}
-		return h
-	}()); err != nil {
-		return nil, err
-	}
-	b, _ := json.Marshal(raw)
+func (c *Client) SendMessage(ctx context.Context, user, conversationID string, req MessageRequest) (*Reply, error) {
 	var reply Reply
-	return &reply, json.Unmarshal(b, &reply)
-
+	return &reply, c.do(ctx, user, "POST", "/api/conversations/"+esc(conversationID)+"/messages", req, &reply)
 }
 
-func (c *Client) GetSession(ctx context.Context, user, sessionID string) (*SessionDetail, error) {
-	var d SessionDetail
-	return &d, c.do(ctx, user, "GET", "/api/sessions/"+esc(sessionID), nil, &d)
+func (c *Client) GetConversation(ctx context.Context, user, conversationID string) (*ConversationDetail, error) {
+	var d ConversationDetail
+	return &d, c.do(ctx, user, "GET", "/api/conversations/"+esc(conversationID), nil, &d)
 }
 
-func (c *Client) DeleteSession(ctx context.Context, user, sessionID string) error {
-	return c.do(ctx, user, "DELETE", "/api/sessions/"+esc(sessionID), nil, nil)
+func (c *Client) DeleteConversation(ctx context.Context, user, conversationID string) error {
+	return c.do(ctx, user, "DELETE", "/api/conversations/"+esc(conversationID), nil, nil)
 }
 
-// ResolveSession 把 idle 的会话标记为已完成;再发消息就重新打开。
-func (c *Client) ResolveSession(ctx context.Context, user, sessionID string) (*Session, error) {
-	var s Session
-	return &s, c.do(ctx, user, "POST", "/api/sessions/"+esc(sessionID)+"/resolve", nil, &s)
+// ResolveConversation 把 idle 的会话标记为已完成;再发消息就重新打开。
+func (c *Client) ResolveConversation(ctx context.Context, user, conversationID string) (*Conversation, error) {
+	var s Conversation
+	return &s, c.do(ctx, user, "POST", "/api/conversations/"+esc(conversationID)+"/resolve", nil, &s)
 }
 
-// ReopenSession 取消已完成，回到 idle。
-func (c *Client) ReopenSession(ctx context.Context, user, sessionID string) (*Session, error) {
-	var s Session
-	return &s, c.do(ctx, user, "POST", "/api/sessions/"+esc(sessionID)+"/reopen", nil, &s)
+// ReopenConversation 取消已完成，回到 idle。
+func (c *Client) ReopenConversation(ctx context.Context, user, conversationID string) (*Conversation, error) {
+	var s Conversation
+	return &s, c.do(ctx, user, "POST", "/api/conversations/"+esc(conversationID)+"/reopen", nil, &s)
 }
 
 // ---- works ----
@@ -263,24 +251,24 @@ func (c *Client) DeleteWork(ctx context.Context, user, workID string) error {
 	return c.do(ctx, user, "DELETE", "/api/works/"+esc(workID), nil, nil)
 }
 
-// ListWorkSessions 列工作的线程(不含协调者)。
-func (c *Client) ListWorkSessions(ctx context.Context, user, workID string) ([]Session, error) {
-	var ss []Session
-	return ss, c.do(ctx, user, "GET", "/api/sessions?work_id="+url.QueryEscape(workID), nil, &ss)
+// ListWorkConversations 列工作的线程(不含协调者)。
+func (c *Client) ListWorkConversations(ctx context.Context, user, workID string) ([]Conversation, error) {
+	var ss []Conversation
+	return ss, c.do(ctx, user, "GET", "/api/conversations?work_id="+url.QueryEscape(workID), nil, &ss)
 }
 
-func (c *Client) WaitSession(ctx context.Context, user, sessionID string, interval time.Duration, opts ...WaitOptions) (*SessionDetail, error) {
+func (c *Client) WaitConversation(ctx context.Context, user, conversationID string, interval time.Duration, opts ...WaitOptions) (*ConversationDetail, error) {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
-		d, err := c.GetSession(ctx, user, sessionID)
+		d, err := c.GetConversation(ctx, user, conversationID)
 		if err != nil {
 			return nil, err
 		}
-		if d.Session.Status == "idle" || d.Session.Status == "resolved" || (d.Session.Status == "waiting" && (len(opts) > 0 && opts[0].ReturnOnWaiting)) {
+		if d.Conversation.Status == "idle" || d.Conversation.Status == "resolved" || (d.Conversation.Status == "waiting" && (len(opts) > 0 && opts[0].ReturnOnWaiting)) {
 			return d, nil
 		}
 		select {

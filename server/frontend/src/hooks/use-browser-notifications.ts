@@ -12,11 +12,11 @@ function refresh(changes: Change[], stillCurrent: () => boolean) {
   const workChanged = changes.some(change => change.resource === 'works');
   for (const change of changes) {
     switch (change.resource) {
-      case 'sessions':
-        add(['sessions']);
-        if (change.id) add(['sessions', change.id]);
+      case 'conversations':
+        add(['conversations']);
+        if (change.id) add(['conversations', change.id]);
         if (change.work_id) {
-          add(['sessions', 'work', change.work_id]);
+          add(['conversations', 'work', change.work_id]);
           add(['works']);
           add(['works', change.work_id]);
         }
@@ -30,12 +30,12 @@ function refresh(changes: Change[], stillCurrent: () => boolean) {
         add(['skills']);
         if (change.id) add(['skill-versions', change.id]);
         break;
-      case 'daemons': add(['daemons']); break;
+      case 'devices': add(['devices']); break;
       case 'users': add(['users']); break;
     }
   }
   const predicate = (query: { queryKey: readonly unknown[] }) => reset
-    || (workChanged && ['works', 'sessions'].includes(String(query.queryKey[0])))
+    || (workChanged && ['works', 'conversations'].includes(String(query.queryKey[0])))
     || keys.has(JSON.stringify(query.queryKey));
   // Cancel an older in-flight snapshot, including a query with no cached data,
   // so its completion cannot hide a notification that arrived during that GET.

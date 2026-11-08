@@ -54,7 +54,7 @@ Server agent 版本設計見 [server-agent.md](server-agent.md)，共享技能�
 首次初始化的臨時輸入放在 session 目錄內、workspace 之外：
 
 ```text
-sessions/<client_session_id>/
+sessions/<session_id>/
   session.yaml                     固定 agent_id、agent_version_id
   init-resources/                  準備期間的臨時資源
     AGENTS.md

@@ -9,16 +9,16 @@ type rowsQuerier interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }
 
-// ReadSession returns one consistent view. A completed delivery must never be
+// ReadConversation returns one consistent view. A completed delivery must never be
 // paired with messages read before its result was committed.
-func (s *Service) ReadSession(ctx context.Context, u User, id string) (SessionDetail, error) {
-	var detail SessionDetail
+func (s *Service) ReadConversation(ctx context.Context, u User, id string) (ConversationDetail, error) {
+	var detail ConversationDetail
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return detail, err
 	}
 	defer tx.Rollback()
-	if detail.Session, err = s.getSession(ctx, tx, u, id); err != nil {
+	if detail.Conversation, err = s.getConversation(ctx, tx, u, id); err != nil {
 		return detail, err
 	}
 	if detail.Messages, err = messages(ctx, tx, id); err != nil {
@@ -27,13 +27,13 @@ func (s *Service) ReadSession(ctx context.Context, u User, id string) (SessionDe
 	if detail.Runs, err = runs(ctx, tx, id); err != nil {
 		return detail, err
 	}
-	if detail.Deliveries, err = deliveries(ctx, tx, "session_id=?", id); err != nil {
+	if detail.Deliveries, err = deliveries(ctx, tx, "conversation_id=?", id); err != nil {
 		return detail, err
 	}
 	if detail.Events, err = runEvents(ctx, tx, id); err != nil {
 		return detail, err
 	}
-	if detail.Questions, err = queryRunQuestions(ctx, tx, "session_id=?", id); err != nil {
+	if detail.Questions, err = queryRunQuestions(ctx, tx, "conversation_id=?", id); err != nil {
 		return detail, err
 	}
 	detail.RunCounts = map[string]int{}

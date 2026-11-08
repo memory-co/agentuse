@@ -83,7 +83,7 @@ context attachment upload ./report.pdf
   "mime_type": "application/pdf",
   "size_bytes": 12345,
   "sha256": "文件內容的SHA256",
-  "download_path": "/api/sessions/當前conversation的UUID/attachments/at_示例/content"
+  "download_path": "/api/conversations/當前conversation的UUID/attachments/at_示例/content"
 }
 ```
 

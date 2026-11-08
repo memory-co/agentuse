@@ -3,12 +3,13 @@ package attachment
 
 import (
 	"errors"
-	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"net/url"
 	"path"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 const Capability = "attachments-v1"
@@ -35,4 +36,6 @@ func ValidID(s, prefix string) bool {
 	return true
 }
 
-func Path(session string) string { return "/api/sessions/" + url.PathEscape(session) + "/attachments" }
+func Path(conversation string) string {
+	return "/api/conversations/" + url.PathEscape(conversation) + "/attachments"
+}

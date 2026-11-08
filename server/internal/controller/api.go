@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -15,7 +14,7 @@ import (
 
 const cookieName = "agentuse_token"
 
-// actAsHeader:admin 令牌带上它，就按这个用户的身份执行(见 designs/v2/designs/embedding.md)。
+// actAsHeader:admin 令牌带上它，就按这个用户的身份执行(见 designs/v3/designs/server-user.md)。
 const actAsHeader = "X-Agentuse-User"
 
 type userKey struct{}
@@ -44,7 +43,7 @@ func requestToken(r *http.Request) string {
 // auth 要求登录：网页用 cookie,脚本用 Authorization: Bearer <用户令牌>。admin 可以再带 X-Agentuse-User 代为某个用户。
 func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc { return s.authWith(h, false) }
 
-// workAuth 同 auth,另外收工作令牌(wt_):协调者跑的时候用它开线程、看线程(designs/v2/apis/works.md)。
+// workAuth 同 auth,另外收工作令牌(wt_):协调者跑的时候用它开线程、看线程(designs/v3/designs/server-work.md)。
 // 用工作令牌时身份是工作的主人，handler 里再用 workScope 限定只能动这个工作的线程。
 func (s *Server) workAuth(h http.HandlerFunc) http.HandlerFunc { return s.authWith(h, true) }
 
@@ -213,7 +212,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a, err := s.service.CreateConfiguredAgent(r.Context(), currentUser(r).ID, req.ID, agentuse.AgentConfig{Name: req.Name, DaemonID: req.DaemonID, Harness: req.Harness, Description: req.Description, Model: req.Model, Instructions: req.Instructions, Skills: req.Skills})
+	a, err := s.service.CreateConfiguredAgent(r.Context(), currentUser(r).ID, req.ID, agentuse.AgentConfig{Name: req.Name, DeviceID: req.DeviceID, Harness: req.Harness, Description: req.Description, Model: req.Model, Instructions: req.Instructions, Skills: req.Skills})
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -238,14 +237,14 @@ func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// daemonView 是页面上一台 daemon:待注册的附带安装命令。
-type daemonView struct {
-	service.Daemon
+// deviceView 是页面上一台 device:待注册的附带安装命令。
+type deviceView struct {
+	service.Device
 	SetupCommand string `json:"setup_command,omitempty"`
 }
 
-func (s *Server) view(r *http.Request, d service.Daemon) daemonView {
-	v := daemonView{Daemon: d}
+func (s *Server) view(r *http.Request, d service.Device) deviceView {
+	v := deviceView{Device: d}
 	if d.SetupToken != "" {
 		v.SetupCommand = setupCommand(s.baseURL(r), d.SetupToken)
 	}
@@ -256,28 +255,28 @@ func setupCommand(base, token string) string {
 	return `curl -fsSL "` + base + `/setup.sh" -o setup.sh && TOKEN="` + token + `" bash setup.sh`
 }
 
-func (s *Server) handleListDaemons(w http.ResponseWriter, r *http.Request) {
-	ds, err := s.service.ListDaemons(r.Context(), currentUser(r))
+func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
+	ds, err := s.service.ListDevices(r.Context(), currentUser(r))
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	out := make([]daemonView, 0, len(ds))
+	out := make([]deviceView, 0, len(ds))
 	for _, d := range ds {
 		out = append(out, s.view(r, d))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) handleCreateDaemon(w http.ResponseWriter, r *http.Request) {
-	var req createDaemonBody
+func (s *Server) handleCreateDevice(w http.ResponseWriter, r *http.Request) {
+	var req createDeviceBody
 	if r.ContentLength != 0 {
 		if err := readJSON(r, &req); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
-	d, err := s.service.CreateDaemon(r.Context(), currentUser(r).ID, req.Name)
+	d, err := s.service.CreateDevice(r.Context(), currentUser(r).ID, req.Name)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -285,17 +284,17 @@ func (s *Server) handleCreateDaemon(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, s.view(r, d))
 }
 
-func (s *Server) handleDeleteDaemon(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := s.service.DeleteDaemon(r.Context(), currentUser(r), id); err != nil {
+	if err := s.service.DeleteDevice(r.Context(), currentUser(r), id); err != nil {
 		s.storeErr(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleResetDaemon(w http.ResponseWriter, r *http.Request) {
-	d, err := s.service.ResetDaemonSetup(r.Context(), currentUser(r), r.PathValue("id"))
+func (s *Server) handleResetDevice(w http.ResponseWriter, r *http.Request) {
+	d, err := s.service.ResetDeviceSetup(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -311,11 +310,11 @@ func (s *Server) handleToggleHarness(w http.ResponseWriter, r *http.Request) {
 	}
 	u := currentUser(r)
 	id := r.PathValue("id")
-	if err := s.service.SetDaemonHarnessEnabled(r.Context(), u, id, r.PathValue("harness"), req.Enabled); err != nil {
+	if err := s.service.SetDeviceHarnessEnabled(r.Context(), u, id, r.PathValue("harness"), req.Enabled); err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	d, err := s.service.GetDaemon(r.Context(), u, id)
+	d, err := s.service.GetDevice(r.Context(), u, id)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -323,8 +322,8 @@ func (s *Server) handleToggleHarness(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.view(r, d))
 }
 
-// handleListSessions:不带 work_id 列普通会话，带了列那个工作的线程。工作令牌只能列自己工作的(不带就是它)。
-func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
+// handleListConversations:不带 work_id 列普通会话，带了列那个工作的线程。工作令牌只能列自己工作的(不带就是它)。
+func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request) {
 	workID := r.URL.Query().Get("work_id")
 	if sc := workScope(r); sc != nil {
 		if workID == "" {
@@ -335,47 +334,28 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var sessions []service.Session
+	var conversations []service.Conversation
 	var err error
 	if workID != "" {
-		sessions, err = s.service.ListWorkSessions(r.Context(), currentUser(r), workID, 100)
+		conversations, err = s.service.ListWorkConversations(r.Context(), currentUser(r), workID, 100)
 	} else {
-		sessions, err = s.service.ListSessions(r.Context(), currentUser(r), 100)
+		conversations, err = s.service.ListConversations(r.Context(), currentUser(r), 100)
 	}
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, sessions)
+	writeJSON(w, http.StatusOK, conversations)
 }
 
-// messageContent 取请求里的消息内容:input 直接给 JSON,或者只给 prompt。
-func messageContent(input json.RawMessage, prompt string, attachmentIDs []string) (json.RawMessage, error) {
-	if len(input) > 0 {
-		return input, nil
-	}
-	if strings.TrimSpace(prompt) == "" && len(attachmentIDs) == 0 {
-		return nil, errors.New("prompt、input 或 attachment_ids 至少提供一个")
-	}
-	return json.Marshal(protocol.PromptInput{Prompt: prompt})
-}
-
-// handleCreateSession 建会话并发出第一条消息。
-func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
-	var req createSessionBody
+// handleCreateConversation 建会话并发出第一条消息。
+func (s *Server) handleCreateConversation(w http.ResponseWriter, r *http.Request) {
+	var req createConversationBody
 	if err := readMessageJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Mode != "" && req.Mode != service.MultiAgent {
-		writeErr(w, 400, "只支持 multi_agent session")
-		return
-	}
-	if req.DeferStart && (req.Prompt != nil || len(req.Input) > 0 || len(req.ToAgentIDs) > 0 || len(req.ToUserIDs) > 0) {
-		writeErr(w, 400, "defer_start 不能同时发送任务")
-		return
-	}
-	s.createMultiSession(w, r, req.WorkID, req.Title, req.Input, req.Prompt, req.ToAgentIDs, req.ToUserIDs)
+	s.createConversation(w, r, req.WorkID, req.Title, req.Prompt, req.ToAgentIDs, req.ToUserIDs)
 }
 
 func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
@@ -384,16 +364,11 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	content, err := messageContent(req.Input, req.Prompt, req.AttachmentIDs)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
 	u, id := currentUser(r), r.PathValue("id")
 	if !s.threadInScope(w, r, id) {
 		return
 	}
-	reply, err := s.service.SendMultiMessage(r.Context(), u, id, content, req.ToAgentIDs, req.ToUserIDs, req.AttachmentIDs)
+	reply, err := s.service.SendMessage(r.Context(), u, id, req.Prompt, req.ToAgentIDs, req.ToUserIDs, req.AttachmentIDs, req.ReplyToMessageID)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -401,16 +376,16 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, reply)
 }
 
-func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGetConversation(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, r.PathValue("id")) {
 		return
 	}
-	ss, err := s.service.GetSession(r.Context(), currentUser(r), r.PathValue("id"))
+	ss, err := s.service.GetConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	s.getMultiSession(w, r, ss)
+	s.getConversation(w, r, ss)
 }
 
 func (s *Server) threadInScope(w http.ResponseWriter, r *http.Request, id string) bool {
@@ -418,7 +393,7 @@ func (s *Server) threadInScope(w http.ResponseWriter, r *http.Request, id string
 	if sc == nil {
 		return true
 	}
-	ss, err := s.service.GetSession(r.Context(), currentUser(r), id)
+	ss, err := s.service.GetConversation(r.Context(), currentUser(r), id)
 	if err != nil {
 		s.storeErr(w, err)
 		return false
@@ -430,12 +405,12 @@ func (s *Server) threadInScope(w http.ResponseWriter, r *http.Request, id string
 	return true
 }
 
-// handleResolveSession 标记已完成;handleReopenSession 取消已完成。
-func (s *Server) handleResolveSession(w http.ResponseWriter, r *http.Request) {
+// handleResolveConversation 标记已完成;handleReopenConversation 取消已完成。
+func (s *Server) handleResolveConversation(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, r.PathValue("id")) {
 		return
 	}
-	ss, err := s.service.ResolveSession(r.Context(), currentUser(r), r.PathValue("id"))
+	ss, err := s.service.ResolveConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -443,8 +418,8 @@ func (s *Server) handleResolveSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ss)
 }
 
-func (s *Server) handleReopenSession(w http.ResponseWriter, r *http.Request) {
-	ss, err := s.service.ReopenSession(r.Context(), currentUser(r), r.PathValue("id"))
+func (s *Server) handleReopenConversation(w http.ResponseWriter, r *http.Request) {
+	ss, err := s.service.ReopenConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -468,11 +443,8 @@ func (s *Server) handleCreateWork(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Mode != "" && req.Mode != service.MultiAgent {
-		writeErr(w, 400, "只支持 multi_agent session")
-		return
-	}
-	create := s.service.CreateMultiWork
+
+	create := s.service.CreateWork
 	wk, coord, err := create(r.Context(), currentUser(r), req.Name, req.AgentID, req.Instructions)
 	if err != nil {
 		s.storeErr(w, err)
@@ -512,8 +484,8 @@ func (s *Server) handleDeleteWork(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
-	if err := s.service.DeleteSession(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
+func (s *Server) handleDeleteConversation(w http.ResponseWriter, r *http.Request) {
+	if err := s.service.DeleteConversation(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
 		s.storeErr(w, err)
 		return
 	}
@@ -528,15 +500,15 @@ func firstRunes(s string, n int) string {
 	return string(r[:n])
 }
 
-// handleDaemonMe:daemon 用密钥查自己，验证密钥是否还有效。
-func (s *Server) handleDaemonMe(w http.ResponseWriter, r *http.Request) {
+// handleDeviceMe:device 用密钥查自己，验证密钥是否还有效。
+func (s *Server) handleDeviceMe(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	d, err := s.service.DaemonByKey(r.Context(), key)
+	d, err := s.service.DeviceByKey(r.Context(), key)
 	if key == "" || err != nil {
-		writeErr(w, http.StatusUnauthorized, "daemon 密钥无效，请重新运行安装命令")
+		writeErr(w, http.StatusUnauthorized, "device 密钥无效，请重新运行安装命令")
 		return
 	}
-	writeJSON(w, http.StatusOK, protocol.MeResponse{DaemonID: d.ID, Name: d.Name, UserID: d.UserID, Status: d.Status})
+	writeJSON(w, http.StatusOK, protocol.MeResponse{DeviceID: d.ID, Name: d.Name, UserID: d.UserID, Status: d.Status})
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -545,7 +517,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	d, key, err := s.service.RegisterDaemon(r.Context(), strings.TrimSpace(req.Token), req.Hostname)
+	d, key, err := s.service.RegisterDevice(r.Context(), strings.TrimSpace(req.Token), req.Hostname)
 	if errors.Is(err, service.ErrNotFound) {
 		writeErr(w, http.StatusUnauthorized, "安装令牌无效或已用过，请在页面上重新生成安装命令")
 		return
@@ -554,6 +526,6 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	s.log.Printf("daemon %s (%s) 注册成功", d.ID, d.Name)
-	writeJSON(w, http.StatusOK, protocol.RegisterResponse{DaemonID: d.ID, Name: d.Name, Key: key})
+	s.log.Printf("device %s (%s) 注册成功", d.ID, d.Name)
+	writeJSON(w, http.StatusOK, protocol.RegisterResponse{DeviceID: d.ID, Name: d.Name, Key: key})
 }

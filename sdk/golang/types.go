@@ -2,7 +2,7 @@ package agentuse
 
 import "encoding/json"
 
-// 字段和 designs/v2/apis 里的对象一一对应，时间都是 unix 秒。
+// Public conversation objects follow docs/server/conversations.md; times are Unix seconds.
 
 type User struct {
 	ID        string `json:"id"`
@@ -41,7 +41,7 @@ type Agent struct {
 	ID               string     `json:"id"`
 	UserID           string     `json:"user_id"`
 	Name             string     `json:"name"`
-	DaemonID         string     `json:"daemon_id,omitempty"` // 运行时 = DaemonID + Harness;daemon 被删后为空
+	DeviceID         string     `json:"device_id,omitempty"` // 固定版本的执行设备；设备删除后仍保留历史引用
 	Harness          string     `json:"harness"`
 	Description      string     `json:"description"`
 	CreatedAt        int64      `json:"created_at"`
@@ -54,12 +54,12 @@ type CreateAgentRequest struct {
 	Skills       []SkillRef `json:"skills"`
 	ID           string     `json:"id,omitempty"` // 全局唯一;空 = 服务生成 ag_xxx
 	Name         string     `json:"name"`
-	DaemonID     string     `json:"daemon_id"` // 运行时：自己的某台 daemon + 它上报过的某个 harness
+	DeviceID     string     `json:"device_id"` // 运行时：自己的某台 device + 它上报过的某个 harness
 	Harness      string     `json:"harness"`
 	Description  string     `json:"description,omitempty"`
 }
 
-type Daemon struct {
+type Device struct {
 	Capabilities []string        `json:"capabilities"`
 	ID           string          `json:"id"`
 	UserID       string          `json:"user_id"`
@@ -67,24 +67,24 @@ type Daemon struct {
 	Status       string          `json:"status"` // pending / online / offline
 	LastSeenAt   *int64          `json:"last_seen_at"`
 	CreatedAt    int64           `json:"created_at"`
-	Harnesses    []DaemonHarness `json:"harnesses"`
+	Harnesses    []DeviceHarness `json:"harnesses"`
 	SetupToken   string          `json:"setup_token,omitempty"`
 	SetupCommand string          `json:"setup_command,omitempty"`
 }
 
-type DaemonHarness struct {
-	Revision  string `json:"revision"`
-	DaemonID  string `json:"daemon_id"`
-	UserID    string `json:"user_id"`
-	Harness   string `json:"harness"`
-	Version   string `json:"version"`
-	Available bool   `json:"available"`
-	Enabled   bool   `json:"enabled"`
-	UpdatedAt int64  `json:"updated_at"`
+type DeviceHarness struct {
+	HarnessRevision string   `json:"harness_revision"`
+	Capabilities    []string `json:"capabilities" nullable:"false"`
+	DeviceID        string   `json:"device_id"`
+	UserID          string   `json:"user_id"`
+	Harness         string   `json:"harness"`
+	Version         string   `json:"version"`
+	Available       bool     `json:"available"`
+	Enabled         bool     `json:"enabled"`
+	UpdatedAt       int64    `json:"updated_at"`
 }
 
-type Session struct {
-	Mode      string `json:"mode"`
+type Conversation struct {
 	ID        string `json:"id"`
 	UserID    string `json:"user_id"`             // 会话创建者
 	CreatedBy string `json:"created_by"`          // 发起人
@@ -97,85 +97,80 @@ type Session struct {
 }
 
 type Message struct {
-	Attachments          []Attachment    `json:"attachments" nullable:"false"`
-	AuthorUserID         string          `json:"author_user_id,omitempty"`
-	ReplyToMessageID     string          `json:"reply_to_message_id,omitempty"`
-	AuthorAgentVersionID string          `json:"author_agent_version_id,omitempty"`
-	Seq                  int64           `json:"seq"`
-	AgentKey             string          `json:"agent_key,omitempty"`
-	AgentName            string          `json:"agent_name,omitempty"`
-	RunID                string          `json:"run_id,omitempty"`
-	ToAgentIDs           []string        `json:"to_agent_ids" nullable:"false"`
-	ToUserIDs            []string        `json:"to_user_ids" nullable:"false"`
-	ID                   string          `json:"id"`
-	SessionID            string          `json:"session_id"`
-	Role                 string          `json:"role"` // user / assistant
-	Content              json.RawMessage `json:"content"`
-	CreatedAt            int64           `json:"created_at"`
+	AuthorAgentID        string       `json:"author_agent_id,omitempty"`
+	AuthorName           string       `json:"author_name,omitempty"`
+	AuthorRole           string       `json:"author_role"`
+	Attachments          []Attachment `json:"attachments" nullable:"false"`
+	AuthorUserID         string       `json:"author_user_id,omitempty"`
+	ReplyToMessageID     string       `json:"reply_to_message_id,omitempty"`
+	AuthorAgentVersionID string       `json:"author_agent_version_id,omitempty"`
+	Seq                  int64        `json:"seq"`
+	ToAgentIDs           []string     `json:"to_agent_ids" nullable:"false"`
+	ToUserIDs            []string     `json:"to_user_ids" nullable:"false"`
+	ID                   string       `json:"id"`
+	ConversationID       string       `json:"conversation_id"`
+	Content              string       `json:"content"`
+	CreatedAt            int64        `json:"created_at"`
 }
 
-type SessionEvent struct {
-	AgentVersionID  string          `json:"agent_version_id"`
-	ID              int64           `json:"id"`
-	SessionID       string          `json:"session_id"`
-	ClientSessionID string          `json:"client_session_id"`
-	RunID           string          `json:"run_id,omitempty"`
-	AgentID         string          `json:"agent_id"`
-	DaemonID        string          `json:"daemon_id"`
-	EventSeq        int64           `json:"event_seq"`
-	Kind            string          `json:"kind"`
-	Payload         json.RawMessage `json:"payload"`
-	CreatedAt       int64           `json:"created_at"`
+type ConversationEvent struct {
+	AgentVersionID string          `json:"agent_version_id"`
+	ID             int64           `json:"id"`
+	ConversationID string          `json:"conversation_id"`
+	SessionID      string          `json:"session_id"`
+	RunID          string          `json:"run_id,omitempty"`
+	AgentID        string          `json:"agent_id"`
+	DeviceID       string          `json:"device_id"`
+	EventSeq       int64           `json:"event_seq"`
+	Kind           string          `json:"kind"`
+	Payload        json.RawMessage `json:"payload"`
+	CreatedAt      int64           `json:"created_at"`
 }
 
-// MessageRequest 是一条用户消息:给 Prompt 时内容是 {"prompt": …};给 Input 时原样交给 harness。
+// MessageRequest sends text, selected files and an optional reply reference to explicit recipients.
 type MessageRequest struct {
-	AttachmentIDs  []string `json:"attachment_ids,omitempty"`
-	ToAgentIDs     []string `json:"to_agent_ids,omitempty"`
-	ToUserIDs      []string `json:"to_user_ids,omitempty"`
-	IdempotencyKey string   `json:"-"`
-	Prompt         string   `json:"prompt,omitempty"`
-	Input          any      `json:"input,omitempty"`
+	ReplyToMessageID string   `json:"reply_to_message_id,omitempty"`
+	AttachmentIDs    []string `json:"attachment_ids,omitempty"`
+	ToAgentIDs       []string `json:"to_agent_ids,omitempty"`
+	ToUserIDs        []string `json:"to_user_ids,omitempty"`
+	Prompt           string   `json:"prompt,omitempty"`
 }
 
-type CreateSessionRequest struct {
-	Mode       string   `json:"mode,omitempty"`
+type CreateConversationRequest struct {
 	Title      string   `json:"title,omitempty"`
 	ToAgentIDs []string `json:"to_agent_ids,omitempty"`
 	ToUserIDs  []string `json:"to_user_ids,omitempty"`
-	DeferStart bool     `json:"defer_start,omitempty"`
 	Prompt     string   `json:"prompt,omitempty"`
-	Input      any      `json:"input,omitempty"`
 }
 
-type CreateSessionResponse struct {
-	Runs       []Run      `json:"runs,omitempty"`
-	Deliveries []Delivery `json:"deliveries,omitempty"`
-	Session    Session    `json:"session"`
-	Message    *Message   `json:"message,omitempty"`
+type CreateConversationResponse struct {
+	Runs         []Run        `json:"runs,omitempty"`
+	Deliveries   []Delivery   `json:"deliveries,omitempty"`
+	Conversation Conversation `json:"conversation"`
+	Message      *Message     `json:"message,omitempty"`
 }
 
-type SessionDetail struct {
-	Runs       []Run          `json:"runs"`
-	Deliveries []Delivery     `json:"deliveries"`
-	RunCounts  map[string]int `json:"run_counts"`
-	Session    Session        `json:"session"`
-	Messages   []Message      `json:"messages"`
-	Questions  []Question     `json:"questions"`
-	Events     []SessionEvent `json:"events"`
+type ConversationDetail struct {
+	Runs         []Run               `json:"runs"`
+	Deliveries   []Delivery          `json:"deliveries"`
+	RunCounts    map[string]int      `json:"run_counts"`
+	Conversation Conversation        `json:"conversation"`
+	Messages     []Message           `json:"messages"`
+	Questions    []Question          `json:"questions"`
+	Events       []ConversationEvent `json:"events"`
 }
 
 // Question preserves the public harnessctl request snapshot. Use ReplyRunRequest.
 type Question struct {
-	DeliveryError string          `json:"delivery_error,omitempty"`
-	RequestID     string          `json:"request_id"`
-	SessionID     string          `json:"session_id"`
-	RunID         string          `json:"run_id"`
-	State         string          `json:"state"`
-	Payload       json.RawMessage `json:"payload"`
-	Answer        json.RawMessage `json:"answer,omitempty"`
-	AnsweredBy    string          `json:"answered_by,omitempty"`
-	CreatedAt     int64           `json:"created_at"`
+	DeliveryError  string          `json:"delivery_error,omitempty"`
+	RequestID      string          `json:"request_id"`
+	ConversationID string          `json:"conversation_id"`
+	RunID          string          `json:"run_id"`
+	State          string          `json:"state"`
+	Payload        json.RawMessage `json:"payload"`
+	Answer         json.RawMessage `json:"answer,omitempty"`
+	AnsweredBy     string          `json:"answered_by,omitempty"`
+	CreatedAt      int64           `json:"created_at"`
 }
 
 // Reply 包含共享消息和各目标的执行/投递。
@@ -185,7 +180,7 @@ type Reply struct {
 	Message    *Message   `json:"message"`
 }
 
-// Work 是工作：协调者会话 + 若干线程会话 + 一份共用说明，见 designs/v2/apis/works.md。
+// Work 是工作：协调者会话 + 若干线程会话 + 一份共用说明，见 designs/v3/designs/server-work.md。
 type Work struct {
 	CoordinatorAgentID string `json:"coordinator_agent_id,omitempty"`
 	ID                 string `json:"id"`
@@ -199,15 +194,14 @@ type Work struct {
 }
 
 type CreateWorkRequest struct {
-	Mode         string `json:"mode,omitempty"`
 	Name         string `json:"name"`
 	AgentID      string `json:"agent_id"` // 协调者用的 agent
 	Instructions string `json:"instructions,omitempty"`
 }
 
 type CreateWorkResponse struct {
-	Work        Work    `json:"work"`
-	Coordinator Session `json:"coordinator"`
+	Work        Work         `json:"work"`
+	Coordinator Conversation `json:"coordinator"`
 }
 
 // WorkPatch 只改非 nil 的字段。

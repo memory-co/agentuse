@@ -29,7 +29,7 @@ func TestContextDownloadResolvesConversationPathsAcrossPagesWithoutRun(t *testin
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		prefix := "/api/sessions/" + selected.SessionID + "/attachments"
+		prefix := "/api/conversations/" + selected.ConversationID + "/attachments"
 		switch {
 		case r.URL.Path == prefix && r.URL.Query().Get("cursor") == "":
 			next := "second-page"
@@ -50,7 +50,7 @@ func TestContextDownloadResolvesConversationPathsAcrossPagesWithoutRun(t *testin
 	if err := (&endpoint.Service{Path: fixture.service.Path}).Save(ep); err != nil {
 		t.Fatal(err)
 	}
-	selected = sdk.Attachment{ID: "at_report", SessionID: fixture.metadata.ConversationID, Filename: "notes 1.txt", RelativePath: "reports/每日/notes 1.txt", ContentType: "text/plain", SizeBytes: int64(len(content)), SHA256: hex.EncodeToString(digest[:])}
+	selected = sdk.Attachment{ID: "at_report", ConversationID: fixture.metadata.ConversationID, Filename: "notes 1.txt", RelativePath: "reports/每日/notes 1.txt", ContentType: "text/plain", SizeBytes: int64(len(content)), SHA256: hex.EncodeToString(digest[:])}
 	sameName = selected
 	sameName.ID = "at_input"
 	sameName.RelativePath = "user_input/notes 1.txt"

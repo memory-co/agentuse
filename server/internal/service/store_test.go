@@ -20,26 +20,26 @@ func newStore(t *testing.T) *Service {
 	return s
 }
 
-// registered 建一台已注册的 daemon,并上报 harnesses。
-func registered(t *testing.T, s *Service, u User, name string, harnesses ...string) Daemon {
+// registered 建一台已注册的 device,并上报 harnesses。
+func registered(t *testing.T, s *Service, u User, name string, harnesses ...string) Device {
 	t.Helper()
 	ctx := context.Background()
-	d, err := s.CreateDaemon(ctx, u.ID, name)
+	d, err := s.CreateDevice(ctx, u.ID, name)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d, _, err = s.RegisterDaemon(ctx, d.SetupToken, name); err != nil {
+	if d, _, err = s.RegisterDevice(ctx, d.SetupToken, name); err != nil {
 		t.Fatal(err)
 	}
 	var rep []ReportedHarness
 	for _, h := range harnesses {
 		rep = append(rep, ReportedHarness{Name: h})
 	}
-	if _, err := s.DaemonConnected(ctx, d, rep); err != nil {
+	if _, err := s.DeviceConnected(ctx, d, rep); err != nil {
 		t.Fatal(err)
 	}
 	for _, h := range harnesses {
-		if err := s.SetDaemonHarnessEnabled(ctx, u, d.ID, h, true); err != nil {
+		if err := s.SetDeviceHarnessEnabled(ctx, u, d.ID, h, true); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -82,7 +82,7 @@ func TestSecrets(t *testing.T) {
 	if HashSecret(a) == HashSecret(b) || HashSecret(a) != HashSecret(a) || len(HashSecret(a)) != 64 {
 		t.Fatal("hash")
 	}
-	if id := randomID("dm_"); len(id) != 3+16 {
+	if id := randomID("dev_"); len(id) != len("dev_")+16 {
 		t.Fatalf("randomID: %q", id)
 	}
 	if u := newUUID(); len(u) != 36 || u[14] != '4' {

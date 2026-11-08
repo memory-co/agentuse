@@ -1,6 +1,6 @@
 # userService：用戶與訪問身份
 
-> v3 目標設計，尚未據此修改代碼或數據庫。統一使用 device 命名；本文 SQL 表示目標結構，不是線上遷移腳本。時間字段除另行說明外，均爲 Unix 秒，布爾值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。表之間只保留關聯字段，不聲明數據庫外鍵；引用校驗和關聯清理由 service 在事務內完成。
+> 本文規則已落實到 schema 7、Server API 與業務 service。使用 device/conversation 命名；session_id 只引用 Client 本地執行會話。時間為 Unix 秒，JSON 使用 TEXT，關聯由 service 在事務內校驗與清理，不聲明數據庫外鍵。
 
 ## 職責
 

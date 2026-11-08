@@ -29,27 +29,27 @@ func cleanAgentName(name string) (string, error) {
 	return name, nil
 }
 
-// runtimeErr 检查运行时 (daemonID, harness) 现在能不能派活:这台 daemon 上报过这个 harness、最近一次上报里有、用户开启了。
-// 能派返回 nil,否则返回给用户看的原因。daemon 离线不算：上线后会接着派。
-func runtimeErr(ctx context.Context, q querier, daemonID, harness string) error {
+// runtimeErr 检查运行时 (deviceID, harness) 现在能不能派活:这台 device 上报过这个 harness、最近一次上报里有、用户开启了。
+// 能派返回 nil,否则返回给用户看的原因。device 离线不算：上线后会接着派。
+func runtimeErr(ctx context.Context, q querier, deviceID, harness string) error {
 	var available, enabled bool
 	err := q.QueryRowContext(ctx,
 		store.RuntimeErrSelect,
-		daemonID, harness).Scan(&available, &enabled)
+		deviceID, harness).Scan(&available, &enabled)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return fmt.Errorf("%w:daemon %s 上没有 harness %s", ErrRuntimeUnavailable, daemonID, harness)
+		return fmt.Errorf("%w:device %s 上没有 harness %s", ErrRuntimeUnavailable, deviceID, harness)
 	case err != nil:
 		return err
 	case !available:
-		return fmt.Errorf("%w:daemon %s 最近一次连上时没检测到 harness %s,请在那台电脑上装好后重启 daemon", ErrRuntimeUnavailable, daemonID, harness)
+		return fmt.Errorf("%w:device %s 最近一次连上时没检测到 harness %s,请在那台电脑上装好后重启 device", ErrRuntimeUnavailable, deviceID, harness)
 	case !enabled:
-		return fmt.Errorf("%w:daemon %s 上没有开启 harness %s,请先在 daemon 页面打开它", ErrRuntimeUnavailable, daemonID, harness)
+		return fmt.Errorf("%w:device %s 上没有开启 harness %s,请先在 device 页面打开它", ErrRuntimeUnavailable, deviceID, harness)
 	}
 	return nil
 }
 
-func agentWriteErr(err error, id, name, harness string) error {
+func agentWriteErr(err error, id, name string) error {
 	switch {
 	case err == nil:
 		return nil
@@ -57,15 +57,13 @@ func agentWriteErr(err error, id, name, harness string) error {
 		return fmt.Errorf("agent id %q 已被占用", id)
 	case strings.Contains(err.Error(), "UNIQUE"):
 		return fmt.Errorf("已经有叫 %q 的 agent", name)
-	case strings.Contains(err.Error(), "FOREIGN KEY"):
-		return fmt.Errorf("harness %q 没有登记", harness)
 	}
 	return err
 }
 
 // CreateAgent is the internal convenience form for a version-one configuration.
 func (s *Service) CreateAgent(ctx context.Context, user, id, name, device, harness, description string) (Agent, error) {
-	return s.CreateConfiguredAgent(ctx, user, id, agentuse.AgentConfig{Name: name, DaemonID: device, Harness: harness, Description: description})
+	return s.CreateConfiguredAgent(ctx, user, id, agentuse.AgentConfig{Name: name, DeviceID: device, Harness: harness, Description: description})
 }
 func (s *Service) validateAgentConfig(ctx context.Context, tx *sql.Tx, user, id string, c *agentuse.AgentConfig) error {
 	var err error
@@ -73,14 +71,14 @@ func (s *Service) validateAgentConfig(ctx context.Context, tx *sql.Tx, user, id 
 	if err != nil {
 		return err
 	}
-	c.DaemonID = strings.TrimSpace(c.DaemonID)
+	c.DeviceID = strings.TrimSpace(c.DeviceID)
 	c.Harness = strings.TrimSpace(c.Harness)
 	c.Model = strings.TrimSpace(c.Model)
 	var one int
-	if err = tx.QueryRowContext(ctx, store.CheckRuntimeSelect, c.DaemonID, c.Harness, user).Scan(&one); err != nil {
+	if err = tx.QueryRowContext(ctx, store.CheckRuntimeSelect, c.DeviceID, c.Harness, user).Scan(&one); err != nil {
 		return fmt.Errorf("device/harness is not registered for this user")
 	}
-	if err = runtimeErr(ctx, tx, c.DaemonID, c.Harness); err != nil {
+	if err = runtimeErr(ctx, tx, c.DeviceID, c.Harness); err != nil {
 		return err
 	}
 	var count int
@@ -112,7 +110,7 @@ func (s *Service) validateAgentConfig(ctx context.Context, tx *sql.Tx, user, id 
 	return nil
 }
 func (s *Service) writeAgentVersion(ctx context.Context, tx *sql.Tx, v agentuse.AgentVersion) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO agent_versions(id,agent_id,version,name,description,device_id,harness,model,instructions,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, v.ID, v.AgentID, v.Version, v.Name, v.Description, v.DaemonID, v.Harness, nullIfEmpty(v.Model), v.Instructions, v.CreatedAt)
+	_, err := tx.ExecContext(ctx, `INSERT INTO agent_versions(id,agent_id,version,name,description,device_id,harness,model,instructions,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, v.ID, v.AgentID, v.Version, v.Name, v.Description, v.DeviceID, v.Harness, nullIfEmpty(v.Model), v.Instructions, v.CreatedAt)
 	if err != nil {
 		return err
 	}
@@ -124,7 +122,7 @@ func (s *Service) writeAgentVersion(ctx context.Context, tx *sql.Tx, v agentuse.
 	return nil
 }
 func projection(id, user string, created, updated int64, v agentuse.AgentVersion) Agent {
-	return Agent{ID: id, UserID: user, CurrentVersionID: v.ID, Version: v.Version, Name: v.Name, Description: v.Description, DaemonID: v.DaemonID, Harness: v.Harness, Model: v.Model, Instructions: v.Instructions, Skills: v.Skills, CreatedAt: created, UpdatedAt: updated}
+	return Agent{ID: id, UserID: user, CurrentVersionID: v.ID, Version: v.Version, Name: v.Name, Description: v.Description, DeviceID: v.DeviceID, Harness: v.Harness, Model: v.Model, Instructions: v.Instructions, Skills: v.Skills, CreatedAt: created, UpdatedAt: updated}
 }
 func (s *Service) CreateConfiguredAgent(ctx context.Context, user, id string, c agentuse.AgentConfig) (Agent, error) {
 	id = strings.TrimSpace(id)
@@ -144,7 +142,7 @@ func (s *Service) CreateConfiguredAgent(ctx context.Context, user, id string, c 
 	now := s.unix()
 	v := agentuse.AgentVersion{ID: newUUID(), AgentID: id, Version: 1, AgentConfig: c, CreatedAt: now}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO agents(id,user_id,current_version_id,created_at,updated_at) VALUES(?,?,?,?,?)`, id, user, v.ID, now, now); err != nil {
-		return Agent{}, agentWriteErr(err, id, c.Name, c.Harness)
+		return Agent{}, agentWriteErr(err, id, c.Name)
 	}
 	if err = s.writeAgentVersion(ctx, tx, v); err != nil {
 		return Agent{}, err
@@ -157,7 +155,7 @@ func (s *Service) CreateConfiguredAgent(ctx context.Context, user, id string, c 
 }
 func agentVersion(ctx context.Context, q skillservice.Querier, id string) (agentuse.AgentVersion, error) {
 	var v agentuse.AgentVersion
-	err := q.QueryRowContext(ctx, `SELECT id,agent_id,version,name,description,device_id,harness,COALESCE(model,''),instructions,created_at FROM agent_versions WHERE id=?`, id).Scan(&v.ID, &v.AgentID, &v.Version, &v.Name, &v.Description, &v.DaemonID, &v.Harness, &v.Model, &v.Instructions, &v.CreatedAt)
+	err := q.QueryRowContext(ctx, `SELECT id,agent_id,version,name,description,device_id,harness,COALESCE(model,''),instructions,created_at FROM agent_versions WHERE id=?`, id).Scan(&v.ID, &v.AgentID, &v.Version, &v.Name, &v.Description, &v.DeviceID, &v.Harness, &v.Model, &v.Instructions, &v.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}

@@ -24,12 +24,12 @@ func TestAgents(t *testing.T) {
 	if _, err := s.CreateAgent(ctx, alice.ID, "", "写代码", desktop.ID, "codex", ""); err == nil || !strings.Contains(err.Error(), "已经有") {
 		t.Fatal("duplicate name should fail")
 	}
-	// 运行时只能是自己的 daemon、上报过的 harness
+	// 运行时只能是自己的 device、上报过的 harness
 	if _, err := s.CreateAgent(ctx, alice.ID, "", "x", laptop.ID, "codex", ""); err == nil {
-		t.Fatal("harness not on this daemon should fail")
+		t.Fatal("harness not on this device should fail")
 	}
 	if _, err := s.CreateAgent(ctx, alice.ID, "", "x", bobPC.ID, "claude", ""); err == nil {
-		t.Fatal("someone else's daemon should fail")
+		t.Fatal("someone else's device should fail")
 	}
 	// id 全局唯一：别人也不能再用
 	if _, err := s.CreateAgent(ctx, bob.ID, "coder", "别的", bobPC.ID, "codex", ""); err == nil || !strings.Contains(err.Error(), "已被占用") {
@@ -42,24 +42,24 @@ func TestAgents(t *testing.T) {
 		t.Fatalf("same name for another user / generated id: %v %+v", err, b)
 	}
 	// Only the owner may publish a full immutable configuration.
-	config := agentuse.AgentConfig{Name: ag.Name, DaemonID: desktop.ID, Harness: "codex"}
+	config := agentuse.AgentConfig{Name: ag.Name, DeviceID: desktop.ID, Harness: "codex"}
 	if _, err := s.PublishAgentVersion(ctx, bob, ag.ID, ag.CurrentVersionID, config); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("bob publish: %v", err)
 	}
 	old := ag.CurrentVersionID
-	if ag, err = s.PublishAgentVersion(ctx, alice, ag.ID, old, config); err != nil || ag.DaemonID != desktop.ID || ag.Harness != "codex" || ag.Version != 2 {
+	if ag, err = s.PublishAgentVersion(ctx, alice, ag.ID, old, config); err != nil || ag.DeviceID != desktop.ID || ag.Harness != "codex" || ag.Version != 2 {
 		t.Fatalf("switch runtime: %v %+v", err, ag)
 	}
 	previous, err := s.GetAgentVersion(ctx, alice, ag.ID, old)
-	if err != nil || previous.DaemonID != laptop.ID || previous.Harness != "claude" {
+	if err != nil || previous.DeviceID != laptop.ID || previous.Harness != "claude" {
 		t.Fatalf("old version changed: %+v %v", previous, err)
 	}
 	config.Harness = "claude"
 	if _, err := s.PublishAgentVersion(ctx, alice, ag.ID, ag.CurrentVersionID, config); err == nil {
 		t.Fatal("unreported harness accepted")
 	}
-	s.DaemonConnected(ctx, desktop, []ReportedHarness{{Name: "codex"}, {Name: "mine"}})
-	s.SetDaemonHarnessEnabled(ctx, alice, desktop.ID, "mine", true)
+	s.DeviceConnected(ctx, desktop, []ReportedHarness{{Name: "codex"}, {Name: "mine"}})
+	s.SetDeviceHarnessEnabled(ctx, alice, desktop.ID, "mine", true)
 	config.Harness = "mine"
 	if _, err := s.PublishAgentVersion(ctx, alice, ag.ID, ag.CurrentVersionID, config); err != nil {
 		t.Fatal(err)

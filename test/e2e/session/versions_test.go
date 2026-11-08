@@ -45,7 +45,7 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 	if e = os.WriteFile(backend, backendSource, 0700); e != nil {
 		t.Fatal(e)
 	}
-	d, e := c.CreateDaemon(ctx, user, "versions")
+	d, e := c.CreateDevice(ctx, user, "versions")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -59,31 +59,31 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 	cmd.Env = e2eutil.Env(home)
 	e2eutil.Start(t, cmd)
 	waitOnline(t, c, user, d.ID, 1)
-	if _, e = c.SetDaemonHarness(ctx, user, d.ID, "codex", true); e != nil {
+	if _, e = c.SetDeviceHarness(ctx, user, d.ID, "codex", true); e != nil {
 		t.Fatal(e)
 	}
 	skill, e := c.PublishSkill(ctx, user, "", "", bytes.NewReader(versionZIP(t, "skill-one")))
 	if e != nil {
 		t.Fatal(e)
 	}
-	a, e := c.CreateAgent(ctx, user, agentuse.CreateAgentRequest{ID: "version-agent", Name: "Version Agent", DaemonID: d.ID, Harness: "codex", Model: "test-model", Instructions: "Agent one", Skills: []agentuse.SkillRef{{SkillID: skill.ID, SkillVersionID: skill.CurrentVersionID}}})
+	a, e := c.CreateAgent(ctx, user, agentuse.CreateAgentRequest{ID: "version-agent", Name: "Version Agent", DeviceID: d.ID, Harness: "codex", Model: "test-model", Instructions: "Agent one", Skills: []agentuse.SkillRef{{SkillID: skill.ID, SkillVersionID: skill.CurrentVersionID}}})
 	if e != nil {
 		t.Fatal(e)
 	}
-	created, e := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Prompt: "hello", ToAgentIDs: []string{a.ID}})
+	created, e := c.CreateConversation(ctx, user, agentuse.CreateConversationRequest{Prompt: "hello", ToAgentIDs: []string{a.ID}})
 	if e != nil {
 		t.Fatal(e)
 	}
-	id := created.Session.ID
+	id := created.Conversation.ID
 	first := wait(t, c, user, id)
 	if len(first.Runs) != 1 || first.Runs[0].AgentVersionID != a.CurrentVersionID || first.Runs[0].Status != "completed" {
 		t.Fatal(first.Runs)
 	}
-	firstSession := first.Runs[0].ClientSessionID
+	firstSession := first.Runs[0].SessionID
 	if _, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "shared-note-between-turns"}); err != nil {
 		t.Fatal(err)
 	}
-	acceptedText := func(detail *agentuse.SessionDetail, runID string) string {
+	acceptedText := func(detail *agentuse.ConversationDetail, runID string) string {
 		t.Helper()
 		for _, event := range detail.Events {
 			if event.Kind == "accepted" && event.RunID == runID {
@@ -111,7 +111,7 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 		t.Fatal(second.Runs)
 	}
 	for _, r := range second.Runs {
-		if r.ClientSessionID != firstSession || r.AgentVersionID != a.CurrentVersionID {
+		if r.SessionID != firstSession || r.AgentVersionID != a.CurrentVersionID {
 			t.Fatal("skill publication changed agent binding", r)
 		}
 	}
@@ -123,7 +123,7 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 			}
 		}
 	}
-	v, e := c.PublishAgentVersion(ctx, user, a.ID, agentuse.PublishAgentVersionRequest{BaseVersionID: a.CurrentVersionID, AgentConfig: agentuse.AgentConfig{Name: a.Name, DaemonID: d.ID, Harness: "codex", Model: "test-model", Instructions: "Agent two", Skills: []agentuse.SkillRef{{SkillID: skill.ID, SkillVersionID: newer.CurrentVersionID}}}})
+	v, e := c.PublishAgentVersion(ctx, user, a.ID, agentuse.PublishAgentVersionRequest{BaseVersionID: a.CurrentVersionID, AgentConfig: agentuse.AgentConfig{Name: a.Name, DeviceID: d.ID, Harness: "codex", Model: "test-model", Instructions: "Agent two", Skills: []agentuse.SkillRef{{SkillID: skill.ID, SkillVersionID: newer.CurrentVersionID}}}})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -137,12 +137,12 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 	var session2 string
 	for _, r := range third.Runs {
 		if r.AgentVersionID == v.ID {
-			session2 = r.ClientSessionID
+			session2 = r.SessionID
 			text := acceptedText(third, r.ID)
 			if strings.Count(text, "hello") < 2 || !strings.Contains(text, "## Agent version-agent") || strings.Count(text, "new version") != 1 {
 				t.Fatalf("fresh session lost or duplicated history: %s", text)
 			}
-			if r.ClientSessionID == firstSession || r.Status != "completed" {
+			if r.SessionID == firstSession || r.Status != "completed" {
 				t.Fatal(r)
 			}
 		}

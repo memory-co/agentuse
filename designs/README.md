@@ -4,6 +4,8 @@
 
 当前使用手册位于 [docs](../docs/README.md)，命令和参数以其中的 [Server CLI](../docs/server/cli.md)、[Client CLI](../docs/client/cli.md) 为准。
 
+v1/v2 是历史存档，其中旧接口和类型不代表当前支持的入口。Server 当前仅使用 [Conversation 接口](../docs/server/conversations.md)，旧 session 路由和兼容别名已删除。
+
 | 入口 | 内容 |
 |---|---|
 | [Server 设计](v3/designs/server-main.md) | 服务端业务划分及各 service 的设计 |

@@ -62,14 +62,14 @@ func runRegister(args []string) error {
 	if err != nil {
 		return fmt.Errorf("注册失败: %w", err)
 	}
-	fmt.Printf("注册成功: device %s,配置已写入 %s；重启 client 后生效\n", cfg.DaemonID, *cfgPath)
+	fmt.Printf("注册成功: device %s,配置已写入 %s；重启 client 后生效\n", cfg.DeviceID, *cfgPath)
 	return nil
 }
 
 func loadDaemonConfig(path string) (runservice.Config, error) {
 	cfg, err := services.LoadConfig(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return cfg, fmt.Errorf("这台电脑还没注册(%s 不存在):请在 agentuse 页面上添加 daemon,复制安装命令运行", path)
+		return cfg, fmt.Errorf("这台电脑还没注册(%s 不存在):请在 agentuse 页面上添加设备,复制安装命令运行", path)
 	}
 	return cfg, err
 }
@@ -153,7 +153,7 @@ func runStatus(args []string) error {
 	}
 	command.PrintTable(os.Stdout, [][]string{
 		{"服务", cfg.Server},
-		{"daemon", cfg.DaemonID},
+		{"device", cfg.DeviceID},
 		{"配置", *cfgPath},
 		{"服务连通", conn},
 		{"后台服务", ServiceStatus()},

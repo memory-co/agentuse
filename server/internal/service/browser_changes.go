@@ -79,7 +79,7 @@ func (b *BrowserChanges) publish(c BrowserChange) {
 func (s *Service) notifyResource(resource, id, owner string) {
 	s.BrowserChanges.publish(BrowserChange{Resource: resource, ID: id, owners: []string{owner}, adminOnly: resource == "users"})
 }
-func (s *Service) notifySession(ss Session, resource string) {
+func (s *Service) publishConversationChange(ss Conversation, resource string) {
 	s.BrowserChanges.publish(BrowserChange{Resource: resource, ID: ss.ID, WorkID: ss.WorkID, owners: []string{ss.UserID, ss.CreatedBy}})
 }
 func (s *Service) notifyConversation(ctx context.Context, id string) {
@@ -89,12 +89,12 @@ func (s *Service) notifyConversation(ctx context.Context, id string) {
 	if !listening {
 		return
 	}
-	if ss, err := s.GetSession(ctx, User{Role: RoleAdmin}, id); err == nil {
-		s.notifySession(ss, "sessions")
+	if ss, err := s.GetConversation(ctx, User{Role: RoleAdmin}, id); err == nil {
+		s.publishConversationChange(ss, "conversations")
 	}
 }
 func (s *Service) notifyCoordinator(ctx context.Context, id string) {
-	if ss, err := s.GetSession(ctx, User{Role: RoleAdmin}, id); err == nil && ss.WorkID != "" {
+	if ss, err := s.GetConversation(ctx, User{Role: RoleAdmin}, id); err == nil && ss.WorkID != "" {
 		if w, e := s.GetWork(ctx, User{Role: RoleAdmin}, ss.WorkID); e == nil && w.CoordinatorID != id {
 			s.notifyConversation(ctx, w.CoordinatorID)
 		}
@@ -102,7 +102,7 @@ func (s *Service) notifyCoordinator(ctx context.Context, id string) {
 }
 
 func (s *Service) notifyDeviceConversations(ctx context.Context, id string) {
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT session_id FROM message_agents WHERE daemon_id=?`, id)
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT conversation_id FROM message_agents WHERE device_id=?`, id)
 	if err != nil {
 		return
 	}

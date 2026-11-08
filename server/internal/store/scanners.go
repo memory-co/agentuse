@@ -12,35 +12,35 @@ type scanner interface{ Scan(...any) error }
 
 func ScanAgent(row scanner) (Agent, error) {
 	var a Agent
-	var daemon, desc sql.NullString
-	err := row.Scan(&a.ID, &a.UserID, &a.Name, &daemon, &a.Harness, &desc, &a.CreatedAt, &a.UpdatedAt, &a.CurrentVersionID, &a.Version, &a.Model, &a.Instructions)
+	var device, desc sql.NullString
+	err := row.Scan(&a.ID, &a.UserID, &a.Name, &device, &a.Harness, &desc, &a.CreatedAt, &a.UpdatedAt, &a.CurrentVersionID, &a.Version, &a.Model, &a.Instructions)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Agent{}, ErrNotFound
 	}
-	a.DaemonID, a.Description = daemon.String, desc.String
+	a.DeviceID, a.Description = device.String, desc.String
 	return a, err
 }
 
 func ScanAttachment(row scanner) (attachment.Attachment, error) {
 	var a attachment.Attachment
-	err := row.Scan(&a.ID, &a.SessionID, &a.Filename, &a.ContentType, &a.SizeBytes, &a.SHA256, &a.CreatedBy, &a.Source, &a.DaemonID, &a.CreatedAt, &a.CreatedByRunID, &a.CreatedByAgentKey, &a.RelativePath)
+	err := row.Scan(&a.ID, &a.ConversationID, &a.Filename, &a.ContentType, &a.SizeBytes, &a.SHA256, &a.CreatedBy, &a.Source, &a.DeviceID, &a.CreatedAt, &a.CreatedByRunID, &a.CreatedByAgentID, &a.RelativePath)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
-	a.DownloadPath = "/api/sessions/" + a.SessionID + "/attachments/" + a.ID + "/content"
+	a.DownloadPath = "/api/conversations/" + a.ConversationID + "/attachments/" + a.ID + "/content"
 	return a, err
 }
 
-func ScanDaemon(row scanner) (Daemon, error) {
-	var d Daemon
+func ScanDevice(row scanner) (Device, error) {
+	var d Device
 	var token sql.NullString
 	var seen sql.NullInt64
 	err := row.Scan(&d.ID, &d.UserID, &d.Name, &token, &d.Status, &seen, &d.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Daemon{}, ErrNotFound
+		return Device{}, ErrNotFound
 	}
 	d.SetupToken, d.LastSeenAt = token.String, nullInt(seen)
-	d.Harnesses = []DaemonHarness{}
+	d.Harnesses = []DeviceHarness{}
 	d.Capabilities = []string{}
 	return d, err
 }
@@ -48,7 +48,7 @@ func ScanDaemon(row scanner) (Daemon, error) {
 func ScanRun(row scanner) (Run, error) {
 	var r Run
 	var result sql.NullString
-	err := row.Scan(&r.ID, &r.SessionID, &r.FirstMessageID, &r.AgentID, &r.AgentVersionID, &r.DaemonID, &r.ClientSessionID, &r.Harness, &r.HarnessRevision, &r.Status, &r.ResultMessageID, &r.Output, &r.Error, &result, &r.CreatedAt, &r.UpdatedAt)
+	err := row.Scan(&r.ID, &r.ConversationID, &r.FirstMessageID, &r.AgentID, &r.AgentVersionID, &r.DeviceID, &r.SessionID, &r.Harness, &r.HarnessRevision, &r.Status, &r.ResultMessageID, &r.Output, &r.Error, &result, &r.CreatedAt, &r.UpdatedAt)
 	if err == sql.ErrNoRows {
 		err = ErrNotFound
 	}
@@ -58,12 +58,12 @@ func ScanRun(row scanner) (Run, error) {
 	return r, err
 }
 
-func ScanSession(row scanner) (Session, error) {
-	var ss Session
+func ScanConversation(row scanner) (Conversation, error) {
+	var ss Conversation
 	var work sql.NullString
-	err := row.Scan(&ss.ID, &ss.UserID, &ss.CreatedBy, &work, &ss.WorkRole, &ss.Title, &ss.Status, &ss.CreatedAt, &ss.UpdatedAt, &ss.Mode)
+	err := row.Scan(&ss.ID, &ss.UserID, &ss.CreatedBy, &work, &ss.WorkRole, &ss.Title, &ss.Status, &ss.CreatedAt, &ss.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Session{}, ErrNotFound
+		return Conversation{}, ErrNotFound
 	}
 	ss.WorkID = work.String
 	return ss, err
@@ -72,7 +72,7 @@ func ScanSession(row scanner) (Session, error) {
 func ScanMessage(row scanner) (Message, error) {
 	var m Message
 	var content, agents, users, attachments string
-	err := row.Scan(&m.ID, &m.SessionID, &m.Role, &content, &m.CreatedAt, &m.RunID, &m.AgentKey, &m.AgentName, &agents, &users, &m.AuthorUserID, &m.ReplyToMessageID, &m.AuthorAgentVersionID, &m.Seq, &attachments)
+	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorRole, &content, &m.CreatedAt, &m.AuthorAgentID, &m.AuthorName, &agents, &users, &m.AuthorUserID, &m.ReplyToMessageID, &m.AuthorAgentVersionID, &m.Seq, &attachments)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Message{}, ErrNotFound
 	}
@@ -88,7 +88,7 @@ func ScanMessage(row scanner) (Message, error) {
 	if err = json.Unmarshal([]byte(attachments), &m.Attachments); err != nil {
 		return Message{}, err
 	}
-	m.Content = json.RawMessage(content)
+	m.Content = content
 	return m, err
 }
 

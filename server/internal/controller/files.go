@@ -7,11 +7,7 @@ import (
 )
 
 func (s *Server) handleConversationFile(w http.ResponseWriter, r *http.Request) {
-	if !s.threadInScope(w, r, r.PathValue("id")) {
-		return
-	}
-	if _, err := s.service.GetSession(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
-		s.storeErr(w, err)
+	if !s.attachmentConversation(w, r, r.Method == http.MethodPut) {
 		return
 	}
 	if s.service.Files == nil {
@@ -22,7 +18,7 @@ func (s *Server) handleConversationFile(w http.ResponseWriter, r *http.Request) 
 	switch r.Method {
 	case http.MethodPut:
 		r.Body = http.MaxBytesReader(w, r.Body, s.cfg.AttachmentMaxBytes)
-		if err := s.service.Files.Put(r.Context(), "conversations", key, r.Body, false); err != nil {
+		if err := s.service.PutConversationFile(r.Context(), attachmentAccess(r), r.PathValue("id"), r.PathValue("path"), r.Body); err != nil {
 			s.storeErr(w, err)
 			return
 		}

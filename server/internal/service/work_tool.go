@@ -22,8 +22,8 @@ func (s *Service) AuthorizeWorkTool(ctx context.Context, device, conversation, m
 	defer tx.Rollback()
 	var work string
 	err = tx.QueryRowContext(ctx, `SELECT w.id, p.message_id FROM message_agents p
- JOIN works w ON w.coordinator_id=p.session_id AND w.coordinator_agent_id=p.agent_id
- WHERE p.daemon_id=? AND p.session_id=? AND p.agent_id=?
+ JOIN works w ON w.coordinator_id=p.conversation_id AND w.coordinator_agent_id=p.agent_id
+ WHERE p.device_id=? AND p.conversation_id=? AND p.agent_id=?
  AND ((?<>'' AND p.message_id=? AND p.status='sent')
  OR (p.status='accepted' AND p.run_id=? AND (?='' OR p.message_id=?)))
  LIMIT 1`, device, conversation, agent, message, message, run, message, message).Scan(&work, &message)

@@ -73,12 +73,12 @@ func (s *Service) UpdateWork(ctx context.Context, u User, id string, p WorkPatch
 	}
 	now := s.unix()
 	if p.CoordinatorAgentID != nil {
-		coord, e := s.getSession(ctx, tx, u, w.CoordinatorID)
+		coord, e := s.getConversation(ctx, tx, u, w.CoordinatorID)
 		if e != nil {
 			return w, e
 		}
 		if coord.Status != "idle" && coord.Status != "resolved" {
-			return w, ErrSessionBusy
+			return w, ErrConversationBusy
 		}
 		a, e := scanAgent(tx.QueryRowContext(ctx, agentCols+store.UpdateWorkClause, *p.CoordinatorAgentID, w.UserID))
 		if e != nil {
@@ -114,11 +114,14 @@ func (s *Service) UpdateWork(ctx context.Context, u User, id string, p WorkPatch
 	if err == nil {
 		s.notifyResource("works", w.ID, w.UserID)
 		s.notifyConversation(ctx, w.CoordinatorID)
+		if failure := s.ReconcileWorkNotifications(ctx); failure != nil {
+			s.log.Printf("work summary pending: %v", failure)
+		}
 	}
 	return w, err
 }
 
-// DeleteWork 连协调者和所有线程一起删。有会话在跑时返回 ErrSessionBusy。
+// DeleteWork 连协调者和所有线程一起删。有会话在跑时返回 ErrConversationBusy。
 func (s *Service) DeleteWork(ctx context.Context, u User, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -135,9 +138,9 @@ func (s *Service) DeleteWork(ctx context.Context, u User, id string) error {
 		return err
 	}
 	if busy > 0 {
-		return ErrSessionBusy
+		return ErrConversationBusy
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM sessions WHERE work_id=?`, w.ID)
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM conversations WHERE work_id=?`, w.ID)
 	if err != nil {
 		return err
 	}
@@ -156,7 +159,7 @@ func (s *Service) DeleteWork(ctx context.Context, u User, id string) error {
 		return err
 	}
 	for _, id := range ids {
-		if err = deleteConversationExecution(ctx, tx, id); err != nil {
+		if err = deleteConversationContents(ctx, tx, id); err != nil {
 			return err
 		}
 	}
@@ -176,43 +179,43 @@ func (s *Service) DeleteWork(ctx context.Context, u User, id string) error {
 	return nil
 }
 
-// ResolveSession 把 idle 的会话标记为已完成;已经是已完成的直接返回。协调者不能标记。
-func (s *Service) ResolveSession(ctx context.Context, u User, id string) (Session, error) {
-	return s.setResolved(ctx, u, id, SessionIdle, SessionResolved)
+// ResolveConversation 把 idle 的会话标记为已完成;已经是已完成的直接返回。协调者不能标记。
+func (s *Service) ResolveConversation(ctx context.Context, u User, id string) (Conversation, error) {
+	return s.setResolved(ctx, u, id, ConversationIdle, ConversationResolved)
 }
 
-// ReopenSession 取消已完成，回到 idle。
-func (s *Service) ReopenSession(ctx context.Context, u User, id string) (Session, error) {
-	return s.setResolved(ctx, u, id, SessionResolved, SessionIdle)
+// ReopenConversation 取消已完成，回到 idle。
+func (s *Service) ReopenConversation(ctx context.Context, u User, id string) (Conversation, error) {
+	return s.setResolved(ctx, u, id, ConversationResolved, ConversationIdle)
 }
 
-func (s *Service) setResolved(ctx context.Context, u User, id, from, to string) (Session, error) {
+func (s *Service) setResolved(ctx context.Context, u User, id, from, to string) (Conversation, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Session{}, err
+		return Conversation{}, err
 	}
 	defer tx.Rollback()
-	ss, err := s.getSession(ctx, tx, u, id)
+	ss, err := s.getConversation(ctx, tx, u, id)
 	if err != nil {
-		return Session{}, err
+		return Conversation{}, err
 	}
 	if ss.WorkRole == WorkCoordinator {
-		return Session{}, ErrCoordinator
+		return Conversation{}, ErrCoordinator
 	}
 	if ss.Status == to {
 		return ss, nil
 	}
 	if ss.Status != from {
-		return Session{}, fmt.Errorf("%w:现在是 %s", ErrSessionState, ss.Status)
+		return Conversation{}, fmt.Errorf("%w:现在是 %s", ErrConversationState, ss.Status)
 	}
 	now := s.unix()
 	if _, err := tx.ExecContext(ctx, store.SetResolvedUpdate, to, now, ss.ID); err != nil {
-		return Session{}, err
+		return Conversation{}, err
 	}
 	ss.Status, ss.UpdatedAt = to, now
 	err = tx.Commit()
 	if err == nil {
-		s.notifySession(ss, "sessions")
+		s.publishConversationChange(ss, "conversations")
 	}
 	return ss, err
 }

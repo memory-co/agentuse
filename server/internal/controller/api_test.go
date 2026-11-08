@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"net/http"
 	"testing"
@@ -57,10 +56,10 @@ func TestActAsUser(t *testing.T) {
 	if r := e.req(adminTok, "GET", "/api/me", nil, &me, actAsHeader, "u_10086"); r.StatusCode != 200 || me.ID != "u_10086" || me.Role != service.RoleUser {
 		t.Fatalf("act as new user: %d %+v", r.StatusCode, me)
 	}
-	// 代为 alice 添加的 daemon 挂在 alice 下
-	var d service.Daemon
-	if r := e.req(adminTok, "POST", "/api/daemons", map[string]string{"name": "x"}, &d, actAsHeader, alice.ID); r.StatusCode != http.StatusCreated || d.UserID != alice.ID {
-		t.Fatalf("create daemon as alice: %d %+v", r.StatusCode, d)
+	// 代为 alice 添加的 device 挂在 alice 下
+	var d service.Device
+	if r := e.req(adminTok, "POST", "/api/devices", map[string]string{"name": "x"}, &d, actAsHeader, alice.ID); r.StatusCode != http.StatusCreated || d.UserID != alice.ID {
+		t.Fatalf("create device as alice: %d %+v", r.StatusCode, d)
 	}
 	// 代为用户时就是普通用户权限
 	if r := e.req(adminTok, "GET", "/api/users", nil, nil, actAsHeader, alice.ID); r.StatusCode != http.StatusForbidden {
@@ -154,7 +153,7 @@ func TestUsersAPI(t *testing.T) {
 func TestHarnessesAPIIsOnlyADeviceReportView(t *testing.T) {
 	e := newEnv(t, Config{})
 	u, token := e.user("alice", service.RoleUser)
-	e.daemonWith(u, "custom-local")
+	e.deviceWith(u, "custom-local")
 	var hs []service.Harness
 	if r := e.req(token, "GET", "/api/harnesses", nil, &hs); r.StatusCode != 200 || len(hs) != 1 || hs[0].Name != "custom-local" {
 		t.Fatal(r.StatusCode, hs)
@@ -164,19 +163,19 @@ func TestHarnessesAPIIsOnlyADeviceReportView(t *testing.T) {
 	}
 }
 
-// daemonWith 建一台 u 的、已上报并开启 harnesses 的 daemon。
-func (e *env) daemonWith(u service.User, harnesses ...string) service.Daemon {
+// deviceWith 建一台 u 的、已上报并开启 harnesses 的 device。
+func (e *env) deviceWith(u service.User, harnesses ...string) service.Device {
 	e.t.Helper()
 	ctx := context.Background()
-	d, _ := e.st.CreateDaemon(ctx, u.ID, "laptop")
-	d, _, _ = e.st.RegisterDaemon(ctx, d.SetupToken, "")
+	d, _ := e.st.CreateDevice(ctx, u.ID, "laptop")
+	d, _, _ = e.st.RegisterDevice(ctx, d.SetupToken, "")
 	var rep []service.ReportedHarness
 	for _, h := range harnesses {
 		rep = append(rep, service.ReportedHarness{Name: h})
 	}
-	e.st.DaemonConnected(ctx, d, rep)
+	e.st.DeviceConnected(ctx, d, rep)
 	for _, h := range harnesses {
-		e.st.SetDaemonHarnessEnabled(ctx, u, d.ID, h, true)
+		e.st.SetDeviceHarnessEnabled(ctx, u, d.ID, h, true)
 	}
 	return d
 }
@@ -185,13 +184,13 @@ func TestAgentsAPI(t *testing.T) {
 	e := newEnv(t, Config{})
 	alice, aliceTok := e.user("alice", service.RoleUser)
 	_, bobTok := e.user("bob", service.RoleUser)
-	d := e.daemonWith(alice, "claude", "codex")
+	d := e.deviceWith(alice, "claude", "codex")
 
 	var a service.Agent
-	if r := e.req(aliceTok, "POST", "/api/agents", map[string]string{"id": "coder", "name": "写代码", "daemon_id": d.ID, "harness": "claude"}, &a); r.StatusCode != http.StatusCreated || a.ID != "coder" {
+	if r := e.req(aliceTok, "POST", "/api/agents", map[string]string{"id": "coder", "name": "写代码", "device_id": d.ID, "harness": "claude"}, &a); r.StatusCode != http.StatusCreated || a.ID != "coder" {
 		t.Fatalf("create: %d %+v", r.StatusCode, a)
 	}
-	if c := e.code(aliceTok, "POST", "/api/agents", map[string]string{"name": "x", "daemon_id": d.ID, "harness": "ghost"}); c != http.StatusBadRequest {
+	if c := e.code(aliceTok, "POST", "/api/agents", map[string]string{"name": "x", "device_id": d.ID, "harness": "ghost"}); c != http.StatusBadRequest {
 		t.Fatalf("bad runtime: %d", c)
 	}
 	if c := e.code(aliceTok, "POST", "/api/agents", "["); c != http.StatusBadRequest {
@@ -202,7 +201,7 @@ func TestAgentsAPI(t *testing.T) {
 	}
 	base := a.CurrentVersionID
 	var v agentuse.AgentVersion
-	body := map[string]any{"base_version_id": base, "name": a.Name, "description": "新说明", "daemon_id": d.ID, "harness": "claude", "skills": []any{}}
+	body := map[string]any{"base_version_id": base, "name": a.Name, "description": "新说明", "device_id": d.ID, "harness": "claude", "skills": []any{}}
 	if r := e.req(aliceTok, "POST", "/api/agents/coder/versions", body, &v); r.StatusCode != 201 || v.Version != 2 || v.Description != "新说明" {
 		t.Fatalf("publish: %d %+v", r.StatusCode, v)
 	}
@@ -234,90 +233,75 @@ func TestAgentsAPI(t *testing.T) {
 	}
 }
 
-func TestDaemonsAPI(t *testing.T) {
+func TestDevicesAPI(t *testing.T) {
 	e := newEnv(t, Config{})
 	_, aliceTok := e.user("alice", service.RoleUser)
 	_, bobTok := e.user("bob", service.RoleUser)
 
 	// 不带请求体也能建
-	var v daemonView
-	if r := e.req(aliceTok, "POST", "/api/daemons", nil, &v); r.StatusCode != http.StatusCreated || v.Name != "" ||
+	var v deviceView
+	if r := e.req(aliceTok, "POST", "/api/devices", nil, &v); r.StatusCode != http.StatusCreated || v.Name != "" ||
 		v.SetupCommand != `curl -fsSL "`+e.ts.URL+`/setup.sh" -o setup.sh && TOKEN="`+v.SetupToken+`" bash setup.sh` {
 		t.Fatalf("create: %d %+v", r.StatusCode, v)
 	}
-	if c := e.code(aliceTok, "POST", "/api/daemons", "{"); c != http.StatusBadRequest {
+	if c := e.code(aliceTok, "POST", "/api/devices", "{"); c != http.StatusBadRequest {
 		t.Fatalf("bad json: %d", c)
 	}
-	var list []daemonView
-	if e.req(aliceTok, "GET", "/api/daemons", nil, &list); len(list) != 1 || list[0].SetupCommand == "" {
+	var list []deviceView
+	if e.req(aliceTok, "GET", "/api/devices", nil, &list); len(list) != 1 || list[0].SetupCommand == "" {
 		t.Fatalf("list: %+v", list)
 	}
 
 	// 注册后不再有安装命令
 	var reg protocol.RegisterResponse
-	if r := e.req("", "POST", "/api/daemon/register", map[string]string{"token": v.SetupToken, "hostname": "host"}, &reg); r.StatusCode != 200 || reg.DaemonID != v.ID {
+	if r := e.req("", "POST", "/api/client/register", map[string]string{"token": v.SetupToken, "hostname": "host"}, &reg); r.StatusCode != 200 || reg.DeviceID != v.ID {
 		t.Fatalf("register: %d %+v", r.StatusCode, reg)
 	}
-	var after []daemonView
-	if e.req(aliceTok, "GET", "/api/daemons", nil, &after); after[0].SetupCommand != "" || after[0].SetupToken != "" || after[0].Name != "host" {
+	var after []deviceView
+	if e.req(aliceTok, "GET", "/api/devices", nil, &after); after[0].SetupCommand != "" || after[0].SetupToken != "" || after[0].Name != "host" {
 		t.Fatalf("after register: %+v", after)
 	}
-	if c := e.code("", "POST", "/api/daemon/register", map[string]string{"token": v.SetupToken}); c != http.StatusUnauthorized {
+	if c := e.code("", "POST", "/api/client/register", map[string]string{"token": v.SetupToken}); c != http.StatusUnauthorized {
 		t.Fatalf("reuse setup token: %d", c)
 	}
-	if c := e.code("", "POST", "/api/daemon/register", "x"); c != http.StatusBadRequest {
+	if c := e.code("", "POST", "/api/client/register", "x"); c != http.StatusBadRequest {
 		t.Fatalf("register bad json: %d", c)
 	}
-	if c := e.code(reg.Key, "GET", "/api/daemon/me", nil); c != http.StatusOK {
-		t.Fatalf("daemon me: %d", c)
+	if c := e.code(reg.Key, "GET", "/api/client/me", nil); c != http.StatusOK {
+		t.Fatalf("device me: %d", c)
 	}
-	if c := e.code("", "GET", "/api/daemon/me", nil); c != http.StatusUnauthorized {
-		t.Fatalf("daemon me without key: %d", c)
+	if c := e.code("", "GET", "/api/client/me", nil); c != http.StatusUnauthorized {
+		t.Fatalf("device me without key: %d", c)
 	}
 
 	// 开关只能开上报过的
-	if c := e.code(aliceTok, "PUT", "/api/daemons/"+v.ID+"/harnesses/claude", map[string]bool{"enabled": true}); c != http.StatusNotFound {
+	if c := e.code(aliceTok, "PUT", "/api/devices/"+v.ID+"/harnesses/claude", map[string]bool{"enabled": true}); c != http.StatusNotFound {
 		t.Fatalf("toggle unreported: %d", c)
 	}
-	if c := e.code(aliceTok, "PUT", "/api/daemons/"+v.ID+"/harnesses/claude", "x"); c != http.StatusBadRequest {
+	if c := e.code(aliceTok, "PUT", "/api/devices/"+v.ID+"/harnesses/claude", "x"); c != http.StatusBadRequest {
 		t.Fatalf("toggle bad json: %d", c)
 	}
-	d, _ := e.st.DaemonByKey(context.Background(), reg.Key)
-	e.st.DaemonConnected(context.Background(), d, []service.ReportedHarness{{Name: "claude"}})
-	if r := e.req(aliceTok, "PUT", "/api/daemons/"+v.ID+"/harnesses/claude", map[string]bool{"enabled": true}, &v); r.StatusCode != 200 || !v.Harnesses[0].Enabled {
+	d, _ := e.st.DeviceByKey(context.Background(), reg.Key)
+	e.st.DeviceConnected(context.Background(), d, []service.ReportedHarness{{Name: "claude"}})
+	if r := e.req(aliceTok, "PUT", "/api/devices/"+v.ID+"/harnesses/claude", map[string]bool{"enabled": true}, &v); r.StatusCode != 200 || !v.Harnesses[0].Enabled {
 		t.Fatalf("toggle: %d %+v", r.StatusCode, v)
 	}
 
 	// 重置：新安装命令，旧密钥失效
-	if c := e.code(bobTok, "POST", "/api/daemons/"+v.ID+"/reset", nil); c != http.StatusNotFound {
+	if c := e.code(bobTok, "POST", "/api/devices/"+v.ID+"/reset", nil); c != http.StatusNotFound {
 		t.Fatalf("bob reset: %d", c)
 	}
-	if r := e.req(aliceTok, "POST", "/api/daemons/"+v.ID+"/reset", nil, &v); r.StatusCode != 200 || v.SetupCommand == "" || v.Status != service.DaemonPending {
+	if r := e.req(aliceTok, "POST", "/api/devices/"+v.ID+"/reset", nil, &v); r.StatusCode != 200 || v.SetupCommand == "" || v.Status != service.DevicePending {
 		t.Fatalf("reset: %d %+v", r.StatusCode, v)
 	}
-	if c := e.code(reg.Key, "GET", "/api/daemon/me", nil); c != http.StatusUnauthorized {
+	if c := e.code(reg.Key, "GET", "/api/client/me", nil); c != http.StatusUnauthorized {
 		t.Fatalf("old key after reset: %d", c)
 	}
 
-	if c := e.code(bobTok, "DELETE", "/api/daemons/"+v.ID, nil); c != http.StatusNotFound {
+	if c := e.code(bobTok, "DELETE", "/api/devices/"+v.ID, nil); c != http.StatusNotFound {
 		t.Fatalf("bob delete: %d", c)
 	}
-	if c := e.code(aliceTok, "DELETE", "/api/daemons/"+v.ID, nil); c != http.StatusNoContent {
+	if c := e.code(aliceTok, "DELETE", "/api/devices/"+v.ID, nil); c != http.StatusNoContent {
 		t.Fatalf("delete: %d", c)
-	}
-}
-
-func TestMessageContent(t *testing.T) {
-	if c, err := messageContent(json.RawMessage(`{"a":1}`), "ignored", nil); err != nil || string(c) != `{"a":1}` {
-		t.Fatalf("input wins: %s %v", c, err)
-	}
-	if c, err := messageContent(nil, `say "hi"`, nil); err != nil || string(c) != `{"prompt":"say \"hi\""}` {
-		t.Fatalf("prompt: %s %v", c, err)
-	}
-	if _, err := messageContent(nil, " \n", nil); err == nil {
-		t.Fatal("empty should fail")
-	}
-	if firstRunes("中文abc", 3) != "中文a" || firstRunes("ab", 3) != "ab" {
-		t.Fatal("firstRunes")
 	}
 }

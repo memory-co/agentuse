@@ -65,7 +65,7 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 	os.MkdirAll(filepath.Dir(config), 0700)
 	writeAdapterConfig(t, config, map[string]any{"harnesses": map[string]any{"fake": map[string]any{"command": fake}, "codex": map[string]any{"command": fake}, "claude": map[string]any{"command": fake}}})
 	user := "context-user"
-	device, err := c.CreateDaemon(ctx, user, "context machine")
+	device, err := c.CreateDevice(ctx, user, "context machine")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,10 +77,10 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 	e2eutil.Start(t, daemon)
 	waitOnline(t, c, user, device.ID, 3)
 	for _, name := range []string{"fake", "codex", "claude"} {
-		if _, err = c.SetDaemonHarness(ctx, user, device.ID, name, true); err != nil {
+		if _, err = c.SetDeviceHarness(ctx, user, device.ID, name, true); err != nil {
 			t.Fatal(err)
 		}
-		if _, err = c.CreateAgent(ctx, user, sdk.CreateAgentRequest{ID: "image-" + name, Name: "Image " + name, Harness: name, DaemonID: device.ID}); err != nil {
+		if _, err = c.CreateAgent(ctx, user, sdk.CreateAgentRequest{ID: "image-" + name, Name: "Image " + name, Harness: name, DeviceID: device.ID}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -93,11 +93,11 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 	ep := "http---" + strings.ReplaceAll(parsed.Host, ":", "%3A")
 	for _, h := range []string{"fake", "codex", "claude"} {
 		t.Run(h, func(t *testing.T) {
-			created, err := c.CreateSession(ctx, user, sdk.CreateSessionRequest{})
+			created, err := c.CreateConversation(ctx, user, sdk.CreateConversationRequest{})
 			if err != nil {
 				t.Fatal(err)
 			}
-			conversation := created.Session.ID
+			conversation := created.Conversation.ID
 			attachment, err := c.UploadAttachment(ctx, user, conversation, "截图.png", bytes.NewReader(image))
 			if err != nil {
 				t.Fatal(err)
@@ -112,7 +112,7 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 			}
 			var run sdk.Run
 			e2eutil.WaitFor(t, 10*time.Second, "context image accepted", func() bool {
-				detail, err := c.GetSession(ctx, user, conversation)
+				detail, err := c.GetConversation(ctx, user, conversation)
 				if err != nil || len(detail.Runs) == 0 {
 					return false
 				}
@@ -132,7 +132,7 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 					t.Fatal(err)
 				}
 				e2eutil.WaitFor(t, 10*time.Second, "queued run accepted", func() bool {
-					detail, err := c.GetSession(ctx, user, conversation)
+					detail, err := c.GetConversation(ctx, user, conversation)
 					return err == nil && len(detail.Runs) == 2
 				})
 				if err = os.WriteFile(filepath.Join(workspace, "future-file-path"), []byte(future.RelativePath), 0600); err != nil {
@@ -175,7 +175,7 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 				t.Fatal("run output binding failed", run.Output)
 			}
 			output, err := c.GetAttachment(ctx, user, conversation, proof.Uploaded.ID)
-			if err != nil || output.CreatedByRunID != run.ID || output.CreatedByAgentKey != "image-"+h || output.Source != "daemon" || !strings.HasPrefix(output.RelativePath, "reports/") {
+			if err != nil || output.CreatedByRunID != run.ID || output.CreatedByAgentID != "image-"+h || output.Source != "device" || !strings.HasPrefix(output.RelativePath, "reports/") {
 				t.Fatal("Server omitted output attribution", output, err)
 			}
 			download, err := c.DownloadAttachment(ctx, user, conversation, proof.Uploaded.ID)

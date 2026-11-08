@@ -28,7 +28,7 @@ type Skill struct {
 type AgentConfig struct {
 	Name         string     `json:"name"`
 	Description  string     `json:"description"`
-	DaemonID     string     `json:"daemon_id"`
+	DeviceID     string     `json:"device_id"`
 	Harness      string     `json:"harness"`
 	Model        string     `json:"model,omitempty"`
 	Instructions string     `json:"instructions"`

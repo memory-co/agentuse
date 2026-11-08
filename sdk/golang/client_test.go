@@ -39,8 +39,8 @@ func TestRequests(t *testing.T) {
 		switch {
 		case r.Method == "DELETE":
 			w.WriteHeader(http.StatusNoContent)
-		case strings.HasPrefix(r.Path, "/api/sessions/"):
-			w.Write([]byte(`{"session":{"id":"ss_1","status":"idle"},"messages":[],"events":[]}`))
+		case strings.HasPrefix(r.Path, "/api/conversations/"):
+			w.Write([]byte(`{"conversation":{"id":"ss_1","status":"idle"},"messages":[],"events":[]}`))
 		default:
 			w.Write([]byte(`{"id":"x"}`))
 		}
@@ -49,24 +49,24 @@ func TestRequests(t *testing.T) {
 
 	c.Me(ctx, "")
 	c.Me(ctx, "u 1")
-	c.CreateSession(ctx, "u1", agentuse.CreateSessionRequest{ToAgentIDs: []string{"coder"}, ToUserIDs: []string{"u1"}, Prompt: "hi"})
-	c.PublishAgentVersion(ctx, "u1", "a/b", agentuse.PublishAgentVersionRequest{BaseVersionID: "v1", AgentConfig: agentuse.AgentConfig{Name: "新名字", DaemonID: "device", Harness: "codex", Skills: []agentuse.SkillRef{}}})
-	c.SetDaemonHarness(ctx, "u1", "dm_1", "claude", true)
-	if err := c.DeleteSession(ctx, "u1", "ss_1"); err != nil {
+	c.CreateConversation(ctx, "u1", agentuse.CreateConversationRequest{ToAgentIDs: []string{"coder"}, ToUserIDs: []string{"u1"}, Prompt: "hi"})
+	c.PublishAgentVersion(ctx, "u1", "a/b", agentuse.PublishAgentVersionRequest{BaseVersionID: "v1", AgentConfig: agentuse.AgentConfig{Name: "新名字", DeviceID: "device", Harness: "codex", Skills: []agentuse.SkillRef{}}})
+	c.SetDeviceHarness(ctx, "u1", "dm_1", "claude", true)
+	if err := c.DeleteConversation(ctx, "u1", "ss_1"); err != nil {
 		t.Fatal(err)
 	}
-	if d, err := c.GetSession(ctx, "u1", "ss_1"); err != nil || d.Session.Status != "idle" {
+	if d, err := c.GetConversation(ctx, "u1", "ss_1"); err != nil || d.Conversation.Status != "idle" {
 		t.Fatalf("get: %v %+v", err, d)
 	}
 
 	want := []recorded{
 		{"GET", "/api/me", "Bearer ut_admin", "", "", ""},
 		{"GET", "/api/me", "Bearer ut_admin", "u 1", "", ""},
-		{"POST", "/api/sessions", "Bearer ut_admin", "u1", "application/json", `{"to_agent_ids":["coder"],"to_user_ids":["u1"],"prompt":"hi"}`},
-		{"POST", "/api/agents/a%2Fb/versions", "Bearer ut_admin", "u1", "application/json", `{"base_version_id":"v1","name":"新名字","description":"","daemon_id":"device","harness":"codex","instructions":"","skills":[]}`},
-		{"PUT", "/api/daemons/dm_1/harnesses/claude", "Bearer ut_admin", "u1", "application/json", `{"enabled":true}`},
-		{"DELETE", "/api/sessions/ss_1", "Bearer ut_admin", "u1", "", ""},
-		{"GET", "/api/sessions/ss_1", "Bearer ut_admin", "u1", "", ""},
+		{"POST", "/api/conversations", "Bearer ut_admin", "u1", "application/json", `{"to_agent_ids":["coder"],"to_user_ids":["u1"],"prompt":"hi"}`},
+		{"POST", "/api/agents/a%2Fb/versions", "Bearer ut_admin", "u1", "application/json", `{"base_version_id":"v1","name":"新名字","description":"","device_id":"device","harness":"codex","instructions":"","skills":[]}`},
+		{"PUT", "/api/devices/dm_1/harnesses/claude", "Bearer ut_admin", "u1", "application/json", `{"enabled":true}`},
+		{"DELETE", "/api/conversations/ss_1", "Bearer ut_admin", "u1", "", ""},
+		{"GET", "/api/conversations/ss_1", "Bearer ut_admin", "u1", "", ""},
 	}
 	if len(*reqs) != len(want) {
 		t.Fatalf("requests: %+v", *reqs)
@@ -81,7 +81,7 @@ func TestRequests(t *testing.T) {
 func TestErrors(t *testing.T) {
 	c, _ := server(t, func(w http.ResponseWriter, r recorded) {
 		switch r.Path {
-		case "/api/sessions/busy/messages":
+		case "/api/conversations/busy/messages":
 			w.WriteHeader(http.StatusConflict)
 			w.Write([]byte(`{"error":"会话还在等 harness 回复"}`))
 		case "/api/users":
@@ -111,17 +111,17 @@ func TestErrors(t *testing.T) {
 	}
 }
 
-func TestWaitSession(t *testing.T) {
+func TestWaitConversation(t *testing.T) {
 	var n atomic.Int32
 	c, _ := server(t, func(w http.ResponseWriter, r recorded) {
 		status := "running"
 		if n.Add(1) >= 3 {
 			status = "idle"
 		}
-		json.NewEncoder(w).Encode(map[string]any{"session": map[string]string{"id": "ss_1", "status": status}})
+		json.NewEncoder(w).Encode(map[string]any{"conversation": map[string]string{"id": "ss_1", "status": status}})
 	})
-	d, err := c.WaitSession(context.Background(), "u1", "ss_1", time.Millisecond)
-	if err != nil || d.Session.Status != "idle" || n.Load() != 3 {
+	d, err := c.WaitConversation(context.Background(), "u1", "ss_1", time.Millisecond)
+	if err != nil || d.Conversation.Status != "idle" || n.Load() != 3 {
 		t.Fatalf("%v %+v %d", err, d, n.Load())
 	}
 
@@ -129,7 +129,7 @@ func TestWaitSession(t *testing.T) {
 	n.Store(-1000)
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	if _, err = c.WaitSession(ctx, "u1", "ss_1", 10*time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err = c.WaitConversation(ctx, "u1", "ss_1", 10*time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("timeout: %v", err)
 	}
 }

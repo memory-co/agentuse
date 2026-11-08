@@ -14,12 +14,12 @@ func (s *Server) handleMessageContext(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 403, "device cannot impersonate users")
 		return
 	}
-	d, err := s.service.DaemonByKey(r.Context(), requestToken(r))
+	d, err := s.service.DeviceByKey(r.Context(), requestToken(r))
 	if err != nil {
 		writeErr(w, 401, "invalid device credential")
 		return
 	}
-	result, err := s.service.CompleteMessages(r.Context(), d.ID, r.PathValue("id"), r.PathValue("message_id"), r.PathValue("agent_id"), r.URL.Query().Get("client_session_id"))
+	result, err := s.service.CompleteMessages(r.Context(), d.ID, r.PathValue("id"), r.PathValue("message_id"), r.PathValue("agent_id"), r.URL.Query().Get("session_id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return

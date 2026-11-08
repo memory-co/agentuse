@@ -24,7 +24,7 @@ func (s *Service) messageAttachments(ctx context.Context, q querier, conversatio
 			continue
 		}
 		seen[id] = true
-		file, err := scanAttachment(q.QueryRowContext(ctx, attachmentCols+` WHERE session_id=? AND id=?`, conversation, id))
+		file, err := scanAttachment(q.QueryRowContext(ctx, attachmentCols+` WHERE conversation_id=? AND id=?`, conversation, id))
 		if err != nil {
 			return nil, err
 		}
@@ -35,7 +35,7 @@ func (s *Service) messageAttachments(ctx context.Context, q querier, conversatio
 func mustAttachmentJSON(files []sdk.Attachment) []byte { data, _ := json.Marshal(files); return data }
 func (s *Service) attachRunOutputs(ctx context.Context, tx *sql.Tx, run Run, message string) error {
 	files := []sdk.Attachment{}
-	rows, err := tx.QueryContext(ctx, attachmentCols+` WHERE session_id=? AND created_by_run_id=? ORDER BY created_at,id`, run.SessionID, run.ID)
+	rows, err := tx.QueryContext(ctx, attachmentCols+` WHERE conversation_id=? AND created_by_run_id=? ORDER BY created_at,id`, run.ConversationID, run.ID)
 	if err != nil {
 		return err
 	}

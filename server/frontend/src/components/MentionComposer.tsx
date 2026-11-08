@@ -72,7 +72,7 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
                 <span className="min-w-0 break-words">{agent.name}<span className="ml-1 text-xs text-muted-foreground">@{agent.id}</span></span>
               </label>;
             })}
-            {!agents.some(agent => `${agent.id} ${agent.name}`.toLowerCase().includes(pickerQuery.toLowerCase())) && <p className="p-2 text-xs text-muted-foreground">{t(agents.length ? 'mention.noMatch' : 'session.noAgents')}</p>}
+            {!agents.some(agent => `${agent.id} ${agent.name}`.toLowerCase().includes(pickerQuery.toLowerCase())) && <p className="p-2 text-xs text-muted-foreground">{t(agents.length ? 'mention.noMatch' : 'conversation.noAgents')}</p>}
           </div>
           <p className="mt-2 border-t px-2 pt-2 text-xs text-muted-foreground">{t('mention.multiHint')}</p>
         </PopoverContent>
@@ -123,7 +123,7 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
       {options.map((a, i) => <button key={a.id} type="button" role="option" aria-selected={cursor === i}
         className="rounded-md px-2 py-2 text-left text-xs hover:bg-muted aria-selected:bg-muted" onClick={() => pick(a.id)}>
         <span className="font-medium">@{a.id} · {a.name}</span>
-        <span className="block break-all text-muted-foreground">{a.user_id} · {a.harness} · {a.daemon_id ?? '—'}</span>
+        <span className="block break-all text-muted-foreground">{a.user_id} · {a.harness} · {a.device_id ?? '—'}</span>
       </button>)}
       {manual && <button type="button" role="option" aria-selected={cursor === ids.length - 1} className="rounded-md p-2 text-left text-xs hover:bg-muted" onClick={() => pick(manual)}>@{manual}</button>}
       {!ids.length && <p className="p-2 text-xs text-muted-foreground">{t('mention.noMatch')}</p>}
@@ -151,7 +151,7 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
       </Popover>
       <span className="text-xs text-muted-foreground">{targets.length || userTargets.length ? t('mention.recipients', { agents: targets.length, users: userTargets.length }) : t('mention.note')}</span>
       {children}
-      <Button type="submit" size="icon" className="ml-auto size-8 rounded-full" disabled={busy || (!text.trim() && !files.length)} aria-label={t('session.send')}><ArrowUp /></Button>
+      <Button type="submit" size="icon" className="ml-auto size-8 rounded-full" disabled={busy || (!text.trim() && !files.length)} aria-label={t('conversation.send')}><ArrowUp /></Button>
     </div>
   </form>;
 }

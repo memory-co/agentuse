@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"testing"
@@ -25,7 +24,7 @@ func zipSkill(t *testing.T, text string) []byte {
 	return b.Bytes()
 }
 func TestSkillAPIAndAssignedDeviceDownload(t *testing.T) {
-	e := newEnv(t, Config{FilesDir: t.TempDir(), AttachmentsDir: t.TempDir()})
+	e := newEnv(t, Config{FilesDir: t.TempDir()})
 	ctx := context.Background()
 	u, token := e.user("alice", service.RoleUser)
 	_, otherToken := e.user("bob", service.RoleUser)
@@ -42,26 +41,26 @@ func TestSkillAPIAndAssignedDeviceDownload(t *testing.T) {
 	if _, err = other.GetSkillVersion(ctx, "", skill.ID, skill.CurrentVersionID); !agentuse.IsStatus(err, 404) {
 		t.Fatal("other user read skill", err)
 	}
-	d, err := e.st.CreateDaemon(ctx, u.ID, "assigned")
+	d, err := e.st.CreateDevice(ctx, u.ID, "assigned")
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, key, err := e.st.RegisterDaemon(ctx, d.SetupToken, "")
+	d, key, err := e.st.RegisterDevice(ctx, d.SetupToken, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = e.st.DaemonConnected(ctx, d, []service.ReportedHarness{{Name: "codex"}})
+	_, err = e.st.DeviceConnected(ctx, d, []service.ReportedHarness{{Name: "codex"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = e.st.SetDaemonHarnessEnabled(ctx, u, d.ID, "codex", true); err != nil {
+	if err = e.st.SetDeviceHarnessEnabled(ctx, u, d.ID, "codex", true); err != nil {
 		t.Fatal(err)
 	}
 	device := agentuse.New(e.ts.URL, key)
 	if _, err = device.DownloadSkillPackage(ctx, "", skill.ID, skill.CurrentVersionID); !agentuse.IsStatus(err, 404) {
 		t.Fatal("unassigned package downloaded", err)
 	}
-	a, err := c.CreateAgent(ctx, "", agentuse.CreateAgentRequest{ID: "reviewer", Name: "Reviewer", DaemonID: d.ID, Harness: "codex", Instructions: "fixed", Skills: []agentuse.SkillRef{{SkillID: skill.ID, SkillVersionID: skill.CurrentVersionID}}})
+	a, err := c.CreateAgent(ctx, "", agentuse.CreateAgentRequest{ID: "reviewer", Name: "Reviewer", DeviceID: d.ID, Harness: "codex", Instructions: "fixed", Skills: []agentuse.SkillRef{{SkillID: skill.ID, SkillVersionID: skill.CurrentVersionID}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +70,7 @@ func TestSkillAPIAndAssignedDeviceDownload(t *testing.T) {
 	if _, err = device.GetSkillVersion(ctx, "", skill.ID, skill.CurrentVersionID); !agentuse.IsStatus(err, 404) {
 		t.Fatal("device read unassigned skill metadata", err)
 	}
-	_, _, err = e.st.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"test"}`), []string{a.ID}, nil)
+	_, _, err = e.st.CreateConversation(ctx, u, "", "", "test", []string{a.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,11 +126,11 @@ func TestSkillAPIAndAssignedDeviceDownload(t *testing.T) {
 }
 
 func TestConversationFilesUseOwnNamespaceAndCleanup(t *testing.T) {
-	e := newEnv(t, Config{FilesDir: t.TempDir(), AttachmentsDir: t.TempDir()})
+	e := newEnv(t, Config{FilesDir: t.TempDir()})
 	ctx := context.Background()
 	u, token := e.user("files", service.RoleUser)
 	_, other := e.user("other", service.RoleUser)
-	ss, _, err := e.st.CreateMultiSession(ctx, u, "", "files", nil, nil, nil)
+	ss, _, err := e.st.CreateConversation(ctx, u, "", "files", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +155,7 @@ func TestConversationFilesUseOwnNamespaceAndCleanup(t *testing.T) {
 	if err = e.st.Files.Put(ctx, "skills", "retained/version/skill.zip", bytes.NewReader([]byte("retained")), true); err != nil {
 		t.Fatal(err)
 	}
-	if code := e.code(token, "DELETE", "/api/sessions/"+ss.ID, nil); code != 204 {
+	if code := e.code(token, "DELETE", "/api/conversations/"+ss.ID, nil); code != 204 {
 		t.Fatal(code)
 	}
 	rows, err := e.st.Files.List(ctx, "conversations", ss.ID)

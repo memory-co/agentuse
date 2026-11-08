@@ -1,6 +1,6 @@
 # fileService：按命名空間存儲文件
 
-> 通用 fileService、本地/S3 後端及下列文件入口已實現。fileService 不使用數據庫表，不綁定 conversation、agent 或 skill 的業務模型。舊 /api/sessions/.../attachments 接口和 attachments 表仍獨立存在，尚未遷移到這裏；不能將新 fileService 理解爲已完成舊附件鏈路替換。
+> 通用 fileService、本地/S3 後端與 conversation/skill 文件入口均已實現。fileService 無數據庫表；逐消息附件關聯的元數據屬於 conversationService，文件字節統一走 conversations 命名空間。
 
 ## 職責
 
@@ -15,13 +15,13 @@ Delete(namespace, path)               刪除一個對象
 DeletePrefix(namespace, prefix)       清理一個業務空間
 ```
 
-不新增全局 files/attachments 元數據表。存儲後端是字節內容和存在性的事實來源。AgentUse 不用一個 conversation_id 參數硬套所有文件，更不把 skill 包僞裝爲某個 conversation 的附件。
+fileService 不新增全局 files/attachments 元數據表。存儲後端是字節內容和存在性的事實來源。AgentUse 不用一個 conversation_id 參數硬套所有文件，更不把 skill 包僞裝爲某個 conversation 的附件。
 
 ## 命名空間與目錄
 
 | 命名空間 | 業務擁有者 | 相對路徑 | 寫入約束 |
 |---|---|---|---|
-| conversations | conversationService | `<conversation_id>/<file_path>` | 對話文件可按相同路徑覆蓋 |
+| conversations | conversationService | `<conversation_id>/<file_path>` | 普通文件可覆蓋；已登記的消息附件不可經通用 PUT 覆蓋 |
 | skills | skillService | `<skill_id>/<skill_version_id>/skill.zip` | 每個版本一個獨立路徑，發佈後只讀 |
 
 本地後端：
@@ -61,7 +61,7 @@ POST /api/skills/{skill_id}/versions
 GET /api/skills/{skill_id}/versions/{version_id}/package
 ```
 
-Conversation 入口先經 conversationService 校驗歸屬，再操作 conversations 空間。現行附件 API 仍使用獨立的 attachments 表和按附件 ID 保存的字節內容；schema 6 以 relative_path 派生會話文件樹，messages.attachments 保存每條消息選定文件的元數據快照，詳見 [conversation-files.md](conversation-files.md)。這不表示附件已遷移到通用 fileService。
+Conversation 入口先經 conversationService 校驗歸屬，再操作 conversations 空間。附件 API 保留 ID、relative_path、大小與摘要等消息引用元數據，字節使用 conversations/<conversation_id>/<relative_path>，不再使用獨立 attachments 存儲目錄。通用 PUT 與附件發佈共享寫入邊界，拒絕覆蓋已登記附件。設備寫入需提供活動 run 的 X-Agentuse-Run，AI 不能寫 user_input/；詳見 [conversation-files.md](conversation-files.md)。
 
 Skill 上傳經 skillService 校驗、分配不可變版本路徑，並調用 fileService。下載同樣由 skillService 校驗用戶或已分配輸入的設備權限，然後返回文件流；不開放任意覆蓋已發佈 skill 包的通用 PUT 接口。
 

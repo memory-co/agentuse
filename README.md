@@ -12,14 +12,14 @@ agentuse 是一个可以自己部署的 agent 中间件。用户用**一行命�
 
 它像 Redis 一样嵌进你的网站：网站后端调用它，网站用户不用知道 agentuse 的存在。
 
-<p align="center"><img src="designs/images/architecture.svg" alt="agentuse 架构:网页 / 网站后端 / 脚本通过 HTTP 调用 agentuse-server,agentuse-server 通过 WebSocket 把活派给每个用户电脑上的 daemon,daemon 在本地调用 claude、codex 或自定义 harness" width="860"></p>
+<p align="center"><img src="designs/images/architecture.svg" alt="agentuse 架构:网页 / 网站后端 / 脚本通过 HTTP 调用 agentuse-server,agentuse-server 通过 WebSocket 把活派给每个用户的 device,Client 在本地调用 claude、codex 或自定义 harness" width="860"></p>
 
 ## 特点
 
 - **一行命令接入**:`curl …/setup.sh … && bash setup.sh`,自动注册并装成后台服务(launchd / systemd),电脑在 NAT 后面也能用。
-- **活在自己电脑上跑**:代码、密钥、harness 的登录状态都不离开用户电脑;消息只派给 agent 主人自己的 daemon。
+- **活在自己电脑上跑**:代码、密钥、harness 的登录状态都不离开用户电脑;消息只派给 agent 主人自己的 device。
 - **harness 可换**:内置 Claude Code、Codex,也能注册自己写的程序;agent 切换运行时(哪台电脑上的哪个 harness)不用改名字。
-- **共享会话**:一个 session 可 @ 多个 agent，每次执行读取共享历史；Claude 用 hook、Codex 用 app-server turn/steer 接收执行中的补充。
+- **共享会话**:一个 conversation 可 @ 多个 agent，每次执行读取共享历史；Claude 用 hook、Codex 用 app-server turn/steer 接收执行中的补充。
 - **部署简单**:一个 `agentuse-server` 二进制，内嵌网页，数据就一个 SQLite 文件。
 - **方便嵌入**:Python / Node.js / Go 零依赖 SDK,带上网站自己的 user id 就能代表这个用户调用。
 
@@ -53,7 +53,7 @@ agentuse-server start                    # 默认监听 :8080,数据在 ~/.agent
 
 ### 2. 接入一台电脑
 
-打开网页 →「机器」→「添加 daemon」,页面会给出一条命令，在要跑 harness 的电脑上执行:
+打开网页 →「机器」→「添加设备」,页面会给出一条命令，在要跑 harness 的电脑上执行:
 
 ```bash
 curl -fsSL "https://agentuse.example.com/setup.sh" -o setup.sh && TOKEN="st_…" bash setup.sh
@@ -63,7 +63,7 @@ curl -fsSL "https://agentuse.example.com/setup.sh" -o setup.sh && TOKEN="st_…"
 
 ### 3. 选择开启哪些 harness
 
-在这台 daemon 下打开要用的 harness 开关(默认都关)。之后在「Agent」页建一个 agent(起个名字，选它跑在哪台 daemon 的哪个 harness 上，以后能切换),再在「会话」页选 agent、写 prompt 开一个会话，会派到 agent 绑定的那台 daemon 上,进度和回复实时显示，可以接着回复，也可以在执行中给相同 agent 插话。
+在这台 device 下打开要用的 harness 开关(默认都关)。之后在「Agent」页建一个 agent(起个名字，选它跑在哪台 device 的哪个 harness 上，以后能切换),再在「会话」页选 agent、写 prompt 开一个会话，会派到 agent 绑定的那台 device 上,进度和回复实时显示，可以接着回复，也可以在执行中给相同 agent 插话。
 
 ## 命令
 
@@ -95,17 +95,17 @@ agentuse context --path /绝对路径/context.json --run RUN_UUID enter  # 进�
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/daemons` | 我的 daemon(admin 看全部) |
-| POST | `/api/daemons` | 添加 daemon,返回安装命令 |
-| PUT | `/api/daemons/{id}/harnesses/{harness}` | `{"enabled": true}` 开关 harness |
-| POST | `/api/daemons/{id}/reset` | 重新生成安装命令 |
-| DELETE | `/api/daemons/{id}` | 删除 |
-| GET / POST | `/api/agents` | 列 agent / 建 agent `{"id":"code-helper","name":"写代码助手","daemon_id":"dm_…","harness":"claude"}`(id 全局唯一) |
+| GET | `/api/devices` | 我的设备(admin 看全部) |
+| POST | `/api/devices` | 添加设备,返回安装命令 |
+| PUT | `/api/devices/{id}/harnesses/{harness}` | `{"enabled": true}` 开关 harness |
+| POST | `/api/devices/{id}/reset` | 重新生成安装命令 |
+| DELETE | `/api/devices/{id}` | 删除 |
+| GET / POST | `/api/agents` | 列 agent / 建 agent `{"id":"code-helper","name":"写代码助手","device_id":"dm_…","harness":"claude"}`(id 全局唯一) |
 | GET / DELETE | `/api/agents/{id}` | 读取 Agent / 删除 |
 | POST | `/api/agents/{id}/versions` | 发布固定配置版本，修改名称、运行时、指令和 skills |
-| GET / POST | `/api/sessions` | 列会话 / 开会话 `{"to_agent_ids":["code-helper"],"prompt":"…"}` |
-| POST | `/api/sessions/{id}/messages` | 发送消息及收件人，返回消息与投递关系，Client accepted 后关联实际 run |
-| GET / DELETE | `/api/sessions/{id}` | 会话详情(消息和回报) / 删除 |
+| GET / POST | `/api/conversations` | 列会话 / 开会话 `{"to_agent_ids":["code-helper"],"prompt":"…"}` |
+| POST | `/api/conversations/{id}/messages` | 发送消息及收件人，返回消息与投递关系，Client accepted 后关联实际 run |
+| GET / DELETE | `/api/conversations/{id}` | 会话详情(消息和回报) / 删除 |
 | GET | `/api/harnesses` | 列设备上报的 harness |
 | GET / POST | `/api/users` | (admin)列用户 / 建用户 |
 
@@ -164,7 +164,7 @@ docs/                 当前使用文档：server / client
 designs/              设计方案、协议、历史资料及插图：v1 / v2 / v3
 ```
 
-client 和 server 通过 Go internal 规则隔离；本机 controller 分别查询 sessionService 和 runService；client 各 service 直接管理文件，fileutil 仅提供通用文件操作。服务端写操作和事务编排经过 service，store 保存 SQL、schema 和行解码。详见[目录设计](designs/v2/designs/layout.md)。
+client 和 server 通过 Go internal 规则隔离；本机 controller 分别查询 sessionService 和 runService；client 各 service 直接管理文件，fileutil 仅提供通用文件操作。服务端写操作和事务编排经过 service，store 保存 SQL、schema 和行解码。详见[Server 设计](designs/v3/designs/server-main.md)。
 
 ## License
 
@@ -172,7 +172,7 @@ client 和 server 通过 Go internal 规则隔离；本机 controller 分别查�
 
 ## 会话附件
 
-会话支持输入文件和输出文件，接口是 `/api/sessions/{id}/attachments`。人类在 Server 页面或通过 API/SDK 上传输入，Client AI 在当前 run 中读取；AI 上传输出后，人类在 Server 查看或下载。
+会话支持输入文件和输出文件，接口是 `/api/conversations/{id}/attachments`。人类在 Server 页面或通过 API/SDK 上传输入，Client AI 在当前 run 中读取；AI 上传输出后，人类在 Server 查看或下载。
 
 ```bash
 context status
@@ -185,23 +185,23 @@ context attachment upload ./report.pdf
 
 每个 conversation 有独立的文件树，用户输入位于 `user_input/`，AI 产物保留相对路径。页面右侧浏览文件，输入框选择每条消息的附件，消息显示可预览的文件卡片。详见 [对话文件](docs/server/conversation-files.md)。
 
-网页会话页和 Go、Python、Node SDK 均支持附件。服务端默认单文件 100 MiB、每会话总计 1 GiB；附件目录默认 `~/.agentuse/attachments`，须与数据库一起备份。[文件树设计](designs/v3/designs/conversation-files.md) · [Client CLI](docs/client/cli.md)。HTTP API 说明见运行中 Server 的 `/api/docs`。
+网页会话页和 Go、Python、Node SDK 均支持附件。服务端默认单文件 100 MiB、每会话总计 1 GiB；文件统一通过 fileService 的 conversations 命名空间保存，本地默认 `~/.agentuse/files`，也支持 S3；须与数据库一起管理和备份。[文件树设计](designs/v3/designs/conversation-files.md) · [Client CLI](docs/client/cli.md)。HTTP API 说明见运行中 Server 的 `/api/docs`。
 
 ## 多 agent 共享会话
 
-网页新建 session 不绑定 agent，每条消息通过 @ 选择一个或多个执行者。Server 将 conversation message 投递给目标 Agent，Client 准备或复用对应的本机 session。输入属于当前 run 还是排队产生新 run，由适配器的 accepted 事件确认；用户消息只保存一次。
+网页新建 conversation 不绑定 agent，每条消息通过 @ 选择一个或多个执行者。Server 将 conversation message 投递给目标 Agent，Client 准备或复用对应的本机 session。输入属于当前 run 还是排队产生新 run，由适配器的 accepted 事件确认；用户消息只保存一次。
 
 ```json
-{"mode":"multi_agent"}
+{}
 ```
 
-用上面的 body 创建 session 后，向 `/api/sessions/{id}/messages` 发送：
+用上面的 body 创建 conversation 后，向 `/api/conversations/{id}/messages` 发送：
 
 ```json
 {"prompt":"分别看看实现和风险","to_agent_ids":["coder","reviewer"],"to_user_ids":["alice"]}
 ```
 
-返回 `{message, runs, deliveries}`。也支持 `agentuse conversation send CONVERSATION_ID --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有会话统一使用共享模型，未传 mode 也创建 multi_agent。Server 与 Client 使用 `agentuse-client/2` 通信。[设计](designs/v2/designs/session-mentions.md) · [API](designs/v2/apis/sessions.md)。
+返回 `{message, runs, deliveries}`。也支持 `agentuse conversation send CONVERSATION_ID --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有 conversation 统一使用共享消息模型，不再提供 mode/input/defer_start 包装。消息以 author_role 区分 user/agent，content 是原始正文，执行事实单独保存在 run 中。Server 与 Client 使用 `agentuse-client/2` 通信。[设计](designs/v3/designs/server-conversation.md) · [API](docs/server/conversations.md)。
 
 ### Client 本机页面与文件配置
 
@@ -235,7 +235,7 @@ Client 不再使用 SQLite，文件结构为：
 ```text
 <session.work_root>/<endpoint_id>/<conversation_id>/
   workspace/                    # 所有 Codex / Claude Code 的共同 cwd
-  sessions/<local_session_id>/
+  sessions/<session_id>/
     events.jsonl                # 固定的 harnessctl 会话地址
     events.jsonl.d/              # 适配器私有状态
     session.yaml
@@ -255,4 +255,4 @@ Agent 指令与 skills 由 Client 按固定版本 API 获取，通过 init 保�
 
 消息使用 `to_agent_ids` 和 `to_user_ids` 指定收件人：只有 Agent 收件人触发执行，用户收件人必须已有会话读取权限，两组省略时均为 `[]`。CLI 通过 `--agents`、`--users` 分别指定；不保留旧字段别名。
 
-Server/client 使用 `agentuse-client/2`：Server 直接投递 conversation message 和目标 Agent，Client 按需获取固定版本配置与 skills 并在本地 init，适配器通过 accepted 返回真实 run UUID。只支持数据库 schema 6 和新版消息收据，不保留旧数据迁移或兼容逻辑。升级需重建 Server 数据库、清空 Client 本地工作目录并重新初始化、注册设备；两端必须一起更新。详见 [协议](designs/v3/designs/protocol.md) 和 [server-run 设计](designs/v3/designs/server-run.md)。
+Server/client 使用 `agentuse-client/2`：Server 直接投递 conversation message 和目标 Agent，Client 按需获取固定版本配置与 skills 并在本地 init，适配器通过 accepted 返回真实 run UUID。只支持数据库 schema 7 和新版消息收据，不保留旧数据迁移或兼容逻辑。升级需重建 Server 数据库、清空 Client 本地工作目录并重新初始化、注册设备；两端必须一起更新。详见 [协议](designs/v3/designs/protocol.md) 和 [server-run 设计](designs/v3/designs/server-run.md)。

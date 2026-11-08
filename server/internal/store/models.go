@@ -9,25 +9,26 @@ type Agent = agentuse.Agent
 // AttachmentAccess is revalidated inside the upload transaction, including credentials.
 type AttachmentAccess struct {
 	User                    User
-	DaemonID, WorkID, Token string
+	DeviceID, WorkID, Token string
 	RunID                   string
 }
 
 const (
-	DaemonPending = "pending" // 已在页面上添加，还没跑 setup.sh 注册
-	DaemonOnline  = "online"
-	DaemonOffline = "offline"
+	DevicePending = "pending" // 已在页面上添加，还没跑 setup.sh 注册
+	DeviceOnline  = "online"
+	DeviceOffline = "offline"
 )
 
-type Daemon = agentuse.Daemon
+type Device = agentuse.Device
 
-type DaemonHarness = agentuse.DaemonHarness
+type DeviceHarness = agentuse.DeviceHarness
 
-// ReportedHarness 是 daemon 连上时上报的一个本机可用 harness。
+// ReportedHarness 是 device 连上时上报的一个本机可用 harness。
 type ReportedHarness struct {
-	Revision string `json:"revision,omitempty"`
-	Name     string `json:"name"`
-	Version  string `json:"version,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	Revision     string   `json:"revision,omitempty"`
+	Name         string   `json:"name"`
+	Version      string   `json:"version,omitempty"`
 }
 
 type Harness = agentuse.Harness
@@ -38,31 +39,31 @@ type Run = agentuse.Run
 
 type Delivery = agentuse.Delivery
 
-type MultiReply = agentuse.Reply
+type Reply = agentuse.Reply
 
-type SessionDetail = agentuse.SessionDetail
+type ConversationDetail = agentuse.ConversationDetail
 
 const (
-	SessionIdle    = "idle"
-	SessionPending = "pending"
-	SessionRunning = "running"
-	SessionWaiting = "waiting" // harness 在等用户回答提问，见 designs/v2/designs/question.md
-	// SessionResolved:已完成，见 designs/v2/designs/work.md。再发消息就重新打开。
-	SessionResolved = "resolved"
+	ConversationIdle    = "idle"
+	ConversationPending = "pending"
+	ConversationRunning = "running"
+	ConversationWaiting = "waiting" // harness 在等用户回答提问，见 designs/v3/designs/server-run.md
+	// ConversationResolved:已完成，见 designs/v3/designs/server-work.md。再发消息就重新打开。
+	ConversationResolved = "resolved"
 
-	// 工作里的角色，见 designs/v2/designs/work.md
+	// 工作里的角色，见 designs/v3/designs/server-work.md
 	WorkCoordinator = "coordinator"
 	WorkThread      = "thread"
 
-	RoleUserMsg      = "user"
-	RoleAssistantMsg = "assistant"
+	RoleUserMsg  = "user"
+	RoleAgentMsg = "agent"
 )
 
-type Session = agentuse.Session
+type Conversation = agentuse.Conversation
 
 type Message = agentuse.Message
 
-type SessionEvent = agentuse.SessionEvent
+type ConversationEvent = agentuse.ConversationEvent
 
 const (
 	RoleAdmin = "admin"

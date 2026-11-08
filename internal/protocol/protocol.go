@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	RegisterPath      = "/api/daemon/register"
+	RegisterPath      = "/api/client/register"
 	WSPath            = "/api/client/ws"
-	MePath            = "/api/daemon/me"
+	MePath            = "/api/client/me"
 	ProtocolHeader    = "AgentUse-Protocol"
 	ExecutionProtocol = "agentuse-client/2"
 	TypeHeartbeat     = "heartbeat"
@@ -30,20 +30,21 @@ type RegisterRequest struct {
 	Hostname string `json:"hostname"`
 }
 type RegisterResponse struct {
-	DaemonID string `json:"daemon_id"`
+	DeviceID string `json:"device_id"`
 	Name     string `json:"name"`
 	Key      string `json:"key"`
 }
 type MeResponse struct {
-	DaemonID string `json:"daemon_id"`
+	DeviceID string `json:"device_id"`
 	Name     string `json:"name"`
 	UserID   string `json:"user_id"`
 	Status   string `json:"status"`
 }
 type Harness struct {
-	Name     string `json:"name"`
-	Version  string `json:"version,omitempty"`
-	Revision string `json:"revision,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	Name         string   `json:"name"`
+	Version      string   `json:"version,omitempty"`
+	Revision     string   `json:"revision,omitempty"`
 }
 
 // Message is a flat WebSocket envelope. The pointers are typed in-memory views,

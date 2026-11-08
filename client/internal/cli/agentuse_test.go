@@ -20,7 +20,7 @@ func TestAgentuseCommands(t *testing.T) {
 			return
 		}
 		switch r.URL.Path {
-		case "/api/daemon/register":
+		case "/api/client/register":
 			var req struct {
 				Token string `json:"token"`
 			}
@@ -29,9 +29,9 @@ func TestAgentuseCommands(t *testing.T) {
 				w.WriteHeader(401)
 				return
 			}
-			w.Write([]byte(`{"daemon_id":"dm_test","name":"laptop","key":"dk_test"}`))
-		case "/api/daemon/me":
-			w.Write([]byte(`{"daemon_id":"dm_test","name":"laptop","user_id":"alice","status":"offline"}`))
+			w.Write([]byte(`{"device_id":"dm_test","name":"laptop","key":"dk_test"}`))
+		case "/api/client/me":
+			w.Write([]byte(`{"device_id":"dm_test","name":"laptop","user_id":"alice","status":"offline"}`))
 		default:
 			w.WriteHeader(401)
 		}

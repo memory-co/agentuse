@@ -60,11 +60,11 @@ func TestMessageProtocolPushAcceptanceAndReplay(t *testing.T) {
 		t.Fatal(ack)
 	}
 	client := agentuse.New(f.e.ts.URL, f.token)
-	first, e := client.SendMessage(ctx, "", f.session.ID, agentuse.MessageRequest{Prompt: "first", ToAgentIDs: []string{f.agent}})
+	first, e := client.SendMessage(ctx, "", f.conversation.ID, agentuse.MessageRequest{Prompt: "first", ToAgentIDs: []string{f.agent}})
 	if e != nil {
 		t.Fatal(e)
 	}
-	second, e := client.SendMessage(ctx, "", f.session.ID, agentuse.MessageRequest{Prompt: "second", ToAgentIDs: []string{f.agent}})
+	second, e := client.SendMessage(ctx, "", f.conversation.ID, agentuse.MessageRequest{Prompt: "second", ToAgentIDs: []string{f.agent}})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -84,16 +84,16 @@ func TestMessageProtocolPushAcceptanceAndReplay(t *testing.T) {
 	if e != nil || version.AgentID != f.agent {
 		t.Fatal(version, e)
 	}
-	detail, e := client.GetSession(ctx, "", f.session.ID)
+	detail, e := client.GetConversation(ctx, "", f.conversation.ID)
 	if e != nil || len(detail.Runs) != 0 {
 		t.Fatal("run created before acceptance", detail, e)
 	}
 	run := uuid.NewString()
 	public, _ := json.Marshal(map[string]any{"type": "accepted", "run_id": run, "input_id": "in-1", "text": delivery.Delivery.Text()})
-	accepted := protocol.EventFrame(protocol.ClientEvent{SessionID: "native-session", Seq: 10, MessageID: first.Message.ID, AgentID: f.agent, Event: public})
+	accepted := protocol.EventFrame(protocol.ClientEvent{SessionID: "native-conversation", Seq: 10, MessageID: first.Message.ID, AgentID: f.agent, Event: public})
 	send(accepted)
 	// The next message can be pushed once acceptance is committed, even though
-	// no additional session capacity or claim request was sent.
+	// no additional conversation capacity or claim request was sent.
 	ack = read()
 	if ack.ID != accepted.ID || ack.Status != protocol.AckOK {
 		t.Fatal(ack)
@@ -118,7 +118,7 @@ func TestMessageProtocolPushAcceptanceAndReplay(t *testing.T) {
 		t.Fatal("valid replay rejected", ack)
 	}
 	result, _ := json.Marshal(map[string]any{"type": "result", "run_id": run, "status": "completed", "input_ids": []string{"in-1"}, "output": "done"})
-	done := protocol.EventFrame(protocol.ClientEvent{SessionID: "native-session", Seq: 20, Event: result})
+	done := protocol.EventFrame(protocol.ClientEvent{SessionID: "native-conversation", Seq: 20, Event: result})
 	for i := 0; i < 2; i++ {
 		send(done)
 		ack = read()
@@ -127,11 +127,11 @@ func TestMessageProtocolPushAcceptanceAndReplay(t *testing.T) {
 		}
 	}
 	send(protocol.Message{Type: protocol.TypeAck, ID: next.ID, Status: protocol.AckUnknown, Error: "send may have been accepted"})
-	third, e := client.SendMessage(ctx, "", f.session.ID, agentuse.MessageRequest{Prompt: "third", ToAgentIDs: []string{f.agent}})
+	third, e := client.SendMessage(ctx, "", f.conversation.ID, agentuse.MessageRequest{Prompt: "third", ToAgentIDs: []string{f.agent}})
 	if e != nil {
 		t.Fatal(e)
 	}
-	detail, e = client.GetSession(ctx, "", f.session.ID)
+	detail, e = client.GetConversation(ctx, "", f.conversation.ID)
 	if e != nil {
 		t.Fatal(e)
 	}

@@ -29,7 +29,7 @@ func LoadConfigs(path string) ([]run.Config, error) {
 	}
 	out := []run.Config{}
 	for _, ep := range registered {
-		out = append(out, run.Config{ConfigPath: path, Server: ep.ServerURL, DaemonID: ep.DeviceID, Key: ep.DeviceKey, EndpointID: ep.ID(), Enabled: ep.Enabled, Settings: settings.Get()})
+		out = append(out, run.Config{ConfigPath: path, Server: ep.ServerURL, DeviceID: ep.DeviceID, Key: ep.DeviceKey, EndpointID: ep.ID(), Enabled: ep.Enabled, Settings: settings.Get()})
 	}
 	return out, nil
 }

@@ -4,7 +4,7 @@ import "context"
 
 // ListHarnesses exposes reported identities only, never adapter configuration.
 func (s *Service) ListHarnesses(ctx context.Context) ([]Harness, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT harness FROM daemon_harnesses WHERE available=1 ORDER BY harness`)
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT harness FROM device_harnesses WHERE available=1 ORDER BY harness`)
 	if err != nil {
 		return nil, err
 	}

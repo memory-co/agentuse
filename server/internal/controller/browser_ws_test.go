@@ -82,34 +82,34 @@ func TestBrowserNotificationsScopeCoalescingAndReconnect(t *testing.T) {
 	b := dial(bobToken, "")
 	admin := dial(adminToken, "")
 	acting := dial(adminToken, alice.ID)
-	bSession, _, err := e.st.CreateMultiSession(ctx, bob, "", "Bob private", nil, nil, nil)
+	bConversation, _, err := e.st.CreateConversation(ctx, bob, "", "Bob private", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	aSession, _, err := e.st.CreateMultiSession(ctx, alice, "", "Alice private", nil, nil, nil)
+	aConversation, _, err := e.st.CreateConversation(ctx, alice, "", "Alice private", "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 20; i++ {
-		if _, err = e.st.SendMultiMessage(ctx, alice, aSession.ID, json.RawMessage(`{"prompt":"secret message body"}`), nil, nil, nil); err != nil {
+		if _, err = e.st.SendMessage(ctx, alice, aConversation.ID, "secret message body", nil, nil, nil, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, c := range []*websocket.Conn{a, acting} {
 		n := read(c)
-		if n.Type != "changed" || len(n.Changes) != 1 || n.Changes[0].ID != aSession.ID {
+		if n.Type != "changed" || len(n.Changes) != 1 || n.Changes[0].ID != aConversation.ID {
 			t.Fatal(n)
 		}
 		raw, _ := json.Marshal(n)
 		if strings.Contains(string(raw), "secret") || strings.Contains(string(raw), "owners") {
 			t.Fatal("content leaked", string(raw))
 		}
-		detail, e2 := e.st.ReadSession(ctx, alice, n.Changes[0].ID)
+		detail, e2 := e.st.ReadConversation(ctx, alice, n.Changes[0].ID)
 		if e2 != nil || len(detail.Messages) != 20 {
 			t.Fatal("notification preceded commit", detail, e2)
 		}
 	}
-	if n := read(b); len(n.Changes) != 1 || n.Changes[0].ID != bSession.ID {
+	if n := read(b); len(n.Changes) != 1 || n.Changes[0].ID != bConversation.ID {
 		t.Fatal(n)
 	}
 	if n := read(admin); len(n.Changes) != 2 {
@@ -117,19 +117,19 @@ func TestBrowserNotificationsScopeCoalescingAndReconnect(t *testing.T) {
 	}
 	a.CloseNow()
 	// No replay ledger: reconnect receives ready and fetches the current snapshot.
-	_, err = e.st.SendMultiMessage(ctx, alice, aSession.ID, json.RawMessage(`{"prompt":"while disconnected"}`), nil, nil, nil)
+	_, err = e.st.SendMessage(ctx, alice, aConversation.ID, "while disconnected", nil, nil, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	a = dial(aliceToken, "")
-	detail, err := e.st.ReadSession(ctx, alice, aSession.ID)
+	detail, err := e.st.ReadConversation(ctx, alice, aConversation.ID)
 	if err != nil || len(detail.Messages) != 21 {
 		t.Fatal(detail, err)
 	}
 	if _, _, err = e.st.ResetUserToken(ctx, alice.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = e.st.SendMultiMessage(ctx, alice, aSession.ID, json.RawMessage(`{"prompt":"after revocation"}`), nil, nil, nil); err != nil {
+	if _, err = e.st.SendMessage(ctx, alice, aConversation.ID, "after revocation", nil, nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	var n browserNotice
@@ -142,8 +142,8 @@ func TestBrowserNotificationsIncludeCommittedClientResults(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var reply service.MultiReply
-	if r := f.e.req(f.token, "POST", "/api/sessions/"+f.session.ID+"/messages", map[string]any{"prompt": "input", "to_agent_ids": []string{f.agent}}, &reply); r.StatusCode != 201 {
+	var reply service.Reply
+	if r := f.e.req(f.token, "POST", "/api/conversations/"+f.conversation.ID+"/messages", map[string]any{"prompt": "input", "to_agent_ids": []string{f.agent}}, &reply); r.StatusCode != 201 {
 		t.Fatal(r.StatusCode)
 	}
 	p, err := f.e.st.DispatchMessage(ctx, f.d)
@@ -165,7 +165,7 @@ func TestBrowserNotificationsIncludeCommittedClientResults(t *testing.T) {
 		{"type": "result", "run_id": run, "input_ids": []string{"input"}, "status": "completed", "output": "# Done\n\n**Result**"},
 	} {
 		raw, _ := json.Marshal(event)
-		if err = f.e.st.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.session.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: p.AgentVersionID, Revision: "reported", MessageID: p.MessageID, Seq: int64(i + 1), Event: raw}); err != nil {
+		if err = f.e.st.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: p.AgentVersionID, Revision: "reported", MessageID: p.MessageID, Seq: int64(i + 1), Event: raw}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -174,16 +174,16 @@ func TestBrowserNotificationsIncludeCommittedClientResults(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for _, change := range n.Changes {
-		if change.ID != f.session.ID {
+		if change.ID != f.conversation.ID {
 			t.Fatal(change)
 		}
 		seen[change.Resource] = true
 	}
-	if !seen["sessions"] || !seen["attachments"] {
+	if !seen["conversations"] || !seen["attachments"] {
 		t.Fatal(n)
 	}
-	var detail service.SessionDetail
-	if r := f.e.req(f.token, "GET", "/api/sessions/"+f.session.ID, nil, &detail); r.StatusCode != 200 || len(detail.Runs) != 1 || detail.Runs[0].Status != "completed" || detail.Runs[0].Output != "# Done\n\n**Result**" {
+	var detail service.ConversationDetail
+	if r := f.e.req(f.token, "GET", "/api/conversations/"+f.conversation.ID, nil, &detail); r.StatusCode != 200 || len(detail.Runs) != 1 || detail.Runs[0].Status != "completed" || detail.Runs[0].Output != "# Done\n\n**Result**" {
 		t.Fatal("committed result missing", r.StatusCode, detail)
 	}
 }

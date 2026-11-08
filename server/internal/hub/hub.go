@@ -24,7 +24,7 @@ type Hub struct {
 	conns   map[string]*deviceConn
 }
 type deviceConn struct {
-	d        service.Daemon
+	d        service.Device
 	ws       *websocket.Conn
 	cancel   context.CancelFunc
 	sendMu   sync.Mutex
@@ -40,7 +40,7 @@ func New(s *service.Service, logger *log.Logger) *Hub {
 }
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	d, err := h.service.DaemonByKey(r.Context(), key)
+	d, err := h.service.DeviceByKey(r.Context(), key)
 	if err != nil || key == "" {
 		http.Error(w, "invalid device credential", 401)
 		return
@@ -70,7 +70,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
 		if h.conns[d.ID] == c {
 			delete(h.conns, d.ID)
-			_ = h.service.DaemonDisconnected(context.Background(), d.ID)
+			_ = h.service.DeviceDisconnected(context.Background(), d.ID)
 		}
 		h.mu.Unlock()
 		ws.Close(websocket.StatusNormalClosure, "")
@@ -89,9 +89,9 @@ func (h *Hub) serve(ctx context.Context, c *deviceConn) error {
 	}
 	reported := []service.ReportedHarness{}
 	for _, a := range first.Harnesses {
-		reported = append(reported, service.ReportedHarness{Name: a.Name, Version: a.Version, Revision: a.Revision})
+		reported = append(reported, service.ReportedHarness{Name: a.Name, Version: a.Version, Revision: a.Revision, Capabilities: a.Capabilities})
 	}
-	if _, err := h.service.DaemonConnected(ctx, c.d, reported, []string{protocol.ExecutionProtocol, "session-attachments-v1"}); err != nil {
+	if _, err := h.service.DeviceConnected(ctx, c.d, reported, []string{protocol.ExecutionProtocol, "conversation-attachments-v1"}); err != nil {
 		return err
 	}
 	c.capacity = first
@@ -165,7 +165,7 @@ func (h *Hub) serve(ctx context.Context, c *deviceConn) error {
 				for _, p := range outstanding {
 					c.reserve(p)
 				}
-				if err = h.service.TouchDaemon(ctx, c.d.ID); err != nil {
+				if err = h.service.TouchDevice(ctx, c.d.ID); err != nil {
 					return err
 				}
 				if err = c.send(ctx, protocol.Message{Type: protocol.TypeAck, ID: m.ID, Status: protocol.AckOK}); err != nil {

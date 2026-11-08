@@ -1,6 +1,6 @@
 # agentService：不可變 Agent 版本與 Skill 版本關聯
 
-> 版本化鏈路已實現，使用數據庫 schema 6 和 agentuse-client/2。表之間不聲明數據庫外鍵。當前 HTTP/DTO 仍使用 daemon_id 表示 device；agent_versions 的物理列爲 device_id。
+> 版本化鏈路已實現，使用數據庫 schema 7 和 agentuse-client/2。表之間不聲明數據庫外鍵。HTTP、DTO 和 agent_versions 統一使用 device_id。
 
 ## 職責與對象關係
 
@@ -137,7 +137,7 @@ Server 前端的 Agent 頁面提供完整配置編輯、固定 skill 版本多�
   "base_version_id": "當前版本 UUID",
   "name": "Reviewer",
   "description": "代碼評審",
-  "daemon_id": "device-id",
+  "device_id": "device-id",
   "harness": "codex",
   "model": "可選模型",
   "instructions": "AGENTS.md 內容",

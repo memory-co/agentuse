@@ -1,6 +1,6 @@
 # workService：工作、協調與線程彙總
 
-> v3 目標設計，尚未據此修改代碼或數據庫。統一使用 device 命名；本文 SQL 表示目標結構，不是線上遷移腳本。時間字段除另行說明外，均爲 Unix 秒，布爾值用 SQLite INTEGER（0/1），JSON 用 TEXT 保存。表之間只保留關聯字段，不聲明數據庫外鍵；引用校驗和關聯清理由 service 在事務內完成。
+> 本文規則已落實到 schema 7、Server API 與業務 service。使用 device/conversation 命名；session_id 只引用 Client 本地執行會話。時間為 Unix 秒，JSON 使用 TEXT，關聯由 service 在事務內校驗與清理，不聲明數據庫外鍵。
 
 ## 職責
 
@@ -18,9 +18,9 @@ workService 將多個 conversation 組織成一項工作。一個 work 有一個
 | 彙總結果 | 在最終回覆已由 conversationService 保存後，檢查原訊息對各目標的 send 輸入與對應 run 是否已結束；將彙總作爲消息發到協調 conversation |
 | 刪除 work | 檢查相關任務空閒，再經 conversationService 刪除所屬對話及 work 數據 |
 
-彙總使用 run_notifications 去重：記錄“該線程消息已彙報”與向協調 conversation 發彙總消息，必須在同一事務完成。不能只收到 run 結束事件就彙總，因爲最終回覆可能還沒消費入庫；需要等回覆落庫通知，並能通過持久化消息/message_agents 掃描補償。
+彙總使用 run_notifications 去重：記錄“該線程消息已彙報”與向協調 conversation 發彙總消息，必須在同一事務完成。此事務在原生結果與最終回覆提交之後進行；協調者暫時不可用時不標記已彙報，啟動、恢復 harness 或更新 Work 配置時掃描補償。不能只收到 run 結束事件就彙總，因爲最終回覆可能還沒消費入庫；需要等回覆落庫通知，並能通過持久化消息/message_agents 掃描補償。
 
-## Agent 版本銜接（目標）
+## Agent 版本銜接
 
 Work 仍選擇穩定的 coordinator_agent_id。每條協調輸入和線程輸入在入隊時固定目標 agent_version_id；發佈新 agent 或 skill 版本不改已有排隊輸入，也不自動改寫正在工作的協調原生上下文。下一條使用新版的輸入綁定新的 client session 並執行 init，workspace 和 server 共享歷史仍屬於原 conversation。
 
@@ -65,13 +65,14 @@ CREATE INDEX works_user
 
 ### work_run_tokens
 
-令牌只存哈希，綁定 work 和輸入分配 run_input_id；有效性結合 send 輸入的傳輸狀態及對應 runs.status 檢查，不能把 applied 當作執行完成。
+令牌只存哈希，綁定 work_id、message_id、agent_id；有效性核對當前協調者與該消息/Agent 的傳輸及執行狀態，不另建 run_input 身份。
 
 ```sql
 CREATE TABLE work_run_tokens (
     token_hash TEXT PRIMARY KEY,
     work_id TEXT NOT NULL,
-    run_input_id INTEGER NOT NULL
+    message_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL
 );
 ```
 

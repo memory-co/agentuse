@@ -15,11 +15,11 @@ import (
 func TestWorkToolAuthorizationBelongsToServer(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
 	ctx := context.Background()
-	work, coordinator, err := f.e.st.CreateMultiWork(ctx, f.u, "cross-device work", f.agent, "instructions")
+	work, coordinator, err := f.e.st.CreateWork(ctx, f.u, "cross-device work", f.agent, "instructions")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = f.e.st.SendMultiMessage(ctx, f.u, coordinator.ID, json.RawMessage(`{"prompt":"coordinate"}`), []string{f.agent}, nil, nil)
+	_, err = f.e.st.SendMessage(ctx, f.u, coordinator.ID, "coordinate", []string{f.agent}, nil, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,11 +44,11 @@ func TestWorkToolAuthorizationBelongsToServer(t *testing.T) {
 	if status := f.e.code(f.token, "POST", path, identity); status != 401 {
 		t.Fatal("user credential authorized an execution", status)
 	}
-	other, err := f.e.st.CreateDaemon(ctx, f.u.ID, "another device")
+	other, err := f.e.st.CreateDevice(ctx, f.u.ID, "another device")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, otherKey, err := f.e.st.RegisterDaemon(ctx, other.SetupToken, "")
+	_, otherKey, err := f.e.st.RegisterDevice(ctx, other.SetupToken, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,19 +89,19 @@ func TestWorkToolAuthorizationBelongsToServer(t *testing.T) {
 		t.Fatal("accepted run rejected", status)
 	}
 	var created struct {
-		Session service.Session `json:"session"`
+		Conversation service.Conversation `json:"conversation"`
 	}
-	if response := f.e.req(authorization.Token, "POST", "/api/sessions", map[string]any{}, &created); response.StatusCode != 201 || created.Session.WorkID != work.ID {
+	if response := f.e.req(authorization.Token, "POST", "/api/conversations", map[string]any{}, &created); response.StatusCode != 201 || created.Conversation.WorkID != work.ID {
 		t.Fatal("tool authorization escaped work", response.StatusCode, created)
 	}
-	foreign, _, err := f.e.st.CreateMultiWork(ctx, f.u, "other work", f.agent, "")
+	foreign, _, err := f.e.st.CreateWork(ctx, f.u, "other work", f.agent, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status := f.e.code(authorization.Token, "POST", "/api/sessions", map[string]any{"work_id": foreign.ID}); status != 403 {
+	if status := f.e.code(authorization.Token, "POST", "/api/conversations", map[string]any{"work_id": foreign.ID}); status != 403 {
 		t.Fatal("cross-work tool write", status)
 	}
-	_, err = f.e.st.SendMultiMessage(ctx, f.u, f.session.ID, json.RawMessage(`{"prompt":"ordinary"}`), []string{f.agent}, nil, nil)
+	_, err = f.e.st.SendMessage(ctx, f.u, f.conversation.ID, "ordinary", []string{f.agent}, nil, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestWorkToolAuthorizationBelongsToServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ordinary := workToolAuthorization{ConversationID: f.session.ID, MessageID: ordinaryMessage.MessageID, AgentID: f.agent, RunID: uuid.NewString()}
+	ordinary := workToolAuthorization{ConversationID: f.conversation.ID, MessageID: ordinaryMessage.MessageID, AgentID: f.agent, RunID: uuid.NewString()}
 	if status := f.e.code(f.key, "POST", path, ordinary); status != 403 {
 		t.Fatal("ordinary conversation gained work capability", status)
 	}
@@ -120,7 +120,7 @@ func TestWorkToolAuthorizationBelongsToServer(t *testing.T) {
 	if status := f.e.code(f.key, "POST", path, identity); status != 403 {
 		t.Fatal("terminal run obtained authorization", status)
 	}
-	if status := f.e.code(authorization.Token, "GET", "/api/sessions", nil); status != 401 {
+	if status := f.e.code(authorization.Token, "GET", "/api/conversations", nil); status != 401 {
 		t.Fatal("terminal capability survived", status)
 	}
 }
@@ -128,11 +128,11 @@ func TestWorkToolAuthorizationBelongsToServer(t *testing.T) {
 func TestWorkManagementRoutesKeepOwnerAndThreadScope(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
 	ctx := context.Background()
-	work, _, err := f.e.st.CreateMultiWork(ctx, f.u, "owner work", f.agent, "")
+	work, _, err := f.e.st.CreateWork(ctx, f.u, "owner work", f.agent, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, _, err := f.e.st.CreateMultiWork(ctx, f.u, "other work", f.agent, "")
+	other, _, err := f.e.st.CreateWork(ctx, f.u, "other work", f.agent, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,18 +143,18 @@ func TestWorkManagementRoutesKeepOwnerAndThreadScope(t *testing.T) {
 		t.Fatal("another user's work readable", status)
 	}
 	var created struct {
-		Session service.Session `json:"session"`
+		Conversation service.Conversation `json:"conversation"`
 	}
-	if response := f.e.req(admin, "POST", path, map[string]any{}, &created); response.StatusCode != 201 || created.Session.UserID != f.u.ID || created.Session.WorkID != work.ID {
+	if response := f.e.req(admin, "POST", path, map[string]any{}, &created); response.StatusCode != 201 || created.Conversation.UserID != f.u.ID || created.Conversation.WorkID != work.ID {
 		t.Fatal("admin changed work ownership", response.StatusCode, created)
 	}
-	if status := f.e.code(f.token, "GET", "/api/works/"+other.ID+"/threads/"+created.Session.ID, nil); status != 403 {
+	if status := f.e.code(f.token, "GET", "/api/works/"+other.ID+"/threads/"+created.Conversation.ID, nil); status != 403 {
 		t.Fatal("cross-work read", status)
 	}
-	if status := f.e.code(f.token, "POST", path+"/"+created.Session.ID+"/messages", map[string]any{"prompt": "note"}); status != 201 {
+	if status := f.e.code(f.token, "POST", path+"/"+created.Conversation.ID+"/messages", map[string]any{"prompt": "note"}); status != 201 {
 		t.Fatal(status)
 	}
-	if status := f.e.code(f.token, "POST", path+"/"+created.Session.ID+"/resolve", nil); status != 200 {
+	if status := f.e.code(f.token, "POST", path+"/"+created.Conversation.ID+"/resolve", nil); status != 200 {
 		t.Fatal(status)
 	}
 }

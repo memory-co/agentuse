@@ -2,62 +2,64 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 )
 
-func (s *Service) CreateMultiSession(ctx context.Context, u User, work, title string, input json.RawMessage, toAgentIDs, toUserIDs []string) (Session, *MultiReply, error) {
-	ss, reply, err := s.createMultiSession(ctx, u, work, title, input, toAgentIDs, toUserIDs)
+func (s *Service) CreateConversation(ctx context.Context, u User, work, title string, input string, toAgentIDs, toUserIDs []string) (Conversation, *Reply, error) {
+	ss, reply, err := s.createConversation(ctx, u, work, title, input, toAgentIDs, toUserIDs)
 	if err == nil {
 		s.Notifier.KickAll()
 		s.notifyConversation(ctx, ss.ID)
 	}
 	return ss, reply, err
 }
-func (s *Service) SendMultiMessage(ctx context.Context, u User, session string, input json.RawMessage, toAgentIDs, toUserIDs, attachmentIDs []string) (MultiReply, error) {
-	reply, err := s.sendMultiMessage(ctx, u, session, input, toAgentIDs, toUserIDs, attachmentIDs)
+func (s *Service) SendMessage(ctx context.Context, u User, conversation string, input string, toAgentIDs, toUserIDs, attachmentIDs []string, replyToMessageID string) (Reply, error) {
+	reply, err := s.sendMessage(ctx, u, conversation, input, toAgentIDs, toUserIDs, attachmentIDs, replyToMessageID)
 	if err == nil {
 		s.Notifier.KickAll()
-		s.notifyConversation(ctx, session)
+		s.notifyConversation(ctx, conversation)
 	}
 	return reply, err
 }
 func (s *Service) CancelRun(ctx context.Context, u User, conversation, id string) (Run, error) {
 	return s.cancelRun(ctx, u, conversation, id)
 }
-func (s *Service) DeleteDaemon(ctx context.Context, u User, id string) error {
-	d, err := s.GetDaemon(ctx, u, id)
+func (s *Service) DeleteDevice(ctx context.Context, u User, id string) error {
+	d, err := s.GetDevice(ctx, u, id)
 	if err != nil {
 		return err
 	}
-	if err = s.deleteDaemon(ctx, u, id); err != nil {
+	if err = s.deleteDevice(ctx, u, id); err != nil {
 		return err
 	}
 	s.Notifier.Disconnect(id)
 	s.notifyDeviceConversations(ctx, id)
 	s.Notifier.KickUser(d.UserID)
-	s.notifyResource("daemons", id, d.UserID)
+	s.notifyResource("devices", id, d.UserID)
 	return nil
 }
-func (s *Service) ResetDaemonSetup(ctx context.Context, u User, id string) (Daemon, error) {
-	d, err := s.resetDaemonSetup(ctx, u, id)
+func (s *Service) ResetDeviceSetup(ctx context.Context, u User, id string) (Device, error) {
+	d, err := s.resetDeviceSetup(ctx, u, id)
 	if err == nil {
 		s.Notifier.Disconnect(d.ID)
 		s.notifyDeviceConversations(ctx, d.ID)
-		s.notifyResource("daemons", d.ID, d.UserID)
+		s.notifyResource("devices", d.ID, d.UserID)
 	}
 	return d, err
 }
-func (s *Service) SetDaemonHarnessEnabled(ctx context.Context, u User, id, harness string, enabled bool) error {
-	if err := s.setDaemonHarnessEnabled(ctx, u, id, harness, enabled); err != nil {
+func (s *Service) SetDeviceHarnessEnabled(ctx context.Context, u User, id, harness string, enabled bool) error {
+	if err := s.setDeviceHarnessEnabled(ctx, u, id, harness, enabled); err != nil {
 		return err
 	}
-	d, err := s.GetDaemon(ctx, u, id)
+	d, err := s.GetDevice(ctx, u, id)
 	if err != nil {
 		return err
 	}
-	s.notifyResource("daemons", id, d.UserID)
+	s.notifyResource("devices", id, d.UserID)
 	if enabled {
 		s.Notifier.KickUser(d.UserID)
+		if failure := s.ReconcileWorkNotifications(ctx); failure != nil {
+			s.log.Printf("work summary pending: %v", failure)
+		}
 	}
 	return nil
 }

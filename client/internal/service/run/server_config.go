@@ -21,7 +21,7 @@ type Config struct {
 	UIAddr     *string          `json:"ui_addr,omitempty"`
 	ConfigPath string           `json:"-"`
 	Server     string           `json:"server"`
-	DaemonID   string           `json:"daemon_id"`
+	DeviceID   string           `json:"device_id"`
 	Key        string           `json:"key"`
 	// Harnesses provides in-memory harnessctl executable overrides for embedding/tests.
 	// Normal installations load manifest packages from the local harness directory.

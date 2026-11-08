@@ -40,7 +40,7 @@ python3 "$agentuse_work_tool_dir/work.py" new --agents coder "实现这个功能
 | `agents` | 列出工作所有者可用的 Agent，包括其他 Client 上的 Agent |
 | `threads` | 列出本工作的线程 |
 | `new --agents IDS [--users IDS] "消息"` | 创建线程并给指定 Agent 派发输入 |
-| `new --defer-start` | 创建空线程，返回 `session.id` |
+| `new --defer-start` | 创建空线程，返回 `conversation.id` |
 | `upload THREAD_ID FILE` | 在本工作范围内上传线程输入文件 |
 | `send --agents IDS [--users IDS] [--attachments FILE_IDS] THREAD_ID "消息"` | 向线程发送或补充输入 |
 | `read THREAD_ID` | 读取线程消息和执行状态 |

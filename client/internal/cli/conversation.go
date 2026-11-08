@@ -35,7 +35,7 @@ func runConversation(args []string) error {
 	server := fs.String("server", os.Getenv("AGENTUSE_SERVER"), "服务地址")
 	token := fs.String("token", os.Getenv("AGENTUSE_TOKEN"), "API 令牌")
 	config := fs.String("config", command.EnvOr("AGENTUSE_CONFIG", endpointservice.DefaultPath()), "daemon 配置")
-	session := fs.String("conversation", os.Getenv("AGENTUSE_CONVERSATION"), "Server conversation ID")
+	conversation := fs.String("conversation", os.Getenv("AGENTUSE_CONVERSATION"), "Server conversation ID")
 	agents := fs.String("agents", "", "逗号分隔的 Agent 收件人 ID")
 	users := fs.String("users", "", "逗号分隔的用户收件人 ID")
 	asJSON := fs.Bool("json", false, "JSON 输出")
@@ -97,15 +97,15 @@ func runConversation(args []string) error {
 		need = 1
 	}
 	if len(pos) > need {
-		*session = pos[0]
+		*conversation = pos[0]
 		pos = pos[1:]
 	}
-	if *session == "" || len(pos) != need {
+	if *conversation == "" || len(pos) != need {
 		return command.UsageErr("需要 conversation id 和对应命令参数")
 	}
 	ctx, stop := command.SignalContext()
 	defer stop()
-	base := "/api/sessions/" + url.PathEscape(*session)
+	base := "/api/conversations/" + url.PathEscape(*conversation)
 	switch action {
 	case "send":
 		var reply any
@@ -117,14 +117,14 @@ func runConversation(args []string) error {
 		deadline := time.Now().Add(*timeout)
 		for {
 			var detail struct {
-				Session  agentuse.Session   `json:"session"`
-				Messages []agentuse.Message `json:"messages"`
-				Runs     []agentuse.Run     `json:"runs"`
+				Conversation agentuse.Conversation `json:"conversation"`
+				Messages     []agentuse.Message    `json:"messages"`
+				Runs         []agentuse.Run        `json:"runs"`
 			}
 			if err := c.Request(ctx, "", "GET", base, nil, &detail); err != nil {
 				return err
 			}
-			if action == "wait" && detail.Session.Status != "idle" && detail.Session.Status != "resolved" {
+			if action == "wait" && detail.Conversation.Status != "idle" && detail.Conversation.Status != "resolved" {
 				if time.Now().After(deadline) {
 					return errors.New("等待超时")
 				}
@@ -145,9 +145,9 @@ func runConversation(args []string) error {
 				return nil
 			}
 			for _, m := range detail.Messages {
-				who := m.Role
-				if m.AgentKey != "" {
-					who = "@" + m.AgentKey
+				who := m.AuthorRole
+				if m.AuthorAgentID != "" {
+					who = "@" + m.AuthorAgentID
 				}
 				fmt.Printf("[%s %s] %s\n", m.ID, who, m.Content)
 			}
@@ -160,6 +160,6 @@ func runConversation(args []string) error {
 		}
 		return json.NewEncoder(os.Stdout).Encode(r)
 	default:
-		return command.UsageErr("未知 session 子命令 %s", action)
+		return command.UsageErr("未知 conversation 子命令 %s", action)
 	}
 }
