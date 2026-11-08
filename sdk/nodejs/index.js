@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-// agentuse HTTP API 的薄封装，用 Node 18+ 自带的 fetch,没有依赖。接口见 docs/v2/apis。
+// agentuse HTTP API 的薄封装，用 Node 18+ 自带的 fetch,没有依赖。接口见 designs/v2/apis。
 
 export const USER_HEADER = "X-Agentuse-User";
 

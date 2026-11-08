@@ -1,5 +1,7 @@
 # agentuse-server
 
+> 历史 CLI 资料。当前使用方法见 [Server CLI](../../../docs/server/cli.md)。
+
 服務端用的 CLI,做兩件事:
 
 - **`start`**:起服務進程。只有它直接打開 SQLite 數據庫。

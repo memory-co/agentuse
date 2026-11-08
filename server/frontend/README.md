@@ -7,7 +7,7 @@
 布局照 memory.talk 的前端：左边 shadcn Sidebar,右边主区域。admin 和普通用户共用这一套，只是导航项不同。路由在 hash 里(`#/` 新会话、`#/s/<id>` 会话、`#/agents` 等),刷新不丢。
 
 - **侧栏上半**:新会话 + 导航。普通用户:Agents、Daemons;管理员再加 Harness、Users。
-- **侧栏下半**:会话列表(排队 / 运行中的带圆点)。管理员在列表上方有「身份」下拉：选自己就是看全部，选某个用户后所有请求带 `X-Agentuse-User`,看到的和那个用户一样(见 [embedding](../docs/v2/designs/embedding.md))。选择记在 localStorage。
+- **侧栏下半**:会话列表(排队 / 运行中的带圆点)。管理员在列表上方有「身份」下拉：选自己就是看全部，选某个用户后所有请求带 `X-Agentuse-User`,看到的和那个用户一样(见 [embedding](../../designs/v2/designs/embedding.md))。选择记在 localStorage。
 - **右边**:新会话页(选 agent、可选工作目录、写第一句话)或会话的对话流 + 底部回复框(回车发送,Shift+回车换行);Agents / Daemons / Harness / Users 是原来的管理页。
 
 三种宽度(照 memory.talk):≥1024 桌面侧栏，展开 / 图标栏由 `Ctrl/Cmd + B` 或顶栏按钮切换，记在 localStorage;768–1023 默认图标栏;<768 竖屏手机是「侧栏 | 主内容」两个整屏列横向吸附，左右滑动或点顶栏菜单按钮切换，点导航后自动回到主内容，留出刘海 / 底部安全区(`viewport-fit=cover`)。输入框 Enter 发送，输入法选词时的 Enter 不算。
@@ -21,7 +21,7 @@
 | Harness | (仅 admin)全部 harness,注册 / 删除自定义 harness |
 | Users | (仅 admin)建用户，拿登录链接 |
 
-进门先问 `GET /api/me`:401 显示登录页(输 `ut_` 令牌，`POST /api/login` 种 cookie),否则进壳。任何请求 401 都回登录页。列表每 3 秒轮询。接口见 [docs/v2/apis](../docs/v2/apis/README.md)。
+进门先问 `GET /api/me`:401 显示登录页(输 `ut_` 令牌，`POST /api/login` 种 cookie),否则进壳。任何请求 401 都回登录页。列表每 3 秒轮询。接口见 [designs/v2/apis](../../designs/v2/apis/README.md)。
 
 ## 开发与构建
 

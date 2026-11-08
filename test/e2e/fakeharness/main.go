@@ -203,7 +203,7 @@ func codex(args []string) int {
 	return 0
 }
 
-// custom:自定义 harness 的 stdin / stdout 约定(docs/v2/tables/harnesses.md)。
+// custom:自定义 harness 的 stdin / stdout 约定(designs/v2/tables/harnesses.md)。
 func custom() int {
 	line, err := bufio.NewReader(os.Stdin).ReadBytes('\n')
 	if err != nil && len(line) == 0 {

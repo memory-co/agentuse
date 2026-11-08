@@ -46,11 +46,11 @@ const (
 	SessionIdle    = "idle"
 	SessionPending = "pending"
 	SessionRunning = "running"
-	SessionWaiting = "waiting" // harness 在等用户回答提问，见 docs/v2/designs/question.md
-	// SessionResolved:已完成，见 docs/v2/designs/work.md。再发消息就重新打开。
+	SessionWaiting = "waiting" // harness 在等用户回答提问，见 designs/v2/designs/question.md
+	// SessionResolved:已完成，见 designs/v2/designs/work.md。再发消息就重新打开。
 	SessionResolved = "resolved"
 
-	// 工作里的角色，见 docs/v2/designs/work.md
+	// 工作里的角色，见 designs/v2/designs/work.md
 	WorkCoordinator = "coordinator"
 	WorkThread      = "thread"
 

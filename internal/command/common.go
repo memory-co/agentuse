@@ -1,5 +1,5 @@
 // Package cli 是两个命令行的入口:agentuse(用户电脑)和 agentuse-server(服务端)。
-// 设计见 docs/v2/cli/。
+// 使用文档见 docs/server/cli.md 和 docs/client/cli.md。
 package command
 
 import (

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { queryClient } from '@/lib/query';
 
-// 管理员「代为某个用户」:选中后除了 /api/me、/api/users 和登录登出，所有请求都带 X-Agentuse-User(见 docs/v2/designs/embedding.md)。
+// 管理员「代为某个用户」:选中后除了 /api/me、/api/users 和登录登出，所有请求都带 X-Agentuse-User(见 designs/v2/designs/embedding.md)。
 // 记在 localStorage 里，刷新不丢;空串表示管理员自己。
 const KEY = 'agentuse.actAs';
 const listeners = new Set<() => void>();

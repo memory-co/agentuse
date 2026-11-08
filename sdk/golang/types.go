@@ -2,7 +2,7 @@ package agentuse
 
 import "encoding/json"
 
-// 字段和 docs/v2/apis 里的对象一一对应，时间都是 unix 秒。
+// 字段和 designs/v2/apis 里的对象一一对应，时间都是 unix 秒。
 
 type User struct {
 	ID        string `json:"id"`
@@ -183,7 +183,7 @@ type Reply struct {
 	Message    *Message   `json:"message"`
 }
 
-// Work 是工作：协调者会话 + 若干线程会话 + 一份共用说明，见 docs/v2/apis/works.md。
+// Work 是工作：协调者会话 + 若干线程会话 + 一份共用说明，见 designs/v2/apis/works.md。
 type Work struct {
 	CoordinatorAgentID string `json:"coordinator_agent_id,omitempty"`
 	ID                 string `json:"id"`

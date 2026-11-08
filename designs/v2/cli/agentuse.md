@@ -1,5 +1,7 @@
 # agentuse
 
+> 历史 CLI 资料。当前使用方法见 [Client CLI](../../../docs/client/cli.md)。
+
 普通用戶在自己電腦上用的 CLI。日常不用手動敲：頁面上的安裝命令(`setup.sh`)會替你下載、註冊並裝成後臺服務。下面這些命令是給排查問題和手動接入用的。
 
 本機配置在 `~/.agentuse/daemon.json`(所有命令都可以用 `-config` 換路徑),格式見 [apis/daemon](../apis/daemon.md#本機配置)。

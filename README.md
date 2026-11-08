@@ -12,7 +12,7 @@ agentuse 是一个可以自己部署的 agent 中间件。用户用**一行命�
 
 它像 Redis 一样嵌进你的网站：网站后端调用它，网站用户不用知道 agentuse 的存在。
 
-<p align="center"><img src="docs/images/architecture.svg" alt="agentuse 架构:网页 / 网站后端 / 脚本通过 HTTP 调用 agentuse-server,agentuse-server 通过 WebSocket 把活派给每个用户电脑上的 daemon,daemon 在本地调用 claude、codex 或自定义 harness" width="860"></p>
+<p align="center"><img src="designs/images/architecture.svg" alt="agentuse 架构:网页 / 网站后端 / 脚本通过 HTTP 调用 agentuse-server,agentuse-server 通过 WebSocket 把活派给每个用户电脑上的 daemon,daemon 在本地调用 claude、codex 或自定义 harness" width="860"></p>
 
 ## 特点
 
@@ -23,7 +23,7 @@ agentuse 是一个可以自己部署的 agent 中间件。用户用**一行命�
 - **部署简单**:一个 `agentuse-server` 二进制，内嵌网页，数据就一个 SQLite 文件。
 - **方便嵌入**:Python / Node.js / Go 零依赖 SDK,带上网站自己的 user id 就能代表这个用户调用。
 
-<p align="center"><img src="docs/images/flow.svg" alt="使用流程：添加机器 → 一行命令安装 → 打开 harness → 建 agent → 开会话" width="860"></p>
+<p align="center"><img src="designs/images/flow.svg" alt="使用流程：添加机器 → 一行命令安装 → 打开 harness → 建 agent → 开会话" width="860"></p>
 
 ## 独立 Harness CLI
 
@@ -77,16 +77,18 @@ agentuse-server user token 用户id                       # 重置登录令牌
 
 # 用户电脑
 agentuse register -server URL -token 安装令牌           # setup.sh 会替你跑
-agentuse daemon                                         # setup.sh 装成的后台服务跑的就是它
+agentuse start                                          # 前台启动 Client，也支持本地调试
+agentuse ui --open                                      # 打开本机页面
+agentuse daemon                                         # setup.sh 安装的后台服务入口
 agentuse status                                         # 注册和连接状态
 agentuse harnesses                                      # 本机检测到的 harness
 ```
 
-两个 CLI 的完整说明见 [`docs/v2/cli/`](docs/v2/cli/README.md)。`start` 的参数也能用环境变量给:`AGENTUSE_ADDR`、`AGENTUSE_DB`、`AGENTUSE_PUBLIC_URL`、`AGENTUSE_DIST`。
+两个 CLI 的完整说明见 [Server CLI](docs/server/cli.md) 和 [Client CLI](docs/client/cli.md)。`start` 的参数也能用环境变量给:`AGENTUSE_ADDR`、`AGENTUSE_DB`、`AGENTUSE_PUBLIC_URL`、`AGENTUSE_DIST`。
 
 ## API
 
-网页用的就是这些接口，脚本里带 `Authorization: Bearer <登录令牌>` 即可调用。完整说明见 [`docs/v2/apis/`](docs/v2/apis/README.md)。
+网页用的就是这些接口，脚本里带 `Authorization: Bearer <登录令牌>` 即可调用。完整接口、请求和响应以 Server 的 `/api/docs` 自动文档为准。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -104,19 +106,21 @@ agentuse harnesses                                      # 本机检测到的 har
 | GET | `/api/harnesses` | 列设备上报的 harness |
 | GET / POST | `/api/users` | (admin)列用户 / 建用户 |
 
-Server 和 Client 都使用 [Huma](https://github.com/danielgtaylor/huma) 自动生成 API 文档。登录对应服务后访问 `/api/docs` 可查看并调试接口；OpenAPI JSON/YAML 位于 `/api/openapi.json`、`/api/openapi.yaml`，JSON Schema 位于 `/api/schemas/{schema}.json`。文档使用现有 cookie 或 Bearer token 鉴权。运行路由与文档共用注册定义，请求和响应 schema 从 Go 类型生成，包含用户、工作及设备令牌的适用范围和文件上传下载格式。WebSocket 文档描述握手，连接后的消息协议见 [protocol.md](docs/v3/designs/protocol.md)。
+Server 和 Client 都使用 [Huma](https://github.com/danielgtaylor/huma) 自动生成 API 文档。登录对应服务后访问 `/api/docs` 可查看并调试接口；OpenAPI JSON/YAML 位于 `/api/openapi.json`、`/api/openapi.yaml`，JSON Schema 位于 `/api/schemas/{schema}.json`。文档使用现有 cookie 或 Bearer token 鉴权。运行路由与文档共用注册定义，请求和响应 schema 从 Go 类型生成，包含用户、工作及设备令牌的适用范围和文件上传下载格式。WebSocket 文档描述握手，连接后的消息协议见 [protocol.md](designs/v3/designs/protocol.md)。
 
 ## 文档
 
-| | |
+当前使用方法放在 [`docs/`](docs/README.md)，设计方案、协议及历史资料放在 [`designs/`](designs/README.md)。
+
+| 入口 | 内容 |
 |---|---|
-| 总体设计 | [`docs/v2/designs/main.md`](docs/v2/designs/main.md) |
-| 接入与通信 | [`docs/v2/designs/connect.md`](docs/v2/designs/connect.md) |
-| 嵌入到网站 | [`docs/v2/designs/embedding.md`](docs/v2/designs/embedding.md)、[`sdk/`](sdk/README.md) |
-| 表结构 | [`docs/v2/tables/`](docs/v2/tables/) |
-| 接口 | [`docs/v2/apis/`](docs/v2/apis/README.md) |
-| 命令行 | [`docs/v2/cli/`](docs/v2/cli/README.md) |
-| 旧版(v1) | [`docs/v1/`](docs/v1/README.md) |
+| [Server 文档](docs/server/README.md) · [CLI](docs/server/cli.md) | 启动服务、存储设置、管理员登录和用户管理 |
+| [Client 文档](docs/client/README.md) · [CLI](docs/client/cli.md) | 注册、启动、本机调试、远端会话、工作线程和附件 |
+| 运行中的 `/api/docs` | 两端分别提供的 Huma API 交互文档 |
+| [SDK](sdk/README.md) | Go、Node.js 和 Python 接入示例 |
+| [Server 设计](designs/v3/designs/server-main.md) · [Client 设计](designs/v3/designs/client-main.md) | 业务划分及实现约定 |
+| [通信协议](designs/v3/designs/protocol.md) | Client 与 Server 的 WebSocket 报文和恢复规则 |
+| [设计资料索引](designs/README.md) | 原 docs 中保留的各版本设计、历史接口和插图 |
 
 ## 从源码构建
 
@@ -151,10 +155,11 @@ internal/             protocol、harness、attachment 校验、command、version
 sdk/                  HTTP API 类型及客户端：golang / nodejs / python
 test/e2e/             两个二进制的端到端场景
 test/architecture/    分层依赖检查
-docs/                 v2（当前）/ v1（旧版）
+docs/                 当前使用文档：server / client
+designs/              设计方案、协议、历史资料及插图：v1 / v2 / v3
 ```
 
-client 和 server 通过 Go internal 规则隔离；本机 controller 分别查询 sessionService 和 runService；client 各 service 直接管理文件，fileutil 仅提供通用文件操作。服务端写操作和事务编排经过 service，store 保存 SQL、schema 和行解码。详见[目录设计](docs/v2/designs/layout.md)。
+client 和 server 通过 Go internal 规则隔离；本机 controller 分别查询 sessionService 和 runService；client 各 service 直接管理文件，fileutil 仅提供通用文件操作。服务端写操作和事务编排经过 service，store 保存 SQL、schema 和行解码。详见[目录设计](designs/v2/designs/layout.md)。
 
 ## License
 
@@ -170,7 +175,7 @@ agentuse attachment list --json
 agentuse attachment download at_xxx --output ./report.pdf
 ```
 
-网页会话页和 Go、Python、Node SDK 均支持附件。服务端默认单文件 100 MiB、每会话总计 1 GiB；附件目录默认 `~/.agentuse/attachments`，须与数据库一起备份。需要服务端和 daemon 一起升级，旧 daemon 会提示不支持附件。[设计](docs/v2/designs/attachment.md) · [API](docs/v2/apis/attachments.md) · [CLI](docs/v2/cli/agentuse.md#attachment)。
+网页会话页和 Go、Python、Node SDK 均支持附件。服务端默认单文件 100 MiB、每会话总计 1 GiB；附件目录默认 `~/.agentuse/attachments`，须与数据库一起备份。需要服务端和 daemon 一起升级，旧 daemon 会提示不支持附件。[设计](designs/v2/designs/attachment.md) · [API](designs/v2/apis/attachments.md) · [Client CLI](docs/client/cli.md)。
 
 ## 多 agent 共享会话
 
@@ -186,7 +191,7 @@ agentuse attachment download at_xxx --output ./report.pdf
 {"prompt":"分别看看实现和风险","to_agent_ids":["coder","reviewer"],"to_user_ids":["alice"]}
 ```
 
-返回 `{message, runs, deliveries}`。也支持 `agentuse session send ss_xxx --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有会话统一使用共享模型，未传 mode 也创建 multi_agent。需要服务端和 client 一起升级（`harnessctl-events-v1`）。[设计](docs/v2/designs/session-mentions.md) · [API](docs/v2/apis/sessions.md)。
+返回 `{message, runs, deliveries}`。也支持 `agentuse session send ss_xxx --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有会话统一使用共享模型，未传 mode 也创建 multi_agent。Server 与 Client 使用 `agentuse-client/2` 通信。[设计](designs/v2/designs/session-mentions.md) · [API](designs/v2/apis/sessions.md)。
 
 ### Client 本机页面与文件配置
 
@@ -230,7 +235,7 @@ Client 不再使用 SQLite，文件结构为：
 
 Agent 指令与 skills 由 Client 按固定版本 API 获取，通过 init 保存资源快照，不覆盖共享 workspace 中的 AGENTS.md / CLAUDE.md。Codex 恢复指定 thread，Claude Code 恢复指定 session；不同 session 可并行执行。执行事实只保存在 events.jsonl，run_id 由适配器决定；补充输入可能属于同一个 run，也可能排队形成新 run。client 不创建 attempt。中心输入收据、事件 ACK 游标和控制收据隔离在 .server/，未确认事件仍受目录保护。
 
-详见 [Client 设计与 API](docs/v3/designs/client-main.md)。
+详见 [Client 设计与 API](designs/v3/designs/client-main.md)。
 
 配置生命周期统一为：启动时加载 setting.yaml、endpoints.yaml 和 harness 包，运行期间固定使用快照。修改、增删、启停和凭据变更一律重启生效；没有热更新、周期重读、重新探测或 active_work_root / restart_required 双态字段。自动重连、任务控制和 quota 检查属于运行行为，不重新加载配置。
 
@@ -238,4 +243,4 @@ Agent 指令与 skills 由 Client 按固定版本 API 获取，通过 init 保�
 
 消息使用 `to_agent_ids` 和 `to_user_ids` 指定收件人：只有 Agent 收件人触发执行，用户收件人必须已有会话读取权限，两组省略时均为 `[]`。CLI 通过 `--agents`、`--users` 分别指定；不保留旧字段别名。
 
-Server/client 使用 `agentuse-client/2`：Server 直接投递 conversation message 和目标 Agent，Client 按需获取固定版本配置与 skills 并在本地 init，适配器通过 accepted 返回真实 run UUID。只支持数据库 schema 5 和新版消息收据，不保留旧数据迁移或兼容逻辑。升级需重建 Server 数据库、清空 Client 本地工作目录并重新初始化、注册设备；两端必须一起更新。详见 [协议](docs/v3/designs/protocol.md) 和 [server-run 设计](docs/v3/designs/server-run.md)。
+Server/client 使用 `agentuse-client/2`：Server 直接投递 conversation message 和目标 Agent，Client 按需获取固定版本配置与 skills 并在本地 init，适配器通过 accepted 返回真实 run UUID。只支持数据库 schema 5 和新版消息收据，不保留旧数据迁移或兼容逻辑。升级需重建 Server 数据库、清空 Client 本地工作目录并重新初始化、注册设备；两端必须一起更新。详见 [协议](designs/v3/designs/protocol.md) 和 [server-run 设计](designs/v3/designs/server-run.md)。

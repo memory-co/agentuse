@@ -15,7 +15,7 @@ import (
 
 const cookieName = "agentuse_token"
 
-// actAsHeader:admin 令牌带上它，就按这个用户的身份执行(见 docs/v2/designs/embedding.md)。
+// actAsHeader:admin 令牌带上它，就按这个用户的身份执行(见 designs/v2/designs/embedding.md)。
 const actAsHeader = "X-Agentuse-User"
 
 type userKey struct{}
@@ -44,7 +44,7 @@ func requestToken(r *http.Request) string {
 // auth 要求登录：网页用 cookie,脚本用 Authorization: Bearer <用户令牌>。admin 可以再带 X-Agentuse-User 代为某个用户。
 func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc { return s.authWith(h, false) }
 
-// workAuth 同 auth,另外收工作令牌(wt_):协调者跑的时候用它开线程、看线程(docs/v2/apis/works.md)。
+// workAuth 同 auth,另外收工作令牌(wt_):协调者跑的时候用它开线程、看线程(designs/v2/apis/works.md)。
 // 用工作令牌时身份是工作的主人，handler 里再用 workScope 限定只能动这个工作的线程。
 func (s *Server) workAuth(h http.HandlerFunc) http.HandlerFunc { return s.authWith(h, true) }
 

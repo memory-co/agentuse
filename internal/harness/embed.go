@@ -1,6 +1,6 @@
 // Package harness 读仓库顶层 harness/ 目录：一个内置 harness 一个子目录，
 // 里面的 harness.yaml 描述这个 CLI 的命令入口点位(探测、新建 / 续接会话、怎么读输出)。
-// 见 docs/v2/designs/harness.md。
+// 见 designs/v2/designs/harness.md。
 package harness
 
 import (

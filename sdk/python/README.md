@@ -40,7 +40,7 @@ r = agentuse.send_message(uid, s["id"], prompt="再把 CHANGELOG 也改一下")
 print(r["deliveries"])  # accepted 前 runs 可以为空
 ```
 
-返回值都是接口里的 JSON 对象(dict / list),字段见 [apis](../../docs/v2/apis/README.md)。`timeout` 是单次 HTTP 请求的超时(秒),建客户端时给。
+返回值都是接口里的 JSON 对象(dict / list),字段见 [apis](../../designs/v2/apis/README.md)。`timeout` 是单次 HTTP 请求的超时(秒),建客户端时给。
 
 ## 附件
 
@@ -56,7 +56,7 @@ with c.download_attachment(user, session_id, file['id']) as response:
         shutil.copyfileobj(response, output)
 ```
 
-还支持 `list_attachments(user, session_id, limit=None, cursor=None)`、`get_attachment`、`delete_attachment`。列表返回 `attachments` 和 `next_cursor`；下载返回需要关闭的响应流。上传使用二进制文件对象，按块发送；导出 `Attachment`、`AttachmentPage` TypedDict 类型。完整约定见 [attachments API](../../docs/v2/apis/attachments.md)。
+还支持 `list_attachments(user, session_id, limit=None, cursor=None)`、`get_attachment`、`delete_attachment`。列表返回 `attachments` 和 `next_cursor`；下载返回需要关闭的响应流。上传使用二进制文件对象，按块发送；导出 `Attachment`、`AttachmentPage` TypedDict 类型。完整约定见 [attachments API](../../designs/v2/apis/attachments.md)。
 
 ## 多 agent
 

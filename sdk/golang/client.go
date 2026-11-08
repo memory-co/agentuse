@@ -1,5 +1,5 @@
 // Package agentuse 是 agentuse HTTP API 的 Go 客户端，给网站后端嵌入 agentuse 用。
-// 只依赖标准库。接口见 docs/v2/apis,用法见 sdk/golang/README.md。
+// 只依赖标准库。接口见 designs/v2/apis,用法见 sdk/golang/README.md。
 package agentuse
 
 import (

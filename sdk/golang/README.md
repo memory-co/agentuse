@@ -46,7 +46,7 @@ if err == nil && reply.Steer != nil {
 
 ## 附件
 
-先用 `CreateSessionRequest{DeferStart: true}` 建空会话，上传文件后 `SendMessage` 开始。附件是 session 的独立资源，大小限制和权限见 [attachments API](../../docs/v2/apis/attachments.md)。
+先用 `CreateSessionRequest{DeferStart: true}` 建空会话，上传文件后 `SendMessage` 开始。附件是 session 的独立资源，大小限制和权限见 [attachments API](../../designs/v2/apis/attachments.md)。
 
 ```go
 f, err := os.Open("input.csv")

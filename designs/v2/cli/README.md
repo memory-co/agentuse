@@ -1,5 +1,7 @@
 # CLI
 
+> 历史 CLI 资料。当前命令与参数见 [Server CLI](../../../docs/server/cli.md) 和 [Client CLI](../../../docs/client/cli.md)。
+
 命令行拆成兩個二進制，給不同的人用:
 
 | 二進制 | 給誰 | 跑在哪 | 幹什麼 |

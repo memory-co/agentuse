@@ -29,13 +29,13 @@ type Spec struct {
 	Input Input `yaml:"input"`
 	// Env 是起进程时追加的环境变量，值里的 {message_id} {session_id} 会被替换。
 	Env map[string]string `yaml:"env"`
-	// Steer 是插话的实现，空 = 不能插话。见 docs/v2/designs/steer.md。
+	// Steer 是插话的实现，空 = 不能插话。见 designs/v2/designs/steer.md。
 	Steer string `yaml:"steer"`
-	// Ask 是提问的实现，空 = 不能提问。见 docs/v2/designs/question.md。
+	// Ask 是提问的实现，空 = 不能提问。见 designs/v2/designs/question.md。
 	Ask string `yaml:"ask"`
 	// Workdir:本目录下的子目录 → 会话目录里的相对路径，起进程前拷过去。
 	Workdir map[string]string `yaml:"workdir"`
-	// Instructions 是工作的说明写到会话目录里的哪个文件(如 CLAUDE.md),空 = 不写。见 docs/v2/designs/work.md。
+	// Instructions 是工作的说明写到会话目录里的哪个文件(如 CLAUDE.md),空 = 不写。见 designs/v2/designs/work.md。
 	Instructions string `yaml:"instructions"`
 	Output       Output `yaml:"output"`
 	Finish       Finish `yaml:"finish"`
@@ -60,7 +60,7 @@ type Output struct {
 	Rules     []Rule `yaml:"rules"`
 }
 
-// Rule 是一条逐行匹配的规则，字段含义见 docs/v2/designs/harness.md。
+// Rule 是一条逐行匹配的规则，字段含义见 designs/v2/designs/harness.md。
 type Rule struct {
 	Match     map[string]any `yaml:"match"`
 	Each      string         `yaml:"each"`
@@ -71,7 +71,7 @@ type Rule struct {
 	Error     string         `yaml:"error"`
 	OK        bool           `yaml:"ok"`
 	Result    *ResultRule    `yaml:"result"`
-	// 计划，见 docs/v2/designs/plan.md
+	// 计划，见 designs/v2/designs/plan.md
 	Plan       *PlanRule `yaml:"plan"`
 	PlanAdd    *PlanStep `yaml:"plan_add"`
 	PlanUpdate *PlanStep `yaml:"plan_update"`

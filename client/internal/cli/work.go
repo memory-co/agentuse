@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-const workUsage = `agentuse work —— 工作的协调者用来管理线程(docs/v2/designs/work.md)
+const workUsage = `agentuse work —— 工作的协调者用来管理线程(docs/client/cli.md)
 
 用法:
   agentuse work agents                            能用哪些 agent

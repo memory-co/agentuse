@@ -30,7 +30,8 @@ const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 age
   agentuse attachment upload <文件> | list | download <id> --output <文件>
   agentuse version
 
-所有命令都可以用 -config 指定配置文件，默认 ~/.agentuse/endpoints.yaml。
+register/start/daemon/status/harnesses/session/attachment 支持 -config。
+work 使用工作环境变量。完整用法见 docs/client/cli.md。
 `
 
 // Main 是用户电脑上的 agentuse。

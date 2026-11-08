@@ -1,4 +1,4 @@
-"""agentuse HTTP API 的薄封装，只用标准库。接口见 docs/v2/apis。"""
+"""agentuse HTTP API 的薄封装，只用标准库。接口见 designs/v2/apis。"""
 
 import json
 import secrets

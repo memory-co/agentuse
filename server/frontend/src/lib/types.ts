@@ -1,4 +1,4 @@
-// 和 docs/v2/apis 里的返回结构对应。时间都是 unix 秒。
+// 和 designs/v2/apis 里的返回结构对应。时间都是 unix 秒。
 export type Role = 'admin' | 'user';
 export interface User { id: string; name: string; role: Role; created_at: number }
 
@@ -18,7 +18,7 @@ export interface Session {
   id: string; user_id: string; created_by: string; work_id?: string; work_role?: 'coordinator' | 'thread';
   title: string; status: SessionStatus; created_at: number; updated_at: number;
 }
-// 工作：协调者 + 线程 + 共用说明(docs/v2/designs/work.md)
+// 工作：协调者 + 线程 + 共用说明(designs/v2/designs/work.md)
 export interface Work { coordinator_agent_id?: string; id: string; user_id: string; name: string; instructions: string; coordinator_id: string; thread_count: number; created_at: number; updated_at: number }
 export interface Message {author_user_id?:string;reply_to_message_id?:string;author_agent_version_id?:string; seq?:number; agent_key?:string;agent_name?:string;run_id?:string;to_agent_ids:string[];to_user_ids:string[]; id: string; session_id: string; role: 'user' | 'assistant'; content: any; created_at: number }
 export interface SessionEvent { run_id?:string;client_session_id:string;agent_id:string;event_seq:number; id: number; session_id: string; daemon_id: string; kind: string; payload?: any; created_at: number }

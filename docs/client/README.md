@@ -1,0 +1,11 @@
+# Client
+
+`agentuse` 在执行设备上运行，连接一个或多个 Server，接收发给 Agent 的消息，并通过本机 harness 执行。收到消息后，Client 按固定版本取得所需配置和 skills，在本地准备或复用 session，再把实际 run ID 和执行事件上报 Server。
+
+使用 [Client CLI 手册](cli.md) 注册设备、启动 Client、打开本机页面，以及操作远端会话、工作线程和附件。
+
+没有注册 Server 时也可以运行 `agentuse start`，再用 `agentuse ui --open` 打开本地调试页面。默认地址为 `127.0.0.1:7801`，可在页面中选择已安装的 harness 实际执行。
+
+本机页面启动后，先通过 `agentuse ui` 输出的链接登录，再访问本机 `/api/docs` 查看和调试 Client API。Server 的管理页面和 Client 的本机页面分别使用各自的登录凭据。
+
+[Server 使用文档](../server/README.md) 说明中心服务如何部署。开发资料位于 [Client 设计](../../designs/v3/designs/client-main.md)，适配器接口见 [harnessctl](../../harnessctl/README.md)。

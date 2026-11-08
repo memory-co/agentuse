@@ -152,7 +152,7 @@ function MessageView({ m }: { m: Message }) {
   </div>;
 }
 
-/** 线程回完后发给协调者的消息：显示成一张小卡片，点了进线程(docs/v2/designs/work.md)。 */
+/** 线程回完后发给协调者的消息：显示成一张小卡片，点了进线程(designs/v2/designs/work.md)。 */
 function ThreadNote({ m }: { m: Message }) {
   const t = useT();
   const prompt = String(m.content.prompt ?? '');
