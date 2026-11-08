@@ -239,3 +239,7 @@ Local 與遠端共用相同的資源校驗、session 綁定和 harnessctl 執行
 ## Work 的業務邊界
 
 Work 由 Server 管理，可以跨多個 Client。message 不包含 work_id/work_token，也不向 Client 環境注入工作令牌；業務說明只通過 context 文本下發。協調 Agent 按 Server 的說明使用 Server 維護的遠端工具，授權由 Server 依來源消息及執行身份驗證。Client 不判斷 Work 角色，也不提供 work/context work 命令。詳見 [server-work.md](server-work.md)。
+
+## 當前執行的文件交互
+
+Client 的 `context attachment list/read/upload` 統一處理當前 run 的輸入與輸出。輸入仍是 message 中的固定附件快照；輸出通過既有 HTTP 附件接口發布，設備上傳必須提供當前 X-Agentuse-Run，Server 校驗本設備、本 conversation 和活動 run 的歸屬。列表的 run_id 過濾僅返回該 run 發布的輸出，與固定輸入合併展示。不增加文件上傳的 WebSocket 事件，不自動發消息或結束執行。

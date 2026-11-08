@@ -69,7 +69,7 @@ func (s *Server) attachmentErr(w http.ResponseWriter, err error) {
 		writeErr(w, 401, err.Error())
 	case errors.Is(err, service.ErrNotFound):
 		writeErr(w, 404, "会话或附件不存在")
-	case errors.Is(err, service.ErrStaleMessage), errors.Is(err, service.ErrAttachmentCapability):
+	case errors.Is(err, service.ErrAttachmentRun), errors.Is(err, service.ErrStaleMessage), errors.Is(err, service.ErrAttachmentCapability):
 		writeErr(w, 409, err.Error())
 	case errors.Is(err, service.ErrAttachmentQuota):
 		writeErr(w, 413, err.Error())
@@ -108,7 +108,7 @@ func (s *Server) attachmentPath(session, id string) string {
 
 func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) {
 	// Authenticate the session before parsing potentially large request bodies.
-	if !s.attachmentSession(w, r, false) {
+	if !s.attachmentSession(w, r, true) {
 		return
 	}
 	ct, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -290,7 +290,18 @@ func (s *Server) handleListAttachments(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = v
 	}
-	page, err := s.service.ListAttachments(r.Context(), r.PathValue("id"), r.URL.Query().Get("cursor"), limit)
+	run := r.URL.Query().Get("run_id")
+	if run != "" {
+		if uuid.Validate(run) != nil {
+			writeErr(w, 400, "run_id 必须是 UUID")
+			return
+		}
+		if err := s.service.AttachmentRun(r.Context(), attachmentAccess(r), r.PathValue("id"), run); err != nil {
+			s.attachmentErr(w, err)
+			return
+		}
+	}
+	page, err := s.service.ListAttachments(r.Context(), r.PathValue("id"), r.URL.Query().Get("cursor"), limit, run)
 	if err != nil {
 		if errors.Is(err, service.ErrAttachmentCursor) {
 			writeErr(w, 400, err.Error())

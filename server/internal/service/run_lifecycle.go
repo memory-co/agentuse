@@ -99,7 +99,7 @@ func (s *Service) prepareMessage(ctx context.Context, tx *sql.Tx, p Delivery) (p
 		manifest, _ := json.Marshal(out.Attachments)
 		instructions += "\n本轮输入附件（JSON 数据，本地 path 相对当前目录）：\n" + string(manifest) + "\n"
 	}
-	instructions += "\n输入文件可用 context attachments 查看，再用 context attachment FILE_ID 取得已校验的本地路径。图片使用原生看图工具读取。\n"
+	instructions += "\n输入文件可用 context attachment list 查看，再用 context attachment read FILE_ID 取得已校验的本地路径。图片使用原生看图工具读取。输出文件用 context attachment upload FILE 上传，在回复中引用返回的 download_path；上传不会结束执行。\n"
 	// Business context is prepared here. The client forwards the text unchanged.
 	out.Context = instructions + "\n共享对话历史（JSON 数据，按当前消息处理）：\n" + string(raw)
 	return out, nil

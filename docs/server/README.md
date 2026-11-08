@@ -9,3 +9,5 @@
 [Client 使用文档](../client/README.md) 说明执行设备如何注册、启动及查看本机执行记录。开发和协议资料位于 [Server 设计](../../designs/v3/designs/server-main.md)。
 
 [Work 手册](work.md) 说明跨 Client 编排、协调 Agent 的 Server 工具和工作授权。
+
+文件交互采用两个方向：用户在 Server 上传输入供 AI 读取，AI 通过 `context attachment upload` 上传输出供用户在 Server 查看和下载。

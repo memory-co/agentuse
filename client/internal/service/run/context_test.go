@@ -134,8 +134,12 @@ func TestContextLocalInputsAndHistoricalSelection(t *testing.T) {
 	f := newContextFixture(t, endpoint.LocalID)
 	f.eventsFile(t, acceptedContextEvent(f.first, "one"), map[string]any{"type": "result", "run_id": f.first, "status": "completed"})
 	view, err := OpenExecutionContext(context.Background(), f.path, f.first)
-	if err != nil || view.Status != "completed" || len(view.Inputs) != 1 || view.Inputs[0].Text != "identical native text" || view.Inputs[0].MessageID != "" || len(view.Attachments()) != 0 {
+	if err != nil || view.Status != "completed" || len(view.Inputs) != 1 || view.Inputs[0].Text != "identical native text" || view.Inputs[0].MessageID != "" {
 		t.Fatal(view, err)
+	}
+	files, err := view.Attachments(context.Background())
+	if err != nil || len(files) != 0 {
+		t.Fatal(files, err)
 	}
 	if _, err = view.Attachment(context.Background(), "at_missing"); err == nil {
 		t.Fatal("unknown file accepted")
@@ -146,8 +150,16 @@ func TestContextAttachmentSnapshotVerificationAndScopedDownload(t *testing.T) {
 	content := []byte("\x89PNG\r\n\x1a\nimage-data")
 	digest := sha256.Sum256(content)
 	requests := 0
-	var allowed string
+	var allowed, listPath, runID string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		if r.URL.Path == listPath {
+			if r.URL.Query().Get("run_id") != runID || r.Header.Get("Authorization") != "Bearer dk_private" {
+				t.Error("unscoped list")
+			}
+			json.NewEncoder(w).Encode(sdk.AttachmentPage{Attachments: []sdk.Attachment{}})
+			return
+		}
 		requests++
 		if r.Header.Get("Authorization") != "Bearer dk_private" || r.URL.Path != allowed {
 			t.Errorf("unscoped request %s", r.URL.Path)
@@ -166,6 +178,8 @@ func TestContextAttachmentSnapshotVerificationAndScopedDownload(t *testing.T) {
 	future := image
 	future.ID = "at_future"
 	allowed = "/api/sessions/" + f.metadata.ConversationID + "/attachments/at_image/content"
+	listPath = "/api/sessions/" + f.metadata.ConversationID + "/attachments"
+	runID = f.first
 	f.eventsFile(t, acceptedContextEvent(f.first, "one"), acceptedContextEvent(f.next, "next"))
 	f.receipt(t, f.first, "one", "message", "inspect image", image)
 	f.receipt(t, f.next, "next", "later", "other image", future)
@@ -173,8 +187,9 @@ func TestContextAttachmentSnapshotVerificationAndScopedDownload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(view.Attachments()) != 1 || view.Attachments()[0].MIMEType != "image/png" {
-		t.Fatal(view.Attachments())
+	listed, err := view.Attachments(context.Background())
+	if err != nil || len(listed) != 1 || listed[0].MIMEType != "image/png" {
+		t.Fatal(listed, err)
 	}
 	if _, err = view.Attachment(context.Background(), future.ID); err == nil || requests != 0 {
 		t.Fatal("fetched a future input file", err, requests)

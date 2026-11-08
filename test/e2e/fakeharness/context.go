@@ -51,7 +51,7 @@ func contextProof(hold bool) (string, error) {
 	if id := os.Getenv("AGENTUSE_RUN"); id != "" && id != view.RunID {
 		return "", fmt.Errorf("context selected another run")
 	}
-	files, err := call("attachments")
+	files, err := call("attachment", "list")
 	if err != nil {
 		return "", err
 	}
@@ -66,7 +66,7 @@ func contextProof(hold bool) (string, error) {
 	if len(attachments.Attachments) == 0 {
 		return "", fmt.Errorf("missing image attachments")
 	}
-	file, err := call("attachment", attachments.Attachments[0].ID)
+	file, err := call("attachment", "read", attachments.Attachments[0].ID)
 	if err != nil {
 		return "", err
 	}
@@ -92,10 +92,57 @@ func contextProof(hold bool) (string, error) {
 		}
 	}
 	if future, err := os.ReadFile("future-file-id"); err == nil && hold {
-		if _, err = call("attachment", strings.TrimSpace(string(future))); err == nil {
+		if _, err = call("attachment", "read", strings.TrimSpace(string(future))); err == nil {
 			return "", fmt.Errorf("future attachment exposed")
 		}
 	}
-	proof, _ := json.Marshal(map[string]any{"context": json.RawMessage(input), "attachments": json.RawMessage(files), "file": json.RawMessage(file), "sha256": hex.EncodeToString(digest[:]), "help": string(help)})
+	reportPath := "report-" + view.RunID + ".txt"
+	reportBody := []byte("image sha256: " + hex.EncodeToString(digest[:]))
+	if err = os.WriteFile(reportPath, reportBody, 0600); err != nil {
+		return "", err
+	}
+	uploaded, err := call("attachment", "upload", reportPath)
+	if err != nil {
+		return "", err
+	}
+	var output struct {
+		ID             string `json:"id"`
+		RunID          string `json:"run_id"`
+		ConversationID string `json:"conversation_id"`
+		Direction      string `json:"direction"`
+	}
+	if err = json.Unmarshal(uploaded, &output); err != nil || output.RunID != view.RunID || output.ConversationID != view.ConversationID || output.Direction != "output" {
+		return "", fmt.Errorf("upload lost its run binding: %v", err)
+	}
+	listedOutputs, err := call("attachment", "list")
+	if err != nil {
+		return "", err
+	}
+	saved, err := call("attachment", "read", output.ID)
+	if err != nil {
+		return "", err
+	}
+	var savedFile struct {
+		LocalPath string `json:"local_path"`
+	}
+	if err = json.Unmarshal(saved, &savedFile); err != nil {
+		return "", err
+	}
+	savedBody, err := os.ReadFile(savedFile.LocalPath)
+	if err != nil || string(savedBody) != string(reportBody) {
+		return "", fmt.Errorf("uploaded output could not be read: %v", err)
+	}
+	after, err := call("input")
+	if err != nil {
+		return "", err
+	}
+	var state struct {
+		Status string `json:"status"`
+	}
+	if err = json.Unmarshal(after, &state); err != nil || state.Status != "running" {
+		return "", fmt.Errorf("upload completed the run unexpectedly: %v", err)
+	}
+
+	proof, _ := json.Marshal(map[string]any{"context": json.RawMessage(input), "attachments": json.RawMessage(files), "file": json.RawMessage(file), "sha256": hex.EncodeToString(digest[:]), "help": string(help), "uploaded": json.RawMessage(uploaded), "outputs": json.RawMessage(listedOutputs)})
 	return string(proof), nil
 }

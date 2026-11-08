@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -39,6 +40,20 @@ type imageContextProof struct {
 		LocalPath string `json:"local_path"`
 		MIMEType  string `json:"mime_type"`
 	} `json:"file"`
+	Uploaded struct {
+		ID             string `json:"id"`
+		RunID          string `json:"run_id"`
+		ConversationID string `json:"conversation_id"`
+		Direction      string `json:"direction"`
+		DownloadPath   string `json:"download_path"`
+	} `json:"uploaded"`
+	Outputs struct {
+		Attachments []struct {
+			ID        string `json:"id"`
+			Direction string `json:"direction"`
+		} `json:"attachments"`
+	} `json:"outputs"`
+
 	SHA256 string `json:"sha256"`
 }
 
@@ -147,6 +162,23 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 			if len(proof.Attachments.Attachments) != 1 || proof.Attachments.Attachments[0].ID != attachment.ID || proof.File.MIMEType != "image/png" || proof.SHA256 != hex.EncodeToString(digest[:]) || !filepath.IsAbs(proof.File.LocalPath) {
 				t.Fatal("incorrect image snapshot", run.Output)
 			}
+			if proof.Uploaded.RunID != run.ID || proof.Uploaded.ConversationID != conversation || proof.Uploaded.Direction != "output" || len(proof.Outputs.Attachments) != 2 {
+				t.Fatal("run output binding failed", run.Output)
+			}
+			output, err := c.GetAttachment(ctx, user, conversation, proof.Uploaded.ID)
+			if err != nil || output.CreatedByRunID != run.ID || output.CreatedByAgentKey != "image-"+h || output.Source != "daemon" {
+				t.Fatal("Server omitted output attribution", output, err)
+			}
+			download, err := c.DownloadAttachment(ctx, user, conversation, proof.Uploaded.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := io.ReadAll(download)
+			download.Close()
+			if err != nil || string(body) != "image sha256: "+proof.SHA256 {
+				t.Fatal("Server user could not read output", string(body), err)
+			}
+
 			path := filepath.Join(home, ".agentuse", "tmp", ep, conversation, "sessions", proof.Context.SessionID, "context.json")
 			inspect := exec.Command(cli, "context", "--path", path, "--run", run.ID, "input")
 			inspect.Env = e2eutil.Env(home)
@@ -165,10 +197,10 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 			if err = json.Unmarshal([]byte(e2eutil.MustRun(t, enter)), &selected); err != nil || selected.RunID != run.ID {
 				t.Fatal("entered shell lost run binding", selected, err)
 			}
-			old := exec.Command(cli, "session", "help")
+			old := exec.Command(cli, "attachment", "help")
 			old.Env = e2eutil.Env(home)
 			if err = old.Run(); err == nil {
-				t.Fatal("old session management alias retained")
+				t.Fatal("old attachment management alias retained")
 			}
 		})
 	}

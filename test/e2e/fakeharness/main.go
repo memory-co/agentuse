@@ -309,7 +309,7 @@ func custom() int {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
-		cmd := exec.Command("agentuse", "attachment", "upload", "report.txt", "--json")
+		cmd := exec.Command("context", "attachment", "upload", "report.txt")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, string(out), err)

@@ -25,7 +25,7 @@ const AttachmentCols = `SELECT id,session_id,filename,content_type,size_bytes,sh
 
 const GetAttachmentClause = ` WHERE session_id=? AND id=?`
 
-const ListAttachmentsClause = ` WHERE session_id=? AND (created_at>? OR (created_at=? AND id>?)) ORDER BY created_at,id LIMIT ?`
+const ListAttachmentsClause = ` WHERE session_id=? AND (?='' OR created_by_run_id=?) AND (created_at>? OR (created_at=? AND id>?)) ORDER BY created_at,id LIMIT ?`
 
 const DeleteAttachmentDelete = `DELETE FROM attachments WHERE session_id=? AND id=?`
 

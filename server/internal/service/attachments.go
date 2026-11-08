@@ -12,6 +12,8 @@ import (
 	"github.com/memory-co/agentuse/internal/attachment"
 )
 
+var ErrAttachmentRun = errors.New("上传附件需要当前设备在本会话的活动 run")
+
 var ErrAttachmentCursor = errors.New("游标不合法")
 
 var ErrAttachmentUnauthorized = errors.New("附件凭据无效或已过期")
@@ -67,11 +69,19 @@ func (s *Service) attachmentSession(ctx context.Context, q querier, a Attachment
 	}
 	if a.DaemonID != "" {
 		var allowed int
-		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM message_agents WHERE daemon_id=? AND session_id=? AND status IN ('sent','accepted','completed')`, a.DaemonID, ss.ID).Scan(&allowed); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM message_agents WHERE daemon_id=? AND session_id=? AND status IN ('sent','unknown','accepted','completed','failed','cancelled')`, a.DaemonID, ss.ID).Scan(&allowed); err != nil {
 			return ss, err
 		}
 		if allowed == 0 {
 			return ss, ErrNotFound
+		}
+		if upload {
+			if err := s.attachmentRun(ctx, q, a, ss.ID, a.RunID, true); err != nil {
+				if errors.Is(err, ErrNotFound) {
+					return ss, ErrAttachmentRun
+				}
+				return ss, err
+			}
 		}
 	}
 
@@ -115,20 +125,21 @@ func (s *Service) GetAttachment(ctx context.Context, session, id string) (attach
 	return scanAttachment(s.db.QueryRowContext(ctx, attachmentCols+store.GetAttachmentClause, session, id))
 }
 
-func (s *Service) ListAttachments(ctx context.Context, session, cursor string, limit int) (attachment.Page, error) {
+func (s *Service) ListAttachments(ctx context.Context, session, cursor string, limit int, run string) (attachment.Page, error) {
 	out := attachment.Page{Attachments: []attachment.Attachment{}}
 	var after struct {
 		Session string
+		Run     string
 		Time    int64
 		ID      string
 	}
 	if cursor != "" {
 		b, e := base64.RawURLEncoding.DecodeString(cursor)
-		if e != nil || json.Unmarshal(b, &after) != nil || after.Session != session || !attachment.ValidID(after.ID, "at_") || after.Time < 0 {
+		if e != nil || json.Unmarshal(b, &after) != nil || after.Session != session || after.Run != run || !attachment.ValidID(after.ID, "at_") || after.Time < 0 {
 			return out, ErrAttachmentCursor
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, attachmentCols+store.ListAttachmentsClause, session, after.Time, after.Time, after.ID, limit+1)
+	rows, err := s.db.QueryContext(ctx, attachmentCols+store.ListAttachmentsClause, session, run, run, after.Time, after.Time, after.ID, limit+1)
 	if err != nil {
 		return out, err
 	}
@@ -148,9 +159,10 @@ func (s *Service) ListAttachments(ctx context.Context, session, cursor string, l
 		last := out.Attachments[limit-1]
 		b, _ := json.Marshal(struct {
 			Session string
+			Run     string
 			Time    int64
 			ID      string
-		}{session, last.CreatedAt, last.ID})
+		}{session, run, last.CreatedAt, last.ID})
 		c := base64.RawURLEncoding.EncodeToString(b)
 		out.NextCursor = &c
 	}
@@ -198,4 +210,20 @@ func (s *Service) daemonCapabilities(ctx context.Context, id string) ([]string, 
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// AttachmentRun checks attribution without changing the general conversation read scope.
+func (s *Service) AttachmentRun(ctx context.Context, a AttachmentAccess, conversation, run string) error {
+	return s.attachmentRun(ctx, s.db, a, conversation, run, false)
+}
+func (s *Service) attachmentRun(ctx context.Context, q querier, a AttachmentAccess, conversation, run string, active bool) error {
+	var count int
+	err := q.QueryRowContext(ctx, `SELECT count(*) FROM runs WHERE id=? AND session_id=? AND (?='' OR daemon_id=?) AND (?=0 OR status IN ('running','waiting'))`, run, conversation, a.DaemonID, a.DaemonID, active).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

@@ -84,3 +84,5 @@ r, err := c.SendMessage(ctx, uid, sessionID, agentuse.MessageRequest{
     Prompt: "请查看结果", ToUserIDs: []string{uid},
 })
 ```
+
+`ListRunAttachments(ctx, user, sessionID, runID, limit, cursor)` 和 `AllRunAttachments(ctx, user, sessionID, runID)` 只读取该 run 上传到会话的输出文件。设备密钥上传必须设置 `Client.RunID`，Server 校验 run 属于该设备、会话且仍在活动中；用户通过 API 上传输入无需 run ID。执行中的 AI 使用 [context 文件命令](../../docs/client/context.md)，无需自行配置 SDK。

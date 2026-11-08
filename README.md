@@ -172,23 +172,16 @@ client 和 server 通过 Go internal 规则隔离；本机 controller 分别查�
 
 ## 会话附件
 
-会话支持输入文件和交付产物，接口是 `/api/sessions/{id}/attachments`。先创建空会话、上传输入文件，再发送第一条消息。Client 按输入携带的快照下载并校验附件。AI 在执行环境中直接使用：
+会话支持输入文件和输出文件，接口是 `/api/sessions/{id}/attachments`。人类在 Server 页面或通过 API/SDK 上传输入，Client AI 在当前 run 中读取；AI 上传输出后，人类在 Server 查看或下载。
 
 ```bash
 context input
-context attachments
-context attachment FILE_ID
+context attachment list
+context attachment read FILE_ID
+context attachment upload ./report.pdf
 ```
 
-`attachment` 返回经过大小和 SHA-256 校验的本地绝对路径及 MIME 类型；图片再交给模型的原生看图工具读取。每次调用按当前实际 run 确认输入范围，排队 run 的输入与文件不会混入工具结果。人类可以用 `agentuse context` 显式选择或进入同一上下文，详见 [执行上下文手册](docs/client/context.md)。
-
-上传交付产物等远端文件操作使用管理命令：
-
-```bash
-agentuse attachment upload ./report.pdf --conversation CONVERSATION_ID
-agentuse attachment list --conversation CONVERSATION_ID --json
-agentuse attachment download FILE_ID --conversation CONVERSATION_ID --output ./report.pdf
-```
+`read` 返回经过大小和 SHA-256 校验的本地绝对路径及 MIME 类型，图片交给原生看图工具读取。`list` 包含当前输入快照和本次 run 的输出，使用 `direction` 区分；其他排队 run 的文件不会混入。`upload` 自动关联 conversation/run，返回可引用的 `download_path`，不会自动回复或结束执行。人类可以用 `agentuse context` 调试同一上下文，详见 [执行上下文手册](docs/client/context.md)。
 
 网页会话页和 Go、Python、Node SDK 均支持附件。服务端默认单文件 100 MiB、每会话总计 1 GiB；附件目录默认 `~/.agentuse/attachments`，须与数据库一起备份。[设计](designs/v2/designs/attachment.md) · [API](designs/v2/apis/attachments.md) · [Client CLI](docs/client/cli.md)。
 

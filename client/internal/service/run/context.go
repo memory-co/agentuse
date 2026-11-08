@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,8 +24,9 @@ const ContextInstructions = `# 当前执行的上下文工具
 
 可以直接调用 context，无需提供 Server、conversation 或 session ID：
 - context input：读取当前 run 已受理的输入，包括补充消息。
-- context attachments：列出当前输入可访问的文件。
-- context attachment FILE_ID：校验并取得文件的本地绝对路径、名称和 MIME 类型；图片用你的原生看图工具读取该路径。
+- context attachment list：列出当前输入附件和本次 run 上传的输出文件。
+- context attachment read FILE_ID：校验并取得文件的本地绝对路径、名称和 MIME 类型；图片用你的原生看图工具读取该路径。
+- context attachment upload FILE：上传输出文件到当前 conversation，自动关联本次 run；在回复中引用返回的 download_path。上传不会自动回复或结束执行。
 - context --help：查看当前可用能力。
 `
 
@@ -62,12 +62,16 @@ type ContextInput struct {
 	AttachmentIDs []string `json:"attachment_ids"`
 }
 type ContextAttachment struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	MIMEType  string `json:"mime_type"`
-	SizeBytes int64  `json:"size_bytes"`
-	SHA256    string `json:"sha256"`
-	LocalPath string `json:"local_path,omitempty"`
+	ID             string `json:"id"`
+	Direction      string `json:"direction"`
+	ConversationID string `json:"conversation_id"`
+	RunID          string `json:"run_id,omitempty"`
+	DownloadPath   string `json:"download_path"`
+	Name           string `json:"name"`
+	MIMEType       string `json:"mime_type"`
+	SizeBytes      int64  `json:"size_bytes"`
+	SHA256         string `json:"sha256"`
+	LocalPath      string `json:"local_path,omitempty"`
 }
 
 func (s *Service) prepareContext(m session.Session, a *harness.Adapter) error {
@@ -309,58 +313,5 @@ func (c *ExecutionContext) readInputs(ctx context.Context, events string) error 
 	return nil
 }
 
-func (c *ExecutionContext) Attachments() []ContextAttachment {
-	out := []ContextAttachment{}
-	for _, a := range c.files {
-		out = append(out, contextAttachment(a))
-	}
-	return out
-}
-func contextAttachment(a sdk.Attachment) ContextAttachment {
-	return ContextAttachment{ID: a.ID, Name: a.Filename, MIMEType: a.ContentType, SizeBytes: a.SizeBytes, SHA256: a.SHA256}
-}
-func (c *ExecutionContext) client() (*sdk.Client, error) {
-	if c.manifest.ConfigPath == "" {
-		return nil, fmt.Errorf("上下文缺少 endpoint 注册配置")
-	}
-	ep, err := (endpoint.Service{Path: c.manifest.ConfigPath}).GetByID(c.EndpointID)
-	if err != nil {
-		return nil, err
-	}
-	client := sdk.New(ep.ServerURL, ep.DeviceKey)
-	client.HTTPClient = &http.Client{Timeout: time.Minute, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
-	return client, nil
-}
-func (c *ExecutionContext) Attachment(ctx context.Context, id string) (ContextAttachment, error) {
-	var selected *sdk.Attachment
-	for i := range c.files {
-		if c.files[i].ID == id {
-			selected = &c.files[i]
-			break
-		}
-	}
-	if selected == nil {
-		return ContextAttachment{}, fmt.Errorf("附件不属于当前 run 的输入")
-	}
-	// Verify the immutable snapshot even when the cached file already exists.
-	err := cacheContextAttachments(ctx, nil, c.ConversationID, c.Workspace, []sdk.Attachment{*selected})
-	if errors.Is(err, errAttachmentNotCached) {
-		client, e := c.client()
-		if e != nil {
-			return ContextAttachment{}, e
-		}
-		err = cacheContextAttachments(ctx, client, c.ConversationID, c.Workspace, []sdk.Attachment{*selected})
-	}
-	if err != nil {
-		return ContextAttachment{}, err
-	}
-	path, err := fileutil.SafePath(c.Workspace, ".agentuse", "attachments", selected.ID, selected.Filename)
-	if err != nil {
-		return ContextAttachment{}, err
-	}
-	out := contextAttachment(*selected)
-	out.LocalPath = path
-	return out, nil
-}
 func (c *ExecutionContext) Path() string    { return c.path }
 func (c *ExecutionContext) BinPath() string { return filepath.Join(filepath.Dir(c.path), "bin") }

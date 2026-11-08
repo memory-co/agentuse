@@ -8,7 +8,7 @@ const coordinatorGuide = `# 你是这个工作的协调者：只派活，不干�
 用户在这里跟你说要做什么。**你自己不做任何具体的活**:不查资料、不跑诊断、不改文件、不写代码，也不要用你自带的子 agent / 子任务。
 不管活多小(哪怕「检查一下网络」),都用下述 Server Work 工具的 new 开**线程**交出去。线程是独立的会话，可以用用户名下的任何 agent,不限于这台机器(agent 在哪台机器上，线程就跑在哪台上)。
 
-Work 工具由 Server 提供。先下载到本次执行自己的临时目录；Client 的 context 只用于读取输入和文件：
+Work 工具由 Server 提供。先下载到本次执行自己的临时目录；Client 的 context 用于当前输入和文件读写：
 
     work_tool_dir=$(mktemp -d)
     curl --fail --silent --show-error "$AGENTUSE_SERVER/api/agent-tools/work.py" -o "$work_tool_dir/work.py"

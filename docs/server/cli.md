@@ -259,7 +259,7 @@ agentuse-server work resolve --work WORK_ID THREAD_ID
 | `--defer-start` | `new` 仅创建空线程；不能同时给消息或收件人 |
 | `--server`、`--token`、`--config` | 沿用管理命令的地址、令牌和配置优先级 |
 
-参数放在消息或线程 ID 之前。所有结果为 JSON；`new` 的线程 ID 位于 `session.id`。先创建空线程时，可用 `agentuse attachment upload --conversation THREAD_ID` 和用户令牌上传文件，再 `send` 给目标 Agent。
+参数放在消息或线程 ID 之前。所有结果为 JSON；`new` 的线程 ID 位于 `session.id`。先创建空线程时，在 Server 页面或通过 HTTP API/SDK 上传输入文件，再 `send` 给目标 Agent。
 
 用户只能访问有权限的工作，管理员可管理其他用户的工作；创建的线程仍归属工作所有者。工作范围由 Server 路径校验，不能通过更换线程 ID 访问另一个工作。创建 Work、修改协调者与工作说明使用管理页面或 `/api/works` API。`login` 仍要求管理员；普通用户可通过 `--token` 或 `AGENTUSE_TOKEN` 调用有权使用的 Work 命令。
 

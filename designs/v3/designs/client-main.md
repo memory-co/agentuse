@@ -142,6 +142,6 @@ Server 的 agentService/skillService 分別發佈不可變版本，輸入只關�
 
 ## 執行中的 context 命令（已實現）
 
-AI 在執行環境直接使用 `context` 讀取當前 run 的輸入與文件，無需知道 Client 管理命令。人類用 `agentuse context` 顯式選擇本機上下文或進入 shell；遠端會話管理改為 `agentuse conversation`。同 session 多 run 的選擇、附件快照見 [client-context.md](client-context.md)，操作見 [執行上下文手冊](../../../docs/client/context.md)。
+AI 在執行環境直接使用 `context` 讀取當前 run 的輸入、讀寫附件，無需知道 Client 管理命令。人類用 `agentuse context` 顯式選擇本機上下文或進入 shell；遠端會話管理改為 `agentuse conversation`。同 session 多 run 的選擇、附件快照見 [client-context.md](client-context.md)，操作見 [執行上下文手冊](../../../docs/client/context.md)。
 
 Work 編排及業務工具由 Server 維護，Client 不包含 work 命令或角色/令牌邏輯；詳見 [server-work.md](server-work.md)。

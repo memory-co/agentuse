@@ -77,7 +77,7 @@ func (s *Server) registerAPI() {
 	work := apiAccess{wrap: s.workAuth, security: []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}, {"workToken": {}}}, description: "也接受工作令牌，访问范围限于对应工作。"}
 	resource := apiAccess{wrap: s.resourceAuth, security: []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}, {"workToken": {}}, {"deviceKey": {}}}, description: "设备和工作令牌只能读取分配给自己的固定资源版本。"}
 	conversation := apiAccess{wrap: s.sessionReadAuth, security: resource.security, description: "工作令牌限于对应工作；设备密钥限于已投递给该设备的会话。"}
-	attachment := apiAccess{wrap: s.attachmentAuth, security: resource.security, description: "工作令牌限于对应工作；设备密钥只能访问已投递给本设备的会话。X-Agentuse-Run 可标记附件来源的 run。"}
+	attachment := apiAccess{wrap: s.attachmentAuth, security: resource.security, description: "工作令牌限于对应工作；设备密钥只能访问已投递给本设备的会话。设备上传必须通过 X-Agentuse-Run 指定本设备在该会话的活动 run。"}
 	attachmentDelete := apiAccess{wrap: s.attachmentAuth, security: work.security, description: "仅用户或工作令牌可删除附件，设备密钥不能删除。"}
 	device := apiAccess{security: []map[string][]string{{"deviceKey": {}}}}
 
@@ -200,12 +200,12 @@ func (s *Server) registerAPI() {
 	bind("POST", "/api/sessions/{id}/runs/{run_id}/cancel", "cancel-run", "发送取消请求，等待 Client 上报结果", "run", work, nil, agentuse.Run{}, 200, s.handleCancelRun)
 	bind("POST", "/api/sessions/{id}/runs/{run_id}/requests/{request_id}/reply", "answer-run-request", "回答执行中的交互请求", "run", work, answerRunBody{}, answerRunResponse{}, 202, s.handleAnswerRun)
 
-	runHeader := &huma.Param{Name: "X-Agentuse-Run", In: "header", Description: "使用设备密钥时可提供的来源 run UUID", Schema: &huma.Schema{Type: "string"}}
+	runHeader := &huma.Param{Name: "X-Agentuse-Run", In: "header", Description: "设备上传必填，Server 校验本会话活动 run 的归属", Schema: &huma.Schema{Type: "string"}}
 	upload := bind("POST", "/api/sessions/{id}/attachments", "upload-attachment", "上传会话附件", "attachment", attachment, nil, agentuse.Attachment{}, 201, s.handleUploadAttachment, runHeader)
 	multipart(upload, map[string]*huma.Schema{"file": binary, "filename": {Type: "string", Description: "可选的显示文件名，覆盖 file 自带的文件名"}})
 	upload.Description += " 单文件最大 " + strconv.FormatInt(s.cfg.AttachmentMaxBytes, 10) + " 字节，会话附件总量最大 " + strconv.FormatInt(s.cfg.AttachmentSessionMaxBytes, 10) + " 字节。"
 	min, max := float64(1), float64(100)
-	bind("GET", "/api/sessions/{id}/attachments", "list-attachments", "分页读取会话附件", "attachment", attachment, nil, agentuse.AttachmentPage{}, 200, s.handleListAttachments, runHeader, &huma.Param{Name: "limit", In: "query", Schema: &huma.Schema{Type: "integer", Minimum: &min, Maximum: &max, Default: 100}}, query("cursor", "上一页的 next_cursor"))
+	bind("GET", "/api/sessions/{id}/attachments", "list-attachments", "分页读取会话附件", "attachment", attachment, nil, agentuse.AttachmentPage{}, 200, s.handleListAttachments, runHeader, &huma.Param{Name: "limit", In: "query", Schema: &huma.Schema{Type: "integer", Minimum: &min, Maximum: &max, Default: 100}}, query("cursor", "上一页的 next_cursor"), query("run_id", "只列出该 run 上传到本会话的输出附件"))
 	bind("GET", "/api/sessions/{id}/attachments/{attachment_id}", "get-attachment", "读取附件元数据", "attachment", attachment, nil, agentuse.Attachment{}, 200, s.handleGetAttachment, runHeader)
 	content := bind("GET", "/api/sessions/{id}/attachments/{attachment_id}/content", "download-attachment", "下载附件内容", "attachment", attachment, nil, nil, 200, s.handleAttachmentContent, runHeader)
 	binaryResponse(content, "*/*")

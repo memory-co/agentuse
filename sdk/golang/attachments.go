@@ -99,7 +99,18 @@ func (c *Client) UploadAttachment(ctx context.Context, user, session, filename s
 	return &a, err
 }
 func (c *Client) ListAttachments(ctx context.Context, user, session string, limit int, cursor string) (*AttachmentPage, error) {
+	return c.listAttachments(ctx, user, session, "", limit, cursor)
+}
+
+// ListRunAttachments only lists files produced by one run in the conversation.
+func (c *Client) ListRunAttachments(ctx context.Context, user, session, run string, limit int, cursor string) (*AttachmentPage, error) {
+	return c.listAttachments(ctx, user, session, run, limit, cursor)
+}
+func (c *Client) listAttachments(ctx context.Context, user, session, run string, limit int, cursor string) (*AttachmentPage, error) {
 	v := url.Values{}
+	if run != "" {
+		v.Set("run_id", run)
+	}
 	if limit != 0 {
 		v.Set("limit", strconv.Itoa(limit))
 	}
@@ -170,10 +181,16 @@ func (c *Client) DownloadAttachmentFile(ctx context.Context, user string, a Atta
 }
 
 func (c *Client) AllAttachments(ctx context.Context, user, session string) ([]Attachment, error) {
+	return c.allAttachments(ctx, user, session, "")
+}
+func (c *Client) AllRunAttachments(ctx context.Context, user, session, run string) ([]Attachment, error) {
+	return c.allAttachments(ctx, user, session, run)
+}
+func (c *Client) allAttachments(ctx context.Context, user, session, run string) ([]Attachment, error) {
 	out := []Attachment{}
 	cursor := ""
 	for {
-		p, e := c.ListAttachments(ctx, user, session, 100, cursor)
+		p, e := c.listAttachments(ctx, user, session, run, 100, cursor)
 		if e != nil {
 			return nil, e
 		}

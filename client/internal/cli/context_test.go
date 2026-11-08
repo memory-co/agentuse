@@ -14,7 +14,7 @@ func TestContextHelpOnlyAdvertisesExecutionTools(t *testing.T) {
 		t.Fatal(code, stderr)
 	}
 	help := out + stderr
-	for _, expected := range []string{"context input", "context attachments", "context attachment FILE_ID"} {
+	for _, expected := range []string{"context input", "context attachment list", "context attachment read FILE_ID", "context attachment upload FILE"} {
 		if !strings.Contains(help, expected) {
 			t.Fatal("missing execution tool", expected)
 		}
@@ -36,11 +36,15 @@ func TestContextRequiresBindingAndRejectsScopeOverride(t *testing.T) {
 	if code != 1 || !strings.Contains(stderr, "未进入执行上下文") {
 		t.Fatal(code, stderr)
 	}
-	for _, args := range [][]string{{"--path", "/other", "input"}, {"--run", "other", "input"}, {"--server", "https://other", "input"}, {"register"}, {"enter"}, {"work", "new"}} {
+	for _, args := range [][]string{{"--path", "/other", "input"}, {"--run", "other", "input"}, {"--server", "https://other", "input"}, {"register"}, {"enter"}, {"work", "new"}, {"attachments"}, {"attachment", "at_old"}} {
 		capture(t, func() { code = ContextMain(args) })
 		if code != 2 {
 			t.Fatal("bound command accepted a management operation", args, code)
 		}
+	}
+	capture(t, func() { code = Main([]string{"attachment", "help"}) })
+	if code != 2 {
+		t.Fatal("top-level attachment command retained")
 	}
 	capture(t, func() { code = Main([]string{"work", "help"}) })
 	if code != 2 {

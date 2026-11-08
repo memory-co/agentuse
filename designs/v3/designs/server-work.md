@@ -28,7 +28,7 @@ Work 說明和協調者業務規則仍由 server 隨輸入準備，不混入可�
 
 ## Server 工具與授權（已實現）
 
-Work 是 Server 的業務實體，可跨多個 Client；協調 Agent 的物理執行位置不改變 Work 的歸屬。Client 只驅動輸入、原生 run 和文件讀取，不含 Work 命令、角色判斷或工作令牌處理。
+Work 是 Server 的業務實體，可跨多個 Client；協調 Agent 的物理執行位置不改變 Work 的歸屬。Client 只驅動輸入、原生 run 和文件讀寫，不含 Work 命令、角色判斷或工作令牌處理。
 
 人類使用 `agentuse-server work`，通過 `/api/works/{work_id}/threads` 及其消息、讀取和 resolve 接口操作。Server 校驗工作所有者/管理員身份，並在每次請求中核對線程歸屬；管理員創建的線程仍屬於工作所有者。
 

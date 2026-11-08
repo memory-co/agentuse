@@ -1,6 +1,6 @@
 # Client CLI：agentuse
 
-`agentuse` 在执行设备上运行 Client，连接 Server 并调用本机 harness。它也提供远端会话、工作线程和附件命令，以及 run 内直接可用的 `context` 工具。
+`agentuse` 在执行设备上运行 Client，连接 Server 并调用本机 harness。它还提供远端 conversation 管理和 run 内直接可用的 `context` 工具。
 
 ## 快速开始
 
@@ -39,7 +39,7 @@ agentuse start
 agentuse ui --open
 ```
 
-在页面中选择“本地调试”、创建 conversation、选择可用 harness 并执行。默认监听 `127.0.0.1:7801`。本节后面的 `conversation`、`attachment` 命令访问远端 Server；本地执行通过本机页面或 Client 的 `/api/docs` 操作。
+在页面中选择“本地调试”、创建 conversation、选择可用 harness 并执行。默认监听 `127.0.0.1:7801`。本节后面的 `conversation` 命令访问远端 Server；本地执行通过本机页面或 Client 的 `/api/docs` 操作。
 
 ## 命令一览
 
@@ -51,13 +51,12 @@ agentuse ui --open
 | `agentuse ui` | 输出本机页面登录链接，`--open` 同时打开浏览器 |
 | `agentuse status` | 检查所选 Server 的设备凭据，显示本机服务和页面信息 |
 | `agentuse harnesses` | 探测本机 harness，支持 `--json` |
-| `agentuse context …` | 读取本机某个 run 的输入和附件，或进入其 shell |
+| `agentuse context …` | 读取本机某个 run 的输入、读写附件，或进入其 shell |
 | `agentuse conversation …` | 发送消息、读取会话、查看 run、等待或取消执行 |
-| `agentuse attachment …` | 上传、列出和下载远端会话附件 |
 | `agentuse help` | 查看命令一览 |
 | `agentuse version` | 显示版本 |
 
-参数支持 `--flag value`、`-flag value` 和 `--flag=value`。除 `context` 的选择参数、`conversation`、`attachment` 支持参数交错外，参数放在位置参数之前。`--config` 按各命令说明使用。
+参数支持 `--flag value`、`-flag value` 和 `--flag=value`。除 `context` 的选择参数、`conversation` 支持参数交错外，参数放在位置参数之前。`--config` 按各命令说明使用。
 
 ## 配置与运行目录
 
@@ -194,12 +193,15 @@ AI 在 Client 启动的执行环境中直接使用 `context`，不需要提供 S
 
 ```bash
 context input
-context attachments
-context attachment FILE_ID
+context attachment list
+context attachment read FILE_ID
+context attachment upload ./report.pdf
 context --help
 ```
 
-`input` 输出当前 run 已受理的输入及来源 message ID；`attachments` 输出这些输入携带的附件快照；`attachment` 校验文件大小、SHA-256 后返回本地绝对路径和 MIME 类型。图片需要再用模型的原生看图工具读取该路径。所有结果均为 JSON。
+`input` 输出当前 run 已受理的输入及来源 message ID。`attachment list` 合并固定输入快照和 Server 记录的本次 run 输出，`direction` 区分 `input/output`；`read` 校验大小、SHA-256 后返回本地绝对路径和 MIME 类型，图片再用原生看图工具读取。`upload` 自动关联当前 conversation/run，返回附件 ID 和可在回复中引用的 `download_path`，Server 用户可直接查看或下载。所有结果为 JSON。
+
+上传只接受普通文件，不自动发消息或结束执行。Server 在接收及落库时检查 run 的归属与活动状态，已结束 run 无法继续上传。连接中断时可能已经保存；先 `list` 核对，工具不自动重试上传。人类在 Server 页面或通过 API/SDK 上传输入文件，Client AI 通过 context 读取；输出由 AI 上传后在 Server 展示。
 
 一个本机 session 可以有多个 run。默认通过公开的 `harnessctl status` 确认正在执行的 run，不选择“最后一条 accepted”；排队 run 不会替换当前输入。当前 run 后续受理的补充消息可以通过再次调用 `context input` 读取。
 
@@ -207,8 +209,8 @@ context --help
 
 ```bash
 agentuse context --path /绝对路径/context.json --run RUN_ID input
-agentuse context --path /绝对路径/context.json --run RUN_ID attachments
-agentuse context --path /绝对路径/context.json --run RUN_ID attachment FILE_ID
+agentuse context --path /绝对路径/context.json --run RUN_ID attachment list
+agentuse context --path /绝对路径/context.json --run RUN_ID attachment read FILE_ID
 agentuse context enter --path /绝对路径/context.json --run RUN_ID
 # 进入后：
 context input
@@ -227,7 +229,7 @@ context input
 
 ## 远端命令的地址、会话与凭据
 
-`conversation`、`attachment` 共用以下选择规则：
+`agentuse conversation` 使用以下选择规则：
 
 | 值 | 来源，按优先级排列 |
 |---|---|
@@ -309,37 +311,7 @@ agentuse conversation cancel CONVERSATION_ID RUN_ID
 
 适配器实际执行的是对应本地 session 的取消操作，作用于该 session 当前及排队工作。需要回答执行中的问题时，使用 Server 页面或对应 API。
 
-`conversation` 各子命令都接受前述远端公共参数。`conversation` 和 `attachment` 允许参数出现在位置参数前后；使用 `--` 可终止参数解析，例如发送以 `-` 开头的正文。
-
-## attachment：远端会话附件
-
-```bash
-agentuse attachment upload FILE --conversation CONVERSATION_ID [参数]
-agentuse attachment list --conversation CONVERSATION_ID [参数]
-agentuse attachment download ATTACHMENT_ID --conversation CONVERSATION_ID --output FILE [参数]
-```
-
-| 参数 | 默认值或来源 | 说明 |
-|---|---|---|
-| `--conversation` | `AGENTUSE_CONVERSATION` | conversation ID，必填 |
-| `--server`、`--token`、`--config` | 见远端命令公共规则 | Server 地址和凭据 |
-| `--name` | 上传文件的 basename | 上传时覆盖显示文件名 |
-| `--output` | 无 | 下载目标文件，下载时必填 |
-| `--force` | `false` | 下载时允许覆盖已存在的目标文件 |
-| `--run` | `AGENTUSE_RUN` | 使用设备密钥时，可记录附件来源的 run ID |
-| `--json` | `false` | 输出 JSON |
-
-```bash
-agentuse attachment upload ./input.csv --conversation CONVERSATION_ID --name data.csv --json
-agentuse attachment list --conversation CONVERSATION_ID
-agentuse attachment download ATTACHMENT_ID --conversation CONVERSATION_ID --output ./result.csv
-```
-
-上传只接受普通文件，成功后默认输出附件 ID、文件名、大小和下载路径。上传连接中断时，Server 可能已经保存文件，先用 `list` 核对再决定是否重新上传。
-
-`list` 自动读取全部分页，`--json` 输出附件数组。下载会检查大小和 SHA-256，默认不覆盖已有文件；`--json` 输出附件元数据和保存路径。
-
-使用设备密钥时，Server 校验该会话是否曾向本设备投递消息。`--run` 或 `AGENTUSE_RUN` 可标记附件来源的 run，不会替代设备或用户凭据。
+`conversation` 各子命令都接受前述远端公共参数。`conversation` 允许参数出现在位置参数前后；使用 `--` 可终止参数解析，例如发送以 `-` 开头的正文。
 
 ## 执行环境变量
 
@@ -360,7 +332,7 @@ Client 为远端 Agent 的命令准备相应上下文，便于在执行中调用
 
 实际 run ID 由适配器产生，`AGENTUSE_RUN` 是否已设置取决于适配器的执行上下文。`context` 优先使用进入 shell 时固定的 `AGENTUSE_CONTEXT_RUN`，其次为适配器提供的 `AGENTUSE_RUN`，否则询问原生 status；不依赖启动时的消息环境变量判断当前输入。
 
-用户手动运行远端命令时，可用 `AGENTUSE_TOKEN` 提供用户令牌。`AGENTUSE_CONFIG` 的默认值读取适用于 `conversation` 和 `attachment`；其他接受配置文件的命令使用显式 `--config`。
+用户手动运行远端命令时，可用 `AGENTUSE_TOKEN` 提供用户令牌。`AGENTUSE_CONFIG` 的默认值读取适用于 `conversation`；其他接受配置文件的命令使用显式 `--config`。
 
 ## 帮助、输出与退出码
 
