@@ -10,9 +10,12 @@ export function useMessageFiles() {
   const t = useT();
   const [files, setFiles] = useState<DraftFile[]>([]);
   const uploaded = useRef(new Map<string, Attachment>());
+  const nextKey = useRef(0);
   const addFiles = (incoming: File[]) => {
     if (files.length + incoming.length > 64) { toast.error(t('attachment.limit')); return; }
-    setFiles(current => [...current, ...incoming.map(file => ({ key: crypto.randomUUID(), file }))]);
+    // Draft keys are local UI identities, not persisted attachment IDs.
+    const additions = incoming.map(file => ({ key: `draft-${nextKey.current++}`, file }));
+    setFiles(current => [...current, ...additions]);
   };
   const addExisting = (attachment: Attachment) => {
     if (files.some(item => item.attachment?.id === attachment.id)) return;
