@@ -97,19 +97,8 @@ exit
 
 这些文件随 conversation 记录一起受 quota 回收；描述文件和历史输入不保证永久保存。
 
-## 协调者的工作能力
+## Server 业务工具
 
-有工作线程能力的协调者 run，会在 `context --help` 中额外显示：
-
-```bash
-context work agents
-context work threads
-context work new --agents coder "实现这个功能"
-context work send --agents reviewer THREAD_ID "评审结果"
-context work read THREAD_ID
-context work resolve THREAD_ID
-```
-
-它使用当前 run 对应的工作授权，不需要 AI 查找地址或令牌；run 结束后不能继续操作工作线程。普通 run 的默认帮助只介绍输入和附件读取。
+Work 的协调、跨设备派发和工作授权由 Server 负责。协调 Agent 按 Server 随消息提供的说明获取并调用独立工具；Client 和 `context` 不判断 Work 角色，也不签发或管理工作令牌。使用方法见 [Server Work 手册](../server/work.md)。
 
 `context` 命令成功时退出码为 `0`，执行或存储错误为 `1`，参数错误为 `2`。更完整的管理命令与环境变量见 [Client CLI](cli.md)。

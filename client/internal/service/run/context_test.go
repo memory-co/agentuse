@@ -137,9 +137,6 @@ func TestContextLocalInputsAndHistoricalSelection(t *testing.T) {
 	if err != nil || view.Status != "completed" || len(view.Inputs) != 1 || view.Inputs[0].Text != "identical native text" || view.Inputs[0].MessageID != "" || len(view.Attachments()) != 0 {
 		t.Fatal(view, err)
 	}
-	if _, err = view.WorkClient(); err == nil {
-		t.Fatal("local context obtained work capability")
-	}
 	if _, err = view.Attachment(context.Background(), "at_missing"); err == nil {
 		t.Fatal("unknown file accepted")
 	}
@@ -212,45 +209,24 @@ func TestContextAttachmentSnapshotVerificationAndScopedDownload(t *testing.T) {
 	}
 }
 
-func TestContextWorkCapabilitiesAndCredentialRedaction(t *testing.T) {
+func TestContextDoesNotExposeCredentialsOrServerBusinessPolicy(t *testing.T) {
 	f := newContextFixture(t, "platform")
-	f.eventsFile(t, acceptedContextEvent(f.first, "one"), acceptedContextEvent(f.first, "two"))
-	for i, input := range []string{"one", "two"} {
-		r := f.receipt(t, f.first, input, "message-"+input, "work input")
-		r.Message.WorkID = "work"
-		r.Message.WorkToken = fmt.Sprint("wt_private_", i)
-		path := filepath.Join(f.service.Sessions.Root, f.metadata.EndpointID, f.metadata.ConversationID, ".server", "messages", receiptName(r.Message.Key()))
-		if err := fileutil.WriteJSON(path, r); err != nil {
-			t.Fatal(err)
-		}
-	}
+	f.eventsFile(t, acceptedContextEvent(f.first, "one"))
+	f.receipt(t, f.first, "one", "message", "input")
 	view, err := OpenExecutionContext(context.Background(), f.path, f.first)
-	if err != nil || !view.HasWork() {
-		t.Fatal(view, err)
+	if err != nil {
+		t.Fatal(err)
 	}
 	data, _ := json.Marshal(view)
-	for _, secret := range []string{"wt_private", "config_path", "adapter_path", "device_key"} {
-		if strings.Contains(string(data), secret) {
-			t.Fatal("private context field exposed", secret)
+	for _, private := range []string{"work_token", "work_id", "config_path", "adapter_path", "device_key"} {
+		if strings.Contains(string(data), private) {
+			t.Fatal("private field exposed", private)
 		}
 	}
 	if !strings.Contains(strings.Join(f.adapter.Env, "\n"), "AGENTUSE_SESSION="+f.metadata.ID) {
-		t.Fatal("native session id was not injected")
+		t.Fatal("session id was not injected")
 	}
 	if info, err := os.Lstat(filepath.Join(view.BinPath(), "context")); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Fatal("missing context entrypoint", err)
-	}
-	f.eventsFile(t, acceptedContextEvent(f.first, "one"), acceptedContextEvent(f.first, "two"), map[string]any{"type": "request", "run_id": f.first, "request_id": "question", "state": "pending"})
-	view, err = OpenExecutionContext(context.Background(), f.path, f.first)
-	if err != nil || view.Status != "waiting" || !view.HasWork() {
-		t.Fatal("waiting run lost its work capability", view, err)
-	}
-	f.eventsFile(t, acceptedContextEvent(f.first, "one"), map[string]any{"type": "result", "run_id": f.first, "status": "completed"})
-	view, err = OpenExecutionContext(context.Background(), f.path, f.first)
-	if err != nil || view.HasWork() {
-		t.Fatal("terminal run advertised a work capability", view, err)
-	}
-	if _, err = view.WorkClient(); err == nil || !strings.Contains(err.Error(), "run 已结束") {
-		t.Fatal("terminal run retained a work capability", err)
 	}
 }

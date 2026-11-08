@@ -8,7 +8,6 @@ import (
 	"os"
 	"runtime"
 	"strings"
-	"time"
 
 	runservice "github.com/memory-co/agentuse/client/internal/service/run"
 	"github.com/memory-co/agentuse/internal/command"
@@ -51,23 +50,6 @@ func contextCommand(args []string, bound bool) error {
 	}
 	showHelp := func(w io.Writer) {
 		fmt.Fprint(w, usage)
-		selected, currentRun := path, run
-		if !bound {
-			selected, currentRun = *selectedPath, *selectedRun
-		}
-		if currentRun == "" && selected == os.Getenv("AGENTUSE_CONTEXT") {
-			currentRun = os.Getenv("AGENTUSE_CONTEXT_RUN")
-			if currentRun == "" {
-				currentRun = os.Getenv("AGENTUSE_RUN")
-			}
-		}
-		if selected != "" {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			if view, err := runservice.OpenExecutionContext(ctx, selected, currentRun); err == nil && view.HasWork() {
-				fmt.Fprintln(w, "\n当前上下文还可用：context work agents | threads | new | send | read | resolve")
-			}
-		}
 	}
 	fs.Usage = func() { showHelp(os.Stderr) }
 	flags, rest := []string{}, []string{}
@@ -88,12 +70,6 @@ func contextCommand(args []string, bound bool) error {
 			}
 		} else {
 			rest = append(rest, arg)
-			if len(rest) == 1 && arg == "work" {
-				// Work has its own subcommands and flags. Keep their arguments
-				// intact rather than parsing them as context selectors.
-				rest = append(rest, args[i+1:]...)
-				break
-			}
 		}
 	}
 	if err := command.Parse(fs, flags); err != nil {
@@ -113,7 +89,7 @@ func contextCommand(args []string, bound bool) error {
 		return nil
 	}
 	switch rest[0] {
-	case "input", "attachments", "attachment", "work":
+	case "input", "attachments", "attachment":
 	case "enter":
 		if bound {
 			return command.UsageErr("使用 agentuse context enter 进入上下文")
@@ -152,12 +128,6 @@ func contextCommand(args []string, bound bool) error {
 			return command.UsageErr("使用 agentuse context enter 进入上下文")
 		}
 		return enterContext(ctx, selected)
-	case "work":
-		client, err := selected.WorkClient()
-		if err != nil {
-			return err
-		}
-		return runWorkWithClient(client, rest[1:], "context work")
 	default:
 		return command.UsageErr("未知 context 命令 %s", rest[0])
 	}

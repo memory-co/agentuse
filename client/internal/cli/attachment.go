@@ -24,7 +24,7 @@ func runAttachment(args []string) error {
 	fs := command.NewFlags("agentuse attachment " + action)
 	session := fs.String("conversation", os.Getenv("AGENTUSE_CONVERSATION"), "会话 id")
 	server := fs.String("server", os.Getenv("AGENTUSE_SERVER"), "服务地址")
-	token := fs.String("token", os.Getenv("AGENTUSE_TOKEN"), "用户或工作令牌")
+	token := fs.String("token", os.Getenv("AGENTUSE_TOKEN"), "API 令牌")
 	cfgPath := fs.String("config", command.EnvOr("AGENTUSE_CONFIG", endpointservice.DefaultPath()), "daemon 配置")
 	name := fs.String("name", "", "上传文件名")
 	output := fs.String("output", "", "下载目标文件")
@@ -58,9 +58,6 @@ func runAttachment(args []string) error {
 	}
 	if *session == "" {
 		return errors.New("需要 --conversation 或 AGENTUSE_CONVERSATION")
-	}
-	if *token == "" {
-		*token = os.Getenv("AGENTUSE_WORK")
 	}
 	if os.Getenv("AGENTUSE_ENDPOINT") == endpointservice.LocalID && *server == "" {
 		return errors.New("本地模式没有 server；请在本地调试页面查看执行和 workspace")

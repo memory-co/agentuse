@@ -26,11 +26,19 @@ Work 仍選擇穩定的 coordinator_agent_id。每條協調輸入和線程輸入
 
 Work 說明和協調者業務規則仍由 server 隨輸入準備，不混入可變的 agent 初始化快照。Skill 依賴來自該輸入固定的 agent_version；WorkToken 僅授權對應輸入及其引用的資源，不授予任意技能庫訪問權。
 
-## 工作令牌
+## Server 工具與授權（已實現）
 
-領取輸入時簽發限定 work/input 的令牌；此時實際 run 可能還不存在。每次使用檢查輸入為 kind=send、傳輸狀態為 sent/applied、對應 run 尚未終止，以及 work 範圍。回報 accepted 前可用固定輸入授權；對應 run 結束或輸入被拒絕後授權失效，不把令牌當作長期用戶身份。
+Work 是 Server 的業務實體，可跨多個 Client；協調 Agent 的物理執行位置不改變 Work 的歸屬。Client 只驅動輸入、原生 run 和文件讀取，不含 Work 命令、角色判斷或工作令牌處理。
 
-協調者職責、派活規則及工作說明由 server 在領取輸入時組織到 Instructions，再隨任務下發。只有協調 conversation 當前指定的協調 agent 獲得協調者指令；線程和其他 agent 只收到共享工作說明。client 不根據 WorkToken 推斷角色或生成協調策略，只透傳憑據和已準備的指令。
+人類使用 `agentuse-server work`，通過 `/api/works/{work_id}/threads` 及其消息、讀取和 resolve 接口操作。Server 校驗工作所有者/管理員身份，並在每次請求中核對線程歸屬；管理員創建的線程仍屬於工作所有者。
+
+Server 在協調輸入的 context 文本中提供工具使用說明。`GET /api/agent-tools/work.py` 返回 Server 維護的 Python 工具；工具在協調 Agent 所在設備執行，通過通用 `context input` 讀取 conversation/message/agent/run 身份，再用當前設備憑據請求 `POST /api/agent-tools/work/authorize`。Client 不解析工具內容或推斷角色。
+
+Server 根據已投遞的消息/Agent 關係、執行設備和 Work 當前協調者確認授權。消息仍在 sent 時允許以既有投遞身份申請，避免首次 accepted 尚在上報時阻塞工具；accepted 後必須匹配實際 run UUID。普通對話、工作線程、其他設備及已結束/拒絕的輸入不能取得協調權限。
+
+工作令牌只存在於 Server 工具與 API 的授權交互中，不寫入 Client 環境或 WebSocket message。工具每次調用取得對應來源輸入的授權，Server 逐次驗證其工作範圍及輸入仍在 sent/accepted；輸入終態後失效。Client 的 context 輸出不返回令牌。
+
+協調規則、工作說明、選擇 Agent、跨 Client 派發、結果彙總和去重均由 Server 維護。這些規則不混入 Agent 的不可變 init 資源，也不由 Client 判定。
 
 `coordinator_id` 是協調 conversation 的 UUID；`conversations.work_id` 是對話歸屬。兩者僅以標識關聯，由 workService 在創建/刪除事務裏保證一致，不聲明外鍵。
 

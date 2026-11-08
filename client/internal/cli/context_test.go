@@ -36,15 +36,15 @@ func TestContextRequiresBindingAndRejectsScopeOverride(t *testing.T) {
 	if code != 1 || !strings.Contains(stderr, "未进入执行上下文") {
 		t.Fatal(code, stderr)
 	}
-	_, stderr = capture(t, func() { code = ContextMain([]string{"work", "new", "--agents", "coder", "implement"}) })
-	if code != 1 || !strings.Contains(stderr, "未进入执行上下文") {
-		t.Fatal("work flags were consumed by context", code, stderr)
-	}
-	for _, args := range [][]string{{"--path", "/other", "input"}, {"--run", "other", "input"}, {"--server", "https://other", "input"}, {"register"}, {"enter"}} {
+	for _, args := range [][]string{{"--path", "/other", "input"}, {"--run", "other", "input"}, {"--server", "https://other", "input"}, {"register"}, {"enter"}, {"work", "new"}} {
 		capture(t, func() { code = ContextMain(args) })
 		if code != 2 {
 			t.Fatal("bound command accepted a management operation", args, code)
 		}
+	}
+	capture(t, func() { code = Main([]string{"work", "help"}) })
+	if code != 2 {
+		t.Fatal("work command retained by client")
 	}
 	capture(t, func() { code = Main([]string{"session", "help"}) })
 	if code != 2 {

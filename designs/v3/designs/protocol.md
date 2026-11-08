@@ -235,3 +235,7 @@ Local 與遠端共用相同的資源校驗、session 綁定和 harnessctl 執行
 只支持 schema 5：消息及消息引用直接使用 UUID，messages.seq 保存順序；message_agents 以消息/Agent 複合鍵保存投遞和受理關係。舊版資料庫、inputs 收據和控制收據不讀取、不轉換，也不保留升級兼容邏輯。升級時重建 Server 資料庫、清空 Client 本地工作目錄並重新初始化和註冊設備。
 
 公開 HTTP 入口暫沿用 /api/sessions 和 daemon_id 命名。與網路協議無關的目標元數據命名不在本次更名；WebSocket 則只支持本文的 /api/client/ws 和 agentuse-client/2，兩端需一起升級。
+
+## Work 的業務邊界
+
+Work 由 Server 管理，可以跨多個 Client。message 不包含 work_id/work_token，也不向 Client 環境注入工作令牌；業務說明只通過 context 文本下發。協調 Agent 按 Server 的說明使用 Server 維護的遠端工具，授權由 Server 依來源消息及執行身份驗證。Client 不判斷 Work 角色，也不提供 work/context work 命令。詳見 [server-work.md](server-work.md)。

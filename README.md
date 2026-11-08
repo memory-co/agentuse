@@ -74,6 +74,7 @@ agentuse-server login -server URL -token 管理员令牌     # 之后的管理�
 agentuse-server user create 用户名 [-id 用户id] [-role user|admin]
 agentuse-server user list [-json]
 agentuse-server user token 用户id                       # 重置登录令牌
+agentuse-server work threads --work WORK_ID              # Server 管理跨 Client 的工作线程
 
 # 用户电脑
 agentuse register -server URL -token 安装令牌           # setup.sh 会替你跑
@@ -116,8 +117,9 @@ Server 和 Client 都使用 [Huma](https://github.com/danielgtaylor/huma) 自动
 
 | 入口 | 内容 |
 |---|---|
-| [Server 文档](docs/server/README.md) · [CLI](docs/server/cli.md) | 启动服务、存储设置、管理员登录和用户管理 |
-| [Client 文档](docs/client/README.md) · [CLI](docs/client/cli.md) | 注册、启动、本机调试、远端会话、工作线程和附件 |
+| [Server 文档](docs/server/README.md) · [CLI](docs/server/cli.md) | 启动服务、存储设置、管理员登录、用户和工作线程管理 |
+| [Client 文档](docs/client/README.md) · [CLI](docs/client/cli.md) | 注册、启动、本机调试、远端会话和附件 |
+| [Server Work](docs/server/work.md) | 跨 Client 编排、协调工具和工作授权 |
 | [执行上下文](docs/client/context.md) | AI 直接使用 context 读取当前输入和图片；人类选择或进入 run |
 | 运行中的 `/api/docs` | 两端分别提供的 Huma API 交互文档 |
 | [SDK](sdk/README.md) | Go、Node.js 和 Python 接入示例 |

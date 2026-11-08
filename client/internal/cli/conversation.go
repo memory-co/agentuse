@@ -33,7 +33,7 @@ func runConversation(args []string) error {
 	action := args[0]
 	fs := command.NewFlags("agentuse conversation " + action)
 	server := fs.String("server", os.Getenv("AGENTUSE_SERVER"), "服务地址")
-	token := fs.String("token", os.Getenv("AGENTUSE_TOKEN"), "用户或工作令牌")
+	token := fs.String("token", os.Getenv("AGENTUSE_TOKEN"), "API 令牌")
 	config := fs.String("config", command.EnvOr("AGENTUSE_CONFIG", endpointservice.DefaultPath()), "daemon 配置")
 	session := fs.String("conversation", os.Getenv("AGENTUSE_CONVERSATION"), "Server conversation ID")
 	agents := fs.String("agents", "", "逗号分隔的 Agent 收件人 ID")
@@ -63,9 +63,6 @@ func runConversation(args []string) error {
 	}
 	if err := command.Parse(fs, flags); err != nil {
 		return err
-	}
-	if *token == "" {
-		*token = os.Getenv("AGENTUSE_WORK")
 	}
 	if os.Getenv("AGENTUSE_ENDPOINT") == endpointservice.LocalID && *server == "" {
 		return errors.New("本地模式没有 server；请在本地调试页面查看执行和 workspace")

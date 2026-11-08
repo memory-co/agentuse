@@ -216,7 +216,8 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 	cli := e2eutil.Binary(t, "agentuse")
 	fake := e2eutil.Binary(t, "fakeharness")
 	d := runDaemonForMulti(t, c, user, t.TempDir(), cli, fake, true)
-	for _, a := range []agentuse.CreateAgentRequest{{ID: "native", Name: "Native", DaemonID: d.ID, Harness: "claude"}, {ID: "worker", Name: "Worker", DaemonID: d.ID, Harness: "fake"}} {
+	workerDevice := runDaemonForMulti(t, c, user, t.TempDir(), cli, fake, false)
+	for _, a := range []agentuse.CreateAgentRequest{{ID: "native", Name: "Native", DaemonID: d.ID, Harness: "claude"}, {ID: "worker", Name: "Worker", DaemonID: workerDevice.ID, Harness: "fake"}} {
 		if _, err := c.CreateAgent(ctx, user, a); err != nil {
 			t.Fatal(err)
 		}
@@ -300,7 +301,15 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 		t.Fatal("work thread", threads, err)
 	}
 	child, err := c.GetSession(ctx, user, threads[0].ID)
-	if err != nil || len(child.Runs) != 1 || child.Runs[0].AgentID != "worker" || child.Runs[0].Status != "completed" {
+	if err != nil || len(child.Runs) != 1 || child.Runs[0].AgentID != "worker" || child.Runs[0].DaemonID != workerDevice.ID || child.Runs[0].Status != "completed" {
 		t.Fatal("child", child, err)
 	}
+	if child.Session.Status != "resolved" {
+		t.Fatal("coordinator did not resolve the remote thread", child.Session.Status)
+	}
+	files, err := c.AllAttachments(ctx, user, child.Session.ID)
+	if err != nil || len(files) != 1 {
+		t.Fatal("Server tool upload missing", files, err)
+	}
+
 }

@@ -20,12 +20,12 @@ const actAsHeader = "X-Agentuse-User"
 
 type userKey struct{}
 
-// workKey:请求用的是工作令牌(wt_)时，放着它能动的那个工作。
+// workKey holds the Server-authorized Work scope, from a tool credential or management route.
 type workKey struct{}
 
 func currentUser(r *http.Request) service.User { return r.Context().Value(userKey{}).(service.User) }
 
-// workScope 是工作令牌限定的工作;用户令牌时返回 nil。
+// workScope is derived by the Server; ordinary conversation requests have no Work scope.
 func workScope(r *http.Request) *service.Work {
 	w, _ := r.Context().Value(workKey{}).(*service.Work)
 	return w
@@ -423,8 +423,8 @@ func (s *Server) threadInScope(w http.ResponseWriter, r *http.Request, id string
 		s.storeErr(w, err)
 		return false
 	}
-	if ss.WorkID != sc.ID || (ss.WorkRole != service.WorkThread && ss.Mode != service.MultiAgent) {
-		writeErr(w, http.StatusForbidden, "工作令牌只能动自己工作的线程")
+	if ss.WorkID != sc.ID || ss.WorkRole != service.WorkThread {
+		writeErr(w, http.StatusForbidden, "只能操作当前工作内的线程")
 		return false
 	}
 	return true

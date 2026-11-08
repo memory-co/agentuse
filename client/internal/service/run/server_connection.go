@@ -384,7 +384,7 @@ func (d *endpointConnection) receiveMessage(ctx context.Context, p protocol.Conv
 	request.Prompt = p.Text()
 	request.agentID = p.AgentID
 	request.agentVersionID = p.AgentVersionID
-	request.environment = []string{"AGENTUSE_SERVER=" + d.cfg.Server, "AGENTUSE_TOKEN=" + d.cfg.Key, "AGENTUSE_CONFIG=" + d.cfg.ConfigPath, "AGENTUSE_WORK=" + p.WorkToken, "AGENTUSE_CONVERSATION=" + p.ConversationID, "AGENTUSE_AGENT=" + p.AgentID, "AGENTUSE_MESSAGE_ID=" + p.MessageID, "AGENTUSE_ENDPOINT=" + d.cfg.EndpointID, "AGENTUSE_RUN=", "AGENTUSE_ATTEMPT=", "AGENTUSE_PROMPT="}
+	request.environment = []string{"AGENTUSE_SERVER=" + d.cfg.Server, "AGENTUSE_TOKEN=" + d.cfg.Key, "AGENTUSE_CONFIG=" + d.cfg.ConfigPath, "AGENTUSE_CONVERSATION=" + p.ConversationID, "AGENTUSE_AGENT=" + p.AgentID, "AGENTUSE_MESSAGE_ID=" + p.MessageID, "AGENTUSE_ENDPOINT=" + d.cfg.EndpointID, "AGENTUSE_RUN=", "AGENTUSE_ATTEMPT=", "AGENTUSE_PROMPT="}
 	if exe, e := os.Executable(); e == nil {
 		request.environment = append(request.environment, "PATH="+filepath.Dir(exe)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}

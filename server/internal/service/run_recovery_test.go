@@ -47,7 +47,7 @@ func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if original.WorkToken == "" || original.WorkID != work.ID || !strings.Contains(original.Context, "shared work instructions") {
+	if !strings.Contains(original.Context, "shared work instructions") {
 		t.Fatal("server omitted work context")
 	}
 	if _, err = s.SendMultiMessage(ctx, u, coordinator.ID, json.RawMessage(`{"prompt":"later"}`), []string{a.ID}, nil); err != nil {
@@ -59,18 +59,22 @@ func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
 	}
 	var tokens int
 	s.db.QueryRowContext(ctx, `SELECT count(*) FROM work_run_tokens`).Scan(&tokens)
-	if tokens != 1 {
-		t.Fatal("reconnect minted capability", tokens)
+	if tokens != 0 {
+		t.Fatal("dispatch minted business credentials", tokens)
 	}
-	// Work authorization is usable before the native execution UUID exists.
-	got, _, err := s.runWorkToken(ctx, original.WorkToken)
+	token, err := s.AuthorizeWorkTool(ctx, d.ID, original.ConversationID, original.MessageID, original.AgentID, "550e8400-e29b-41d4-a716-446655440000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := s.runWorkToken(ctx, token)
 	if err != nil || got.ID != work.ID {
 		t.Fatal(got, err)
 	}
+
 	if err = s.RejectMessage(ctx, d.ID, original.Key(), protocol.AckError, "adapter unavailable"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = s.runWorkToken(ctx, original.WorkToken); err == nil {
+	if _, _, err = s.runWorkToken(ctx, token); err == nil {
 		t.Fatal("rejected input retained capability")
 	}
 }

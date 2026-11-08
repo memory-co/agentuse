@@ -52,7 +52,7 @@ func TestLocalCustomHarnessExecutionAndResume(t *testing.T) {
 	t.Setenv("AGENTUSE_TOKEN", "remote-secret")
 	installDebugHarness(t, home, `IFS= read -r input
 printf '%s' "$input" > received.json
-printf '%s|%s|%s' "$AGENTUSE_SERVER" "$AGENTUSE_TOKEN" "$AGENTUSE_WORK" > environment.txt
+printf '%s|%s' "$AGENTUSE_SERVER" "$AGENTUSE_TOKEN" > environment.txt
 printf '{"type":"progress","text":"custom progress"}\n'
 printf '{"type":"result","ok":true,"output":"local result","session_id":"native-debug"}\n'
 `)
@@ -94,7 +94,7 @@ printf '{"type":"result","ok":true,"output":"local result","session_id":"native-
 	if input.Endpoint != "local" || input.Conversation != conversation.ID || input.Resume != "" || strings.Contains(input.Instructions, "remote-secret") {
 		t.Fatal(input)
 	}
-	if b, e := os.ReadFile(filepath.Join(localWorkspace(local, got), "environment.txt")); e != nil || string(b) != "||" {
+	if b, e := os.ReadFile(filepath.Join(localWorkspace(local, got), "environment.txt")); e != nil || string(b) != "|" {
 		t.Fatal("local harness inherited platform credentials", string(b), e)
 	}
 	rows, e := local.Sessions.Conversations(ctx, "local")

@@ -18,7 +18,7 @@ M2 → coder    → accepted(R1 或 R3, A3)
 
 Server 根據 heartbeat 的空閒容量和活躍綁定主動選取 pending 消息，不等待 claim。每個綁定同時只有一條已派發但未確認受理的消息；unknown 也阻止後續消息，避免不確定輸入被跳過。
 
-首次派發在事務內保存 message 報文快照並標記 sent，之後重送沿用相同內容、版本和 Work 授權。正文是原消息，context 是固定的共享歷史及業務說明。報文不包含模型、Agent 指令或技能包清單。Client 通過固定版本 API 按需獲取配置和資源，Server 不維護 init 階段。
+首次派發在事務內保存 message 報文快照並標記 sent，之後重送沿用相同內容和版本。正文是原消息，context 是固定的共享歷史及業務說明。報文不包含模型、Agent 指令或技能包清單。Client 通過固定版本 API 按需獲取配置和資源，Server 不維護 init 階段。
 
 資源讀取權限依據已派發的消息/Agent 關係，在 accepted 和 run 建立之前即可使用。新 Agent 或 Skill 版本不改已有消息的引用。
 

@@ -169,7 +169,7 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 		return Run{}, err
 	}
 	adapter.EventsPath = harness.EventsPath(cwd, metadata.ID)
-	adapter.Env = []string{"AGENTUSE_SERVER=", "AGENTUSE_TOKEN=", "AGENTUSE_WORK=", "AGENTUSE_CONFIG=", "AGENTUSE_RUN=", "AGENTUSE_ATTEMPT=", "AGENTUSE_ENDPOINT=" + id, "AGENTUSE_CONVERSATION=" + conversation, "AGENTUSE_SESSION=" + metadata.ID, "AGENTUSE_AGENT=" + metadata.AgentID, "AGENTUSE_RESOURCES="}
+	adapter.Env = []string{"AGENTUSE_SERVER=", "AGENTUSE_TOKEN=", "AGENTUSE_CONFIG=", "AGENTUSE_RUN=", "AGENTUSE_ATTEMPT=", "AGENTUSE_ENDPOINT=" + id, "AGENTUSE_CONVERSATION=" + conversation, "AGENTUSE_SESSION=" + metadata.ID, "AGENTUSE_AGENT=" + metadata.AgentID, "AGENTUSE_RESOURCES="}
 	if len(request.environment) > 0 {
 		adapter.Env = request.environment
 	}

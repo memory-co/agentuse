@@ -49,7 +49,7 @@ Skill 包的格式、上傳 API、權限和表結構統一見 [server-skill.md](
 
 “每次變更做一次 init”是**下一次使用該新版本時建立新的初始化綁定**，不是每編輯一次就向所有 client 推配置。舊版本 run 可繼續完成；新版本消息不進入舊版本的原生上下文。兩者仍使用同一 conversation 的 workspace 和共享消息歷史。
 
-Agent 指令是版本固定的 init 資源。Work 說明、協調者規則、共享歷史和本次任務仍由 server 按業務輸入組織到 message.context，不因持有 WorkToken 就由 client 推斷角色，也不隨每次 send 重寫 agent 的指令快照。
+Agent 指令是版本固定的 init 資源。Work 說明、協調者規則、共享歷史和本次任務仍由 server 按業務輸入組織到 message.context，Client 不接收 WorkToken 或推斷業務角色，也不隨每次 send 重寫 agent 的指令快照。
 
 ## API 設計
 

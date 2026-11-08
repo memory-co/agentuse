@@ -127,12 +127,23 @@ func claudeTurns(args []string, resume string, stdin *bufio.Reader) int {
 			}
 		}
 		if f := strings.SplitN(prompt, " ", 3); len(f) == 3 && f[0] == "spawn" {
-			b, err := exec.Command("context", "work", "new", "--agents", f[1], f[2]).CombinedOutput()
+			b, err := serverWorkSpawn(f[1], f[2])
 			out += " spawned=" + strings.TrimSpace(string(b))
 			if err != nil {
 				out += " err=" + err.Error()
 			}
 		}
+		if strings.HasPrefix(prompt, "[线程 ") {
+			thread, _, ok := strings.Cut(strings.TrimPrefix(prompt, "[线程 "), "「")
+			if ok {
+				b, err := serverWorkTool("resolve", thread)
+				if err != nil {
+					fmt.Fprintln(os.Stderr, string(b), err)
+					return 2
+				}
+			}
+		}
+
 		if prompt == "wait-steer" {
 			time.Sleep(1500 * time.Millisecond)
 		}

@@ -24,13 +24,12 @@ AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇�
 - `context attachments`：輸入快照所允許的附件元數據。
 - `context attachment FILE_ID`：驗證文件並返回本地絕對路徑及 MIME 類型。
 - `context --help`：當前可用能力，不列出註冊、啓停等管理命令。
-- `context work …`：僅有工作授權且未結束的 run 可操作工作線程。
 
 輸入按公共 accepted 的順序讀取，只匹配選定 run UUID。遠端輸入通過 conversation 下的 `.server/messages/` 收據，按 session/run/input 三者匹配來源 message、正文、業務上下文和附件快照。補充輸入屬於同一 UUID 時自然出現在同一結果中；本地輸入直接使用 accepted.text。
 
 公共 accepted 已落盤而 Client 尚未保存來源收據時，工具短暫等待同一個受理關係完成；不能按 prompt 相似度匹配，不能退回另一條消息。只讀完整 JSONL 行；損壞的完整記錄明確報錯。request/result 同樣按 run UUID 計算 waiting 和終態。
 
-輸出不包含設備密鑰、工作令牌、註冊配置位置或消息提交收據。Server API 仍沿用 `/api/sessions`，不因 CLI 改名改動 HTTP 路由或 DTO。
+輸出不包含設備密鑰、註冊配置位置或消息提交收據。Server API 仍沿用 `/api/sessions`，不因 CLI 改名改動 HTTP 路由或 DTO。
 
 ## 文件範圍與圖片
 
@@ -67,7 +66,7 @@ runService 在首次 init 的指令快照中追加工具說明，保留 Agent �
 
 裸命令不提供選擇其他 Server、path、session 或 run 的參數。需要切換時，人類重新通過 `agentuse context` 選擇。描述文件只是本機執行元數據，不是新的授權憑據。
 
-歷史 run 在本機文件仍保留時可讀，工作線程寫入能力則在終態後停止。遠端請求憑據由私有註冊配置與對應輸入收據取得，不能依賴複用原生進程中的第一條消息令牌。
+歷史 run 在本機文件仍保留時可讀。附件下載憑據由私有註冊配置取得。Work 屬於 Server；Client 與 context 不判斷協調者、不處理工作令牌，也不提供 Work 子命令。Server 將業務說明作為純文本下發，協調 Agent 按說明取得 Server 提供的獨立工具。工具自行向 Server 校驗來源並申請授權，與 Client 的執行驅動無關。
 
 context.json、命令入口和附件緩存隨既有 conversation quota 一起回收，不增加全局索引、全局 run 掃描或新的常駐服務。實現在 runService 和 CLI 入口；維持既有五個 service。
 

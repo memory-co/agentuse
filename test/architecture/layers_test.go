@@ -150,3 +150,48 @@ func TestServerDoesNotImportHarnessExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Work is Server business policy. The Client may carry opaque instructions and
+// credentials, but must not choose work roles or implement work tool commands.
+func TestClientDoesNotInterpretWorkBusinessPolicy(t *testing.T) {
+	root := filepath.Join("..", "..", "client", "internal")
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			switch value := node.(type) {
+			case *ast.SelectorExpr:
+				switch value.Sel.Name {
+				case "WorkID", "WorkToken", "WorkRole", "HasWork", "WorkClient":
+					t.Errorf("%s interprets Server Work policy: %s", path, value.Sel.Name)
+				}
+			case *ast.FuncDecl:
+				if value.Name.Name == "runWork" {
+					t.Errorf("%s owns a Work CLI", path)
+				}
+			case *ast.BasicLit:
+				if value.Kind == token.STRING {
+					literal, _ := strconv.Unquote(value.Value)
+					for _, business := range []string{"AGENTUSE_WORK", "context work", "agentuse work"} {
+						if strings.Contains(literal, business) {
+							t.Errorf("%s embeds Work-specific runtime behavior", path)
+						}
+					}
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

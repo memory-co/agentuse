@@ -39,7 +39,7 @@ agentuse start
 agentuse ui --open
 ```
 
-在页面中选择“本地调试”、创建 conversation、选择可用 harness 并执行。默认监听 `127.0.0.1:7801`。本节后面的 `conversation`、`work`、`attachment` 命令访问远端 Server；本地执行通过本机页面或 Client 的 `/api/docs` 操作。
+在页面中选择“本地调试”、创建 conversation、选择可用 harness 并执行。默认监听 `127.0.0.1:7801`。本节后面的 `conversation`、`attachment` 命令访问远端 Server；本地执行通过本机页面或 Client 的 `/api/docs` 操作。
 
 ## 命令一览
 
@@ -53,12 +53,11 @@ agentuse ui --open
 | `agentuse harnesses` | 探测本机 harness，支持 `--json` |
 | `agentuse context …` | 读取本机某个 run 的输入和附件，或进入其 shell |
 | `agentuse conversation …` | 发送消息、读取会话、查看 run、等待或取消执行 |
-| `agentuse work …` | 协调者管理工作线程 |
 | `agentuse attachment …` | 上传、列出和下载远端会话附件 |
 | `agentuse help` | 查看命令一览 |
 | `agentuse version` | 显示版本 |
 
-参数支持 `--flag value`、`-flag value` 和 `--flag=value`。除 `context` 的选择参数、`conversation`、`attachment` 支持参数交错外，参数放在位置参数之前。`--config` 按各命令说明使用；`work` 命令从工作环境变量读取地址和凭据。
+参数支持 `--flag value`、`-flag value` 和 `--flag=value`。除 `context` 的选择参数、`conversation`、`attachment` 支持参数交错外，参数放在位置参数之前。`--config` 按各命令说明使用。
 
 ## 配置与运行目录
 
@@ -222,7 +221,7 @@ context input
 
 文件位于 `<session.work_root>/<endpoint_id>/<conversation_id>/sessions/<session_id>/context.json`。`enter` 将工作目录切换到该 conversation 的 workspace，并为 shell 固定所选 run；退出 shell 即退出上下文。记录尚未回收且文件完整时，停止 Client 后也可以显式读取历史 run。
 
-裸 `context` 使用已经绑定的上下文，不接受 `--path`、`--run`、`--server`、`--token` 或管理命令。协调者 run 额外提供 `context work …`，由 `context --help` 展示；它使用该 run 的工作能力，结束后不可再操作工作线程。
+裸 `context` 使用已经绑定的上下文，不接受 `--path`、`--run`、`--server`、`--token` 或管理命令。Work 编排和协调工具由 Server 提供，见 [Server Work 手册](../server/work.md)。
 
 本地调试同样提供输入读取；远端输入还包含 Server message ID 和附件快照。完整的输出字段和图片读取示例见 [执行上下文手册](context.md)。旧 `agentuse session` 命令已移除；远端管理使用下面的 `agentuse conversation`。
 
@@ -233,17 +232,16 @@ context input
 | 值 | 来源，按优先级排列 |
 |---|---|
 | Server 地址 | `--server` → `AGENTUSE_SERVER` → 注册配置中选中的来源 |
-| 请求令牌 | `--token` → `AGENTUSE_TOKEN` → `AGENTUSE_WORK` → 所选来源的设备密钥 |
+| 请求令牌 | `--token` → `AGENTUSE_TOKEN` → 所选来源的设备密钥 |
 | 注册配置文件 | `--config` → `AGENTUSE_CONFIG` → `~/.agentuse/endpoints.yaml` |
 | conversation ID | `--conversation` → `AGENTUSE_CONVERSATION`；`conversation` 命令的显式位置参数优先 |
 
-当地址或令牌仍需从配置补全时，会读取注册配置；显式提供地址时选择对应的注册来源。如果同时提供 Server 地址和用户或工作令牌，则无需本机注册即可调用相应的远端命令。
+当地址或令牌仍需从配置补全时，会读取注册配置；显式提供地址时选择对应的注册来源。如果同时提供 Server 地址和用户令牌，则无需本机注册即可调用相应的远端命令。
 
 | 凭据 | 可用于哪些操作 |
 |---|---|
 | 用户令牌 `ut_…` | 按用户权限读取、发送、取消及操作附件 |
-| 工作令牌 `wt_…` | 在令牌所属工作内读取、发送、取消及操作附件 |
-| 设备密钥 `dk_…` | 读取已投递给本设备的会话及其附件；发送消息和取消 run 需要用户或工作令牌 |
+| 设备密钥 `dk_…` | 读取已投递给本设备的会话及其附件；发送消息和取消 run 需要用户令牌 |
 
 手动操作远端会话的常见配置：
 
@@ -343,48 +341,6 @@ agentuse attachment download ATTACHMENT_ID --conversation CONVERSATION_ID --outp
 
 使用设备密钥时，Server 校验该会话是否曾向本设备投递消息。`--run` 或 `AGENTUSE_RUN` 可标记附件来源的 run，不会替代设备或用户凭据。
 
-## work：协调者的工作线程
-
-AI 协调者应使用 `context work …`；以下 `agentuse work …` 是显式环境变量入口，适合人工操作。工作协调者运行时，Client 自动提供 `AGENTUSE_SERVER` 和 `AGENTUSE_WORK`。`work` 命令从这两个环境变量读取地址和工作令牌，权限限定在对应工作；不使用 `--config` 或 Server 管理员登录文件。
-
-| 命令 | 作用 |
-|---|---|
-| `agentuse work agents` | 列出可使用的 Agent |
-| `agentuse work threads` | 列出本工作线程 |
-| `agentuse work new [参数] "消息"` | 创建线程并发送首条消息 |
-| `agentuse work new --defer-start` | 创建空线程，供上传附件后发送消息 |
-| `agentuse work send [参数] CONVERSATION_ID "消息"` | 向线程发送消息 |
-| `agentuse work read CONVERSATION_ID` | 查看线程消息 |
-| `agentuse work resolve CONVERSATION_ID` | 将空闲线程标记为已完成 |
-| `agentuse work help` | 查看工作命令说明 |
-
-`new` 和 `send` 的参数放在消息或会话 ID 之前：
-
-| 参数 | 适用命令 | 说明 |
-|---|---|---|
-| `--agents` | `new`、`send` | 逗号分隔的 Agent 收件人 |
-| `--users` | `new`、`send` | 逗号分隔的用户收件人，须已有读取权限 |
-| `--defer-start` | `new` | 只建空线程；不能同时提供消息或收件人 |
-
-```bash
-agentuse work agents
-agentuse work new --agents coder "实现这个功能"
-agentuse work send --agents reviewer --users alice CONVERSATION_ID "请评审当前结果"
-agentuse work read CONVERSATION_ID
-agentuse work resolve CONVERSATION_ID
-```
-
-`new` 输出创建的线程 ID。指定 Agent 后，线程执行完会把结果汇总给协调者；只指定用户或未指定收件人时，只保存消息。`send` 输出消息发送结果 JSON；`agents`、`threads`、`read` 默认输出可读文本。
-
-先建空线程、上传文件再执行：
-
-```bash
-agentuse work new --defer-start
-# 将上一步输出的线程 ID 替换到以下命令。
-agentuse attachment upload ./input.csv --conversation CONVERSATION_ID --token "$AGENTUSE_WORK"
-agentuse work send --agents coder CONVERSATION_ID "分析附件中的数据"
-```
-
 ## 执行环境变量
 
 Client 为远端 Agent 的命令准备相应上下文，便于在执行中调用上述 CLI：
@@ -401,11 +357,10 @@ Client 为远端 Agent 的命令准备相应上下文，便于在执行中调用
 | `AGENTUSE_AGENT` | 当前 Agent ID |
 | `AGENTUSE_RUN` | 适配器可设置的实际 run ID，用于附件来源标记 |
 | `AGENTUSE_MESSAGE_ID` | 原生进程启动时的来源消息；读取当前输入应使用 `context input` |
-| `AGENTUSE_WORK` | 仅协调者执行中提供的工作令牌 |
 
-实际 run ID 由适配器产生，`AGENTUSE_RUN` 是否已设置取决于适配器的执行上下文。`context` 优先使用进入 shell 时固定的 `AGENTUSE_CONTEXT_RUN`，其次为适配器提供的 `AGENTUSE_RUN`，否则询问原生 status；不依赖启动时的消息环境变量判断当前输入。协调者向新建线程上传附件时，上例显式使用工作令牌，可访问尚未分配给设备的线程。
+实际 run ID 由适配器产生，`AGENTUSE_RUN` 是否已设置取决于适配器的执行上下文。`context` 优先使用进入 shell 时固定的 `AGENTUSE_CONTEXT_RUN`，其次为适配器提供的 `AGENTUSE_RUN`，否则询问原生 status；不依赖启动时的消息环境变量判断当前输入。
 
-用户手动运行远端命令时，可用 `AGENTUSE_TOKEN` 提供用户或工作令牌。`AGENTUSE_CONFIG` 的默认值读取适用于 `conversation` 和 `attachment`；其他接受配置文件的命令使用显式 `--config`。
+用户手动运行远端命令时，可用 `AGENTUSE_TOKEN` 提供用户令牌。`AGENTUSE_CONFIG` 的默认值读取适用于 `conversation` 和 `attachment`；其他接受配置文件的命令使用显式 `--config`。
 
 ## 帮助、输出与退出码
 
@@ -415,7 +370,6 @@ agentuse start --help
 agentuse register --help
 agentuse context --help
 agentuse conversation help
-agentuse work help
 agentuse version
 ```
 

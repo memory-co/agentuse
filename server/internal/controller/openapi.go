@@ -178,6 +178,17 @@ func (s *Server) registerAPI() {
 	bind("GET", "/api/works/{id}", "get-work", "读取工作", "work", user, nil, agentuse.Work{}, 200, s.handleGetWork)
 	bind("PATCH", "/api/works/{id}", "update-work", "更新工作说明及协调者", "work", user, agentuse.WorkPatch{}, agentuse.Work{}, 200, s.handleUpdateWork)
 	bind("DELETE", "/api/works/{id}", "delete-work", "删除工作及所属会话", "work", user, nil, nil, 204, s.handleDeleteWork)
+	management := apiAccess{wrap: s.workManagementAuth, security: config.Security, description: "仅工作所有者或管理员可操作，工作范围由路径固定。"}
+	bind("GET", "/api/works/{work_id}/threads", "list-work-threads", "列出工作线程", "work", management, nil, []agentuse.Session{}, 200, s.handleListSessions)
+	bind("POST", "/api/works/{work_id}/threads", "create-work-thread", "在指定工作中创建线程", "work", management, createSessionBody{}, agentuse.CreateSessionResponse{}, 201, s.handleCreateSession)
+	bind("GET", "/api/works/{work_id}/threads/{id}", "get-work-thread", "读取工作线程", "work", management, nil, agentuse.SessionDetail{}, 200, s.handleGetSession)
+	bind("POST", "/api/works/{work_id}/threads/{id}/messages", "send-work-thread-message", "向工作线程发消息", "work", management, messageBody{}, agentuse.Reply{}, 201, s.handleAddMessage)
+	bind("POST", "/api/works/{work_id}/threads/{id}/resolve", "resolve-work-thread", "标记工作线程完成", "work", management, nil, agentuse.Session{}, 200, s.handleResolveSession)
+	tool := bind("GET", "/api/agent-tools/work.py", "download-work-tool", "下载 Server 提供的 Work 工具", "work", public, nil, nil, 200, s.handleWorkTool)
+	binaryResponse(tool, "text/x-python")
+	authorization := bind("POST", "/api/agent-tools/work/authorize", "authorize-work-tool", "校验来源并为协调输入签发工作授权", "work", device, workToolAuthorization{}, workToolCredential{}, 200, s.handleAuthorizeWorkTool)
+	authorization.Description = "Server 根据设备、conversation、message、agent 和实际 run 确认协调权限；受理前沿用已投递消息授权，受理后校验 run_id。令牌在对应输入结束或被拒绝后失效。Client 不判断业务角色。"
+
 	bind("GET", "/api/sessions", "list-conversations", "列出会话；work_id 指定工作的线程", "conversation", work, nil, []agentuse.Session{}, 200, s.handleListSessions, query("work_id", "工作 ID；省略时列普通会话，工作令牌默认列本工作线程"))
 	bind("POST", "/api/sessions", "create-conversation", "创建会话，可同时发送首条消息", "conversation", work, createSessionBody{}, agentuse.CreateSessionResponse{}, 201, s.handleCreateSession)
 	bind("GET", "/api/sessions/{id}", "get-conversation", "读取消息、执行、投递、事件和问题的统一快照", "conversation", conversation, nil, agentuse.SessionDetail{}, 200, s.handleGetSession)

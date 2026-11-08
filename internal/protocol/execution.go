@@ -24,8 +24,6 @@ type ConversationMessage struct {
 	Content        string            `json:"content"`
 	Context        string            `json:"context,omitempty"`
 	Attachments    []LocalAttachment `json:"attachments"`
-	WorkID         string            `json:"work_id,omitempty"`
-	WorkToken      string            `json:"work_token,omitempty"`
 }
 
 func (m ConversationMessage) Key() string { return "m:" + m.MessageID + ":" + m.AgentID }

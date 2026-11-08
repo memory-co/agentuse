@@ -52,7 +52,6 @@ type ExecutionContext struct {
 	path           string
 	manifest       contextManifest
 	files          []sdk.Attachment
-	workToken      string
 }
 
 type ContextInput struct {
@@ -246,10 +245,9 @@ func (c *ExecutionContext) readInputs(ctx context.Context, events string) error 
 	}
 	defer file.Close()
 	reader := bufio.NewReader(file)
-	c.Inputs, c.files, c.workToken = []ContextInput{}, []sdk.Attachment{}, ""
+	c.Inputs, c.files = []ContextInput{}, []sdk.Attachment{}
 	c.Status = "running"
 	seenFiles := map[string]sdk.Attachment{}
-	workID := ""
 	pending := map[string]bool{}
 	for {
 		line, e := reader.ReadBytes('\n')
@@ -275,14 +273,6 @@ func (c *ExecutionContext) readInputs(ctx context.Context, events string) error 
 					return errContextReceiptPending
 				}
 				input.MessageID, input.Text, input.Context = r.Message.MessageID, r.Message.Content, r.Message.Context
-				if r.Message.WorkToken != "" {
-					if c.workToken != "" && workID != r.Message.WorkID {
-						return fmt.Errorf("工作能力归属冲突")
-					}
-					if c.workToken == "" {
-						c.workToken, workID = r.Message.WorkToken, r.Message.WorkID
-					}
-				}
 				for _, attachment := range r.Message.Attachments {
 					a := attachment.Attachment
 					if a.SessionID != c.ConversationID {
@@ -371,23 +361,6 @@ func (c *ExecutionContext) Attachment(ctx context.Context, id string) (ContextAt
 	out := contextAttachment(*selected)
 	out.LocalPath = path
 	return out, nil
-}
-func (c *ExecutionContext) WorkClient() (*sdk.Client, error) {
-	if c.workToken == "" {
-		return nil, fmt.Errorf("当前上下文没有工作线程能力")
-	}
-	if c.Status == "completed" || c.Status == "failed" || c.Status == "cancelled" {
-		return nil, fmt.Errorf("run 已结束，工作线程能力不可用")
-	}
-	client, err := c.client()
-	if err != nil {
-		return nil, err
-	}
-	client.Token = c.workToken
-	return client, nil
-}
-func (c *ExecutionContext) HasWork() bool {
-	return c.workToken != "" && (c.Status == "running" || c.Status == "waiting")
 }
 func (c *ExecutionContext) Path() string    { return c.path }
 func (c *ExecutionContext) BinPath() string { return filepath.Join(filepath.Dir(c.path), "bin") }

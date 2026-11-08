@@ -1,6 +1,6 @@
 # Server CLI：agentuse-server
 
-`agentuse-server start` 启动中心服务，提供管理页面、HTTP API 和 Client WebSocket 入口。`login`、`user` 命令通过 HTTP 管理运行中的服务，可以在能访问 Server 的其他机器上执行。
+`agentuse-server start` 启动中心服务，提供管理页面、HTTP API 和 Client WebSocket 入口。`login`、`user`、`work` 命令通过 HTTP 管理运行中的服务，可以在能访问 Server 的其他机器上执行。
 
 ## 快速开始
 
@@ -43,6 +43,7 @@ agentuse-server start \
 | `agentuse-server user create USERNAME` | 创建用户 |
 | `agentuse-server user list` | 列出用户 |
 | `agentuse-server user token USER_ID` | 重置用户登录令牌 |
+| `agentuse-server work …` | 通过 Server API 管理工作线程，可跨 Client 执行 |
 | `agentuse-server help` | 查看命令一览 |
 | `agentuse-server version` | 显示版本 |
 
@@ -235,3 +236,31 @@ agentuse-server version
 | `/api/schemas/{schema}.json` | JSON Schema |
 
 文档入口接受用户 cookie 或用户 Bearer token。各业务接口可用的工作令牌、设备密钥及权限范围在生成文档中分别列出。
+
+## work：工作与线程
+
+Work 属于 Server，可以关联多个 Client 上的 Agent。人类通过 `agentuse-server work` 管理工作线程，所有操作均调用 Server API。
+
+```bash
+agentuse-server work agents
+agentuse-server work threads --work WORK_ID
+agentuse-server work new --work WORK_ID --agents coder "实现这个功能"
+agentuse-server work new --work WORK_ID --defer-start
+agentuse-server work send --work WORK_ID --agents reviewer THREAD_ID "评审结果"
+agentuse-server work read --work WORK_ID THREAD_ID
+agentuse-server work resolve --work WORK_ID THREAD_ID
+```
+
+| 参数 | 说明 |
+|---|---|
+| `--work` | 必填的 Server Work ID；`agents` 不需要 |
+| `--agents` | `new/send` 的 Agent 收件人，逗号分隔 |
+| `--users` | `new/send` 的用户收件人，须已有读取权限 |
+| `--defer-start` | `new` 仅创建空线程；不能同时给消息或收件人 |
+| `--server`、`--token`、`--config` | 沿用管理命令的地址、令牌和配置优先级 |
+
+参数放在消息或线程 ID 之前。所有结果为 JSON；`new` 的线程 ID 位于 `session.id`。先创建空线程时，可用 `agentuse attachment upload --conversation THREAD_ID` 和用户令牌上传文件，再 `send` 给目标 Agent。
+
+用户只能访问有权限的工作，管理员可管理其他用户的工作；创建的线程仍归属工作所有者。工作范围由 Server 路径校验，不能通过更换线程 ID 访问另一个工作。创建 Work、修改协调者与工作说明使用管理页面或 `/api/works` API。`login` 仍要求管理员；普通用户可通过 `--token` 或 `AGENTUSE_TOKEN` 调用有权使用的 Work 命令。
+
+运行在 Client 上的协调 Agent 使用 Server 提供的独立工具，无需安装或启动 `agentuse-server`。详见 [Work 手册](work.md)。

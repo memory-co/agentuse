@@ -66,7 +66,7 @@ func (s *Service) prepareMessage(ctx context.Context, tx *sql.Tx, p Delivery) (p
 	if json.Unmarshal(p.Content, &input) != nil || input.Prompt == "" {
 		input.Prompt = string(p.Content)
 	}
-	out := protocol.ConversationMessage{ConversationID: p.SessionID, MessageID: p.MessageID, AgentID: p.AgentID, AgentVersionID: p.AgentVersionID, Content: input.Prompt, WorkID: ss.WorkID, Attachments: []protocol.LocalAttachment{}}
+	out := protocol.ConversationMessage{ConversationID: p.SessionID, MessageID: p.MessageID, AgentID: p.AgentID, AgentVersionID: p.AgentVersionID, Content: input.Prompt, Attachments: []protocol.LocalAttachment{}}
 	instructions := ""
 	if ss.WorkID != "" {
 		w, err := scanWork(tx.QueryRowContext(ctx, workCols+` WHERE w.id=?`, ss.WorkID))
@@ -76,10 +76,6 @@ func (s *Service) prepareMessage(ctx context.Context, tx *sql.Tx, p Delivery) (p
 		instructions = w.Instructions
 		if ss.WorkRole == WorkCoordinator && w.CoordinatorAgentID == p.AgentID {
 			instructions = coordinatorInstructions(w.Instructions)
-			out.WorkToken = RandomToken("wt_")
-			if _, err = tx.ExecContext(ctx, `INSERT INTO work_run_tokens(token_hash,work_id,message_id,agent_id) VALUES(?,?,?,?)`, HashSecret(out.WorkToken), w.ID, p.MessageID, p.AgentID); err != nil {
-				return out, err
-			}
 		}
 	}
 	rows, err := tx.QueryContext(ctx, attachmentCols+` WHERE session_id=? ORDER BY created_at,id`, p.SessionID)
