@@ -87,7 +87,7 @@ func TestVersionsPinQueuedInputAndPreserveHistoricalResources(t *testing.T) {
 	}
 	runID := uuid.NewString()
 	reportNative(t, s, d, p, "native-v2", 1, acceptedEvent(runID, "input1", p.Content))
-	if _, e = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"next"}`), []string{a.ID}, nil); e != nil {
+	if _, e = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"next"}`), []string{a.ID}, nil, nil); e != nil {
 		t.Fatal(e)
 	}
 	p2, e := s.DispatchMessage(ctx, d)

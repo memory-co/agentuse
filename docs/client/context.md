@@ -42,6 +42,7 @@ context attachment list
 
 | 字段 | 含义 |
 |---|---|
+| `relative_path` | 当前 conversation 文件树中的相对路径 |
 | `id`、`name` | 文件 ID 和名称 |
 | `direction` | `input` 为当前输入文件，`output` 为本次 run 的输出 |
 | `conversation_id` | 当前 conversation |
@@ -49,7 +50,7 @@ context attachment list
 | `mime_type`、`size_bytes`、`sha256` | 文件类型、大小、SHA-256 |
 | `download_path` | Server 上可供用户下载的路径 |
 
-输入范围来自投递给该 run 的各条已受理消息的固定快照，可能包含投递时会话已有的多个文件；补充输入可以扩展范围。输出按 Server 的 run 归属查询，其他排队 run 的输入或输出不会自动混入列表。
+输入范围来自投递给该 run 的各条已受理消息的固定快照，可能包含该条消息明确选择的文件；补充输入可以扩展范围。输出按 Server 的 run 归属查询，其他排队 run 的输入或输出不会自动混入列表。
 
 ## 读取图片或其他文件
 
@@ -69,12 +70,13 @@ context attachment read FILE_ID
 context attachment upload ./report.pdf
 ```
 
-只接受普通文件，使用本地文件的 basename 作为名称。目标自动绑定当前 conversation/run，不需要填写 Server、token、conversation 或 run ID。结果为 JSON，例如：
+只接受普通文件；workspace 内的文件保留相对路径，外部文件使用 basename。用户上传位于保留目录 user_input/，AI 不能写入该目录。目标自动绑定当前 conversation/run，不需要填写 Server、token、conversation 或 run ID。结果为 JSON，例如：
 
 ```json
 {
   "id": "at_示例",
   "name": "report.pdf",
+  "relative_path": "report.pdf",
   "direction": "output",
   "conversation_id": "当前conversation的UUID",
   "run_id": "当前run的UUID",

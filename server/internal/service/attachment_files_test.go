@@ -17,7 +17,7 @@ func TestPublishAttachmentSingleFileLimit(t *testing.T) {
 	if err := os.WriteFile(temp, []byte("four"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	err := s.PublishAttachment(context.Background(), AttachmentAccess{}, attachment.Attachment{SizeBytes: 4}, temp)
+	err := s.PublishAttachment(context.Background(), AttachmentAccess{}, &attachment.Attachment{SizeBytes: 4}, temp)
 	if !errors.Is(err, ErrAttachmentQuota) {
 		t.Fatal(err)
 	}

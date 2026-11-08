@@ -93,13 +93,16 @@ func (s *Service) AttachmentSession(ctx context.Context, a AttachmentAccess, id 
 }
 
 // CommitAttachment serializes authorization, quota and metadata with publishing the file.
-func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v attachment.Attachment, max int64, publish func() error) error {
+func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v *attachment.Attachment, max int64, publish func() error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	if _, err = s.attachmentSession(ctx, tx, a, v.SessionID, true); err != nil {
+		return err
+	}
+	if err = assignAttachmentPath(ctx, tx, v); err != nil {
 		return err
 	}
 	var used int64
@@ -112,7 +115,7 @@ func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v at
 	if err = publish(); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, store.CommitAttachmentInsert, v.ID, v.SessionID, v.Filename, v.ContentType, v.SizeBytes, v.SHA256, v.CreatedBy, v.Source, nullIfEmpty(v.DaemonID), v.CreatedAt, nullIfEmpty(v.CreatedByRunID))
+	_, err = tx.ExecContext(ctx, store.CommitAttachmentInsert, v.ID, v.SessionID, v.Filename, v.ContentType, v.SizeBytes, v.SHA256, v.CreatedBy, v.Source, nullIfEmpty(v.DaemonID), v.CreatedAt, nullIfEmpty(v.CreatedByRunID), v.RelativePath)
 	if err != nil {
 		return err
 	}
@@ -178,6 +181,14 @@ func (s *Service) deleteAttachment(ctx context.Context, a AttachmentAccess, sess
 	if _, err = s.attachmentSession(ctx, tx, a, session, false); err != nil {
 		return err
 	}
+	var referenced int
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM messages m,json_each(m.attachments) f WHERE m.session_id=? AND json_extract(f.value,'$.id')=?`, session, id).Scan(&referenced); err != nil {
+		return err
+	}
+	if referenced > 0 {
+		return ErrAttachmentReferenced
+	}
+
 	r, err := tx.ExecContext(ctx, store.DeleteAttachmentDelete, session, id)
 	if err != nil {
 		return err

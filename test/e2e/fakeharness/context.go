@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -96,7 +97,10 @@ func contextProof(hold bool) (string, error) {
 			return "", fmt.Errorf("future attachment exposed")
 		}
 	}
-	reportPath := "report-" + view.RunID + ".txt"
+	if err = os.MkdirAll("reports", 0700); err != nil {
+		return "", err
+	}
+	reportPath := filepath.Join("reports", "report-"+view.RunID+".txt")
 	reportBody := []byte("image sha256: " + hex.EncodeToString(digest[:]))
 	if err = os.WriteFile(reportPath, reportBody, 0600); err != nil {
 		return "", err

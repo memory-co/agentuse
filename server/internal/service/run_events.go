@@ -178,6 +178,9 @@ func (s *Service) ReportClientEvent(ctx context.Context, device string, envelope
 					if err != nil {
 						return err
 					}
+					if err = s.attachRunOutputs(ctx, tx, r, message.ID); err != nil {
+						return err
+					}
 					if _, err = tx.ExecContext(ctx, `UPDATE messages SET author_agent_id=?,author_agent_version_id=?,reply_to_message_id=?,to_user_ids=? WHERE id=?`, r.AgentID, r.AgentVersionID, r.FirstMessageID, string(recipients), message.ID); err != nil {
 						return err
 					}

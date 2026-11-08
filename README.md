@@ -183,7 +183,9 @@ context attachment upload ./report.pdf
 
 `read` 返回经过大小和 SHA-256 校验的本地绝对路径及 MIME 类型，图片交给原生看图工具读取。`list` 包含当前输入快照和本次 run 的输出，使用 `direction` 区分；其他排队 run 的文件不会混入。`upload` 自动关联 conversation/run，返回可引用的 `download_path`，不会自动回复或结束执行。人类可以用 `agentuse context` 调试同一上下文，详见 [执行上下文手册](docs/client/context.md)。
 
-网页会话页和 Go、Python、Node SDK 均支持附件。服务端默认单文件 100 MiB、每会话总计 1 GiB；附件目录默认 `~/.agentuse/attachments`，须与数据库一起备份。[设计](designs/v2/designs/attachment.md) · [API](designs/v2/apis/attachments.md) · [Client CLI](docs/client/cli.md)。
+每个 conversation 有独立的文件树，用户输入位于 `user_input/`，AI 产物保留相对路径。页面右侧浏览文件，输入框选择每条消息的附件，消息显示可预览的文件卡片。详见 [对话文件](docs/server/conversation-files.md)。
+
+网页会话页和 Go、Python、Node SDK 均支持附件。服务端默认单文件 100 MiB、每会话总计 1 GiB；附件目录默认 `~/.agentuse/attachments`，须与数据库一起备份。[文件树设计](designs/v3/designs/conversation-files.md) · [Client CLI](docs/client/cli.md)。HTTP API 说明见运行中 Server 的 `/api/docs`。
 
 ## 多 agent 共享会话
 
@@ -253,4 +255,4 @@ Agent 指令与 skills 由 Client 按固定版本 API 获取，通过 init 保�
 
 消息使用 `to_agent_ids` 和 `to_user_ids` 指定收件人：只有 Agent 收件人触发执行，用户收件人必须已有会话读取权限，两组省略时均为 `[]`。CLI 通过 `--agents`、`--users` 分别指定；不保留旧字段别名。
 
-Server/client 使用 `agentuse-client/2`：Server 直接投递 conversation message 和目标 Agent，Client 按需获取固定版本配置与 skills 并在本地 init，适配器通过 accepted 返回真实 run UUID。只支持数据库 schema 5 和新版消息收据，不保留旧数据迁移或兼容逻辑。升级需重建 Server 数据库、清空 Client 本地工作目录并重新初始化、注册设备；两端必须一起更新。详见 [协议](designs/v3/designs/protocol.md) 和 [server-run 设计](designs/v3/designs/server-run.md)。
+Server/client 使用 `agentuse-client/2`：Server 直接投递 conversation message 和目标 Agent，Client 按需获取固定版本配置与 skills 并在本地 init，适配器通过 accepted 返回真实 run UUID。只支持数据库 schema 6 和新版消息收据，不保留旧数据迁移或兼容逻辑。升级需重建 Server 数据库、清空 Client 本地工作目录并重新初始化、注册设备；两端必须一起更新。详见 [协议](designs/v3/designs/protocol.md) 和 [server-run 设计](designs/v3/designs/server-run.md)。

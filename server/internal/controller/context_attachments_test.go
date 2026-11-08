@@ -37,7 +37,7 @@ func TestContextOutputAttributionFilteringAndUploadLifetime(t *testing.T) {
 	}
 	start := func(prompt, input string) (protocol.ConversationMessage, string) {
 		t.Helper()
-		_, err := f.e.st.SendMultiMessage(ctx, f.u, f.session.ID, json.RawMessage(`{"prompt":"`+prompt+`"}`), []string{f.agent}, nil)
+		_, err := f.e.st.SendMultiMessage(ctx, f.u, f.session.ID, json.RawMessage(`{"prompt":"`+prompt+`"}`), []string{f.agent}, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -160,7 +160,7 @@ func TestDeviceReadsItsOutputsAfterAnyTerminalResult(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			fixture := attachmentEnv(t, 4096, 16384)
 			ctx := context.Background()
-			_, err := fixture.e.st.SendMultiMessage(ctx, fixture.u, fixture.session.ID, json.RawMessage(`{"prompt":"output"}`), []string{fixture.agent}, nil)
+			_, err := fixture.e.st.SendMultiMessage(ctx, fixture.u, fixture.session.ID, json.RawMessage(`{"prompt":"output"}`), []string{fixture.agent}, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

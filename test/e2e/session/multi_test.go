@@ -87,13 +87,14 @@ func TestMultiAgentSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := created.Session.ID
-	if _, err = c.UploadAttachment(ctx, user, id, "input.txt", strings.NewReader("shared input")); err != nil {
+	sharedFile, err := c.UploadAttachment(ctx, user, id, "input.txt", strings.NewReader("shared input"))
+	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "shared note"}); err != nil {
 		t.Fatal(err)
 	}
-	first, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:hold", ToAgentIDs: []string{"coder"}})
+	first, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:hold", ToAgentIDs: []string{"coder"}, AttachmentIDs: []string{sharedFile.ID}})
 	if err != nil || len(first.Runs) != 0 || len(first.Deliveries) != 1 {
 		t.Fatal(first, err)
 	}

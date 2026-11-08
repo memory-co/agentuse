@@ -110,7 +110,7 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 			if h == "fake" {
 				prompt = "context-image-hold"
 			}
-			first, err := c.SendMessage(ctx, user, conversation, sdk.MessageRequest{Prompt: prompt, ToAgentIDs: []string{"image-" + h}})
+			first, err := c.SendMessage(ctx, user, conversation, sdk.MessageRequest{Prompt: prompt, ToAgentIDs: []string{"image-" + h}, AttachmentIDs: []string{attachment.ID}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -129,7 +129,7 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err = c.SendMessage(ctx, user, conversation, sdk.MessageRequest{Prompt: "context-image", ToAgentIDs: []string{"image-fake"}}); err != nil {
+				if _, err = c.SendMessage(ctx, user, conversation, sdk.MessageRequest{Prompt: "context-image", ToAgentIDs: []string{"image-fake"}, AttachmentIDs: []string{future.ID}}); err != nil {
 					t.Fatal(err)
 				}
 				e2eutil.WaitFor(t, 10*time.Second, "queued run accepted", func() bool {
@@ -166,7 +166,7 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 				t.Fatal("run output binding failed", run.Output)
 			}
 			output, err := c.GetAttachment(ctx, user, conversation, proof.Uploaded.ID)
-			if err != nil || output.CreatedByRunID != run.ID || output.CreatedByAgentKey != "image-"+h || output.Source != "daemon" {
+			if err != nil || output.CreatedByRunID != run.ID || output.CreatedByAgentKey != "image-"+h || output.Source != "daemon" || !strings.HasPrefix(output.RelativePath, "reports/") {
 				t.Fatal("Server omitted output attribution", output, err)
 			}
 			download, err := c.DownloadAttachment(ctx, user, conversation, proof.Uploaded.ID)

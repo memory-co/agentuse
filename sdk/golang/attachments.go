@@ -17,6 +17,7 @@ import (
 )
 
 type Attachment struct {
+	RelativePath      string `json:"relative_path"`
 	CreatedByAgentKey string `json:"created_by_agent_key,omitempty"`
 	CreatedByRunID    string `json:"created_by_run_id,omitempty"`
 	ID                string `json:"id"`
@@ -76,11 +77,24 @@ func (c *Client) attachmentRequest(ctx context.Context, user, method, path, ctyp
 	return res, nil
 }
 func (c *Client) UploadAttachment(ctx context.Context, user, session, filename string, src io.Reader) (*Attachment, error) {
+	return c.uploadAttachment(ctx, user, session, filename, "", src)
+}
+func (c *Client) UploadAttachmentAt(ctx context.Context, user, session, relativePath string, src io.Reader) (*Attachment, error) {
+	return c.uploadAttachment(ctx, user, session, filepath.Base(relativePath), relativePath, src)
+}
+func (c *Client) uploadAttachment(ctx context.Context, user, session, filename, relativePath string, src io.Reader) (*Attachment, error) {
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
 	defer pr.Close()
 	go func() {
-		part, err := mw.CreateFormFile("file", filename)
+		var err error
+		if relativePath != "" {
+			err = mw.WriteField("path", relativePath)
+		}
+		var part io.Writer
+		if err == nil {
+			part, err = mw.CreateFormFile("file", filename)
+		}
 		if err == nil {
 			_, err = io.Copy(part, src)
 		}

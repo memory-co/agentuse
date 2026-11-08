@@ -58,7 +58,7 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 	if err = s.ReportClientEvent(ctx, d.ID, event); err == nil {
 		t.Fatal("sequence conflict accepted")
 	}
-	if _, err = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"supplement"}`), []string{a.ID}, nil); err != nil {
+	if _, err = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"supplement"}`), []string{a.ID}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	p2, err := s.DispatchMessage(ctx, d)
@@ -91,7 +91,7 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 			t.Fatal(prompt)
 		}
 	}
-	if _, err = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"next"}`), []string{a.ID}, nil); err != nil {
+	if _, err = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"next"}`), []string{a.ID}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	p3, _ := s.DispatchMessage(ctx, d)

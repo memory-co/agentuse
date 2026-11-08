@@ -57,7 +57,7 @@ UUID 只用於標識，不承擔消息排序。目標結構用 messages.seq 保�
 
 ## 目標元數據與當前實現
 
-本文下列 SQL 定義元數據的目標命名和字段。物理對話表仍名爲 sessions，HTTP 入口仍爲 /api/sessions。Schema 5 的 conversation/message ID 均為 UUID，messages.seq 是對話內順序；to_agent_ids 和 to_user_ids 已在存儲、發送 API、SDK、CLI 和前端統一實現。發送接口接受 prompt 或 input，收件人字段與消息內容分開傳入。author_role 和獨立 attachments 列仍是目標設計；現行 role 使用 user/assistant。通用 fileService 的目錄/S3 後端已實現，不表示全部目標字段已部署。執行關係見 [server-run.md](server-run.md)。只接受新字段及 schema 5，不保留舊字段別名或數據遷移。
+本文下列 SQL 定義元數據的目標命名和字段。物理對話表仍名爲 sessions，HTTP 入口仍爲 /api/sessions。當前 schema 6 的 conversation/message ID 均為 UUID，messages.seq 是對話內順序；to_agent_ids 和 to_user_ids 已在存儲、發送 API、SDK、CLI 和前端統一實現。發送接口接受 prompt 或 input，以及獨立的收件人和 attachment_ids；messages.attachments 已保存所選附件的元數據快照。author_role 仍是目標命名，現行 role 使用 user/assistant。通用 fileService 的目錄/S3 後端已實現，conversation 附件仍使用獨立的附件存儲。執行關係見 [server-run.md](server-run.md)。只接受新字段及 schema 6，不保留舊字段別名或數據遷移。
 
 ## 表結構
 
@@ -99,13 +99,13 @@ service 校驗元素為非空 ID 字符串，分別去重，檢查 Agent 可在�
 
 兩組收件人在消息首次入庫時固定，即使後續派發失敗、Agent 改名或 run 結束，也保留原始收件人。每條新回覆獨立指定收件人，不自動繼承父消息的收件人數組。重複 ID 在保留首次出現順序的前提下去重；空 ID 或帶首尾空白的 ID 拒絕寫入。
 
-`attachments` 是 JSON 字符串數組，保存相對於當前 conversation 文件空間的路徑，用戶消息和 agent 回覆都可以攜帶。例如：
+發送請求用 `attachment_ids` 選擇本條消息的附件。例如：
 
 ```json
-{"content":"請查看這兩個文件","to_agent_ids":["coder"],"to_user_ids":["user-alice"],"attachments":["inputs/data.csv","reports/result.pdf"]}
+{"prompt":"請查看這兩個文件","to_agent_ids":["coder"],"to_user_ids":["user-alice"],"attachment_ids":["at_input","at_report"]}
 ```
 
-文件先通過 fileService 上傳，再在消息中引用；沒有附件時爲 `[]`。不保存絕對路徑、URL、bucket 或本地根目錄。service 校驗數組元素爲合法相對路徑，讀取時由 fileService 按 conversation 和路徑定位文件。這只是消息上的文件引用，不新增文件元數據表。
+文件先通過附件 API 上傳，再在消息中引用；省略或空數組表示本條消息沒有附件，不繼承會話的其他文件。service 在寫入消息的同一事務內校驗附件屬於當前 conversation，將完整元數據快照保存到 `messages.attachments` JSON 數組，包含 `id`、`relative_path`、文件名、大小和摘要等字段。字節內容按附件 ID 存儲，`attachments.relative_path` 定義會話內的文件樹；用戶上傳位於 `user_input/`，AI 輸出可以使用多級相對路徑。最終 Agent 回覆保存本次 run 上傳的輸出文件快照。路徑和刪除規則見 [conversation-files.md](conversation-files.md)。
 
 service 寫入時保證 user 消息只填 author_user_id，agent 消息填寫 author_agent_id 和 author_agent_version_id，並檢查版本屬於該 agent。讀取作者用 LEFT JOIN；角色選擇器展示當前版本名稱，歷史 agent 回覆按作者版本展示，不受後來改名影響。軟刪除不清空消息作者或已發佈版本。
 
@@ -156,3 +156,5 @@ CREATE INDEX messages_replies ON messages(conversation_id,reply_to_message_id,se
 ## 相關設計
 
 [Server 總覽](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [skillService](server-skill.md) · [Client harnessService](client-harness.md) · [runService](server-run.md) · [fileService](server-file.md) · [workService](server-work.md)
+
+消息附件採用顯式 attachment_ids 選擇，messages.attachments 保存元數據快照；省略時為空，不繼承會話文件。每個 conversation 的文件樹與目錄操作 TODO 見 [conversation-files.md](conversation-files.md)。

@@ -19,9 +19,9 @@ const AttachmentSessionSelect3 = `SELECT id,role FROM users WHERE token_hash=?`
 
 const CommitAttachmentSelect = `SELECT COALESCE(SUM(size_bytes),0) FROM attachments WHERE session_id=?`
 
-const CommitAttachmentInsert = `INSERT INTO attachments(id,session_id,filename,content_type,size_bytes,sha256,created_by,source,daemon_id,created_at,created_by_run_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)`
+const CommitAttachmentInsert = `INSERT INTO attachments(id,session_id,filename,content_type,size_bytes,sha256,created_by,source,daemon_id,created_at,created_by_run_id,relative_path) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`
 
-const AttachmentCols = `SELECT id,session_id,filename,content_type,size_bytes,sha256,created_by,source,COALESCE(daemon_id,''),created_at,COALESCE(created_by_run_id,''),COALESCE((SELECT agent_id FROM runs r WHERE r.id=attachments.created_by_run_id),'') FROM attachments`
+const AttachmentCols = `SELECT id,session_id,filename,content_type,size_bytes,sha256,created_by,source,COALESCE(daemon_id,''),created_at,COALESCE(created_by_run_id,''),COALESCE((SELECT agent_id FROM runs r WHERE r.id=attachments.created_by_run_id),''),relative_path FROM attachments`
 
 const GetAttachmentClause = ` WHERE session_id=? AND id=?`
 
@@ -106,7 +106,7 @@ const SessionCols = `SELECT id,user_id,created_by,work_id,
  CASE WHEN work_id IS NULL THEN '' WHEN EXISTS(SELECT 1 FROM works w WHERE w.coordinator_id=sessions.id) THEN 'coordinator' ELSE 'thread' END,
  title,status,created_at,updated_at,'multi_agent' FROM sessions`
 
-const MessageCols = `SELECT id,session_id,role,content,created_at,'',COALESCE(author_agent_id,''),COALESCE((SELECT name FROM agent_versions WHERE id=messages.author_agent_version_id),''),to_agent_ids,to_user_ids,COALESCE(author_user_id,''),COALESCE(reply_to_message_id,''),COALESCE(author_agent_version_id,''),seq FROM messages`
+const MessageCols = `SELECT id,session_id,role,content,created_at,'',COALESCE(author_agent_id,''),COALESCE((SELECT name FROM agent_versions WHERE id=messages.author_agent_version_id),''),to_agent_ids,to_user_ids,COALESCE(author_user_id,''),COALESCE(reply_to_message_id,''),COALESCE(author_agent_version_id,''),seq,attachments FROM messages`
 
 const GetSessionClause = ` WHERE id = ?`
 

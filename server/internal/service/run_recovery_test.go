@@ -40,7 +40,7 @@ func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.SendMultiMessage(ctx, u, coordinator.ID, json.RawMessage(`{"prompt":"first"}`), []string{a.ID}, nil); err != nil {
+	if _, err = s.SendMultiMessage(ctx, u, coordinator.ID, json.RawMessage(`{"prompt":"first"}`), []string{a.ID}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	original, err := s.DispatchMessage(ctx, d)
@@ -50,7 +50,7 @@ func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
 	if !strings.Contains(original.Context, "shared work instructions") {
 		t.Fatal("server omitted work context")
 	}
-	if _, err = s.SendMultiMessage(ctx, u, coordinator.ID, json.RawMessage(`{"prompt":"later"}`), []string{a.ID}, nil); err != nil {
+	if _, err = s.SendMultiMessage(ctx, u, coordinator.ID, json.RawMessage(`{"prompt":"later"}`), []string{a.ID}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	recovered, err := s.PendingMessages(ctx, d.ID)

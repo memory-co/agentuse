@@ -61,7 +61,7 @@ POST /api/skills/{skill_id}/versions
 GET /api/skills/{skill_id}/versions/{version_id}/package
 ```
 
-Conversation 入口先經 conversationService 校驗歸屬，再操作 conversations 空間；messages.attachments 的相對路徑數組是 conversation 元數據目標設計，舊附件消息引用仍由現有附件鏈路處理。
+Conversation 入口先經 conversationService 校驗歸屬，再操作 conversations 空間。現行附件 API 仍使用獨立的 attachments 表和按附件 ID 保存的字節內容；schema 6 以 relative_path 派生會話文件樹，messages.attachments 保存每條消息選定文件的元數據快照，詳見 [conversation-files.md](conversation-files.md)。這不表示附件已遷移到通用 fileService。
 
 Skill 上傳經 skillService 校驗、分配不可變版本路徑，並調用 fileService。下載同樣由 skillService 校驗用戶或已分配輸入的設備權限，然後返回文件流；不開放任意覆蓋已發佈 skill 包的通用 PUT 接口。
 

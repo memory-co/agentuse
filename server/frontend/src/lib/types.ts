@@ -20,12 +20,13 @@ export interface Session {
 }
 // 工作：协调者 + 线程 + 共用说明(designs/v2/designs/work.md)
 export interface Work { coordinator_agent_id?: string; id: string; user_id: string; name: string; instructions: string; coordinator_id: string; thread_count: number; created_at: number; updated_at: number }
-export interface Message {author_user_id?:string;reply_to_message_id?:string;author_agent_version_id?:string; seq?:number; agent_key?:string;agent_name?:string;run_id?:string;to_agent_ids:string[];to_user_ids:string[]; id: string; session_id: string; role: 'user' | 'assistant'; content: any; created_at: number }
+export interface Message {attachments:Attachment[];author_user_id?:string;reply_to_message_id?:string;author_agent_version_id?:string; seq?:number; agent_key?:string;agent_name?:string;run_id?:string;to_agent_ids:string[];to_user_ids:string[]; id: string; session_id: string; role: 'user' | 'assistant'; content: any; created_at: number }
 export interface SessionEvent { run_id?:string;client_session_id:string;agent_id:string;event_seq:number; id: number; session_id: string; daemon_id: string; kind: string; payload?: any; created_at: number }
 export interface Question {request_id:string;run_id:string;session_id:string;state:'pending'|'replied'|'expired';payload:any;answer?:unknown;answered_by?:string;created_at:number;delivery_error?:string}
 export interface SessionDetail { runs?:Run[];deliveries?:Delivery[];run_counts?:Record<string,number>; session: Session; messages: Message[]; questions?: Question[]; events: SessionEvent[]; daemon_offline?: boolean }
 
 export interface Attachment {
+ relative_path:string;
  created_by_run_id?: string;created_by_agent_key?:string;
  id: string; session_id: string; filename: string; content_type: string; size_bytes: number; sha256: string;
  created_by: string; source: 'user' | 'daemon' | 'work'; daemon_id?: string; created_at: number; download_path: string;

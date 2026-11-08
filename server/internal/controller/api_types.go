@@ -27,10 +27,11 @@ type createSessionBody struct {
 }
 
 type messageBody struct {
-	ToAgentIDs []string        `json:"to_agent_ids,omitempty" doc:"处理本条消息的 Agent ID；仅这些收件人创建执行关系"`
-	ToUserIDs  []string        `json:"to_user_ids,omitempty" doc:"已有会话读取权限的用户 ID；不改变会话可见性"`
-	Input      json.RawMessage `json:"input,omitempty" doc:"原生 JSON 输入；优先于 prompt，两者至少提供一个"`
-	Prompt     string          `json:"prompt,omitempty" doc:"消息文本；两组收件人均省略时只保存备注"`
+	AttachmentIDs []string        `json:"attachment_ids,omitempty" maxItems:"64" doc:"本条消息选定的同会话附件 ID；省略或空数组表示没有附件"`
+	ToAgentIDs    []string        `json:"to_agent_ids,omitempty" doc:"处理本条消息的 Agent ID；仅这些收件人创建执行关系"`
+	ToUserIDs     []string        `json:"to_user_ids,omitempty" doc:"已有会话读取权限的用户 ID；不改变会话可见性"`
+	Input         json.RawMessage `json:"input,omitempty" doc:"原生 JSON 输入；优先于 prompt；没有文本时可只提供附件"`
+	Prompt        string          `json:"prompt,omitempty" doc:"消息文本；两组收件人均省略时只保存备注"`
 }
 
 type answerRunBody struct {

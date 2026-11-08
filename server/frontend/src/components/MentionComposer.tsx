@@ -1,14 +1,17 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { ArrowUp, AtSign, ChevronDown, UserRound, X } from 'lucide-react';
+import { ArrowUp, AtSign, ChevronDown, Paperclip, UserRound, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Input } from '@/components/ui/input';
 import { useT } from '@/lib/i18n';
+import { DraftFiles } from '@/components/MessageFiles';
+import type { DraftFile } from '@/hooks/use-message-files';
 import type { Agent } from '@/lib/types';
 
-export function MentionComposer({ agents, users = [], busy, onSend, initialTargets = [], placeholder, children, showAgentPicker = false }: {
+export function MentionComposer({ agents, users = [], busy, onSend, initialTargets = [], placeholder, children, showAgentPicker = false, files = [], onFiles, onRemoveFile }: {
   agents: Agent[]; users?: string[]; busy?: boolean; onSend: (text: string, toAgentIds: string[], toUserIds: string[]) => Promise<unknown>;
+  files?: DraftFile[]; onFiles?: (files: File[]) => void; onRemoveFile?: (key: string) => void;
   initialTargets?: string[]; placeholder: string; children?: ReactNode; showAgentPicker?: boolean;
 }) {
   const t = useT();
@@ -19,6 +22,7 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
   const [query, setQuery] = useState<string | null>(null);
   const [cursor, setCursor] = useState(0);
   const [pickerQuery, setPickerQuery] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const mention = useRef<{ start: number; end: number } | null>(null);
@@ -44,7 +48,7 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
     textarea.current?.focus();
   };
   const submit = () => {
-    if (!text.trim() || busy) return;
+    if ((!text.trim() && !files.length) || busy) return;
     setQuery(null);
     void onSend(text, targets, userTargets).then(() => setText(''), () => undefined);
   };
@@ -84,6 +88,7 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
         <button type="button" disabled={busy} aria-label={`${t('mention.removeUser')} ${id}`} onClick={() => setUserTargets(v => v.filter(x => x !== id))}><X className="size-3" /></button>
       </span>)}
     </div>
+    <DraftFiles files={files} busy={busy} onRemove={onRemoveFile ?? (() => undefined)} />
     <Textarea ref={textarea} value={text} disabled={busy} placeholder={placeholder} enterKeyHint="send"
       className="max-h-60 min-h-[44px] resize-none border-0 p-2 shadow-none focus-visible:ring-0"
       onChange={e => {
@@ -124,6 +129,8 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
       {!ids.length && <p className="p-2 text-xs text-muted-foreground">{t('mention.noMatch')}</p>}
     </div>}
     <div className="flex flex-wrap items-center gap-2">
+      {onFiles && <><Button type="button" variant="ghost" size="icon" className="size-8" disabled={busy || files.length >= 64} aria-label={t('attachment.upload')} onClick={() => fileInput.current?.click()}><Paperclip className="size-4" /></Button><input ref={fileInput} type="file" multiple className="hidden" disabled={busy} aria-label={t('attachment.upload')} onChange={event => { const next=Array.from(event.target.files ?? []); event.target.value=''; onFiles(next); }} /></>}
+
       {!showAgentPicker && <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5" disabled={busy || targets.length >= 8} aria-label={t('mention.choose')}
         onClick={() => {
           if (query !== null) { setQuery(null); return; }
@@ -144,7 +151,7 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
       </Popover>
       <span className="text-xs text-muted-foreground">{targets.length || userTargets.length ? t('mention.recipients', { agents: targets.length, users: userTargets.length }) : t('mention.note')}</span>
       {children}
-      <Button type="submit" size="icon" className="ml-auto size-8 rounded-full" disabled={busy || !text.trim()} aria-label={t('session.send')}><ArrowUp /></Button>
+      <Button type="submit" size="icon" className="ml-auto size-8 rounded-full" disabled={busy || (!text.trim() && !files.length)} aria-label={t('session.send')}><ArrowUp /></Button>
     </div>
   </form>;
 }

@@ -32,7 +32,7 @@ func (s *Service) OpenAttachmentFile(session, id string) (*os.File, error) {
 	defer s.attachmentMu.RUnlock()
 	return os.Open(s.AttachmentPath(session, id))
 }
-func (s *Service) PublishAttachment(ctx context.Context, a AttachmentAccess, v attachment.Attachment, temp string) error {
+func (s *Service) PublishAttachment(ctx context.Context, a AttachmentAccess, v *attachment.Attachment, temp string) error {
 	if v.SizeBytes < 0 || v.SizeBytes > s.attachments.MaxBytes {
 		return ErrAttachmentQuota
 	}

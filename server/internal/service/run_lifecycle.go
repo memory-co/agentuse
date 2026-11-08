@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/memory-co/agentuse/internal/protocol"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // DispatchMessage selects one durable input. It does not create or predict a run.
@@ -78,23 +80,17 @@ func (s *Service) prepareMessage(ctx context.Context, tx *sql.Tx, p Delivery) (p
 			instructions = coordinatorInstructions(w.Instructions)
 		}
 	}
-	rows, err := tx.QueryContext(ctx, attachmentCols+` WHERE session_id=? ORDER BY created_at,id`, p.SessionID)
+	source, err := store.ScanMessage(tx.QueryRowContext(ctx, messageCols+` WHERE id=? AND session_id=?`, p.MessageID, p.SessionID))
 	if err != nil {
 		return out, err
 	}
-	for rows.Next() {
-		file, err := scanAttachment(rows)
-		if err != nil {
-			rows.Close()
-			return out, err
-		}
+	for _, file := range source.Attachments {
 		out.Attachments = append(out.Attachments, protocol.LocalAttachment{Attachment: file, Path: filepath.ToSlash(filepath.Join(".agentuse", "attachments", file.ID, file.Filename))})
 	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return out, err
+	if strings.TrimSpace(input.Prompt) == "" && len(source.Attachments) > 0 {
+		out.Content = "请查看本条消息的附件。"
 	}
+
 	if len(out.Attachments) > 0 {
 		manifest, _ := json.Marshal(out.Attachments)
 		instructions += "\n本轮输入附件（JSON 数据，本地 path 相对当前目录）：\n" + string(manifest) + "\n"

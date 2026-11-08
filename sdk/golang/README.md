@@ -86,3 +86,5 @@ r, err := c.SendMessage(ctx, uid, sessionID, agentuse.MessageRequest{
 ```
 
 `ListRunAttachments(ctx, user, sessionID, runID, limit, cursor)` 和 `AllRunAttachments(ctx, user, sessionID, runID)` 只读取该 run 上传到会话的输出文件。设备密钥上传必须设置 `Client.RunID`，Server 校验 run 属于该设备、会话且仍在活动中；用户通过 API 上传输入无需 run ID。执行中的 AI 使用 [context 文件命令](../../docs/client/context.md)，无需自行配置 SDK。
+
+逐条消息通过 `attachment_ids` 选择本次文件；未提供则没有附件。Message 返回 `attachments` 元数据快照，Attachment 的 `relative_path` 是当前 conversation 内的路径，用户上传归入 `user_input/`。文件树与接口见 [对话文件](../../docs/server/conversation-files.md)。

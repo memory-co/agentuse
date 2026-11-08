@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	sdk "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
@@ -34,7 +35,7 @@ func insertMessage(ctx context.Context, tx *sql.Tx, sessionID, role string, cont
 	if err != nil {
 		return Message{}, err
 	}
-	return Message{ID: id, Seq: seq, SessionID: sessionID, Role: role, Content: content, CreatedAt: now, ToAgentIDs: []string{}, ToUserIDs: []string{}}, nil
+	return Message{ID: id, Seq: seq, SessionID: sessionID, Role: role, Content: content, CreatedAt: now, ToAgentIDs: []string{}, ToUserIDs: []string{}, Attachments: []sdk.Attachment{}}, nil
 }
 
 func (s *Service) scanSession(row scanner) (Session, error) { return store.ScanSession(row) }

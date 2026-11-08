@@ -12,8 +12,8 @@ func (s *Service) CreateMultiSession(ctx context.Context, u User, work, title st
 	}
 	return ss, reply, err
 }
-func (s *Service) SendMultiMessage(ctx context.Context, u User, session string, input json.RawMessage, toAgentIDs, toUserIDs []string) (MultiReply, error) {
-	reply, err := s.sendMultiMessage(ctx, u, session, input, toAgentIDs, toUserIDs)
+func (s *Service) SendMultiMessage(ctx context.Context, u User, session string, input json.RawMessage, toAgentIDs, toUserIDs, attachmentIDs []string) (MultiReply, error) {
+	reply, err := s.sendMultiMessage(ctx, u, session, input, toAgentIDs, toUserIDs, attachmentIDs)
 	if err == nil {
 		s.Notifier.KickAll()
 	}

@@ -97,6 +97,7 @@ type Session struct {
 }
 
 type Message struct {
+	Attachments          []Attachment    `json:"attachments" nullable:"false"`
 	AuthorUserID         string          `json:"author_user_id,omitempty"`
 	ReplyToMessageID     string          `json:"reply_to_message_id,omitempty"`
 	AuthorAgentVersionID string          `json:"author_agent_version_id,omitempty"`
@@ -129,6 +130,7 @@ type SessionEvent struct {
 
 // MessageRequest 是一条用户消息:给 Prompt 时内容是 {"prompt": …};给 Input 时原样交给 harness。
 type MessageRequest struct {
+	AttachmentIDs  []string `json:"attachment_ids,omitempty"`
 	ToAgentIDs     []string `json:"to_agent_ids,omitempty"`
 	ToUserIDs      []string `json:"to_user_ids,omitempty"`
 	IdempotencyKey string   `json:"-"`

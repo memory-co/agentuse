@@ -59,10 +59,17 @@ func serverWorkSpawn(agent, prompt string) ([]byte, error) {
 	if err = file.Close(); err != nil {
 		return nil, err
 	}
-	if b, err := serverWorkTool("upload", created.Session.ID, file.Name()); err != nil {
-		return b, err
+	uploaded, err := serverWorkTool("upload", created.Session.ID, file.Name())
+	if err != nil {
+		return uploaded, err
 	}
-	if b, err := serverWorkTool("send", "--agents", agent, created.Session.ID, prompt); err != nil {
+	var fileInfo struct {
+		ID string `json:"id"`
+	}
+	if err = json.Unmarshal(uploaded, &fileInfo); err != nil {
+		return nil, err
+	}
+	if b, err := serverWorkTool("send", "--agents", agent, "--attachments", fileInfo.ID, created.Session.ID, prompt); err != nil {
 		return b, err
 	}
 	if b, err := serverWorkTool("threads"); err != nil {

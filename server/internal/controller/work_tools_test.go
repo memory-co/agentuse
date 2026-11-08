@@ -19,7 +19,7 @@ func TestWorkToolAuthorizationBelongsToServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = f.e.st.SendMultiMessage(ctx, f.u, coordinator.ID, json.RawMessage(`{"prompt":"coordinate"}`), []string{f.agent}, nil)
+	_, err = f.e.st.SendMultiMessage(ctx, f.u, coordinator.ID, json.RawMessage(`{"prompt":"coordinate"}`), []string{f.agent}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestWorkToolAuthorizationBelongsToServer(t *testing.T) {
 	if status := f.e.code(authorization.Token, "POST", "/api/sessions", map[string]any{"work_id": foreign.ID}); status != 403 {
 		t.Fatal("cross-work tool write", status)
 	}
-	_, err = f.e.st.SendMultiMessage(ctx, f.u, f.session.ID, json.RawMessage(`{"prompt":"ordinary"}`), []string{f.agent}, nil)
+	_, err = f.e.st.SendMultiMessage(ctx, f.u, f.session.ID, json.RawMessage(`{"prompt":"ordinary"}`), []string{f.agent}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

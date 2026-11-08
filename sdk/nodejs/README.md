@@ -77,3 +77,5 @@ await agentuse.sendMessage(uid, session.id, {
   prompt: '请查看结果', to_user_ids: [uid],
 });
 ```
+
+逐条消息通过 `attachment_ids` 选择本次文件；未提供则没有附件。Message 返回 `attachments` 元数据快照，Attachment 的 `relative_path` 是当前 conversation 内的路径，用户上传归入 `user_input/`。文件树与接口见 [对话文件](../../docs/server/conversation-files.md)。

@@ -31,7 +31,7 @@ func (s *Server) createMultiSession(w http.ResponseWriter, r *http.Request, work
 		if prompt != nil {
 			p = *prompt
 		}
-		content, err = messageContent(input, p)
+		content, err = messageContent(input, p, nil)
 		if err != nil {
 			writeErr(w, 400, err.Error())
 			return

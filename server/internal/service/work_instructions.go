@@ -20,12 +20,13 @@ Work 工具由 Server 提供。先下载到本次执行自己的临时目录；C
     python3 "$work_tool_dir/work.py" new --agents <agent_id> "要做的事"     # 跨设备派活
     python3 "$work_tool_dir/work.py" new --defer-start                     # 先建空线程
     python3 "$work_tool_dir/work.py" upload <线程 id> <本地文件>              # 在工作范围内上传附件
-    python3 "$work_tool_dir/work.py" send --agents <agent_ids> <线程 id> "补充的话"
+    python3 "$work_tool_dir/work.py" send --agents <agent_ids> [--attachments <file_ids>] <线程 id> "补充的话"
     python3 "$work_tool_dir/work.py" read <线程 id>
     python3 "$work_tool_dir/work.py" resolve <线程 id>
 
 工具读取当前输入身份向 Server 请求授权；Server 确认协调者及工作范围。不要手工寻找、打印或保存令牌。新一轮执行重新取得工具和授权，不能使用上一轮的临时路径或授权。
 
+- 上传到线程的文件必须通过 send --attachments <文件ID> 明确附在消息里；上传本身不会把文件加入某条消息。
 - 开线程时把背景、目标、交付物写清楚，线程看不到你和用户的对话(但能看到这份文件里「工作说明」那部分)。
 - 开完线程就结束这一轮，简短告诉用户开了哪些线程、各交给了哪个 agent。不要等、不要轮询。
 - 线程每回完一条，结果会作为一条以「[线程 … 回复了]」开头的消息发给你。收到后决定：接着给它发消息、标记完成、再开线程、或者汇总给用户。

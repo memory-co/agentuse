@@ -25,6 +25,8 @@ def main():
         commands.add_parser(name)
     for name in ("new", "send"):
         command = commands.add_parser(name)
+        if name == "send":
+            command.add_argument("--attachments", default="")
         command.add_argument("--agents", default="")
         command.add_argument("--users", default="")
         if name == "new":
@@ -80,6 +82,8 @@ def main():
     elif args.action in ("new", "send"):
         value = {} if args.action == "new" and args.defer_start else {
             "prompt": args.prompt, "to_agent_ids": targets(args.agents), "to_user_ids": targets(args.users)}
+        if args.action == "send":
+            value["attachment_ids"] = targets(args.attachments)
         path = "/api/sessions" if args.action == "new" else thread_path + "/messages"
         result = request(token, "POST", path, value)
     elif args.action == "read":

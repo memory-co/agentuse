@@ -11,3 +11,5 @@
 [Work 手册](work.md) 说明跨 Client 编排、协调 Agent 的 Server 工具和工作授权。
 
 文件交互采用两个方向：用户在 Server 上传输入供 AI 读取，AI 通过 `context attachment upload` 上传输出供用户在 Server 查看和下载。
+
+[对话文件与消息附件](conversation-files.md) 说明右侧文件树、user_input/ 路径和逐条消息的附件选择。

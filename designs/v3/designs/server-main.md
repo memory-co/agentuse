@@ -14,9 +14,9 @@ Server 保存對話、組織任務並跟蹤執行。用戶的一臺執行設備�
 
 ## 當前實現與目標命名
 
-執行協議已採用 agentuse-client/2：server 不預創建 run，只有 client 的 accepted 創建實際 UUID；五種公共事件原樣入庫，沒有 attempt、租約、原生能力分支或 server harnessService。詳細協議、實際 SQL、重連規則及 schema 5 升級約束見 [server-run.md](server-run.md)。
+執行協議已採用 agentuse-client/2：server 不預創建 run，只有 client 的 accepted 創建實際 UUID；五種公共事件原樣入庫，沒有 attempt、租約、原生能力分支或 server harnessService。詳細協議、實際 SQL、重連規則及 schema 6 升級約束見 [server-run.md](server-run.md)。
 
-其他章節中的 conversation/device 爲業務目標名稱。現有 HTTP /sessions、/daemons 和部分元數據物理表仍保留原名；消息 UUID 和兩組收件人已在 schema 5 實現，舊附件鏈路整理仍為獨立目標；通用 fileService 的本地/S3 後端已實現。
+其他章節中的 conversation/device 爲業務目標名稱。現有 HTTP /sessions、/daemons 和部分元數據物理表仍保留原名；消息 UUID、兩組收件人和消息附件快照已在 schema 6 實現。附件存儲提供按 conversation 隔離的文件樹，見 [conversation-files.md](conversation-files.md)；通用 fileService 的本地/S3 後端仍獨立處理其他資源文件。
 
 Agent/Skill 版本化已實現，分別見 [agentService](server-agent.md) 與 [skillService](server-skill.md)：有效配置變更發佈不可變版本；輸入入隊時固定版本，client 首次使用該版本時創建新的 session/init 綁定。共享 ZIP 經 fileService 的 skills 命名空間保存，通過 HTTP 下載，不在 WebSocket 發送文件或原生命令。
 

@@ -276,10 +276,10 @@ class Client:
             "POST", "/api/sessions", user, _drop_none(prompt=prompt, input=input, defer_start=defer_start, mode=mode, title=title, to_agent_ids=to_agent_ids, to_user_ids=to_user_ids)
         )
 
-    def send_message(self, user, session_id, prompt=None, input=None, to_agent_ids=None, to_user_ids=None, idempotency_key=None):
+    def send_message(self, user, session_id, prompt=None, input=None, to_agent_ids=None, to_user_ids=None, attachment_ids=None, idempotency_key=None):
         """发送共享消息；返回 message、runs 和 deliveries。"""
         return self._request(
-            "POST", f"/api/sessions/{_q(session_id)}/messages", user, _drop_none(prompt=prompt, input=input, to_agent_ids=to_agent_ids, to_user_ids=to_user_ids), extra_headers={"Idempotency-Key": idempotency_key} if idempotency_key else None
+            "POST", f"/api/sessions/{_q(session_id)}/messages", user, _drop_none(prompt=prompt, input=input, to_agent_ids=to_agent_ids, to_user_ids=to_user_ids, attachment_ids=attachment_ids), extra_headers={"Idempotency-Key": idempotency_key} if idempotency_key else None
         )
 
     def get_session(self, user, session_id):

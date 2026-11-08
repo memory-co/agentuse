@@ -42,11 +42,11 @@ python3 "$agentuse_work_tool_dir/work.py" new --agents coder "实现这个功能
 | `new --agents IDS [--users IDS] "消息"` | 创建线程并给指定 Agent 派发输入 |
 | `new --defer-start` | 创建空线程，返回 `session.id` |
 | `upload THREAD_ID FILE` | 在本工作范围内上传线程输入文件 |
-| `send --agents IDS [--users IDS] THREAD_ID "消息"` | 向线程发送或补充输入 |
+| `send --agents IDS [--users IDS] [--attachments FILE_IDS] THREAD_ID "消息"` | 向线程发送或补充输入 |
 | `read THREAD_ID` | 读取线程消息和执行状态 |
 | `resolve THREAD_ID` | 将空闲线程标记完成 |
 
-结果为 JSON；`--agents`、`--users` 支持逗号分隔。空线程上传文件后再 `send` 指定执行 Agent。结果完成后，Server 会向协调 conversation 发回消息，协调者按消息继续处理。
+结果为 JSON；`--agents`、`--users` 支持逗号分隔。空线程上传文件后，用 `send --attachments 文件ID --agents 执行者 线程ID "消息"` 明确携带这些文件。结果完成后，Server 会向协调 conversation 发回消息，协调者按消息继续处理。
 
 ## 来源与授权
 

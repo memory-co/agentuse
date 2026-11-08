@@ -350,12 +350,12 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 // messageContent 取请求里的消息内容:input 直接给 JSON,或者只给 prompt。
-func messageContent(input json.RawMessage, prompt string) (json.RawMessage, error) {
+func messageContent(input json.RawMessage, prompt string, attachmentIDs []string) (json.RawMessage, error) {
 	if len(input) > 0 {
 		return input, nil
 	}
-	if strings.TrimSpace(prompt) == "" {
-		return nil, errors.New("prompt 或 input 必填")
+	if strings.TrimSpace(prompt) == "" && len(attachmentIDs) == 0 {
+		return nil, errors.New("prompt、input 或 attachment_ids 至少提供一个")
 	}
 	return json.Marshal(protocol.PromptInput{Prompt: prompt})
 }
@@ -384,7 +384,7 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	content, err := messageContent(req.Input, req.Prompt)
+	content, err := messageContent(req.Input, req.Prompt, req.AttachmentIDs)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -393,7 +393,7 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, id) {
 		return
 	}
-	reply, err := s.service.SendMultiMessage(r.Context(), u, id, content, req.ToAgentIDs, req.ToUserIDs)
+	reply, err := s.service.SendMultiMessage(r.Context(), u, id, content, req.ToAgentIDs, req.ToUserIDs, req.AttachmentIDs)
 	if err != nil {
 		s.storeErr(w, err)
 		return

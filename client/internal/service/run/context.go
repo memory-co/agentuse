@@ -63,6 +63,7 @@ type ContextInput struct {
 }
 type ContextAttachment struct {
 	ID             string `json:"id"`
+	RelativePath   string `json:"relative_path"`
 	Direction      string `json:"direction"`
 	ConversationID string `json:"conversation_id"`
 	RunID          string `json:"run_id,omitempty"`

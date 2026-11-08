@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/memory-co/agentuse/client/internal/fileutil"
@@ -68,7 +69,7 @@ func (c *ExecutionContext) outputAttachments(ctx context.Context) ([]sdk.Attachm
 }
 
 func (c *ExecutionContext) attachmentMetadata(a sdk.Attachment) ContextAttachment {
-	out := ContextAttachment{ID: a.ID, Name: a.Filename, MIMEType: a.ContentType, SizeBytes: a.SizeBytes, SHA256: a.SHA256, Direction: "input", ConversationID: c.ConversationID,
+	out := ContextAttachment{ID: a.ID, RelativePath: a.RelativePath, Name: a.Filename, MIMEType: a.ContentType, SizeBytes: a.SizeBytes, SHA256: a.SHA256, Direction: "input", ConversationID: c.ConversationID,
 		DownloadPath: "/api/sessions/" + url.PathEscape(c.ConversationID) + "/attachments/" + url.PathEscape(a.ID) + "/content"}
 	if a.CreatedByRunID == c.RunID {
 		out.Direction = "output"
@@ -187,7 +188,15 @@ func (c *ExecutionContext) UploadAttachment(ctx context.Context, path string) (C
 	if err != nil {
 		return ContextAttachment{}, err
 	}
-	uploaded, err := client.UploadAttachment(ctx, "", c.ConversationID, name, file)
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return ContextAttachment{}, err
+	}
+	relative, err := filepath.Rel(c.Workspace, absolute)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) || strings.HasPrefix(relative, ".agentuse"+string(os.PathSeparator)) {
+		relative = name
+	}
+	uploaded, err := client.UploadAttachmentAt(ctx, "", c.ConversationID, filepath.ToSlash(relative), file)
 	if err != nil {
 		return ContextAttachment{}, fmt.Errorf("上传失败；连接中断时可能已保存，请先用 context attachment list 核对: %w", err)
 	}

@@ -34,7 +34,7 @@ AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇�
 
 ## 文件範圍與圖片
 
-收到遠端 message 時，Client 按報文中的附件快照校驗及下載，不在執行前重新列舉 conversation 的最新文件。快照是投遞時會話可用的附件，不宣稱文件只屬於單條消息。
+收到遠端 message 時，Client 按報文中的附件快照校驗及下載，不在執行前重新列舉 conversation 的最新文件。快照是該消息明確選定的附件，不自動攜帶整個 conversation 的文件。
 
 工具將同一 run 全部已受理輸入的附件去重，同一 ID 的元數據衝突時報錯。其他排隊 run 的附件即使已下載到共享 workspace，也不能經本工具的當前視圖讀取。這個視圖不改變 conversation 共用 workspace 的既有模型。
 

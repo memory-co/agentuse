@@ -114,7 +114,7 @@ func (s *Service) createMultiSession(ctx context.Context, u User, work, title st
 		return ss, nil, fmt.Errorf("指定收件人时需要消息内容")
 	}
 	if input != nil {
-		r, e := s.sendMultiTx(ctx, tx, u, ss, input, toAgentIDs, toUserIDs)
+		r, e := s.sendMultiTx(ctx, tx, u, ss, input, toAgentIDs, toUserIDs, nil)
 		if e != nil {
 			return ss, nil, e
 		}
@@ -126,7 +126,7 @@ func (s *Service) createMultiSession(ctx context.Context, u User, work, title st
 	}
 	return ss, reply, tx.Commit()
 }
-func (s *Service) sendMultiMessage(ctx context.Context, u User, conversation string, input json.RawMessage, toAgentIDs, toUserIDs []string) (MultiReply, error) {
+func (s *Service) sendMultiMessage(ctx context.Context, u User, conversation string, input json.RawMessage, toAgentIDs, toUserIDs, attachmentIDs []string) (MultiReply, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return MultiReply{}, err
@@ -136,13 +136,13 @@ func (s *Service) sendMultiMessage(ctx context.Context, u User, conversation str
 	if err != nil {
 		return MultiReply{}, err
 	}
-	out, err := s.sendMultiTx(ctx, tx, u, ss, input, toAgentIDs, toUserIDs)
+	out, err := s.sendMultiTx(ctx, tx, u, ss, input, toAgentIDs, toUserIDs, attachmentIDs)
 	if err != nil {
 		return out, err
 	}
 	return out, tx.Commit()
 }
-func (s *Service) sendMultiTx(ctx context.Context, tx *sql.Tx, u User, ss Session, input json.RawMessage, toAgentIDs, toUserIDs []string) (MultiReply, error) {
+func (s *Service) sendMultiTx(ctx context.Context, tx *sql.Tx, u User, ss Session, input json.RawMessage, toAgentIDs, toUserIDs, attachmentIDs []string) (MultiReply, error) {
 	if !json.Valid(input) {
 		return MultiReply{}, fmt.Errorf("invalid message")
 	}
@@ -177,16 +177,21 @@ func (s *Service) sendMultiTx(ctx context.Context, tx *sql.Tx, u User, ss Sessio
 			return MultiReply{}, err
 		}
 	}
+	files, err := s.messageAttachments(ctx, tx, ss.ID, attachmentIDs)
+	if err != nil {
+		return MultiReply{}, err
+	}
+
 	m, err := insertMessage(ctx, tx, ss.ID, RoleUserMsg, input, s.unix())
 	if err != nil {
 		return MultiReply{}, err
 	}
 	agentJSON, _ := json.Marshal(toAgentIDs)
 	userJSON, _ := json.Marshal(toUserIDs)
-	if _, err = tx.ExecContext(ctx, `UPDATE messages SET author_user_id=?,to_agent_ids=?,to_user_ids=? WHERE id=?`, u.ID, string(agentJSON), string(userJSON), m.ID); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE messages SET author_user_id=?,to_agent_ids=?,to_user_ids=?,attachments=? WHERE id=?`, u.ID, string(agentJSON), string(userJSON), string(mustAttachmentJSON(files)), m.ID); err != nil {
 		return MultiReply{}, err
 	}
-	m.AuthorUserID, m.ToAgentIDs, m.ToUserIDs = u.ID, toAgentIDs, toUserIDs
+	m.AuthorUserID, m.ToAgentIDs, m.ToUserIDs, m.Attachments = u.ID, toAgentIDs, toUserIDs, files
 	for _, a := range agents {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO message_agents(session_id,message_id,agent_id,agent_version_id,daemon_id,harness,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, ss.ID, m.ID, a.ID, a.CurrentVersionID, a.DaemonID, a.Harness, s.unix(), s.unix()); err != nil {
 			return MultiReply{}, err
@@ -195,6 +200,9 @@ func (s *Service) sendMultiTx(ctx context.Context, tx *sql.Tx, u User, ss Sessio
 	var text protocol.PromptInput
 	json.Unmarshal(input, &text)
 	title := []rune(strings.TrimSpace(text.Prompt))
+	if len(title) == 0 && len(files) > 0 {
+		title = []rune(files[0].Filename)
+	}
 	if len(title) > 50 {
 		title = title[:50]
 	}

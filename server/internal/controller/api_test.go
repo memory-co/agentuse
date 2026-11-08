@@ -308,13 +308,13 @@ func TestDaemonsAPI(t *testing.T) {
 }
 
 func TestMessageContent(t *testing.T) {
-	if c, err := messageContent(json.RawMessage(`{"a":1}`), "ignored"); err != nil || string(c) != `{"a":1}` {
+	if c, err := messageContent(json.RawMessage(`{"a":1}`), "ignored", nil); err != nil || string(c) != `{"a":1}` {
 		t.Fatalf("input wins: %s %v", c, err)
 	}
-	if c, err := messageContent(nil, `say "hi"`); err != nil || string(c) != `{"prompt":"say \"hi\""}` {
+	if c, err := messageContent(nil, `say "hi"`, nil); err != nil || string(c) != `{"prompt":"say \"hi\""}` {
 		t.Fatalf("prompt: %s %v", c, err)
 	}
-	if _, err := messageContent(nil, " \n"); err == nil {
+	if _, err := messageContent(nil, " \n", nil); err == nil {
 		t.Fatal("empty should fail")
 	}
 	if firstRunes("中文abc", 3) != "中文a" || firstRunes("ab", 3) != "ab" {

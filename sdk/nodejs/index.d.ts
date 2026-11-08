@@ -68,6 +68,7 @@ export interface Session {
 }
 
 export interface Message {
+ attachments: Attachment[];
  author_agent_version_id?:string;
  seq?:number;run_id?:string;agent_key?:string;agent_name?:string;author_user_id?:string;reply_to_message_id?:string;to_agent_ids:string[];to_user_ids:string[];
   id: string;
@@ -112,7 +113,7 @@ export interface SessionDetail { runs?:Run[];deliveries?:Delivery[];run_counts?:
 // 网站的 user id;null 表示 admin 本身。
 export type UserId = string | null;
 
-export interface MessageInput { prompt?: string; input?: any; to_agent_ids?:string[]; to_user_ids?:string[]; }
+export interface MessageInput { attachment_ids?:string[]; prompt?: string; input?: any; to_agent_ids?:string[]; to_user_ids?:string[]; }
 
 export interface ClientOptions {
   baseUrl: string;
@@ -120,7 +121,7 @@ export interface ClientOptions {
   fetch?: typeof fetch;
 }
 
-export interface Attachment {
+export interface Attachment { relative_path:string;
  created_by_run_id?:string;created_by_agent_key?:string;
  id: string; session_id: string; filename: string; content_type: string; size_bytes: number; sha256: string;
  created_by: string; source: 'user' | 'daemon' | 'work'; daemon_id?: string; created_at: number; download_path: string;
@@ -173,7 +174,7 @@ export declare class Client {
   deleteDaemon(user: UserId, daemonId: string): Promise<void>;
 
   listSessions(user: UserId): Promise<Session[]>;
-  createSession(user: UserId, req: MessageInput & { mode?:"multi_agent"; title?:string; defer_start?: boolean }): Promise<{ session: Session; message?: Message; runs?:Run[];deliveries?:Delivery[] }>;
+  createSession(user: UserId, req: Omit<MessageInput,"attachment_ids"> & { mode?:"multi_agent"; title?:string; defer_start?: boolean }): Promise<{ session: Session; message?: Message; runs?:Run[];deliveries?:Delivery[] }>;
   /** 返回共享消息和各目标的 runs/deliveries。 */
   sendMessage(user: UserId, sessionId: string, req: MessageInput, opts?:{idempotencyKey?:string}): Promise<MultiReply>;
   getSession(user: UserId, sessionId: string): Promise<SessionDetail>;

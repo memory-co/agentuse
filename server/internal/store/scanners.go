@@ -23,7 +23,7 @@ func ScanAgent(row scanner) (Agent, error) {
 
 func ScanAttachment(row scanner) (attachment.Attachment, error) {
 	var a attachment.Attachment
-	err := row.Scan(&a.ID, &a.SessionID, &a.Filename, &a.ContentType, &a.SizeBytes, &a.SHA256, &a.CreatedBy, &a.Source, &a.DaemonID, &a.CreatedAt, &a.CreatedByRunID, &a.CreatedByAgentKey)
+	err := row.Scan(&a.ID, &a.SessionID, &a.Filename, &a.ContentType, &a.SizeBytes, &a.SHA256, &a.CreatedBy, &a.Source, &a.DaemonID, &a.CreatedAt, &a.CreatedByRunID, &a.CreatedByAgentKey, &a.RelativePath)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
@@ -71,8 +71,8 @@ func ScanSession(row scanner) (Session, error) {
 
 func ScanMessage(row scanner) (Message, error) {
 	var m Message
-	var content, agents, users string
-	err := row.Scan(&m.ID, &m.SessionID, &m.Role, &content, &m.CreatedAt, &m.RunID, &m.AgentKey, &m.AgentName, &agents, &users, &m.AuthorUserID, &m.ReplyToMessageID, &m.AuthorAgentVersionID, &m.Seq)
+	var content, agents, users, attachments string
+	err := row.Scan(&m.ID, &m.SessionID, &m.Role, &content, &m.CreatedAt, &m.RunID, &m.AgentKey, &m.AgentName, &agents, &users, &m.AuthorUserID, &m.ReplyToMessageID, &m.AuthorAgentVersionID, &m.Seq, &attachments)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Message{}, ErrNotFound
 	}
@@ -83,6 +83,9 @@ func ScanMessage(row scanner) (Message, error) {
 		return Message{}, err
 	}
 	if err = json.Unmarshal([]byte(users), &m.ToUserIDs); err != nil {
+		return Message{}, err
+	}
+	if err = json.Unmarshal([]byte(attachments), &m.Attachments); err != nil {
 		return Message{}, err
 	}
 	m.Content = json.RawMessage(content)

@@ -69,7 +69,7 @@ func (s *Server) attachmentErr(w http.ResponseWriter, err error) {
 		writeErr(w, 401, err.Error())
 	case errors.Is(err, service.ErrNotFound):
 		writeErr(w, 404, "会话或附件不存在")
-	case errors.Is(err, service.ErrAttachmentRun), errors.Is(err, service.ErrStaleMessage), errors.Is(err, service.ErrAttachmentCapability):
+	case errors.Is(err, service.ErrAttachmentReferenced), errors.Is(err, service.ErrAttachmentPathConflict), errors.Is(err, service.ErrAttachmentRun), errors.Is(err, service.ErrStaleMessage), errors.Is(err, service.ErrAttachmentCapability):
 		writeErr(w, 409, err.Error())
 	case errors.Is(err, service.ErrAttachmentQuota):
 		writeErr(w, 413, err.Error())
@@ -135,7 +135,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 	tmp := f.Name()
 	defer os.Remove(tmp)
 	defer f.Close()
-	var filename, override, ctype, digest string
+	var filename, override, requestedPath, ctype, digest string
 	var size int64
 	a := attachmentAccess(r)
 	seen := map[string]bool{}
@@ -157,7 +157,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		name := part.FormName()
-		if seen[name] || (name != "file" && name != "filename") {
+		if seen[name] || (name != "file" && name != "filename" && name != "path") {
 			writeErr(w, 400, "未知或重复的 multipart 字段")
 			return
 		}
@@ -218,7 +218,11 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 				writeErr(w, 400, "字段过长")
 				return
 			}
-			override = string(b)
+			if name == "path" {
+				requestedPath = string(b)
+			} else {
+				override = string(b)
+			}
 		}
 		part.Close()
 	}
@@ -234,6 +238,28 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 400, err.Error())
 		return
 	}
+	if requestedPath == "" {
+		requestedPath = filename
+	}
+	requestedPath, err = attachment.RelativePath(requestedPath)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	if a.DaemonID == "" && a.WorkID == "" {
+		if !strings.HasPrefix(requestedPath, "user_input/") {
+			requestedPath = "user_input/" + requestedPath
+		}
+	} else if requestedPath == "user_input" || strings.HasPrefix(requestedPath, "user_input/") {
+		writeErr(w, 400, "user_input/ 专用于用户上传")
+		return
+	}
+	requestedPath, err = attachment.RelativePath(requestedPath)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+
 	if err = f.Sync(); err != nil {
 		s.attachmentErr(w, err)
 		return
@@ -242,7 +268,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		s.attachmentErr(w, err)
 		return
 	}
-	v := attachment.Attachment{ID: s.service.NewAttachmentID(), SessionID: r.PathValue("id"), Filename: filename, ContentType: ctype, SizeBytes: size, SHA256: digest, CreatedBy: a.User.ID, Source: "user", CreatedAt: time.Now().Unix()}
+	v := attachment.Attachment{RelativePath: requestedPath, ID: s.service.NewAttachmentID(), SessionID: r.PathValue("id"), Filename: filename, ContentType: ctype, SizeBytes: size, SHA256: digest, CreatedBy: a.User.ID, Source: "user", CreatedAt: time.Now().Unix()}
 	if a.DaemonID != "" {
 		v.Source = "daemon"
 		v.DaemonID = a.DaemonID
@@ -264,7 +290,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 			v.CreatedByAgentKey = run.AgentID
 		}
 	}
-	err = s.service.PublishAttachment(r.Context(), a, v, tmp)
+	err = s.service.PublishAttachment(r.Context(), a, &v, tmp)
 	if err != nil {
 		if errors.Is(err, service.ErrNotFound) {
 			writeErr(w, 409, "上传期间会话或权限发生变化")
