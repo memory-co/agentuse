@@ -96,12 +96,15 @@ agentuse harnesses                                      # 本机检测到的 har
 | POST | `/api/daemons/{id}/reset` | 重新生成安装命令 |
 | DELETE | `/api/daemons/{id}` | 删除 |
 | GET / POST | `/api/agents` | 列 agent / 建 agent `{"id":"code-helper","name":"写代码助手","daemon_id":"dm_…","harness":"claude"}`(id 全局唯一) |
-| PATCH / DELETE | `/api/agents/{id}` | 改名字、切换运行时 `{"daemon_id":"dm_…","harness":"codex"}` / 删除 |
+| GET / DELETE | `/api/agents/{id}` | 读取 Agent / 删除 |
+| POST | `/api/agents/{id}/versions` | 发布固定配置版本，修改名称、运行时、指令和 skills |
 | GET / POST | `/api/sessions` | 列会话 / 开会话 `{"to_agent_ids":["code-helper"],"prompt":"…"}` |
-| POST | `/api/sessions/{id}/messages` | 回复 `{"prompt":"…"}`,harness 还没回时 409 |
+| POST | `/api/sessions/{id}/messages` | 发送消息及收件人，返回消息与投递关系，Client accepted 后关联实际 run |
 | GET / DELETE | `/api/sessions/{id}` | 会话详情(消息和回报) / 删除 |
-| GET / POST | `/api/harnesses` | 列 harness / 注册自定义 harness |
+| GET | `/api/harnesses` | 列设备上报的 harness |
 | GET / POST | `/api/users` | (admin)列用户 / 建用户 |
+
+Server 和 Client 都使用 [Huma](https://github.com/danielgtaylor/huma) 自动生成 API 文档。登录对应服务后访问 `/api/docs` 可查看并调试接口；OpenAPI JSON/YAML 位于 `/api/openapi.json`、`/api/openapi.yaml`，JSON Schema 位于 `/api/schemas/{schema}.json`。文档使用现有 cookie 或 Bearer token 鉴权。运行路由与文档共用注册定义，请求和响应 schema 从 Go 类型生成，包含用户、工作及设备令牌的适用范围和文件上传下载格式。WebSocket 文档描述握手，连接后的消息协议见 [protocol.md](docs/v3/designs/protocol.md)。
 
 ## 文档
 

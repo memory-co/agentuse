@@ -6,14 +6,12 @@ import (
 	"net/http"
 	"strings"
 
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
+
 	"github.com/memory-co/agentuse/server/internal/service"
 )
 
-func (s *Server) createMultiSession(w http.ResponseWriter, r *http.Request, work, title, agent string, input json.RawMessage, prompt *string, toAgentIDs, toUserIDs []string) {
-	if agent != "" {
-		writeErr(w, 400, "multi_agent 使用 to_agent_ids，不绑定 agent_id")
-		return
-	}
+func (s *Server) createMultiSession(w http.ResponseWriter, r *http.Request, work, title string, input json.RawMessage, prompt *string, toAgentIDs, toUserIDs []string) {
 	if sc := workScope(r); sc != nil {
 		if work == "" {
 			work = sc.ID
@@ -115,7 +113,7 @@ func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 			filtered = append(filtered, e)
 		}
 	}
-	writeJSON(w, 200, map[string]any{"run": run, "events": filtered})
+	writeJSON(w, 200, agentuse.RunDetail{Run: run, Events: filtered})
 }
 func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, r.PathValue("id")) {
@@ -132,9 +130,7 @@ func (s *Server) handleAnswerRun(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, r.PathValue("id")) {
 		return
 	}
-	var body struct {
-		Answer json.RawMessage `json:"answer"`
-	}
+	var body answerRunBody
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -143,5 +139,5 @@ func (s *Server) handleAnswerRun(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, 202, map[string]string{"state": "pending"})
+	writeJSON(w, 202, answerRunResponse{State: "pending"})
 }

@@ -2,6 +2,8 @@
 
 Server/client WebSocket 報文、字段和恢復規則見 [protocol.md](protocol.md)。
 
+Server HTTP API 通過 Huma 註冊，從共用的請求和響應 Go 類型自動生成 OpenAPI。用戶登錄後可打開 `/api/docs` 交互文檔，或讀取 `/api/openapi.json`、`/api/openapi.yaml` 和 `/api/schemas/{schema}.json`。文檔入口沿用用戶 cookie / Bearer 鑒權；每個操作分別標明用戶、工作及設備令牌的適用範圍。文件接口使用 multipart 或二進制格式，WebSocket 入口僅描述 HTTP 握手。
+
 > 本文定義 v3 的目標業務劃分。service 名稱和 device 命名是設計約定，現有源碼、表和接口尚未全部按此調整。本稿先說明業務關係，不逐文件展開實現。Client 整體職責見 [client-main.md](client-main.md)。
 
 Conversation 表示共享對話，由 conversationService 管理；原 session 業務整體改用此名稱，session 專指 client 對應 Codex/Claude Code 的原生執行會話，見 [client-session.md](client-session.md)；server 不增加 sessionService 或 sessions 表。

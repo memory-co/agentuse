@@ -14,8 +14,6 @@ import (
 	"github.com/memory-co/agentuse/server/internal/service"
 	fileservice "github.com/memory-co/agentuse/server/internal/service/file"
 	skillservice "github.com/memory-co/agentuse/server/internal/service/skill"
-
-	"github.com/memory-co/agentuse/internal/protocol"
 )
 
 type Config struct {
@@ -90,67 +88,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /setup.sh", s.handleSetupScript)
 	s.mux.HandleFunc("GET /download/{file}", s.handleDownload)
 
-	s.mux.HandleFunc("POST /api/login", s.handleLogin)
-	s.mux.HandleFunc("POST /api/logout", s.handleLogout)
-	s.mux.HandleFunc("GET /api/me", s.auth(s.handleMe))
-	s.mux.HandleFunc("GET /api/users", s.admin(s.handleListUsers))
-	s.mux.HandleFunc("POST /api/users", s.admin(s.handleCreateUser))
-	s.mux.HandleFunc("POST /api/users/{id}/token", s.admin(s.handleResetUserToken))
-	s.mux.HandleFunc("GET /api/harnesses", s.auth(s.handleListHarnesses))
-	s.mux.HandleFunc("GET /api/agents", s.workAuth(s.handleListAgents))
-	s.mux.HandleFunc("POST /api/agents", s.auth(s.handleCreateAgent))
-	s.mux.HandleFunc("GET /api/agents/{id}", s.auth(s.handleGetAgent))
-	s.mux.HandleFunc("POST /api/agents/{id}/versions", s.auth(s.handlePublishAgentVersion))
-	s.mux.HandleFunc("GET /api/agents/{id}/versions", s.auth(s.handleAgentVersions))
-	s.mux.HandleFunc("GET /api/agents/{id}/versions/{version_id}", s.resourceAuth(s.handleAgentVersion))
-	s.mux.HandleFunc("DELETE /api/agents/{id}", s.auth(s.handleDeleteAgent))
-	s.mux.HandleFunc("GET /api/skills", s.auth(s.handleListSkills))
-	s.mux.HandleFunc("POST /api/skills", s.auth(s.handlePublishSkill))
-	s.mux.HandleFunc("GET /api/skills/{id}", s.auth(s.handleGetSkill))
-	s.mux.HandleFunc("DELETE /api/skills/{id}", s.auth(s.handleDeleteSkill))
-	s.mux.HandleFunc("POST /api/skills/{id}/versions", s.auth(s.handlePublishSkill))
-	s.mux.HandleFunc("GET /api/skills/{id}/versions", s.auth(s.handleSkillVersions))
-	s.mux.HandleFunc("GET /api/skills/{id}/versions/{version_id}", s.resourceAuth(s.handleSkillVersion))
-	s.mux.HandleFunc("GET /api/skills/{id}/versions/{version_id}/package", s.handleSkillPackage)
-	s.mux.HandleFunc("GET /api/conversations/{id}/files/{path...}", s.sessionReadAuth(s.handleConversationFile))
-	s.mux.HandleFunc("PUT /api/conversations/{id}/files/{path...}", s.sessionReadAuth(s.handleConversationFile))
-	s.mux.HandleFunc("GET /api/daemons", s.auth(s.handleListDaemons))
-	s.mux.HandleFunc("POST /api/daemons", s.auth(s.handleCreateDaemon))
-	s.mux.HandleFunc("DELETE /api/daemons/{id}", s.auth(s.handleDeleteDaemon))
-	s.mux.HandleFunc("POST /api/daemons/{id}/reset", s.auth(s.handleResetDaemon))
-	s.mux.HandleFunc("PUT /api/daemons/{id}/harnesses/{harness}", s.auth(s.handleToggleHarness))
-	s.mux.HandleFunc("GET /api/works", s.auth(s.handleListWorks))
-	s.mux.HandleFunc("POST /api/works", s.auth(s.handleCreateWork))
-	s.mux.HandleFunc("GET /api/works/{id}", s.auth(s.handleGetWork))
-	s.mux.HandleFunc("PATCH /api/works/{id}", s.auth(s.handleUpdateWork))
-	s.mux.HandleFunc("DELETE /api/works/{id}", s.auth(s.handleDeleteWork))
-	// 带 workAuth 的几个，协调者也能用工作令牌调(docs/v2/apis/works.md)
-	s.mux.HandleFunc("GET /api/sessions", s.workAuth(s.handleListSessions))
-	s.mux.HandleFunc("POST /api/sessions", s.workAuth(s.handleCreateSession))
-	s.mux.HandleFunc("GET /api/sessions/{id}", s.sessionReadAuth(s.handleGetSession))
-	s.mux.HandleFunc("GET /api/sessions/{id}/runs/{run_id}", s.workAuth(s.handleGetRun))
-	s.mux.HandleFunc("POST /api/sessions/{id}/runs/{run_id}/cancel", s.workAuth(s.handleCancelRun))
-	s.mux.HandleFunc("POST /api/sessions/{id}/runs/{run_id}/requests/{request_id}/reply", s.workAuth(s.handleAnswerRun))
-	s.mux.HandleFunc("DELETE /api/sessions/{id}", s.auth(s.handleDeleteSession))
-	s.mux.HandleFunc("POST /api/sessions/{id}/messages", s.workAuth(s.handleAddMessage))
-	s.mux.HandleFunc("POST /api/sessions/{id}/resolve", s.workAuth(s.handleResolveSession))
-	s.mux.HandleFunc("POST /api/sessions/{id}/reopen", s.auth(s.handleReopenSession))
-
-	for _, route := range []struct {
-		pattern string
-		handler http.HandlerFunc
-	}{
-		{"POST /api/sessions/{id}/attachments", s.handleUploadAttachment},
-		{"GET /api/sessions/{id}/attachments", s.handleListAttachments},
-		{"GET /api/sessions/{id}/attachments/{attachment_id}", s.handleGetAttachment},
-		{"GET /api/sessions/{id}/attachments/{attachment_id}/content", s.handleAttachmentContent},
-		{"DELETE /api/sessions/{id}/attachments/{attachment_id}", s.handleDeleteAttachment},
-	} {
-		s.mux.HandleFunc(route.pattern, s.attachmentAuth(route.handler))
-	}
-	s.mux.HandleFunc("POST "+protocol.RegisterPath, s.handleRegister)
-	s.mux.HandleFunc("GET "+protocol.WSPath, s.cfg.DaemonHandler.ServeHTTP)
-	s.mux.HandleFunc("GET "+protocol.MePath, s.handleDaemonMe)
+	s.registerAPI()
 }
 
 // baseURL 是安装命令里的服务地址。

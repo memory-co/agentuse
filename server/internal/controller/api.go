@@ -131,9 +131,7 @@ func (s *Server) handleLoginLink(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Token string `json:"token"`
-	}
+	var req loginBody
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -166,11 +164,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-		Role string `json:"role"`
-	}
+	var req agentuse.CreateUserRequest
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -183,9 +177,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"user": u, "token": token, "login_url": s.baseURL(r) + "/login?token=" + token,
-	})
+	writeJSON(w, http.StatusCreated, agentuse.UserToken{User: u, Token: token, LoginURL: s.baseURL(r) + "/login?token=" + token})
 }
 
 func (s *Server) handleResetUserToken(w http.ResponseWriter, r *http.Request) {
@@ -194,9 +186,7 @@ func (s *Server) handleResetUserToken(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"user": u, "token": token, "login_url": s.baseURL(r) + "/login?token=" + token,
-	})
+	writeJSON(w, http.StatusOK, agentuse.UserToken{User: u, Token: token, LoginURL: s.baseURL(r) + "/login?token=" + token})
 }
 
 func (s *Server) handleListHarnesses(w http.ResponseWriter, r *http.Request) {
@@ -280,9 +270,7 @@ func (s *Server) handleListDaemons(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateDaemon(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name string `json:"name"`
-	}
+	var req createDaemonBody
 	if r.ContentLength != 0 {
 		if err := readJSON(r, &req); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
@@ -316,9 +304,7 @@ func (s *Server) handleResetDaemon(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleToggleHarness(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Enabled bool `json:"enabled"`
-	}
+	var req toggleHarnessBody
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -376,17 +362,7 @@ func messageContent(input json.RawMessage, prompt string) (json.RawMessage, erro
 
 // handleCreateSession 建会话并发出第一条消息。
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Mode       string          `json:"mode"`
-		Title      string          `json:"title"`
-		ToAgentIDs []string        `json:"to_agent_ids"`
-		ToUserIDs  []string        `json:"to_user_ids"`
-		DeferStart bool            `json:"defer_start"`
-		AgentID    string          `json:"agent_id"`
-		WorkID     string          `json:"work_id"`
-		Input      json.RawMessage `json:"input"`
-		Prompt     *string         `json:"prompt"`
-	}
+	var req createSessionBody
 	if err := readMessageJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -399,16 +375,11 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "defer_start 不能同时发送任务")
 		return
 	}
-	s.createMultiSession(w, r, req.WorkID, req.Title, req.AgentID, req.Input, req.Prompt, req.ToAgentIDs, req.ToUserIDs)
+	s.createMultiSession(w, r, req.WorkID, req.Title, req.Input, req.Prompt, req.ToAgentIDs, req.ToUserIDs)
 }
 
 func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ToAgentIDs []string        `json:"to_agent_ids"`
-		ToUserIDs  []string        `json:"to_user_ids"`
-		Input      json.RawMessage `json:"input"`
-		Prompt     string          `json:"prompt"`
-	}
+	var req messageBody
 	if err := readMessageJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -492,12 +463,7 @@ func (s *Server) handleListWorks(w http.ResponseWriter, r *http.Request) {
 
 // handleCreateWork 建工作，同时建出协调者会话。
 func (s *Server) handleCreateWork(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Mode         string `json:"mode"`
-		Name         string `json:"name"`
-		AgentID      string `json:"agent_id"`
-		Instructions string `json:"instructions"`
-	}
+	var req agentuse.CreateWorkRequest
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -512,7 +478,7 @@ func (s *Server) handleCreateWork(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"work": wk, "coordinator": coord})
+	writeJSON(w, http.StatusCreated, agentuse.CreateWorkResponse{Work: wk, Coordinator: coord})
 }
 
 func (s *Server) handleGetWork(w http.ResponseWriter, r *http.Request) {
@@ -525,11 +491,7 @@ func (s *Server) handleGetWork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateWork(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		CoordinatorAgentID *string `json:"coordinator_agent_id"`
-		Name               *string `json:"name"`
-		Instructions       *string `json:"instructions"`
-	}
+	var req agentuse.WorkPatch
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

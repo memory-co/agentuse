@@ -13,7 +13,7 @@ type User struct {
 
 type CreateUserRequest struct {
 	ID   string `json:"id,omitempty"`
-	Name string `json:"name,omitempty"`
+	Name string `json:"name,omitempty" required:"true" minLength:"1"`
 	Role string `json:"role,omitempty"`
 }
 
@@ -104,8 +104,8 @@ type Message struct {
 	AgentKey             string          `json:"agent_key,omitempty"`
 	AgentName            string          `json:"agent_name,omitempty"`
 	RunID                string          `json:"run_id,omitempty"`
-	ToAgentIDs           []string        `json:"to_agent_ids"`
-	ToUserIDs            []string        `json:"to_user_ids"`
+	ToAgentIDs           []string        `json:"to_agent_ids" nullable:"false"`
+	ToUserIDs            []string        `json:"to_user_ids" nullable:"false"`
 	ID                   string          `json:"id"`
 	SessionID            string          `json:"session_id"`
 	Role                 string          `json:"role"` // user / assistant

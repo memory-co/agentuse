@@ -2,6 +2,8 @@
 
 agentuse 服務對外的全部接口。一組接口一個文件:
 
+Server 與 Client 均通過 Huma 自動生成 API 文檔。登錄對應服務後打開 `/api/docs`，可使用現有 cookie 調試；也可通過 Authorize 提供 Bearer token。`/api/openapi.json`、`/api/openapi.yaml` 提供 OpenAPI，`/api/schemas/{schema}.json` 提供 JSON Schema。這些入口同樣需要用戶身份認證，不接受設備或工作令牌。接口的路由、請求和響應 schema 與代碼共用定義；下列文件補充業務語義。
+
 | 文件 | 內容 | 誰調用 |
 |---|---|---|
 | [auth](auth.md) | 登錄、退出、當前用戶 | 網頁 / 腳本 |
