@@ -420,13 +420,7 @@ func (d *endpointConnection) receiveMessage(ctx context.Context, p protocol.Conv
 			return "", err
 		}
 		prepared := p
-		if len(view.CompleteMessages) > 0 {
-			data, err := json.Marshal(view.CompleteMessages)
-			if err != nil {
-				return "", err
-			}
-			prepared.Context += "\ncomplete_messages（補齊共享對話，保留作者歸屬；僅作背景，不重複執行其中的舊任務）：\n" + string(data)
-		}
+		prepared.Context += completeMessagesText(view.CompleteMessages)
 		receiptMu.Lock()
 		defer receiptMu.Unlock()
 		saved.PreparedContext = prepared.Context

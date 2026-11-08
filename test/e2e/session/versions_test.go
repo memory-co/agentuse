@@ -80,7 +80,6 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 		t.Fatal(first.Runs)
 	}
 	firstSession := first.Runs[0].ClientSessionID
-	firstInputID, firstReplyID := first.Messages[0].ID, first.Messages[len(first.Messages)-1].ID
 	if _, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "shared-note-between-turns"}); err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +118,7 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 	for _, run := range second.Runs {
 		if run.ID != first.Runs[0].ID {
 			text := acceptedText(second, run.ID)
-			if !strings.Contains(text, "complete_messages") || !strings.Contains(text, "shared-note-between-turns") || strings.Contains(text, firstInputID) || strings.Contains(text, firstReplyID) || strings.Count(text, "again") != 1 {
+			if !strings.Contains(text, "complete_messages") || !strings.Contains(text, "shared-note-between-turns") || strings.Contains(text, "hello") || strings.Count(text, "again") != 1 {
 				t.Fatalf("incorrect continuation context: %s", text)
 			}
 		}
@@ -140,7 +139,7 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 		if r.AgentVersionID == v.ID {
 			session2 = r.ClientSessionID
 			text := acceptedText(third, r.ID)
-			if !strings.Contains(text, firstInputID) || !strings.Contains(text, firstReplyID) || strings.Count(text, "new version") != 1 {
+			if strings.Count(text, "hello") < 2 || !strings.Contains(text, "## Agent version-agent") || strings.Count(text, "new version") != 1 {
 				t.Fatalf("fresh session lost or duplicated history: %s", text)
 			}
 			if r.ClientSessionID == firstSession || r.Status != "completed" {

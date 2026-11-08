@@ -89,7 +89,7 @@ func claudeTurns(args []string, resume string, stdin *bufio.Reader) int {
 		emit(map[string]any{"type": "command_lifecycle", "command_uuid": in.UUID, "state": "started"})
 		// Adapter instructions are now passed with the input, without mutating cwd.
 		instructionText := in.Message.Content
-		if parts := strings.SplitN(in.Message.Content, "\n\n# 本次消息\n", 2); len(parts) == 2 {
+		if parts := strings.SplitN(in.Message.Content, "\n\n# Current message\n", 2); len(parts) == 2 {
 			in.Message.Content = parts[1]
 		}
 
@@ -133,8 +133,8 @@ func claudeTurns(args []string, resume string, stdin *bufio.Reader) int {
 				out += " err=" + err.Error()
 			}
 		}
-		if strings.HasPrefix(prompt, "[线程 ") {
-			thread, _, ok := strings.Cut(strings.TrimPrefix(prompt, "[线程 "), "「")
+		if strings.HasPrefix(prompt, "[Thread ") {
+			thread, _, ok := strings.Cut(strings.TrimPrefix(prompt, "[Thread "), " (")
 			if ok {
 				b, err := serverWorkTool("resolve", thread)
 				if err != nil {

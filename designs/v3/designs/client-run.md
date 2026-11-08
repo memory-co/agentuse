@@ -87,3 +87,5 @@ runService 為 harness 提供裸 `context input` 和 `context attachment list/re
 Client 選定新建或續用的本地 session 後，才向 Server 讀取 `complete_messages`。Server 根據該 session 已受理的輸入決定補齊範圍；Client 不讀取整份 conversation 自行推算，也不向 harnessctl 增加補歷史命令。實際組裝的 context 保存在既有消息收據中，`context input` 顯示這份內容。
 
 完整邊界、目錄與回收規則見 [執行上下文設計](client-context.md)；操作方法見 [使用手冊](../../../docs/client/context.md)。
+
+送入模型的 `complete_messages` 使用可讀的對話文字，按順序標示作者、@收件人、引用的消息正文及附件名稱／ID／路徑；不把 API JSON、消息 UUID、序號、雜湊或執行資料直接拼入提示詞。API 維持結構化資料，Client 只負責排版。程式產生的標題、工具說明與提示詞統一使用英文，使用者和 Agent 的原始正文保留原文；既有 native session 的初始化快照不改寫。

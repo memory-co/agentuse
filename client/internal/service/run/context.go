@@ -20,14 +20,14 @@ import (
 	sdk "github.com/memory-co/agentuse/sdk/golang"
 )
 
-const ContextInstructions = `# 当前执行的上下文工具
+const ContextInstructions = `# Execution context tools
 
-可以直接调用 context，无需提供 Server、conversation 或 session ID：
-- context input：读取当前 run 已受理的输入，包括补充消息。
-- context attachment list：列出当前输入附件和本次 run 上传的输出文件。
-- context attachment read FILE_ID：校验并取得文件的本地绝对路径、名称和 MIME 类型；图片用你的原生看图工具读取该路径。
-- context attachment upload FILE：上传输出文件到当前 conversation，自动关联本次 run；在回复中引用返回的 download_path。上传不会自动回复或结束执行。
-- context --help：查看当前可用能力。
+Call context directly; no Server, conversation or session ID is needed:
+- context input: read the current run's accepted inputs, including supplemental messages.
+- context attachment list: list current input attachments and files uploaded by this run.
+- context attachment read FILE_ID: validate the file and return its local absolute path, name and MIME type. Use your native image tool to view images at that path.
+- context attachment upload FILE: upload an output file to the current conversation, associated with this run. Cite the returned download_path in your reply. Uploading does not send a reply or finish execution.
+- context --help: show available commands.
 `
 
 type contextManifest struct {

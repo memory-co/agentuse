@@ -38,7 +38,7 @@ func codexAppServer() int {
 			ack(map[string]any{"turn": map[string]string{"id": turn, "status": "inProgress"}})
 			emit(map[string]any{"method": "turn/started", "params": map[string]any{"threadId": thread, "turn": map[string]string{"id": turn, "status": "inProgress"}}})
 			emit(map[string]any{"method": "item/started", "params": map[string]any{"threadId": thread, "turnId": turn, "item": map[string]string{"type": "commandExecution", "command": "sleep 12"}}})
-			if len(req.Params.Input) > 0 && strings.HasSuffix(req.Params.Input[0].Text, "# 本次消息\ncontext-image") {
+			if len(req.Params.Input) > 0 && strings.HasSuffix(req.Params.Input[0].Text, "# Current message\ncontext-image") {
 				out, err := contextProof(false)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, err)

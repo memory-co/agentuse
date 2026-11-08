@@ -34,7 +34,7 @@ def main():
     if verb == '_worker':
         run, iid, cwd = args; prompt = sys.stdin.read(); os.environ['AGENTUSE_RUN']=run
         lock = open(root/'queue.lock','w'); fcntl.flock(lock, fcntl.LOCK_EX)
-        instruction, sep, task = prompt.partition('\n\n# 本次消息\n'); task = task if sep else prompt
+        instruction, sep, task = prompt.partition('\n\n# Current message\n'); task = task if sep else prompt
         import re
         match = re.search(r'先读取 (.+?history.json)。',instruction)
         saved = root/'history-path'

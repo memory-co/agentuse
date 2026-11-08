@@ -34,7 +34,7 @@ func (m ConversationMessage) Text() string {
 	if m.Context == "" {
 		return m.Content
 	}
-	return m.Context + "\n\n# 本次消息\n" + m.Content
+	return m.Context + "\n\n# Current message\n" + m.Content
 }
 
 type ClientEvent struct {

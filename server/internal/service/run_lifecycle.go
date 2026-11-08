@@ -83,12 +83,14 @@ func (s *Service) prepareMessage(ctx context.Context, tx *sql.Tx, p Delivery) (p
 		out.Attachments = append(out.Attachments, protocol.LocalAttachment{Attachment: file, Path: filepath.ToSlash(filepath.Join(".agentuse", "attachments", file.ID, file.Filename))})
 	}
 	if strings.TrimSpace(input.Prompt) == "" && len(source.Attachments) > 0 {
-		out.Content = "请查看本条消息的附件。"
+		out.Content = "Please review the attachments in this message."
 	}
 
 	if len(out.Attachments) > 0 {
-		manifest, _ := json.Marshal(out.Attachments)
-		instructions += "\n本轮输入附件（JSON 数据，本地 path 相对当前目录）：\n" + string(manifest) + "\n"
+		instructions += "\n# Current message attachments\n"
+		for _, file := range out.Attachments {
+			instructions += fmt.Sprintf("- %s (file ID: %s); local path: %s\n", file.Filename, file.ID, file.Path)
+		}
 	}
 	// History is assembled by Server after Client selects its actual local session.
 	out.Context = instructions

@@ -119,7 +119,7 @@ func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversatio
 		if err != nil {
 			return err
 		}
-		payload, _ := json.Marshal(map[string]string{"prompt": fmt.Sprintf("[线程 %s「%s」回复了]\n%s", ss.ID, ss.Title, summary.String())})
+		payload, _ := json.Marshal(map[string]string{"prompt": fmt.Sprintf("[Thread %s (%s) replied]\n%s", ss.ID, ss.Title, summary.String())})
 		targets := []string{}
 		if w.CoordinatorAgentID != "" {
 			targets = append(targets, w.CoordinatorAgentID)
