@@ -41,6 +41,7 @@ func (s *Service) CreateUser(ctx context.Context, id, name, role string) (User, 
 		}
 		return User{}, "", err
 	}
+	s.notifyResource("users", u.ID, u.ID)
 	return u, token, nil
 }
 
@@ -54,6 +55,7 @@ func (s *Service) ResetUserToken(ctx context.Context, id string) (User, string, 
 	if _, err := s.db.ExecContext(ctx, store.ResetUserTokenUpdate, HashSecret(token), id); err != nil {
 		return User{}, "", err
 	}
+	s.notifyResource("users", u.ID, u.ID)
 	return u, token, nil
 }
 

@@ -123,6 +123,7 @@ func (s *Service) DeleteSession(ctx context.Context, u User, id string) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	s.notifySession(ss, "sessions")
 	s.cleanupConversationFiles(ctx, id)
 	return nil
 }

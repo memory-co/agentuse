@@ -110,7 +110,12 @@ func (s *Service) UpdateWork(ctx context.Context, u User, id string, p WorkPatch
 		return Work{}, err
 	}
 	w.UpdatedAt = max(w.UpdatedAt, now)
-	return w, tx.Commit()
+	err = tx.Commit()
+	if err == nil {
+		s.notifyResource("works", w.ID, w.UserID)
+		s.notifyConversation(ctx, w.CoordinatorID)
+	}
+	return w, err
 }
 
 // DeleteWork 连协调者和所有线程一起删。有会话在跑时返回 ErrSessionBusy。
@@ -164,6 +169,7 @@ func (s *Service) DeleteWork(ctx context.Context, u User, id string) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	s.notifyResource("works", w.ID, w.UserID)
 	for _, id := range ids {
 		s.cleanupConversationFiles(ctx, id)
 	}
@@ -204,7 +210,11 @@ func (s *Service) setResolved(ctx context.Context, u User, id, from, to string) 
 		return Session{}, err
 	}
 	ss.Status, ss.UpdatedAt = to, now
-	return ss, tx.Commit()
+	err = tx.Commit()
+	if err == nil {
+		s.notifySession(ss, "sessions")
+	}
+	return ss, err
 }
 
 // WorkByToken validates the server-scoped business credential for a delivered input.

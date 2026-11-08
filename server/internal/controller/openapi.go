@@ -130,6 +130,7 @@ func (s *Server) registerAPI() {
 
 	bind("POST", "/api/login", "login", "登录并设置会话 cookie", "auth", public, loginBody{}, agentuse.User{}, 200, s.handleLogin)
 	bind("POST", "/api/logout", "logout", "清除登录 cookie", "auth", public, nil, nil, 204, s.handleLogout)
+	bind("GET", "/api/browser/ws", "browser-notifications", "Browser change notifications over WebSocket; fetch data through HTTP APIs", "browser", apiAccess{security: config.Security}, nil, nil, 101, s.handleBrowserWS, query("as", "Acting user ID; administrators only. Authentication uses the login cookie."))
 	bind("GET", "/api/me", "get-current-user", "读取当前用户", "auth", user, nil, agentuse.User{}, 200, s.handleMe)
 	bind("GET", "/api/users", "list-users", "列出用户", "user", admin, nil, []agentuse.User{}, 200, s.handleListUsers)
 	bind("POST", "/api/users", "create-user", "创建用户并返回登录令牌", "user", admin, agentuse.CreateUserRequest{}, agentuse.UserToken{}, 201, s.handleCreateUser)

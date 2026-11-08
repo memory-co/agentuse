@@ -112,3 +112,5 @@ Work 是多個 conversation 的組織方式。workService 維護協調 conversat
 原生執行與權限處理都在 client。HTTP 取消或回答只入傳輸隊列，斷線不製造執行結果。完整規則以 server-run.md 爲準。
 
 ![消息與執行事件鏈路](../../images/server-message-flow.svg)
+
+瀏覽器透過獨立 WebSocket 接收變更通知，再由既有 HTTP API 讀取資料；詳見 [瀏覽器通知與 Markdown 顯示](server-browser.md)。

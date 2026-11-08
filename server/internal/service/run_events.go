@@ -43,7 +43,7 @@ func (s *Service) ReportClientEvent(ctx context.Context, device string, envelope
 			return fmt.Errorf("invalid client run UUID")
 		}
 	}
-	return s.repository.Tx(ctx, func(tx *sql.Tx) error {
+	err := s.repository.Tx(ctx, func(tx *sql.Tx) error {
 		var existing, existingConversation, existingAgent, existingVersion, existingMessage string
 		err := tx.QueryRowContext(ctx, `SELECT payload,session_id,agent_id,agent_version_id,message_id FROM run_events WHERE daemon_id=? AND client_session_id=? AND event_seq=?`, device, envelope.SessionID, envelope.Seq).Scan(&existing, &existingConversation, &existingAgent, &existingVersion, &existingMessage)
 		if err == nil {
@@ -198,6 +198,16 @@ func (s *Service) ReportClientEvent(ctx context.Context, device string, envelope
 		}
 		return multiStatus(ctx, tx, envelope.ConversationID, now)
 	})
+	if err == nil {
+		s.notifyConversation(ctx, envelope.ConversationID)
+		if event.Type == "result" {
+			s.notifyCoordinator(ctx, envelope.ConversationID)
+			if ss, e := s.GetSession(ctx, User{Role: RoleAdmin}, envelope.ConversationID); e == nil {
+				s.notifySession(ss, "attachments")
+			}
+		}
+	}
+	return err
 }
 func (s *Service) RunEvents(ctx context.Context, conversation string) ([]SessionEvent, error) {
 	return runEvents(ctx, s.db, conversation)

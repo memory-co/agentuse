@@ -119,7 +119,13 @@ func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v *a
 	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	err = tx.Commit()
+	if err == nil {
+		if ss, e := s.GetSession(ctx, User{Role: RoleAdmin}, v.SessionID); e == nil {
+			s.notifySession(ss, "attachments")
+		}
+	}
+	return err
 }
 
 func (s *Service) NewAttachmentID() string { return randomID("at_") }
@@ -197,7 +203,13 @@ func (s *Service) deleteAttachment(ctx context.Context, a AttachmentAccess, sess
 	if n == 0 {
 		return ErrNotFound
 	}
-	return tx.Commit()
+	err = tx.Commit()
+	if err == nil {
+		if ss, e := s.GetSession(ctx, User{Role: RoleAdmin}, session); e == nil {
+			s.notifySession(ss, "attachments")
+		}
+	}
+	return err
 }
 
 func (s *Service) AttachmentExists(ctx context.Context, session, id string) (bool, error) {

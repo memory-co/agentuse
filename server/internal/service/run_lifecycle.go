@@ -51,7 +51,11 @@ func (s *Service) DispatchMessage(ctx context.Context, d Daemon, capacity ...pro
 	if _, err = tx.ExecContext(ctx, `UPDATE message_agents SET status='sent',dispatch=?,updated_at=? WHERE message_id=? AND agent_id=?`, string(dispatch), s.unix(), p.MessageID, p.AgentID); err != nil {
 		return out, err
 	}
-	return out, tx.Commit()
+	err = tx.Commit()
+	if err == nil {
+		s.notifyConversation(ctx, out.ConversationID)
+	}
+	return out, err
 }
 
 func (s *Service) prepareMessage(ctx context.Context, tx *sql.Tx, p Delivery) (protocol.ConversationMessage, error) {
@@ -128,11 +132,13 @@ func (s *Service) RejectMessage(ctx context.Context, device, id, status, reason 
 	if status != protocol.AckError && status != protocol.AckUnknown {
 		return fmt.Errorf("invalid message acknowledgement")
 	}
-	return s.repository.Tx(ctx, func(tx *sql.Tx) error {
+	var conversation string
+	err = s.repository.Tx(ctx, func(tx *sql.Tx) error {
 		p, err := scanMessageTarget(tx.QueryRowContext(ctx, messageTargetCols+` WHERE message_id=? AND agent_id=? AND daemon_id=?`, message, agent, device))
 		if err != nil {
 			return err
 		}
+		conversation = p.SessionID
 		if p.RunID != "" {
 			return nil // A late transport error cannot override accepted facts.
 		}
@@ -151,6 +157,11 @@ func (s *Service) RejectMessage(ctx context.Context, device, id, status, reason 
 		}
 		return multiStatus(ctx, tx, p.SessionID, s.unix())
 	})
+	if err == nil {
+		s.notifyConversation(ctx, conversation)
+		s.notifyCoordinator(ctx, conversation)
+	}
+	return err
 }
 func (s *Service) DeviceConversationAccess(ctx context.Context, device, conversation string) error {
 	var n int
@@ -188,6 +199,7 @@ func (s *Service) queueControl(ctx context.Context, r Run, kind, request string,
 	}
 	if err == nil {
 		s.Notifier.PushRun(r.DaemonID, protocol.Message{Type: kind, ID: out.ID, Control: &out})
+		s.notifyConversation(ctx, r.SessionID)
 	}
 	return out, err
 }
@@ -222,6 +234,12 @@ func (s *Service) ConfirmControl(ctx context.Context, device, id, status, messag
 		return fmt.Errorf("invalid control ACK")
 	}
 	_, err := s.db.ExecContext(ctx, `UPDATE run_controls SET state=?,error=?,updated_at=? WHERE id=? AND daemon_id=? AND state IN ('pending','unknown')`, state, message, s.unix(), id, device)
+	if err == nil {
+		var conversation string
+		if e := s.db.QueryRowContext(ctx, `SELECT session_id FROM run_controls WHERE id=? AND daemon_id=?`, id, device).Scan(&conversation); e == nil {
+			s.notifyConversation(ctx, conversation)
+		}
+	}
 	return err
 }
 func (s *Service) terminateDaemonRuns(ctx context.Context, tx *sql.Tx, id, reason string) error {

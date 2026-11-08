@@ -41,7 +41,12 @@ func (s *Service) CreateMultiWork(ctx context.Context, u User, name, agent, inst
 	}
 	w.CoordinatorID = ss.ID
 	ss.WorkRole = WorkCoordinator
-	return w, ss, tx.Commit()
+	err = tx.Commit()
+	if err == nil {
+		s.notifyResource("works", w.ID, w.UserID)
+		s.notifySession(ss, "sessions")
+	}
+	return w, ss, err
 }
 func (s *Service) runWorkToken(ctx context.Context, token string) (Work, User, error) {
 	var id string

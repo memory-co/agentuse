@@ -23,6 +23,9 @@ func (s *Service) CreateDaemon(ctx context.Context, userID, name string) (Daemon
 	_, err := s.db.ExecContext(ctx,
 		store.CreateDaemonInsert,
 		d.ID, d.UserID, d.Name, d.SetupToken, d.Status, d.CreatedAt)
+	if err == nil {
+		s.notifyResource("daemons", d.ID, d.UserID)
+	}
 	return d, err
 }
 
@@ -55,7 +58,11 @@ func (s *Service) RegisterDaemon(ctx context.Context, setupToken, hostname strin
 		return Daemon{}, "", err
 	}
 	d.Status = DaemonOffline
-	return d, key, tx.Commit()
+	err = tx.Commit()
+	if err == nil {
+		s.notifyResource("daemons", d.ID, d.UserID)
+	}
+	return d, key, err
 }
 
 // ResetDaemonSetup 重新生成安装令牌(用于换电脑 / 重装),旧密钥立即失效。
@@ -257,12 +264,21 @@ func (s *Service) DaemonConnected(ctx context.Context, d Daemon, reported []Repo
 		}
 	}
 
-	return ignored, tx.Commit()
+	err = tx.Commit()
+	if err == nil {
+		s.notifyResource("daemons", d.ID, d.UserID)
+	}
+	return ignored, err
 }
 
 func (s *Service) DaemonDisconnected(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, store.DaemonDisconnectedUpdate,
 		DaemonOffline, s.unix(), id, DaemonOnline)
+	if err == nil {
+		if d, e := s.GetDaemon(ctx, User{Role: RoleAdmin}, id); e == nil {
+			s.notifyResource("daemons", id, d.UserID)
+		}
+	}
 	return err
 }
 

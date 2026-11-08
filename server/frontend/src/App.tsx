@@ -11,6 +11,7 @@ import {
   SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem, SidebarMenuSkeleton, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem,
   SidebarProvider, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
+import { useBrowserNotifications } from '@/hooks/use-browser-notifications';
 import { api, ApiError } from '@/lib/api';
 import { setActAs, useActAs } from '@/lib/actas';
 import { queryClient } from '@/lib/query';
@@ -104,6 +105,7 @@ function ShellProvider({ children }: { children: ReactNode }) {
 }
 
 function Shell({ me }: { me: User }) {
+  useBrowserNotifications(me.id);
   const t = useT();
   const route = useRoute();
   const actAs = useActAs();
@@ -118,7 +120,7 @@ function Shell({ me }: { me: User }) {
   const detail = useQuery({
     queryKey: ['sessions', route.page === 'session' ? route.id : ''],
     queryFn: () => api<SessionDetail>(`/api/sessions/${route.page === 'session' ? route.id : ''}`),
-    enabled: route.page === 'session', refetchInterval: 3000,
+    enabled: route.page === 'session',
   });
   const current = route.page === 'session' ? detail.data?.session : undefined;
   const workId = routeWork(route) || current?.work_id || '';

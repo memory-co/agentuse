@@ -19,7 +19,7 @@ const refresh = () => queryClient.invalidateQueries({ queryKey: ['daemons'] });
 
 export function Daemons({ me }: { me: User }) {
   const t = useT();
-  const daemons = useQuery({ queryKey: ['daemons'], queryFn: () => api<Daemon[]>('/api/daemons'), refetchInterval: 3000 });
+  const daemons = useQuery({ queryKey: ['daemons'], queryFn: () => api<Daemon[]>('/api/daemons') });
   const [name, setName] = useState('');
   const add = useMutation({
     mutationFn: () => api('/api/daemons', { method: 'POST', body: { name: name.trim() } }),

@@ -16,7 +16,7 @@ import type { Daemon, Session, User, Work } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 
 // 工作：协调者 + 线程 + 共用说明(designs/v2/designs/work.md)。
-export const useWorks = () => useQuery({ queryKey: ['works'], queryFn: () => api<Work[]>('/api/works'), refetchInterval: 5000 });
+export const useWorks = () => useQuery({ queryKey: ['works'], queryFn: () => api<Work[]>('/api/works') });
 export const useWork = (id: string) => useQuery({ queryKey: ['works', id], queryFn: () => api<Work>(`/api/works/${encodeURIComponent(id)}`) });
 const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['works'] }), queryClient.invalidateQueries({ queryKey: ['sessions'] })]);
 

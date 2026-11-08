@@ -22,9 +22,10 @@ import (
 var ErrConflict = errors.New("version changed; reload before publishing")
 
 type Service struct {
-	DB    *sql.DB
-	Files *file.Service
-	Now   func() time.Time
+	OnChange func(id, owner string)
+	DB       *sql.DB
+	Files    *file.Service
+	Now      func() time.Time
 }
 type Querier interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -136,6 +137,9 @@ func (s *Service) Publish(ctx context.Context, user agentuse.User, id, base stri
 		return out, err
 	}
 	committed = true
+	if s.OnChange != nil {
+		s.OnChange(id, owner)
+	}
 	return agentuse.Skill{ID: id, UserID: owner, CurrentVersionID: versionID, CurrentVersion: v, CreatedAt: created, UpdatedAt: now}, nil
 }
 func (s *Service) Get(ctx context.Context, user agentuse.User, id string) (agentuse.Skill, error) {
@@ -190,7 +194,8 @@ func (s *Service) List(ctx context.Context, user agentuse.User) ([]agentuse.Skil
 	return out, nil
 }
 func (s *Service) Versions(ctx context.Context, user agentuse.User, id string) ([]agentuse.SkillVersion, error) {
-	if _, err := s.Get(ctx, user, id); err != nil {
+	_, err := s.Get(ctx, user, id)
+	if err != nil {
 		return nil, err
 	}
 	rows, err := s.DB.QueryContext(ctx, columns+` WHERE v.skill_id=? ORDER BY v.version DESC`, id)
@@ -209,9 +214,13 @@ func (s *Service) Versions(ctx context.Context, user agentuse.User, id string) (
 	return out, rows.Err()
 }
 func (s *Service) Delete(ctx context.Context, user agentuse.User, id string) error {
-	if _, err := s.Get(ctx, user, id); err != nil {
+	v, err := s.Get(ctx, user, id)
+	if err != nil {
 		return err
 	}
-	_, err := s.DB.ExecContext(ctx, `UPDATE skills SET deleted_at=? WHERE id=?`, s.Now().Unix(), id)
+	_, err = s.DB.ExecContext(ctx, `UPDATE skills SET deleted_at=? WHERE id=?`, s.Now().Unix(), id)
+	if err == nil && s.OnChange != nil {
+		s.OnChange(id, v.UserID)
+	}
 	return err
 }

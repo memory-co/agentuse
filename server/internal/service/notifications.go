@@ -9,6 +9,7 @@ func (s *Service) CreateMultiSession(ctx context.Context, u User, work, title st
 	ss, reply, err := s.createMultiSession(ctx, u, work, title, input, toAgentIDs, toUserIDs)
 	if err == nil {
 		s.Notifier.KickAll()
+		s.notifyConversation(ctx, ss.ID)
 	}
 	return ss, reply, err
 }
@@ -16,6 +17,7 @@ func (s *Service) SendMultiMessage(ctx context.Context, u User, session string, 
 	reply, err := s.sendMultiMessage(ctx, u, session, input, toAgentIDs, toUserIDs, attachmentIDs)
 	if err == nil {
 		s.Notifier.KickAll()
+		s.notifyConversation(ctx, session)
 	}
 	return reply, err
 }
@@ -31,13 +33,17 @@ func (s *Service) DeleteDaemon(ctx context.Context, u User, id string) error {
 		return err
 	}
 	s.Notifier.Disconnect(id)
+	s.notifyDeviceConversations(ctx, id)
 	s.Notifier.KickUser(d.UserID)
+	s.notifyResource("daemons", id, d.UserID)
 	return nil
 }
 func (s *Service) ResetDaemonSetup(ctx context.Context, u User, id string) (Daemon, error) {
 	d, err := s.resetDaemonSetup(ctx, u, id)
 	if err == nil {
 		s.Notifier.Disconnect(d.ID)
+		s.notifyDeviceConversations(ctx, d.ID)
+		s.notifyResource("daemons", d.ID, d.UserID)
 	}
 	return d, err
 }
@@ -45,11 +51,12 @@ func (s *Service) SetDaemonHarnessEnabled(ctx context.Context, u User, id, harne
 	if err := s.setDaemonHarnessEnabled(ctx, u, id, harness, enabled); err != nil {
 		return err
 	}
+	d, err := s.GetDaemon(ctx, u, id)
+	if err != nil {
+		return err
+	}
+	s.notifyResource("daemons", id, d.UserID)
 	if enabled {
-		d, err := s.GetDaemon(ctx, u, id)
-		if err != nil {
-			return err
-		}
 		s.Notifier.KickUser(d.UserID)
 	}
 	return nil

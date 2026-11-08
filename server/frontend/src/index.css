@@ -41,3 +41,27 @@
 }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+@layer components {
+  .markdown > :first-child { margin-top: 0; }
+  .markdown > :last-child { margin-bottom: 0; }
+  .markdown p, .markdown ul, .markdown ol, .markdown blockquote, .markdown pre, .markdown table { @apply my-3; }
+  .markdown h1 { @apply mb-3 mt-6 text-2xl font-semibold; }
+  .markdown h2 { @apply mb-3 mt-5 text-xl font-semibold; }
+  .markdown h3 { @apply mb-2 mt-4 text-lg font-semibold; }
+  .markdown h4, .markdown h5, .markdown h6 { @apply mb-2 mt-4 font-semibold; }
+  .markdown ul { @apply list-disc pl-6; }
+  .markdown ol { @apply list-decimal pl-6; }
+  .markdown li > p { @apply my-1; }
+  .markdown blockquote { @apply border-l-4 pl-4 text-muted-foreground; }
+  .markdown a { @apply underline underline-offset-2; }
+  .markdown pre { @apply overflow-x-auto rounded-lg bg-muted p-3 text-xs leading-6; overflow-wrap: normal; }
+  .markdown code { @apply rounded bg-muted px-1 py-0.5 font-mono text-xs; }
+  .markdown pre code { @apply rounded-none bg-transparent p-0; }
+  .markdown table { @apply w-full border-collapse text-left; }
+  .markdown th, .markdown td { @apply border px-3 py-2; }
+  .markdown th { @apply bg-muted font-semibold; }
+  .markdown hr { @apply my-4 border-border; }
+  .markdown img { @apply h-auto max-w-full rounded; }
+  .markdown .contains-task-list { @apply list-none; }
+}

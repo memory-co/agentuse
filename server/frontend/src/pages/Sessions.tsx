@@ -1,3 +1,4 @@
+import { Markdown } from '@/components/Markdown';
 import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -22,10 +23,10 @@ import { t, useT } from '@/lib/i18n';
 export const STATUS_TONE: Record<SessionStatus, 'ok' | 'warn' | 'run' | 'muted'> = { idle: 'ok', pending: 'warn', running: 'run', waiting: 'warn', resolved: 'muted' };
 export const statusLabel = (s: SessionStatus) => t(`session.status.${s}`);
 /** 侧栏「会话」tab:不在工作里的会话。 */
-export const useSessions = () => useQuery({ queryKey: ['sessions'], queryFn: () => api<Session[]>('/api/sessions'), refetchInterval: 3000 });
+export const useSessions = () => useQuery({ queryKey: ['sessions'], queryFn: () => api<Session[]>('/api/sessions') });
 /** 某个工作的线程(不含协调者)。 */
 export const useWorkSessions = (workId: string, enabled = true) => useQuery({
-  queryKey: ['sessions', 'work', workId], queryFn: () => api<Session[]>(`/api/sessions?work_id=${encodeURIComponent(workId)}`), refetchInterval: 3000, enabled,
+  queryKey: ['sessions', 'work', workId], queryFn: () => api<Session[]>(`/api/sessions?work_id=${encodeURIComponent(workId)}`), enabled,
 });
 const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['sessions'] }), queryClient.invalidateQueries({ queryKey: ['works'] })]);
 // progress 回报只有 {text} 时直接显示文字，否则显示 JSON。
@@ -77,11 +78,11 @@ export function Conversation({ id, onDeleted, placeholder,defaultAgent }: { id: 
  const [wide,setWide]=useState(()=>window.matchMedia('(min-width:1280px)').matches);
  useEffect(()=>{const media=window.matchMedia('(min-width:1280px)');const change=()=>setWide(media.matches);media.addEventListener('change',change);return()=>media.removeEventListener('change',change)},[]);
  const [drawerOpen,setDrawerOpen]=useState(false);
- const attachments=useQuery({queryKey:['attachments',id],queryFn:()=>listAttachments(id),refetchInterval:3000});
+ const attachments=useQuery({queryKey:['attachments',id],queryFn:()=>listAttachments(id)});
  const openFile=(file:Attachment)=>{setSelectedFile(file);if(wide)setFilesOpen(true);else setDrawerOpen(true)};
 
 
-  const q = useQuery({ queryKey: ['sessions', id], queryFn: () => api<Detail>(`/api/sessions/${id}`), refetchInterval: 3000 });
+  const q = useQuery({ queryKey: ['sessions', id], queryFn: () => api<Detail>(`/api/sessions/${id}`) });
   const reply = useMutation({
     mutationFn: async ({prompt,targets,users}: {prompt:string;targets:string[];users:string[]}) => {const attachment_ids=await fileDraft.upload(id);const body={prompt,to_agent_ids:targets,to_user_ids:users,attachment_ids};return api(`/api/sessions/${id}/messages`, { method:'POST', body });},
     onSuccess: () => { fileDraft.clear(); void refresh(); },
@@ -153,7 +154,7 @@ function MessageView({ m, onOpenFile }: { m: Message; onOpenFile: (file: Attachm
     {targetLabel}
     {m.agent_key&&<div className="text-xs font-medium text-muted-foreground">@{m.agent_key}{m.agent_name&&` · ${m.agent_name}`}</div>}
     {!c.ok && <div><StatusBadge tone="bad">{t('session.failed')}</StatusBadge></div>}
-    <div className={cn('min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere] text-sm leading-7', !c.ok && 'text-destructive')}>{out}</div>
+    <Markdown className={cn(!c.ok && 'text-destructive')}>{String(out)}</Markdown>
     <MessageFiles files={m.attachments} onOpen={onOpenFile} />
   </div>;
 }
@@ -197,7 +198,7 @@ function RunView({run,events,questions,sessionId}:{run:Run;events:SessionEvent[]
   <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-50 bg-black/50"/><Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-background p-4 shadow-lg" data-run-detail={run.id}>
    <div className="flex items-start justify-between"><div><Dialog.Title className="font-semibold">@{run.agent_id} · Run details</Dialog.Title><Dialog.Description className="mt-1 text-xs text-muted-foreground">{run.status} · {run.harness} · {run.harness_revision}</Dialog.Description></div><Dialog.Close asChild><Button size="icon" variant="ghost" aria-label="关闭"><X className="size-4"/></Button></Dialog.Close></div>
    <dl className="my-4 grid grid-cols-[auto_minmax(0,1fr)] gap-2 text-xs"><dt>Run</dt><dd className="break-all">{run.id}</dd><dt>Client session</dt><dd className="break-all">{run.client_session_id}</dd><dt>Device</dt><dd className="break-all">{run.daemon_id}</dd></dl>
-   {run.output&&<p className="whitespace-pre-wrap break-words text-sm">{run.output}</p>}
+   {run.output&&<Markdown>{run.output}</Markdown>}
    {run.error&&<p className="text-sm text-destructive">{run.error}</p>}
    <div className="my-4 grid gap-3">{questions.filter(q=>q.run_id===run.id).map(q=><QuestionView key={q.request_id} q={q} sessionId={sessionId}/>)}</div>
    {active&&<Button size="sm" variant="outline" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>取消此 client session</Button>}

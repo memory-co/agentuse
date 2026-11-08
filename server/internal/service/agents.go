@@ -152,6 +152,7 @@ func (s *Service) CreateConfiguredAgent(ctx context.Context, user, id string, c 
 	if err = tx.Commit(); err != nil {
 		return Agent{}, err
 	}
+	s.notifyResource("agents", id, user)
 	return projection(id, user, now, now, v), nil
 }
 func agentVersion(ctx context.Context, q skillservice.Querier, id string) (agentuse.AgentVersion, error) {
@@ -257,6 +258,7 @@ func (s *Service) PublishAgentVersion(ctx context.Context, u User, id, base stri
 		return Agent{}, err
 	}
 	if reflect.DeepEqual(c, old.AgentConfig) {
+		s.notifyResource("agents", id, owner)
 		return projection(id, owner, created, updated, old), nil
 	}
 	now := s.unix()
@@ -270,11 +272,13 @@ func (s *Service) PublishAgentVersion(ctx context.Context, u User, id, base stri
 	if err = tx.Commit(); err != nil {
 		return Agent{}, err
 	}
+	s.notifyResource("agents", id, owner)
 	return projection(id, owner, created, now, v), nil
 }
 
 func (s *Service) DeleteAgent(ctx context.Context, u User, id string) error {
-	if _, err := s.GetAgent(ctx, u, id); err != nil {
+	a, err := s.GetAgent(ctx, u, id)
+	if err != nil {
 		return err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -288,7 +292,12 @@ func (s *Service) DeleteAgent(ctx context.Context, u User, id string) error {
 	if _, err = tx.ExecContext(ctx, `UPDATE works SET coordinator_agent_id=NULL WHERE coordinator_agent_id=?`, id); err != nil {
 		return err
 	}
-	return tx.Commit()
+	err = tx.Commit()
+	if err == nil {
+		s.notifyResource("agents", id, a.UserID)
+		s.notifyResource("works", "", a.UserID)
+	}
+	return err
 }
 func (s *Service) GetAgent(ctx context.Context, u User, id string) (Agent, error) {
 	q := agentCols + ` WHERE id=?`

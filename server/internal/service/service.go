@@ -21,20 +21,21 @@ type Notifier interface {
 }
 
 type Service struct {
-	Files        *fileservice.Service
-	Skills       *skillservice.Service
-	attachments  AttachmentConfig
-	attachmentMu sync.RWMutex
-	log          *log.Logger
-	repository   *store.Store
-	db           *sql.DB
-	now          func() time.Time
-	Notifier     Notifier
+	BrowserChanges BrowserChanges
+	Files          *fileservice.Service
+	Skills         *skillservice.Service
+	attachments    AttachmentConfig
+	attachmentMu   sync.RWMutex
+	log            *log.Logger
+	repository     *store.Store
+	db             *sql.DB
+	now            func() time.Time
+	Notifier       Notifier
 }
 
 func New(st *store.Store) *Service {
 	s := &Service{log: log.Default(), repository: st, db: st.Connection(), now: time.Now, Notifier: discardNotifier{}}
-	s.Skills = &skillservice.Service{DB: s.db, Now: func() time.Time { return s.now() }}
+	s.Skills = &skillservice.Service{OnChange: func(id, owner string) { s.notifyResource("skills", id, owner) }, DB: s.db, Now: func() time.Time { return s.now() }}
 	return s
 }
 func Open(path string) (*Service, error) {
