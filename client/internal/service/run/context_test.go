@@ -72,7 +72,7 @@ func (f contextFixture) receipt(t *testing.T, run, input, message, text string, 
 	for _, a := range files {
 		p.Attachments = append(p.Attachments, protocol.LocalAttachment{Attachment: a})
 	}
-	r := messageReceipt{Message: p, SessionID: f.metadata.ID, RunID: run, InputID: input, State: "accepted"}
+	r := messageReceipt{Message: p, PreparedContext: p.Context, SessionID: f.metadata.ID, RunID: run, InputID: input, State: "accepted"}
 	if err := fileutil.WriteJSON(filepath.Join(f.service.Sessions.Root, f.metadata.EndpointID, f.metadata.ConversationID, ".server", "messages", receiptName(p.Key())), r); err != nil {
 		t.Fatal(err)
 	}

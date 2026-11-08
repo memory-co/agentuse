@@ -70,7 +70,9 @@ Server 按容量派發，並計入上份快照之後自己已發出、尚未取�
 Server 在保存消息及目標 Agent 關係時，固定 agent_version_id 和目標 device；投遞的內容不隨重連、Agent 更新而變化。
 
 - content 是 conversation message 的正文，attachments 沿用該消息的檔案引用。
-- 需要共享歷史或 Work 業務說明時，可增加 `context` 文本；Server 在首次投遞前固定它，Client 將 context 和正文組織為 send 的 stdin，不自行推斷業務角色。
+- `context` 只承載必要的 Work 業務說明及本次文件說明，不夾帶整份共享歷史。Server 固定派發快照，Client 不自行推斷業務角色。
+- Client 選定實際本地 session 後，以設備憑據讀取 `GET /api/sessions/{id}/messages/{message_id}/agents/{agent_id}/context?client_session_id=...`，取得 `complete_messages`。Server 只返回該 session 最後受理輸入之後、本次之前尚需補齊的共享消息，排除該 session 自己的回覆；新 session 補齊先前歷史。每條只保留作者、正文、收件人和附件。
+- Client 將 `complete_messages` 作為背景補充，與業務說明、本次正文組成一次 send；空列表不生成補充區塊。本次消息不出現在補充列表，舊任務不重複執行。此讀取沿用已投遞的 message/Agent 權限，不增加 WebSocket 類型、資料表或 harnessctl 命令。
 - 報文不攜帶 model、instructions、skills 或下載清單；這些由 Client 按固定 agent_version_id 讀取。
 - 同一 `(message_id, agent_id)` 不得重複提交已受理或受理結果不確定的 send；相同 id 的重送內容、版本和目標必須一致，衝突直接拒絕。
 
@@ -107,6 +109,7 @@ Client 缺少配置時，讀取已有 Agent 版本 API；按其 skills 引用讀
     → 校驗 ZIP 的版本、大小、SHA-256，安全解包到 workspace 外
     → harnessctl init，固定模型、指令及技能快照
     → init 成功後清理臨時資源
+    → 按實際本地 session 讀取 complete_messages，組裝必要補充與本次正文
     → 將消息經 stdin 交給 harnessctl send
     → 從 accepted 取得 run_id/input_id，回傳 Server
 ```

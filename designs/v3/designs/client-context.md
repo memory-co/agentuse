@@ -20,7 +20,7 @@ AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇�
 
 ## 命令與輸出
 
-- `context input`：實際 run 定位、狀態及該 UUID 的已受理輸入。
+- `context input`：實際 run 定位、狀態及該 UUID 的已受理輸入；context 讀取消息收據中實際送入 harnessctl 的組裝結果，包含必要的 `complete_messages` 補充，不重新查詢最新共享歷史。
 - `context attachment list`：固定輸入快照與本次 run 的輸出元數據，以 direction 區分。
 - `context attachment read FILE_ID`：驗證文件並返回本地絕對路徑及 MIME 類型。
 - `context attachment upload FILE`：上傳本次 run 的輸出，自動關聯 conversation/run，返回可引用的下載路徑。

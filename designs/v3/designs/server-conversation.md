@@ -51,7 +51,11 @@ Conversation 狀態是實際 run 與未完成輸入的聚合投影，優先 wait
 
 conversations.id 和 messages.id 均爲 server 生成的 UUID，SQLite 中使用 TEXT 保存。所有 conversation_id、message_id、reply_to_message_id 等關聯字段使用相同的 UUID 字符串。
 
-UUID 只用於標識，不承擔消息排序。目標結構用 messages.seq 保存 conversation 內的遞增順序號。首次派發時 server 將共享歷史固定在 message.context，並保存完整 dispatch 快照；重連重發同一快照，不使用 run 的歷史游標或重新組織上下文。
+UUID 只用於標識，不承擔消息排序。messages.seq 保存 conversation 內的遞增順序號。message 派發快照只包含本次正文、附件和必要業務說明，不把整份共享歷史放進 context。
+
+Client 選定實際本地 session 後，向 Server 讀取 `complete_messages`：以該設備、Agent 固定版本及本地 session 最後一條已受理輸入為界，只補其後、本次消息之前的共享消息，並排除該 session 自己產生的回覆。新 session 尚無受理記錄時，補齊本次之前的歷史。消息保留作者、收件人、正文和附件，不攜帶舊 result、用量或執行日誌；本次正文只傳一次。
+
+邊界直接來自既有 message_agents 的 accepted 關聯，不增加游標表或 harnessctl 命令。未受理的派發不推進邊界，未來消息不提前注入。Client 保存實際組裝的 context，供本機執行上下文查閱。
 
 發送請求不做去重：每次成功發送創建新的 message UUID，不需要請求 key 或內容摘要字段。
 

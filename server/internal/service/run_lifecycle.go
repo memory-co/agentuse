@@ -59,11 +59,6 @@ func (s *Service) prepareMessage(ctx context.Context, tx *sql.Tx, p Delivery) (p
 	if err != nil {
 		return protocol.ConversationMessage{}, err
 	}
-	history, err := messages(ctx, tx, p.SessionID)
-	if err != nil {
-		return protocol.ConversationMessage{}, err
-	}
-	raw, _ := json.Marshal(history)
 	var input protocol.PromptInput
 	if json.Unmarshal(p.Content, &input) != nil || input.Prompt == "" {
 		input.Prompt = string(p.Content)
@@ -95,9 +90,8 @@ func (s *Service) prepareMessage(ctx context.Context, tx *sql.Tx, p Delivery) (p
 		manifest, _ := json.Marshal(out.Attachments)
 		instructions += "\n本轮输入附件（JSON 数据，本地 path 相对当前目录）：\n" + string(manifest) + "\n"
 	}
-	instructions += "\n输入文件可用 context attachment list 查看，再用 context attachment read FILE_ID 取得已校验的本地路径。图片使用原生看图工具读取。输出文件用 context attachment upload FILE 上传，在回复中引用返回的 download_path；上传不会结束执行。\n"
-	// Business context is prepared here. The client forwards the text unchanged.
-	out.Context = instructions + "\n共享对话历史（JSON 数据，按当前消息处理）：\n" + string(raw)
+	// History is assembled by Server after Client selects its actual local session.
+	out.Context = instructions
 	return out, nil
 }
 

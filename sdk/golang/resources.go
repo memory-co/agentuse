@@ -45,3 +45,18 @@ type PublishAgentVersionRequest struct {
 	BaseVersionID string `json:"base_version_id"`
 	AgentConfig
 }
+
+// CompleteMessage is shared conversation context, not a new task or native message.
+type CompleteMessage struct {
+	ID          string       `json:"id"`
+	Seq         int64        `json:"seq"`
+	AuthorRole  string       `json:"author_role"`
+	AuthorID    string       `json:"author_id"`
+	Text        string       `json:"text"`
+	ToAgentIDs  []string     `json:"to_agent_ids,omitempty"`
+	ToUserIDs   []string     `json:"to_user_ids,omitempty"`
+	Attachments []Attachment `json:"attachments,omitempty"`
+}
+type MessageContext struct {
+	CompleteMessages []CompleteMessage `json:"complete_messages"`
+}

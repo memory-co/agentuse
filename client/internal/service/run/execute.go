@@ -30,6 +30,7 @@ type Request struct {
 	agentID           string
 	environment       []string
 	beforeSend        func(session.Session) error
+	preparePrompt     func(session.Session) (string, error)
 	onSubmit          func() error
 	accepted          func(harness.Acceptance) error
 }
@@ -109,6 +110,13 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 			s.localMu.Unlock()
 			if request.beforeSend != nil {
 				if err := request.beforeSend(active.session); err != nil {
+					return Run{}, err
+				}
+			}
+			if request.preparePrompt != nil {
+				var err error
+				text, err = request.preparePrompt(active.session)
+				if err != nil {
 					return Run{}, err
 				}
 			}
@@ -216,6 +224,10 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 		if request.beforeSend != nil {
 			prepareErr = request.beforeSend(metadata)
 		}
+		prompt := requestText(input)
+		if prepareErr == nil && request.preparePrompt != nil {
+			prompt, prepareErr = request.preparePrompt(metadata)
+		}
 		cleanup := func() {}
 		if prepareErr == nil {
 			cleanup, prepareErr = s.prepareResources(execCtx, metadata, request, &adapter)
@@ -227,7 +239,7 @@ func (s *Service) startSession(ctx context.Context, id, conversation string, req
 		if prepareErr != nil {
 			result = harness.DriveResult{Error: prepareErr.Error()}
 		} else {
-			result = s.Harness.DriveSession(execCtx, adapter, requestText(input), cwd, execution.in, report)
+			result = s.Harness.DriveSession(execCtx, adapter, prompt, cwd, execution.in, report)
 		}
 		if !result.CleanupPending {
 			_ = s.Sessions.Release(metadata, result.OK || execCtx.Err() == context.Canceled)

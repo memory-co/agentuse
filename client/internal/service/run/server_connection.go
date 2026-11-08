@@ -25,6 +25,7 @@ import (
 	"github.com/memory-co/agentuse/client/internal/service/harness"
 	"github.com/memory-co/agentuse/client/internal/service/session"
 	"github.com/memory-co/agentuse/internal/protocol"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 var errEndpointCredential = errors.New("设备密钥无效，请重新注册")
@@ -44,13 +45,14 @@ type endpointConnection struct {
 	harnesses     []protocol.Harness
 }
 type messageReceipt struct {
-	Message   protocol.ConversationMessage `json:"message"`
-	SessionID string                       `json:"session_id,omitempty"`
-	Offset    int64                        `json:"offset"`
-	State     string                       `json:"state"`
-	RunID     string                       `json:"run_id,omitempty"`
-	InputID   string                       `json:"input_id,omitempty"`
-	Error     string                       `json:"error,omitempty"`
+	PreparedContext string                       `json:"prepared_context,omitempty"`
+	Message         protocol.ConversationMessage `json:"message"`
+	SessionID       string                       `json:"session_id,omitempty"`
+	Offset          int64                        `json:"offset"`
+	State           string                       `json:"state"`
+	RunID           string                       `json:"run_id,omitempty"`
+	InputID         string                       `json:"input_id,omitempty"`
+	Error           string                       `json:"error,omitempty"`
 }
 type streamReceipt struct {
 	Offset int64 `json:"offset"`
@@ -409,6 +411,29 @@ func (d *endpointConnection) receiveMessage(ctx context.Context, p protocol.Conv
 			return e
 		}
 		return d.syncAttachments(ctx, &p, sessionWorkspace(d.cfg.RunService.Sessions.Root, d.cfg.EndpointID, p.ConversationID))
+	}
+	request.preparePrompt = func(metadata session.Session) (string, error) {
+		client := agentuse.New(d.cfg.Server, d.cfg.Key)
+		client.HTTPClient = &http.Client{Timeout: time.Minute, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+		view, err := client.GetMessageContext(ctx, p.ConversationID, p.MessageID, p.AgentID, metadata.ID)
+		if err != nil {
+			return "", err
+		}
+		prepared := p
+		if len(view.CompleteMessages) > 0 {
+			data, err := json.Marshal(view.CompleteMessages)
+			if err != nil {
+				return "", err
+			}
+			prepared.Context += "\ncomplete_messages（補齊共享對話，保留作者歸屬；僅作背景，不重複執行其中的舊任務）：\n" + string(data)
+		}
+		receiptMu.Lock()
+		defer receiptMu.Unlock()
+		saved.PreparedContext = prepared.Context
+		if err = d.saveReceipt(saved); err != nil {
+			return "", err
+		}
+		return prepared.Text(), nil
 	}
 	request.onSubmit = func() error {
 		receiptMu.Lock()

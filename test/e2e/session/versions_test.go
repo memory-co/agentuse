@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -79,6 +80,26 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 		t.Fatal(first.Runs)
 	}
 	firstSession := first.Runs[0].ClientSessionID
+	firstInputID, firstReplyID := first.Messages[0].ID, first.Messages[len(first.Messages)-1].ID
+	if _, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "shared-note-between-turns"}); err != nil {
+		t.Fatal(err)
+	}
+	acceptedText := func(detail *agentuse.SessionDetail, runID string) string {
+		t.Helper()
+		for _, event := range detail.Events {
+			if event.Kind == "accepted" && event.RunID == runID {
+				var body struct {
+					Text string `json:"text"`
+				}
+				if err := json.Unmarshal(event.Payload, &body); err != nil {
+					t.Fatal(err)
+				}
+				return body.Text
+			}
+		}
+		t.Fatal("accepted event missing")
+		return ""
+	}
 	newer, e := c.PublishSkill(ctx, user, skill.ID, skill.CurrentVersionID, bytes.NewReader(versionZIP(t, "skill-two")))
 	if e != nil {
 		t.Fatal(e)
@@ -93,6 +114,14 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 	for _, r := range second.Runs {
 		if r.ClientSessionID != firstSession || r.AgentVersionID != a.CurrentVersionID {
 			t.Fatal("skill publication changed agent binding", r)
+		}
+	}
+	for _, run := range second.Runs {
+		if run.ID != first.Runs[0].ID {
+			text := acceptedText(second, run.ID)
+			if !strings.Contains(text, "complete_messages") || !strings.Contains(text, "shared-note-between-turns") || strings.Contains(text, firstInputID) || strings.Contains(text, firstReplyID) || strings.Count(text, "again") != 1 {
+				t.Fatalf("incorrect continuation context: %s", text)
+			}
 		}
 	}
 	v, e := c.PublishAgentVersion(ctx, user, a.ID, agentuse.PublishAgentVersionRequest{BaseVersionID: a.CurrentVersionID, AgentConfig: agentuse.AgentConfig{Name: a.Name, DaemonID: d.ID, Harness: "codex", Model: "test-model", Instructions: "Agent two", Skills: []agentuse.SkillRef{{SkillID: skill.ID, SkillVersionID: newer.CurrentVersionID}}}})
@@ -110,6 +139,10 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 	for _, r := range third.Runs {
 		if r.AgentVersionID == v.ID {
 			session2 = r.ClientSessionID
+			text := acceptedText(third, r.ID)
+			if !strings.Contains(text, firstInputID) || !strings.Contains(text, firstReplyID) || strings.Count(text, "new version") != 1 {
+				t.Fatalf("fresh session lost or duplicated history: %s", text)
+			}
 			if r.ClientSessionID == firstSession || r.Status != "completed" {
 				t.Fatal(r)
 			}

@@ -277,7 +277,7 @@ func (c *ExecutionContext) readInputs(ctx context.Context, events string) error 
 				if !ok {
 					return errContextReceiptPending
 				}
-				input.MessageID, input.Text, input.Context = r.Message.MessageID, r.Message.Content, r.Message.Context
+				input.MessageID, input.Text, input.Context = r.Message.MessageID, r.Message.Content, r.PreparedContext
 				for _, attachment := range r.Message.Attachments {
 					a := attachment.Attachment
 					if a.SessionID != c.ConversationID {

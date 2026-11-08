@@ -191,6 +191,8 @@ func (s *Server) registerAPI() {
 
 	bind("GET", "/api/sessions", "list-conversations", "列出会话；work_id 指定工作的线程", "conversation", work, nil, []agentuse.Session{}, 200, s.handleListSessions, query("work_id", "工作 ID；省略时列普通会话，工作令牌默认列本工作线程"))
 	bind("POST", "/api/sessions", "create-conversation", "创建会话，可同时发送首条消息", "conversation", work, createSessionBody{}, agentuse.CreateSessionResponse{}, 201, s.handleCreateSession)
+	contextRoute := bind("GET", "/api/sessions/{id}/messages/{message_id}/agents/{agent_id}/context", "get-message-context", "为本地 session 补齐尚未提供的共享消息", "session", apiAccess{security: []map[string][]string{{"deviceKey": {}}}}, nil, agentuse.MessageContext{}, 200, s.handleMessageContext)
+	contextRoute.Parameters = append(contextRoute.Parameters, query("client_session_id", "Client 实际选择的本地 session ID"))
 	bind("GET", "/api/sessions/{id}", "get-conversation", "读取消息、执行、投递、事件和问题的统一快照", "conversation", conversation, nil, agentuse.SessionDetail{}, 200, s.handleGetSession)
 	bind("DELETE", "/api/sessions/{id}", "delete-conversation", "删除无活跃执行的会话", "conversation", user, nil, nil, 204, s.handleDeleteSession)
 	bind("POST", "/api/sessions/{id}/messages", "send-message", "发送消息，明确指定 Agent 和用户收件人", "conversation", work, messageBody{}, agentuse.Reply{}, 201, s.handleAddMessage)

@@ -84,4 +84,6 @@ native_runs.go 管引用與查詢，views.go 定義公開視圖，reconcile.go �
 
 runService 為 harness 提供裸 `context input` 和 `context attachment list/read/upload`，人類通過 `agentuse context` 選擇或進入同一執行上下文。描述文件只固定 session 和來源；當前 run 由公共 status 或顯式選擇確定，仍以 accepted 及來源消息收據關聯輸入。附件採用收到 message 時的固定快照，不重新列舉最新會話文件。圖片返回經校驗的本地路徑，由 AI 原生看圖工具讀取；輸出上傳自動關聯當前 run，發布及查詢以 Server 記錄為準。
 
+Client 選定新建或續用的本地 session 後，才向 Server 讀取 `complete_messages`。Server 根據該 session 已受理的輸入決定補齊範圍；Client 不讀取整份 conversation 自行推算，也不向 harnessctl 增加補歷史命令。實際組裝的 context 保存在既有消息收據中，`context input` 顯示這份內容。
+
 完整邊界、目錄與回收規則見 [執行上下文設計](client-context.md)；操作方法見 [使用手冊](../../../docs/client/context.md)。
