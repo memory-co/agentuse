@@ -16,7 +16,7 @@ func TestRunAPIUsesClientIdentityAndGenericReply(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
 	ctx := context.Background()
 	var reply service.MultiReply
-	response := f.e.req(f.token, "POST", "/api/sessions/"+f.session.ID+"/messages", map[string]any{"prompt": "input", "target_agent_ids": []string{f.agent}}, &reply)
+	response := f.e.req(f.token, "POST", "/api/sessions/"+f.session.ID+"/messages", map[string]any{"prompt": "input", "to_agent_ids": []string{f.agent}}, &reply)
 	if response.StatusCode != 201 || len(reply.Runs) != 0 || len(reply.Deliveries) != 1 {
 		t.Fatal("server predicted run membership", response.StatusCode, reply)
 	}
@@ -68,7 +68,7 @@ func TestMessageSubmissionDoesNotDeduplicateUserText(t *testing.T) {
 	ids := map[string]bool{}
 	for i := 0; i < 2; i++ {
 		var reply service.MultiReply
-		r := f.e.req(f.token, "POST", "/api/sessions/"+f.session.ID+"/messages", map[string]any{"prompt": "same", "target_agent_ids": []string{f.agent}}, &reply)
+		r := f.e.req(f.token, "POST", "/api/sessions/"+f.session.ID+"/messages", map[string]any{"prompt": "same", "to_agent_ids": []string{f.agent}}, &reply)
 		if r.StatusCode != 201 || reply.Message == nil || ids[reply.Message.ID] {
 			t.Fatal(r.StatusCode, reply)
 		}

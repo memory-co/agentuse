@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, ChevronRight, Circle, CircleCheck, LoaderCircle, RotateCcw, Trash2, X } from 'lucide-react';
+import { Check, ChevronRight, Circle, CircleCheck, LoaderCircle, RotateCcw, Trash2, UserRound, X } from 'lucide-react';
 import { MentionComposer } from '@/components/MentionComposer';
 import { Attachments } from '@/components/Attachments';
 import { uploadAttachment } from '@/lib/attachments';
@@ -9,9 +9,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Confirm, ErrorState, Loading, StatusBadge } from '@/components/Shared';
 import { api } from '@/lib/api';
+import { useActAs } from '@/lib/actas';
 import { queryClient } from '@/lib/query';
 import { useAgents } from '@/pages/Agents';
-import type { Message, Question, Session, SessionDetail as Detail, SessionEvent, SessionStatus, Run, Delivery } from '@/lib/types';
+import type { Message, Question, Session, SessionDetail as Detail, SessionEvent, SessionStatus, Run, Delivery, User } from '@/lib/types';
 import { cn, fmtTime } from '@/lib/utils';
 import { t, useT } from '@/lib/i18n';
 
@@ -31,6 +32,8 @@ const evText = (p: any) => (p && typeof p === 'object' && Object.keys(p).length 
 export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
   const t = useT();
   const agents = useAgents();
+  const actAs = useActAs();
+  const sender = actAs || queryClient.getQueryData<User>(['me'])?.id;
 
   const [files, setFiles] = useState<File[]>([]);
   const [progress, setProgress] = useState('');
@@ -38,7 +41,7 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
   const uploaded = useRef(new Set<File>());
   const [draftId, setDraftId] = useState<string | null>(null);
   const add = useMutation({
-    mutationFn: async ({prompt, targets}: {prompt:string;targets:string[]}) => {
+    mutationFn: async ({prompt, targets, users}: {prompt:string;targets:string[];users:string[]}) => {
       if (!draft.current) {
         const r = await api<{session: Session}>('/api/sessions', {method: 'POST', body: {mode:"multi_agent"}});
         draft.current = r.session.id; setDraftId(r.session.id); void refresh();
@@ -49,7 +52,7 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
           if (uploaded.current.has(file)) continue;
           await uploadAttachment(id, file, n => setProgress(`${file.name} ${n}%`)); uploaded.current.add(file);
         }
-        const body={prompt,target_agent_ids:targets};await api(`/api/sessions/${id}/messages`, {method: 'POST', body,});
+        const body={prompt,to_agent_ids:targets,to_user_ids:users};await api(`/api/sessions/${id}/messages`, {method: 'POST', body,});
         return {session: {id} as Session};
       } finally { setProgress(''); }
     },
@@ -60,7 +63,7 @@ export function NewSession({ onCreated }: { onCreated: (id: string) => void }) {
       <h1 className="text-2xl font-semibold">{t('session.ask')}</h1>
       <p className="text-sm text-muted-foreground">{t('mention.shared')}</p>
     </div>
-    <MentionComposer showAgentPicker agents={agents.data??[]} placeholder={t('session.taskPlaceholder')} busy={add.isPending} onSend={(prompt,targets)=>add.mutateAsync({prompt,targets})}>
+    <MentionComposer showAgentPicker agents={agents.data??[]} users={sender ? [sender] : []} placeholder={t('session.taskPlaceholder')} busy={add.isPending} onSend={(prompt,targets,users)=>add.mutateAsync({prompt,targets,users})}>
       <label className="cursor-pointer text-xs text-muted-foreground">{t('attachment.upload')}
         <input type="file" multiple disabled={add.isPending} className="sr-only" onChange={e => setFiles(Array.from(e.target.files ?? []))} />
       </label>
@@ -80,7 +83,7 @@ export function Conversation({ id, onDeleted, placeholder,defaultAgent }: { id: 
 
   const q = useQuery({ queryKey: ['sessions', id], queryFn: () => api<Detail>(`/api/sessions/${id}`), refetchInterval: 3000 });
   const reply = useMutation({
-    mutationFn: ({prompt,targets}: {prompt:string;targets?:string[]}) => {const body={prompt,target_agent_ids:targets};return api(`/api/sessions/${id}/messages`, { method: 'POST', body, });},
+    mutationFn: ({prompt,targets,users}: {prompt:string;targets:string[];users:string[]}) => {const body={prompt,to_agent_ids:targets,to_user_ids:users};return api(`/api/sessions/${id}/messages`, { method: 'POST', body, });},
     onSuccess: () => { void refresh(); },
   });
   const del = useMutation({ mutationFn: () => api(`/api/sessions/${id}`, { method: 'DELETE' }), onSuccess: () => { void refresh(); onDeleted(); } });
@@ -92,8 +95,7 @@ export function Conversation({ id, onDeleted, placeholder,defaultAgent }: { id: 
   if (q.isError) return <div className="px-6 py-6"><ErrorState error={q.error} /></div>;
   const { session: x, messages, events } = q.data;
   const questions = q.data.questions ?? [];
-  const lastUserMessage = [...messages].reverse().find(message => message.role === 'user' && message.target_agent_ids?.length);
-  const initialTargets = lastUserMessage ? lastUserMessage.target_agent_ids ?? [] : defaultAgent ? [defaultAgent] : [];
+  const initialTargets = defaultAgent ? [defaultAgent] : [];
   const meta = t("mention.shared");
   const coordinator = x.work_role === 'coordinator';
   const settled = x.status === 'idle' || x.status === 'resolved';
@@ -119,7 +121,7 @@ export function Conversation({ id, onDeleted, placeholder,defaultAgent }: { id: 
     </div>
     <div className="mx-auto w-full max-w-3xl px-4 pb-4">
       {reply.isError && <div className="pb-2"><ErrorState error={reply.error} /></div>}
-      <MentionComposer key={id} agents={agents.data??[]} initialTargets={initialTargets} placeholder={placeholder??t('session.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets)=>reply.mutateAsync({prompt,targets})}/>
+      <MentionComposer key={id} agents={agents.data??[]} users={[...new Set([x.user_id, x.created_by, ...messages.flatMap(m => [m.author_user_id, ...m.to_user_ids])].filter((value): value is string => !!value))]} initialTargets={initialTargets} placeholder={placeholder??t('session.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets,users)=>reply.mutateAsync({prompt,targets,users})}/>
 
     </div>
   </div>;
@@ -127,12 +129,13 @@ export function Conversation({ id, onDeleted, placeholder,defaultAgent }: { id: 
 
 function MessageView({ m }: { m: Message }) {
  const t=useT();const c=m.content||{};
+ const targetLabel = <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" data-message-targets={m.id}>
+   {m.to_agent_ids.map(agent => <span key={`agent:${agent}`} className="break-all font-medium">@{agent}</span>)}
+   {m.to_user_ids.map(user => <span key={`user:${user}`} className="inline-flex items-center gap-1 break-all font-medium"><UserRound className="size-3 shrink-0" />{user}</span>)}
+   {!m.to_agent_ids.length && !m.to_user_ids.length && <span>{t('mention.noteOnly')}</span>}
+ </div>;
  if(m.role==='user') {
   const text=typeof c.prompt==='string'?c.prompt:JSON.stringify(c,null,2);
-  const targets = m.target_agent_ids ?? [];
-  const targetLabel = <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" data-message-targets={m.id}>
-    {targets.length ? targets.map(agent => <span key={agent} className="break-all font-medium">@{agent}</span>) : <span>{t('mention.noteOnly')}</span>}
-  </div>;
   return typeof c.from_session === 'string'
     ? <div className="grid min-w-0 gap-1.5" data-message-id={m.id}><ThreadNote m={m}/>{targetLabel}</div>
     : <div className="ml-auto grid min-w-0 max-w-[85%] gap-1.5 rounded-2xl bg-muted px-4 py-2.5 text-sm" title={fmtTime(m.created_at)} data-message-id={m.id}>
@@ -142,6 +145,7 @@ function MessageView({ m }: { m: Message }) {
  }
   const out = c.ok ? (typeof c.output === 'string' ? c.output : JSON.stringify(c, null, 2)) : (c.error || t('session.failed')) + (c.output ? '\n' + c.output : '');
   return <div className="grid min-w-0 grid-cols-1 gap-1.5" title={fmtTime(m.created_at)}>
+    {targetLabel}
     {m.agent_key&&<div className="text-xs font-medium text-muted-foreground">@{m.agent_key}{m.agent_name&&` · ${m.agent_name}`}</div>}
     {!c.ok && <div><StatusBadge tone="bad">{t('session.failed')}</StatusBadge></div>}
     <div className={cn('min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere] text-sm leading-7', !c.ok && 'text-destructive')}>{out}</div>

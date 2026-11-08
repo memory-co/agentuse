@@ -71,11 +71,19 @@ func ScanSession(row scanner) (Session, error) {
 
 func ScanMessage(row scanner) (Message, error) {
 	var m Message
-	var content, targets string
-	err := row.Scan(&m.ID, &m.SessionID, &m.Role, &content, &m.CreatedAt, &m.RunID, &m.AgentKey, &m.AgentName, &targets, &m.AuthorAgentVersionID, &m.Seq)
-	_ = json.Unmarshal([]byte(targets), &m.TargetAgentIDs)
+	var content, agents, users string
+	err := row.Scan(&m.ID, &m.SessionID, &m.Role, &content, &m.CreatedAt, &m.RunID, &m.AgentKey, &m.AgentName, &agents, &users, &m.AuthorUserID, &m.ReplyToMessageID, &m.AuthorAgentVersionID, &m.Seq)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Message{}, ErrNotFound
+	}
+	if err != nil {
+		return Message{}, err
+	}
+	if err = json.Unmarshal([]byte(agents), &m.ToAgentIDs); err != nil {
+		return Message{}, err
+	}
+	if err = json.Unmarshal([]byte(users), &m.ToUserIDs); err != nil {
+		return Message{}, err
 	}
 	m.Content = json.RawMessage(content)
 	return m, err

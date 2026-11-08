@@ -27,7 +27,7 @@ func splitAgents(s string) []string {
 }
 func runSession(args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		fmt.Println("agentuse session send <session> --agents coder,reviewer \"消息\" | read [session] | runs [session] | wait [session] | cancel <session> <run>")
+		fmt.Println("agentuse session send <session> [--agents coder,reviewer] [--users user_ids] \"消息\" | read [session] | runs [session] | wait [session] | cancel <session> <run>")
 		return nil
 	}
 	action := args[0]
@@ -37,6 +37,7 @@ func runSession(args []string) error {
 	config := fs.String("config", command.EnvOr("AGENTUSE_CONFIG", endpointservice.DefaultPath()), "daemon 配置")
 	session := fs.String("session", os.Getenv("AGENTUSE_SESSION"), "当前 session")
 	agents := fs.String("agents", "", "逗号分隔的 @ 目标")
+	users := fs.String("users", "", "逗号分隔的用户收件人 ID")
 	asJSON := fs.Bool("json", false, "JSON 输出")
 	timeout := fs.Duration("timeout", 30*time.Minute, "等待上限")
 	var flags, pos []string
@@ -111,7 +112,7 @@ func runSession(args []string) error {
 	switch action {
 	case "send":
 		var reply any
-		if err := c.Request(ctx, "", "POST", base+"/messages", map[string]any{"prompt": pos[0], "target_agent_ids": splitAgents(*agents)}, &reply); err != nil {
+		if err := c.Request(ctx, "", "POST", base+"/messages", map[string]any{"prompt": pos[0], "to_agent_ids": splitAgents(*agents), "to_user_ids": splitAgents(*users)}, &reply); err != nil {
 			return err
 		}
 		return json.NewEncoder(os.Stdout).Encode(reply)

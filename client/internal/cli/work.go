@@ -19,9 +19,9 @@ const workUsage = `agentuse work —— 工作的协调者用来管理线程(doc
 用法:
   agentuse work agents                            能用哪些 agent
   agentuse work threads                           这个工作的线程和状态
-  agentuse work new --agents <agent_ids> "要做的事"   开线程，打印线程 id
-  agentuse work new --agents <agent_ids> --defer-start  先建空线程，上传附件后再 send
-  agentuse work send --agents <agent_ids> <线程 id> "补充的话"           给线程发消息(它在跑就是插话)
+  agentuse work new [--agents <agent_ids>] [--users <user_ids>] "消息"   开线程，打印线程 id
+  agentuse work new --defer-start  先建空线程，上传附件后再 send
+  agentuse work send [--agents <agent_ids>] [--users <user_ids>] <线程 id> "消息"   给线程发消息
   agentuse work read <线程 id>                     看线程的消息
   agentuse work resolve <线程 id>                  标记线程已完成
 
@@ -114,12 +114,13 @@ func workNew(ctx context.Context, c *agentuse.Client, args []string) error {
 	fs := flag.NewFlagSet("agentuse work new", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	agents := fs.String("agents", "", "目标 agent，逗号分隔")
+	users := fs.String("users", "", "用户收件人 ID，逗号分隔")
 	deferStart := fs.Bool("defer-start", false, "先建空线程，上传附件后再发消息")
 	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
-	if (*agents == "" && !*deferStart) || (!*deferStart && fs.NArg() != 1) || (*deferStart && fs.NArg() != 0) {
-		return command.UsageErr("用法: agentuse work new --agents <agent_ids> \"要做的事\" | --defer-start")
+	if (!*deferStart && fs.NArg() != 1) || (*deferStart && (fs.NArg() != 0 || *agents != "" || *users != "")) {
+		return command.UsageErr("用法: agentuse work new [--agents <agent_ids>] [--users <user_ids>] \"消息\" | --defer-start")
 	}
 	var res struct {
 		Session agentuse.Session `json:"session"`
@@ -127,7 +128,8 @@ func workNew(ctx context.Context, c *agentuse.Client, args []string) error {
 	request := map[string]any{}
 	if !*deferStart {
 		request["prompt"] = fs.Arg(0)
-		request["target_agent_ids"] = splitAgents(*agents)
+		request["to_agent_ids"] = splitAgents(*agents)
+		request["to_user_ids"] = splitAgents(*users)
 	}
 	if err := c.Request(ctx, "", http.MethodPost, "/api/sessions", request, &res); err != nil {
 		return err
@@ -136,7 +138,11 @@ func workNew(ctx context.Context, c *agentuse.Client, args []string) error {
 		fmt.Printf("已创建空线程 %s。先用 agentuse attachment upload --session %s 上传，再用 agentuse work send --agents <目标> 开始。\n", res.Session.ID, res.Session.ID)
 		return nil
 	}
-	fmt.Printf("已开线程 %s。它回完会把结果发给你，不用等。\n", res.Session.ID)
+	if len(splitAgents(*agents)) > 0 {
+		fmt.Printf("已开线程 %s。它回完会把结果发给你，不用等。\n", res.Session.ID)
+	} else {
+		fmt.Printf("已开线程 %s，消息已保存。\n", res.Session.ID)
+	}
 	return nil
 }
 
@@ -177,14 +183,15 @@ func workRead(ctx context.Context, c *agentuse.Client, id string) error {
 func workSendTargets(ctx context.Context, c *agentuse.Client, args []string) error {
 	fs := command.NewFlags("agentuse work send")
 	agents := fs.String("agents", "", "目标 agent")
+	users := fs.String("users", "", "用户收件人 ID，逗号分隔")
 	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
-	if fs.NArg() != 2 || *agents == "" {
-		return command.UsageErr("work send --agents coder,reviewer <session> \"消息\"")
+	if fs.NArg() != 2 {
+		return command.UsageErr("work send [--agents coder,reviewer] [--users user_ids] <session> \"消息\"")
 	}
 	var out any
-	if err := c.Request(ctx, "", "POST", "/api/sessions/"+url.PathEscape(fs.Arg(0))+"/messages", map[string]any{"prompt": fs.Arg(1), "target_agent_ids": splitAgents(*agents)}, &out); err != nil {
+	if err := c.Request(ctx, "", "POST", "/api/sessions/"+url.PathEscape(fs.Arg(0))+"/messages", map[string]any{"prompt": fs.Arg(1), "to_agent_ids": splitAgents(*agents), "to_user_ids": splitAgents(*users)}, &out); err != nil {
 		return err
 	}
 	return json.NewEncoder(os.Stdout).Encode(out)

@@ -79,7 +79,7 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 		t.Fatal(err)
 	}
 	prompt := "This is an integration test. Run exactly one shell command `sleep 12` and wait for it to finish. You will receive an additional user message during that command. After it finishes, follow the latest user instruction. If there is no additional instruction, respond ORIGINAL_ONLY. Do not modify files, do not use subagents, and do not read files except the session history if your instructions require it."
-	created, err := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Prompt: prompt, TargetAgentIDs: []string{"codex-live"}})
+	created, err := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Prompt: prompt, ToAgentIDs: []string{"codex-live"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 		return false
 	})
 	nonce := "STEER_PROOF_" + time.Now().UTC().Format("150405.000000000")
-	sent, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "New requirement: reply with exactly " + nonce + " in your final answer, instead of ORIGINAL_ONLY. This updates the currently running task.", TargetAgentIDs: []string{"codex-live"}})
+	sent, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "New requirement: reply with exactly " + nonce + " in your final answer, instead of ORIGINAL_ONLY. This updates the currently running task.", ToAgentIDs: []string{"codex-live"}})
 	if err != nil {
 		t.Fatal(err)
 	}

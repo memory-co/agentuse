@@ -25,7 +25,7 @@ await agentuse.setDaemonHarness(uid, d.id, "claude", true);
 const agent = await agentuse.createAgent(uid, { id: "code-helper", name: "写代码", daemon_id: d.id, harness: "claude" });
 
 // 用这个 agent 发起任务，等它回完
-const { session } = await agentuse.createSession(uid, { target_agent_ids: [agent.id], prompt: "修一下 README 的错别字" });
+const { session } = await agentuse.createSession(uid, { to_agent_ids: [agent.id], prompt: "修一下 README 的错别字" });
 const detail = await agentuse.waitSession(uid, session.id, { interval: 2000, timeout: 600_000 });
 console.log(detail.messages.at(-1).content);
 
@@ -60,11 +60,20 @@ const response = await c.downloadAttachment(user, session.id, file.id);
 ```js
 const {session} = await c.createSession(user, {mode: 'multi_agent'});
 const reply = await c.sendMessage(user, session.id, {
-  prompt: '分别看看实现与风险', target_agent_ids: ['coder', 'reviewer'],
-}, {idempotencyKey: 'turn-1'});
+  prompt: '分别看看实现与风险', to_agent_ids: ['coder', 'reviewer'],
+});
 const detail = await c.waitMessageRuns(user, session.id, reply.message.id, {interval: 500, timeout: 600000});
 ```
 
 支持 getRun、waitRun、cancelRun、replyRunRequest。reply.deliveries 表示输入分配状态；accepted 决定实际 run；新模式 waitSession 默认等待全部终态，可设置 returnOnWaiting。
 
 执行状态以 client 的公共事件为准：running/waiting/completed/failed/cancelled。发送消息先返回输入分配，不预创建 run；断线、取消入队不代表执行终态。harness 列表来自设备上报，仅供读取。
+
+消息使用 `to_agent_ids` 和 `to_user_ids`，可同时指定；返回值始终包含这两组数组。只接受新字段，不保留旧字段别名。
+
+```js
+// 只发给已有会话读取权限的用户，不启动 Agent。
+await agentuse.sendMessage(uid, session.id, {
+  prompt: '请查看结果', to_user_ids: [uid],
+});
+```

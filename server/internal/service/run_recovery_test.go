@@ -27,7 +27,7 @@ func TestInputWakeupRunsAfterCommit(t *testing.T) {
 		}
 		calls++
 	}})
-	_, _, err := s.CreateMultiSession(ctx, u, "", "task", json.RawMessage(`{"prompt":"hello"}`), []string{a.ID}, "")
+	_, _, err := s.CreateMultiSession(ctx, u, "", "task", json.RawMessage(`{"prompt":"hello"}`), []string{a.ID}, nil)
 	if err != nil || calls != 1 {
 		t.Fatal(calls, err)
 	}
@@ -40,7 +40,7 @@ func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.SendMultiMessage(ctx, u, coordinator.ID, json.RawMessage(`{"prompt":"first"}`), []string{a.ID}, ""); err != nil {
+	if _, err = s.SendMultiMessage(ctx, u, coordinator.ID, json.RawMessage(`{"prompt":"first"}`), []string{a.ID}, nil); err != nil {
 		t.Fatal(err)
 	}
 	original, err := s.DispatchMessage(ctx, d)
@@ -50,7 +50,7 @@ func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
 	if original.WorkToken == "" || original.WorkID != work.ID || !strings.Contains(original.Context, "shared work instructions") {
 		t.Fatal("server omitted work context")
 	}
-	if _, err = s.SendMultiMessage(ctx, u, coordinator.ID, json.RawMessage(`{"prompt":"later"}`), []string{a.ID}, ""); err != nil {
+	if _, err = s.SendMultiMessage(ctx, u, coordinator.ID, json.RawMessage(`{"prompt":"later"}`), []string{a.ID}, nil); err != nil {
 		t.Fatal(err)
 	}
 	recovered, err := s.PendingMessages(ctx, d.ID)
@@ -78,7 +78,7 @@ func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
 func TestCompletedConversationDeletesExecutionRows(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, _, err := s.CreateMultiSession(ctx, u, "", "task", json.RawMessage(`{"prompt":"hello"}`), []string{a.ID}, "")
+	ss, _, err := s.CreateMultiSession(ctx, u, "", "task", json.RawMessage(`{"prompt":"hello"}`), []string{a.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestCompletedConversationDeletesExecutionRows(t *testing.T) {
 func TestRejectedReplyCanRetryWithoutInventingRequestState(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, _, err := s.CreateMultiSession(ctx, u, "", "task", json.RawMessage(`{"prompt":"hello"}`), []string{a.ID}, "")
+	ss, _, err := s.CreateMultiSession(ctx, u, "", "task", json.RawMessage(`{"prompt":"hello"}`), []string{a.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

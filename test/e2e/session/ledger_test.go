@@ -107,7 +107,7 @@ func TestClientMultiEndpointFilesAndUI(t *testing.T) {
 		if _, e = p.c.CreateAgent(ctx, "client-user", agentuse.CreateAgentRequest{ID: "client-agent", Name: "Client agent", DaemonID: p.device.ID, Harness: "fake"}); e != nil {
 			t.Fatal(e)
 		}
-		created, e := p.c.CreateSession(ctx, "client-user", agentuse.CreateSessionRequest{Prompt: "ledger", TargetAgentIDs: []string{"client-agent"}})
+		created, e := p.c.CreateSession(ctx, "client-user", agentuse.CreateSessionRequest{Prompt: "ledger", ToAgentIDs: []string{"client-agent"}})
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -149,7 +149,7 @@ func TestClientMultiEndpointFilesAndUI(t *testing.T) {
 			t.Fatal(runs, e)
 		}
 		// A second run reuses the same local session and workspace.
-		next, e := p.c.SendMessage(ctx, "client-user", created.Session.ID, agentuse.MessageRequest{Prompt: "ledger again", TargetAgentIDs: []string{"client-agent"}})
+		next, e := p.c.SendMessage(ctx, "client-user", created.Session.ID, agentuse.MessageRequest{Prompt: "ledger again", ToAgentIDs: []string{"client-agent"}})
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -214,7 +214,7 @@ func TestClientNativeSessionsShareWorkspaceAndRunConcurrently(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	first, e := c.CreateSession(ctx, "native-user", agentuse.CreateSessionRequest{Prompt: "wait-steer", TargetAgentIDs: []string{"codex", "claude"}})
+	first, e := c.CreateSession(ctx, "native-user", agentuse.CreateSessionRequest{Prompt: "wait-steer", ToAgentIDs: []string{"codex", "claude"}})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -241,7 +241,7 @@ func TestClientNativeSessionsShareWorkspaceAndRunConcurrently(t *testing.T) {
 	if _, e = os.Stat(filepath.Join(dir, "workspace")); e != nil {
 		t.Fatal(e)
 	}
-	extra, e := c.SendMessage(ctx, "native-user", first.Session.ID, agentuse.MessageRequest{Prompt: "parallel-proof", TargetAgentIDs: []string{"codex", "claude"}})
+	extra, e := c.SendMessage(ctx, "native-user", first.Session.ID, agentuse.MessageRequest{Prompt: "parallel-proof", ToAgentIDs: []string{"codex", "claude"}})
 	if e != nil || len(extra.Runs) != 0 {
 		t.Fatal("did not steer both active runs", extra, e)
 	}

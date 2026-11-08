@@ -49,7 +49,7 @@ func TestRequests(t *testing.T) {
 
 	c.Me(ctx, "")
 	c.Me(ctx, "u 1")
-	c.CreateSession(ctx, "u1", agentuse.CreateSessionRequest{TargetAgentIDs: []string{"coder"}, Prompt: "hi"})
+	c.CreateSession(ctx, "u1", agentuse.CreateSessionRequest{ToAgentIDs: []string{"coder"}, ToUserIDs: []string{"u1"}, Prompt: "hi"})
 	c.PublishAgentVersion(ctx, "u1", "a/b", agentuse.PublishAgentVersionRequest{BaseVersionID: "v1", AgentConfig: agentuse.AgentConfig{Name: "新名字", DaemonID: "device", Harness: "codex", Skills: []agentuse.SkillRef{}}})
 	c.SetDaemonHarness(ctx, "u1", "dm_1", "claude", true)
 	if err := c.DeleteSession(ctx, "u1", "ss_1"); err != nil {
@@ -62,7 +62,7 @@ func TestRequests(t *testing.T) {
 	want := []recorded{
 		{"GET", "/api/me", "Bearer ut_admin", "", "", ""},
 		{"GET", "/api/me", "Bearer ut_admin", "u 1", "", ""},
-		{"POST", "/api/sessions", "Bearer ut_admin", "u1", "application/json", `{"target_agent_ids":["coder"],"prompt":"hi"}`},
+		{"POST", "/api/sessions", "Bearer ut_admin", "u1", "application/json", `{"to_agent_ids":["coder"],"to_user_ids":["u1"],"prompt":"hi"}`},
 		{"POST", "/api/agents/a%2Fb/versions", "Bearer ut_admin", "u1", "application/json", `{"base_version_id":"v1","name":"新名字","description":"","daemon_id":"device","harness":"codex","instructions":"","skills":[]}`},
 		{"PUT", "/api/daemons/dm_1/harnesses/claude", "Bearer ut_admin", "u1", "application/json", `{"enabled":true}`},
 		{"DELETE", "/api/sessions/ss_1", "Bearer ut_admin", "u1", "", ""},

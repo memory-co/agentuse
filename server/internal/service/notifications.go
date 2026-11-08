@@ -5,15 +5,15 @@ import (
 	"encoding/json"
 )
 
-func (s *Service) CreateMultiSession(ctx context.Context, u User, work, title string, input json.RawMessage, targets []string, key string, promptMode ...bool) (Session, *MultiReply, error) {
-	ss, reply, err := s.createMultiSession(ctx, u, work, title, input, targets, key, promptMode...)
+func (s *Service) CreateMultiSession(ctx context.Context, u User, work, title string, input json.RawMessage, toAgentIDs, toUserIDs []string) (Session, *MultiReply, error) {
+	ss, reply, err := s.createMultiSession(ctx, u, work, title, input, toAgentIDs, toUserIDs)
 	if err == nil {
 		s.Notifier.KickAll()
 	}
 	return ss, reply, err
 }
-func (s *Service) SendMultiMessage(ctx context.Context, u User, session string, input json.RawMessage, targets []string, key string, promptMode ...bool) (MultiReply, error) {
-	reply, err := s.sendMultiMessage(ctx, u, session, input, targets, key, promptMode...)
+func (s *Service) SendMultiMessage(ctx context.Context, u User, session string, input json.RawMessage, toAgentIDs, toUserIDs []string) (MultiReply, error) {
+	reply, err := s.sendMultiMessage(ctx, u, session, input, toAgentIDs, toUserIDs)
 	if err == nil {
 		s.Notifier.KickAll()
 	}

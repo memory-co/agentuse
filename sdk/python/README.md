@@ -25,7 +25,7 @@ agentuse.set_daemon_harness(uid, d["id"], "claude", True)
 a = agentuse.create_agent(uid, "写代码", d["id"], "claude", id="code-helper")
 
 # 用这个 agent 发起任务，等它回完
-s = agentuse.create_session(uid, target_agent_ids=[a["id"]], prompt="修一下 README 的错别字")["session"]
+s = agentuse.create_session(uid, to_agent_ids=[a["id"]], prompt="修一下 README 的错别字")["session"]
 detail = agentuse.wait_session(uid, s["id"], interval=2, timeout=600)
 print(detail["messages"][-1]["content"])
 
@@ -63,10 +63,17 @@ with c.download_attachment(user, session_id, file['id']) as response:
 ```python
 s = c.create_session(user, mode='multi_agent')['session']
 r = c.send_message(user, s['id'], prompt='分别看看实现与风险',
-                   target_agent_ids=['coder', 'reviewer'], idempotency_key='turn-1')
+                   to_agent_ids=['coder', 'reviewer'])
 d = c.wait_message_runs(user, s['id'], r['message']['id'], interval=.5, timeout=600)
 ```
 
 支持 get_run、wait_run、cancel_run、reply_run_request。响应 deliveries 包含各目标输入分配；accepted 回报实际 run；新模式 wait_session 默认等全部终态，return_on_waiting=True 可在提问时返回。
 
 执行状态以 client 的公共事件为准：running/waiting/completed/failed/cancelled。发送消息先返回输入分配，不预创建 run；断线、取消入队不代表执行终态。harness 列表来自设备上报，仅供读取。
+
+消息使用 `to_agent_ids` 和 `to_user_ids`，可同时指定；返回值始终包含这两组数组。只接受新字段，不保留旧字段别名。
+
+```python
+# 只发给已有会话读取权限的用户，不启动 Agent。
+agentuse.send_message(uid, s["id"], prompt="请查看结果", to_user_ids=[uid])
+```

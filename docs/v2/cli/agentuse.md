@@ -72,7 +72,7 @@ my-harness  /usr/local/bin/my-harness
 agentuse work agents                                       # 能用哪些 agent
 agentuse work threads                                      # 這個工作的線程和狀態
 agentuse work new --agents code-helper "改 daemon 的重連邏輯"  # 開線程，打印線程 id
-agentuse work new --agents code-helper --defer-start         # 先建空線程，上傳附件後再 send
+agentuse work new --defer-start         # 先建空線程，上傳附件後再 send
 agentuse work send --agents code-helper ss_xxx "再補個測試"                       # 給線程發消息(在跑就是插話)
 agentuse work read ss_xxx                                  # 看線程的消息
 agentuse work resolve ss_xxx                               # 標記線程已完成
@@ -109,14 +109,15 @@ agentuse attachment upload ./requirements.pdf --session ss_xxx --server https://
 
 ```bash
 agentuse session send ss_xxx --agents coder,reviewer "看看實現和風險"
+agentuse session send ss_xxx --users alice "請查看結果"
 agentuse session read ss_xxx --json
 agentuse session runs ss_xxx
 agentuse session wait ss_xxx --timeout 10m
 agentuse session cancel ss_xxx sr_xxx
 ```
 
-默認從 AGENTUSE_SESSION 取當前會話，顯式 session 參數覆蓋；支持 --server、--token、--config、--json。地址/憑據來源與 attachment 一致。send 的 --agents 爲空時只記筆記；忙碌目標自動作爲插話。read 返回統一的 session 消息，不按 agent 區分上下文。
+默認從 AGENTUSE_SESSION 取當前會話，顯式 session 參數覆蓋；支持 --server、--token、--config、--json。地址/憑據來源與 attachment 一致。send 用 --agents、--users 分別指定 Agent 和用戶收件人，對應 to_agent_ids、to_user_ids。只有 Agent 收件人會啟動執行，用戶必須已有會話讀取權限；兩組皆空時記筆記。補充消息的 run 歸屬由 Client accepted 決定。read 返回統一的 session 消息，不按 agent 區分上下文。
 
 harness 內部的 read/attachment 請求自動帶 AGENTUSE_RUN、AGENTUSE_ATTEMPT，讀配置裏的 dk_，只在當前執行有效時可用；協調者優先用工作令牌。所有新執行都給出 AGENTUSE_AGENT、AGENTUSE_SESSION、AGENTUSE_MESSAGE_ID、AGENTUSE_RUN、AGENTUSE_ATTEMPT。session 管理和 send 仍需要用戶或工作令牌。
 
-work new/send 支持 --agents coder,reviewer（放在位置參數前）。協調者開的線程爲 multi_agent。空線程上傳文件後，用 work send --agents 指明第一輪目標。
+work new/send 支持 --agents coder,reviewer 和 --users alice（放在位置參數前），兩者可同時指定。--defer-start 則不帶消息或收件人。協調者開的線程爲 multi_agent。空線程上傳文件後，用 work send --agents 指明第一輪目標。

@@ -9,9 +9,9 @@ import (
 	"github.com/memory-co/agentuse/server/internal/service"
 )
 
-func (s *Server) createMultiSession(w http.ResponseWriter, r *http.Request, work, title, agent string, input json.RawMessage, prompt *string, targets []string) {
+func (s *Server) createMultiSession(w http.ResponseWriter, r *http.Request, work, title, agent string, input json.RawMessage, prompt *string, toAgentIDs, toUserIDs []string) {
 	if agent != "" {
-		writeErr(w, 400, "multi_agent 使用 target_agent_ids，不绑定 agent_id")
+		writeErr(w, 400, "multi_agent 使用 to_agent_ids，不绑定 agent_id")
 		return
 	}
 	if sc := workScope(r); sc != nil {
@@ -38,11 +38,11 @@ func (s *Server) createMultiSession(w http.ResponseWriter, r *http.Request, work
 			writeErr(w, 400, err.Error())
 			return
 		}
-	} else if len(targets) > 0 {
+	} else if len(toAgentIDs) > 0 || len(toUserIDs) > 0 {
 		writeErr(w, 400, "指定目标时需要 prompt/input")
 		return
 	}
-	ss, reply, err := s.service.CreateMultiSession(r.Context(), currentUser(r), work, title, content, targets, r.Header.Get("Idempotency-Key"), len(input) == 0)
+	ss, reply, err := s.service.CreateMultiSession(r.Context(), currentUser(r), work, title, content, toAgentIDs, toUserIDs)
 	if err != nil {
 		s.storeErr(w, err)
 		return

@@ -4,7 +4,7 @@
 
 1. Agent 是可命名的執行者，綁定可更換的 daemon + harness 運行時。
 2. Session 屬於創建者，保存所有 agent 共用的消息和附件，不綁定執行者。
-3. 用戶發送消息並用 target_agent_ids @ 一個或多個 agent；空閒目標創建 run，忙碌目標收到插話，無目標時保存筆記。
+3. 用戶發送消息並用 to_agent_ids @ 一個或多個 agent；空閒目標創建 run，忙碌目標收到插話，無目標時保存筆記。
 4. Run 固定本次執行的運行時快照，以 attempt 和租約控制執行權。daemon 讀取共享歷史後啓動新的原生會話，完成時寫入帶署名的 assistant 消息。
 5. 工作包含協調者 session、線程 session 和共用說明；協調者 agent 配置屬於工作，執行期間使用作用域受限的工作令牌。
 

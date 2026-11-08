@@ -57,7 +57,7 @@ UUID 只用於標識，不承擔消息排序。目標結構用 messages.seq 保�
 
 ## 目標元數據與當前實現
 
-本文下列 SQL 定義元數據的目標命名和字段。物理對話表仍名爲 sessions，HTTP 入口仍爲 /api/sessions。Schema 4 的 conversation/message ID 均為 UUID，messages.seq 是對話內順序。to_agent_ids、to_user_ids、author_role 和獨立 attachments 列仍是目標設計；現行存儲的 Agent 目標字段仍為 run_agent_ids，發送接口仍使用 target_agent_ids，本次只調整本文設計。通用 fileService 的目錄/S3 後端已實現，不表示全部目標字段已部署。執行關係見 [server-run.md](server-run.md)。
+本文下列 SQL 定義元數據的目標命名和字段。物理對話表仍名爲 sessions，HTTP 入口仍爲 /api/sessions。Schema 5 的 conversation/message ID 均為 UUID，messages.seq 是對話內順序；to_agent_ids 和 to_user_ids 已在存儲、發送 API、SDK、CLI 和前端統一實現。發送接口接受 prompt 或 input，收件人字段與消息內容分開傳入。author_role 和獨立 attachments 列仍是目標設計；現行 role 使用 user/assistant。通用 fileService 的目錄/S3 後端已實現，不表示全部目標字段已部署。執行關係見 [server-run.md](server-run.md)。只接受新字段及 schema 5，不保留舊字段別名或數據遷移。
 
 ## 表結構
 
@@ -97,7 +97,7 @@ CREATE INDEX conversations_created_by
 
 service 校驗元素為非空 ID 字符串，分別去重，檢查 Agent 可在該 conversation 使用、用戶存在且有權讀取該 conversation。收件人字段不授予對話訪問權；消息仍屬於共享歷史，由 conversation 權限決定可見性，不因定向收件而變成私信。
 
-兩組收件人在消息首次入庫時固定，即使後續派發失敗、Agent 改名或 run 結束，也保留原始收件人。每條新回覆獨立指定收件人，不自動繼承父消息的收件人數組。
+兩組收件人在消息首次入庫時固定，即使後續派發失敗、Agent 改名或 run 結束，也保留原始收件人。每條新回覆獨立指定收件人，不自動繼承父消息的收件人數組。重複 ID 在保留首次出現順序的前提下去重；空 ID 或帶首尾空白的 ID 拒絕寫入。
 
 `attachments` 是 JSON 字符串數組，保存相對於當前 conversation 文件空間的路徑，用戶消息和 agent 回覆都可以攜帶。例如：
 
@@ -111,7 +111,7 @@ service 寫入時保證 user 消息只填 author_user_id，agent 消息填寫 au
 
 message 永遠回覆另一條 message，不回覆 run。`reply_to_message_id` 表示被回覆的消息，字段保存被回覆消息的 UUID，開頭的根消息爲空；後續用戶消息、agent 回覆都可以引用同 conversation 中已有的消息。messages 不保存 run_id，也不以 run 爲對話層級。
 
-`author_*` 表示誰發送，`to_*` 表示發給誰，`reply_to_message_id` 表示回覆哪條消息，三者獨立。寫入 Agent 最終回覆時，Server 明確填寫收件人；例如 user-alice 發給 coder 的消息，其 Agent 回覆可設 `to_user_ids=["user-alice"]`、`to_agent_ids=[]`。僅引用 reply_to_message_id 不會再次喚起父消息中的 Agent；要讓另一個 Agent 繼續處理，須在新消息的 to_agent_ids 中明確指定。
+`author_*` 表示誰發送，`to_*` 表示發給誰，`reply_to_message_id` 表示回覆哪條消息，三者獨立。寫入 Agent 最終回覆時，Server 明確填寫收件人；例如 user-alice 發給 coder 的消息，其 Agent 最終回覆設 `to_user_ids=["user-alice"]`、`to_agent_ids=[]`。僅引用 reply_to_message_id 不會再次喚起父消息中的 Agent；要讓另一個 Agent 繼續處理，須在新消息的 to_agent_ids 中明確指定。
 
 ```text
 M1：@coder @reviewer 修復並評審

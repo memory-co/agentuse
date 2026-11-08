@@ -124,7 +124,7 @@ func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversatio
 		if w.CoordinatorAgentID != "" {
 			targets = append(targets, w.CoordinatorAgentID)
 		}
-		if _, err = s.sendMultiTx(ctx, tx, User{ID: w.UserID}, coord, payload, targets, ""); err != nil {
+		if _, err = s.sendMultiTx(ctx, tx, User{ID: w.UserID}, coord, payload, targets, nil); err != nil {
 			return err
 		}
 	}

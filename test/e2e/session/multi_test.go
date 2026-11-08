@@ -93,7 +93,7 @@ func TestMultiAgentSession(t *testing.T) {
 	if _, err = c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "shared note"}); err != nil {
 		t.Fatal(err)
 	}
-	first, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:hold", TargetAgentIDs: []string{"coder"}})
+	first, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:hold", ToAgentIDs: []string{"coder"}})
 	if err != nil || len(first.Runs) != 0 || len(first.Deliveries) != 1 {
 		t.Fatal(first, err)
 	}
@@ -110,7 +110,7 @@ func TestMultiAgentSession(t *testing.T) {
 		}
 		return false
 	})
-	second, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:review", TargetAgentIDs: []string{"coder", "reviewer"}})
+	second, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:review", ToAgentIDs: []string{"coder", "reviewer"}})
 	if err != nil || len(second.Runs) != 0 || len(second.Deliveries) != 2 {
 		t.Fatal(second, err)
 	}
@@ -151,13 +151,14 @@ func TestMultiAgentSession(t *testing.T) {
 		}
 	}
 	// A new message is always new input, even if its text is identical.
-	again, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:review", TargetAgentIDs: []string{"reviewer"}})
+	again, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:review", ToAgentIDs: []string{"reviewer"}})
 	if err != nil || again.Message.ID == second.Message.ID {
 		t.Fatal(again, err)
 	}
 	if _, err = c.WaitMessageRuns(ctx, user, id, again.Message.ID, 30*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
+	testMultiSDKs(t, srv.URL, srv.AdminToken)
 }
 
 func ptrString(s string) *string { return &s }
@@ -169,19 +170,23 @@ func testMultiSDKs(t *testing.T, server, token string) {
 	}{
 		{"node", "node", ".mjs", fmt.Sprintf(`import {Client} from %q;
 import assert from 'node:assert/strict';const [baseUrl,token]=process.argv.slice(2);const c=new Client({baseUrl,token});
-const {session}=await c.createSession('alice',{mode:'multi_agent'});
-const req={prompt:'multi:sdk',target_agent_ids:['coder','reviewer']};const first=await c.sendMessage('alice',session.id,req,{idempotencyKey:'sdk'});
-assert.equal((await c.sendMessage('alice',session.id,req,{idempotencyKey:'sdk'})).message.id,first.message.id);
-const d=await c.waitMessageRuns('alice',session.id,first.message.id,{interval:30,timeout:10000});assert.equal(d.runs.length,2);assert.ok(d.runs.every(r=>r.status==='succeeded'));
+const created=await c.createSession('alice',{prompt:'FYI',to_user_ids:['alice']});const {session}=created;
+assert.deepEqual(created.message.to_agent_ids,[]);assert.deepEqual(created.message.to_user_ids,['alice']);assert.equal(session.status,'idle');assert.equal(created.deliveries.length,0);
+const req={prompt:'multi:sdk',to_agent_ids:['coder','reviewer'],to_user_ids:['alice']};const first=await c.sendMessage('alice',session.id,req);
+assert.deepEqual(first.message.to_agent_ids,req.to_agent_ids);assert.deepEqual(first.message.to_user_ids,req.to_user_ids);
+const d=await c.waitMessageRuns('alice',session.id,first.message.id,{interval:30,timeout:10000});assert.equal(d.runs.length,2);assert.ok(d.runs.every(r=>r.status==='completed'));
+assert.ok(d.messages.filter(m=>m.role==='assistant').every(m=>m.to_agent_ids.length===0 && m.to_user_ids.join(',')==='alice'));
 assert.equal((await c.getRun('alice',session.id,d.runs[0].id)).run.id,d.runs[0].id);
 `, filepath.Join(root, "sdk/nodejs/index.js")), nil},
 		{"python", "python3", ".py", `import sys
 from agentuse import Client
-c=Client(sys.argv[1],sys.argv[2]);s=c.create_session('alice',mode='multi_agent')['session']
-r=c.send_message('alice',s['id'],prompt='multi:sdk',target_agent_ids=['coder','reviewer'],idempotency_key='sdk')
-assert c.send_message('alice',s['id'],prompt='multi:sdk',target_agent_ids=['coder','reviewer'],idempotency_key='sdk')['message']['id']==r['message']['id']
+c=Client(sys.argv[1],sys.argv[2]);created=c.create_session('alice',prompt='FYI',to_user_ids=['alice']);s=created['session']
+assert s['status']=='idle' and created['deliveries']==[] and created['message']['to_agent_ids']==[] and created['message']['to_user_ids']==['alice']
+r=c.send_message('alice',s['id'],prompt='multi:sdk',to_agent_ids=['coder','reviewer'],to_user_ids=['alice'])
+assert r['message']['to_agent_ids']==['coder','reviewer'] and r['message']['to_user_ids']==['alice']
 d=c.wait_message_runs('alice',s['id'],r['message']['id'],interval=.03,timeout=10)
-assert len(d['runs'])==2 and all(x['status']=='succeeded' for x in d['runs'])
+assert len(d['runs'])==2 and all(x['status']=='completed' for x in d['runs'])
+assert all(m['to_agent_ids']==[] and m['to_user_ids']==['alice'] for m in d['messages'] if m['role']=='assistant')
 assert c.get_run('alice',s['id'],d['runs'][0]['id'])['run']['id']==d['runs'][0]['id']
 `, []string{"PYTHONPATH=" + filepath.Join(root, "sdk/python")}},
 	}
@@ -216,13 +221,13 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	created, err := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Mode: "multi_agent", Prompt: "wait-steer", TargetAgentIDs: []string{"native"}})
+	created, err := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Mode: "multi_agent", Prompt: "wait-steer", ToAgentIDs: []string{"native"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	id := created.Session.ID
 	e2eutil.WaitFor(t, 10*time.Second, "native started", func() bool { v, e := c.GetSession(ctx, user, id); return e == nil && len(v.Events) > 1 })
-	extra, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "补一个测试", TargetAgentIDs: []string{"native"}})
+	extra, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "补一个测试", ToAgentIDs: []string{"native"}})
 	if err != nil || len(extra.Runs) != 0 || len(extra.Deliveries) != 1 {
 		t.Fatal("native steer", extra, err)
 	}
@@ -236,7 +241,7 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 	if r := lastResult(t, detail); !r.OK || !strings.Contains(r.Output, "补一个测试") {
 		t.Fatal("native steer result", r)
 	}
-	ask, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "ask", TargetAgentIDs: []string{"native"}})
+	ask, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "ask", ToAgentIDs: []string{"native"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +281,7 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = c.SendMessage(ctx, user, work.Coordinator.ID, agentuse.MessageRequest{Prompt: "spawn worker multi:child", TargetAgentIDs: []string{"native"}}); err != nil {
+	if _, err = c.SendMessage(ctx, user, work.Coordinator.ID, agentuse.MessageRequest{Prompt: "spawn worker multi:child", ToAgentIDs: []string{"native"}}); err != nil {
 		t.Fatal(err)
 	}
 	e2eutil.WaitFor(t, 15*time.Second, "work aggregation", func() bool {

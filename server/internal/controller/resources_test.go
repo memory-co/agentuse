@@ -71,7 +71,7 @@ func TestSkillAPIAndAssignedDeviceDownload(t *testing.T) {
 	if _, err = device.GetSkillVersion(ctx, "", skill.ID, skill.CurrentVersionID); !agentuse.IsStatus(err, 404) {
 		t.Fatal("device read unassigned skill metadata", err)
 	}
-	_, _, err = e.st.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"test"}`), []string{a.ID}, "")
+	_, _, err = e.st.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"test"}`), []string{a.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestConversationFilesUseOwnNamespaceAndCleanup(t *testing.T) {
 	ctx := context.Background()
 	u, token := e.user("files", service.RoleUser)
 	_, other := e.user("other", service.RoleUser)
-	ss, _, err := e.st.CreateMultiSession(ctx, u, "", "files", nil, nil, "")
+	ss, _, err := e.st.CreateMultiSession(ctx, u, "", "files", nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

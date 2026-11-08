@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS messages (
   session_id TEXT NOT NULL,
   role       TEXT NOT NULL,
   content    TEXT NOT NULL,
-  author_user_id TEXT, author_agent_id TEXT, run_agent_ids TEXT NOT NULL DEFAULT '[]', reply_to_message_id TEXT, author_agent_version_id TEXT,
+  author_user_id TEXT, author_agent_id TEXT, to_agent_ids TEXT NOT NULL DEFAULT '[]', to_user_ids TEXT NOT NULL DEFAULT '[]', reply_to_message_id TEXT, author_agent_version_id TEXT,
   created_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS messages_session ON messages(session_id, seq);
@@ -120,11 +120,11 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if existing > 0 && revision != 4 {
+	if existing > 0 && revision != 5 {
 		db.Close()
 		return nil, errors.New("unsupported database schema: reset the database before starting this version")
 	}
-	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=4;"); err != nil {
+	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=5;"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("store: initialize: %w", err)
 	}

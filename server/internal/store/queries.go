@@ -106,7 +106,7 @@ const SessionCols = `SELECT id,user_id,created_by,work_id,
  CASE WHEN work_id IS NULL THEN '' WHEN EXISTS(SELECT 1 FROM works w WHERE w.coordinator_id=sessions.id) THEN 'coordinator' ELSE 'thread' END,
  title,status,created_at,updated_at,'multi_agent' FROM sessions`
 
-const MessageCols = `SELECT id,session_id,role,content,created_at,'',COALESCE(author_agent_id,''),COALESCE((SELECT name FROM agent_versions WHERE id=messages.author_agent_version_id),''),run_agent_ids,COALESCE(author_agent_version_id,''),seq FROM messages`
+const MessageCols = `SELECT id,session_id,role,content,created_at,'',COALESCE(author_agent_id,''),COALESCE((SELECT name FROM agent_versions WHERE id=messages.author_agent_version_id),''),to_agent_ids,to_user_ids,COALESCE(author_user_id,''),COALESCE(reply_to_message_id,''),COALESCE(author_agent_version_id,''),seq FROM messages`
 
 const GetSessionClause = ` WHERE id = ?`
 

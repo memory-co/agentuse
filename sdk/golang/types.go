@@ -97,12 +97,15 @@ type Session struct {
 }
 
 type Message struct {
+	AuthorUserID         string          `json:"author_user_id,omitempty"`
+	ReplyToMessageID     string          `json:"reply_to_message_id,omitempty"`
 	AuthorAgentVersionID string          `json:"author_agent_version_id,omitempty"`
 	Seq                  int64           `json:"seq"`
 	AgentKey             string          `json:"agent_key,omitempty"`
 	AgentName            string          `json:"agent_name,omitempty"`
 	RunID                string          `json:"run_id,omitempty"`
-	TargetAgentIDs       []string        `json:"target_agent_ids,omitempty"`
+	ToAgentIDs           []string        `json:"to_agent_ids"`
+	ToUserIDs            []string        `json:"to_user_ids"`
 	ID                   string          `json:"id"`
 	SessionID            string          `json:"session_id"`
 	Role                 string          `json:"role"` // user / assistant
@@ -126,19 +129,21 @@ type SessionEvent struct {
 
 // MessageRequest 是一条用户消息:给 Prompt 时内容是 {"prompt": …};给 Input 时原样交给 harness。
 type MessageRequest struct {
-	TargetAgentIDs []string `json:"target_agent_ids,omitempty"`
+	ToAgentIDs     []string `json:"to_agent_ids,omitempty"`
+	ToUserIDs      []string `json:"to_user_ids,omitempty"`
 	IdempotencyKey string   `json:"-"`
 	Prompt         string   `json:"prompt,omitempty"`
 	Input          any      `json:"input,omitempty"`
 }
 
 type CreateSessionRequest struct {
-	Mode           string   `json:"mode,omitempty"`
-	Title          string   `json:"title,omitempty"`
-	TargetAgentIDs []string `json:"target_agent_ids,omitempty"`
-	DeferStart     bool     `json:"defer_start,omitempty"`
-	Prompt         string   `json:"prompt,omitempty"`
-	Input          any      `json:"input,omitempty"`
+	Mode       string   `json:"mode,omitempty"`
+	Title      string   `json:"title,omitempty"`
+	ToAgentIDs []string `json:"to_agent_ids,omitempty"`
+	ToUserIDs  []string `json:"to_user_ids,omitempty"`
+	DeferStart bool     `json:"defer_start,omitempty"`
+	Prompt     string   `json:"prompt,omitempty"`
+	Input      any      `json:"input,omitempty"`
 }
 
 type CreateSessionResponse struct {

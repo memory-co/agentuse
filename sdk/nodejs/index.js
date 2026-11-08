@@ -126,7 +126,7 @@ export class Client {
 
   // sessions
   listSessions(user) { return this._request("GET", "/api/sessions", user); }
-  // 创建共享会话，可带首条消息与 target_agent_ids。
+  // 创建共享会话，可带首条消息与 to_agent_ids、to_user_ids。
   createSession(user, req) { return this._request("POST", "/api/sessions", user, req); }
   // 回复:{ prompt? , input? }。会话不是 idle 时抛 AgentuseError(409)。
   // 会话 idle 时返回 message;忙时是插话，返回 steer。

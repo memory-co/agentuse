@@ -99,7 +99,7 @@ func (s *Service) insertMulti(ctx context.Context, tx *sql.Tx, u User, work, tit
 	}
 	return s.getSession(ctx, tx, u, id)
 }
-func (s *Service) createMultiSession(ctx context.Context, u User, work, title string, input json.RawMessage, targets []string, _ string, _ ...bool) (Session, *MultiReply, error) {
+func (s *Service) createMultiSession(ctx context.Context, u User, work, title string, input json.RawMessage, toAgentIDs, toUserIDs []string) (Session, *MultiReply, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Session{}, nil, err
@@ -110,8 +110,11 @@ func (s *Service) createMultiSession(ctx context.Context, u User, work, title st
 		return ss, nil, err
 	}
 	var reply *MultiReply
+	if input == nil && (len(toAgentIDs) > 0 || len(toUserIDs) > 0) {
+		return ss, nil, fmt.Errorf("指定收件人时需要消息内容")
+	}
 	if input != nil {
-		r, e := s.sendMultiTx(ctx, tx, u, ss, input, targets, "")
+		r, e := s.sendMultiTx(ctx, tx, u, ss, input, toAgentIDs, toUserIDs)
 		if e != nil {
 			return ss, nil, e
 		}
@@ -123,7 +126,7 @@ func (s *Service) createMultiSession(ctx context.Context, u User, work, title st
 	}
 	return ss, reply, tx.Commit()
 }
-func (s *Service) sendMultiMessage(ctx context.Context, u User, conversation string, input json.RawMessage, targets []string, _ string, _ ...bool) (MultiReply, error) {
+func (s *Service) sendMultiMessage(ctx context.Context, u User, conversation string, input json.RawMessage, toAgentIDs, toUserIDs []string) (MultiReply, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return MultiReply{}, err
@@ -133,23 +136,26 @@ func (s *Service) sendMultiMessage(ctx context.Context, u User, conversation str
 	if err != nil {
 		return MultiReply{}, err
 	}
-	out, err := s.sendMultiTx(ctx, tx, u, ss, input, targets, "")
+	out, err := s.sendMultiTx(ctx, tx, u, ss, input, toAgentIDs, toUserIDs)
 	if err != nil {
 		return out, err
 	}
 	return out, tx.Commit()
 }
-func (s *Service) sendMultiTx(ctx context.Context, tx *sql.Tx, u User, ss Session, input json.RawMessage, targets []string, _ string, _ ...bool) (MultiReply, error) {
+func (s *Service) sendMultiTx(ctx context.Context, tx *sql.Tx, u User, ss Session, input json.RawMessage, toAgentIDs, toUserIDs []string) (MultiReply, error) {
 	if !json.Valid(input) {
 		return MultiReply{}, fmt.Errorf("invalid message")
 	}
-	seen := map[string]bool{}
+	toAgentIDs, err := recipientIDs(toAgentIDs)
+	if err != nil {
+		return MultiReply{}, err
+	}
+	toUserIDs, err = recipientIDs(toUserIDs)
+	if err != nil {
+		return MultiReply{}, err
+	}
 	agents := []Agent{}
-	for _, id := range targets {
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
+	for _, id := range toAgentIDs {
 		a, err := scanAgent(tx.QueryRowContext(ctx, agentCols+` WHERE id=?`, id))
 		if err != nil {
 			return MultiReply{}, err
@@ -162,14 +168,25 @@ func (s *Service) sendMultiTx(ctx context.Context, tx *sql.Tx, u User, ss Sessio
 		}
 		agents = append(agents, a)
 	}
+	for _, id := range toUserIDs {
+		recipient, err := store.ScanUser(tx.QueryRowContext(ctx, store.GetUserSelect, id))
+		if err != nil {
+			return MultiReply{}, err
+		}
+		if _, err = s.getSession(ctx, tx, recipient, ss.ID); err != nil {
+			return MultiReply{}, err
+		}
+	}
 	m, err := insertMessage(ctx, tx, ss.ID, RoleUserMsg, input, s.unix())
 	if err != nil {
 		return MultiReply{}, err
 	}
-	targetJSON, _ := json.Marshal(targets)
-	if _, err = tx.ExecContext(ctx, `UPDATE messages SET author_user_id=?,run_agent_ids=? WHERE id=?`, u.ID, string(targetJSON), m.ID); err != nil {
+	agentJSON, _ := json.Marshal(toAgentIDs)
+	userJSON, _ := json.Marshal(toUserIDs)
+	if _, err = tx.ExecContext(ctx, `UPDATE messages SET author_user_id=?,to_agent_ids=?,to_user_ids=? WHERE id=?`, u.ID, string(agentJSON), string(userJSON), m.ID); err != nil {
 		return MultiReply{}, err
 	}
+	m.AuthorUserID, m.ToAgentIDs, m.ToUserIDs = u.ID, toAgentIDs, toUserIDs
 	for _, a := range agents {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO message_agents(session_id,message_id,agent_id,agent_version_id,daemon_id,harness,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, ss.ID, m.ID, a.ID, a.CurrentVersionID, a.DaemonID, a.Harness, s.unix(), s.unix()); err != nil {
 			return MultiReply{}, err
@@ -192,6 +209,22 @@ func (s *Service) sendMultiTx(ctx context.Context, tx *sql.Tx, u User, ss Sessio
 	out := MultiReply{Message: &m, Runs: []Run{}}
 	out.Deliveries, err = deliveries(ctx, tx, `message_id=?`, m.ID)
 	return out, err
+}
+
+// recipientIDs preserves the explicit recipient order and stores omitted arrays as [].
+func recipientIDs(ids []string) ([]string, error) {
+	out := []string{}
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if id == "" || strings.TrimSpace(id) != id {
+			return nil, fmt.Errorf("收件人 ID 必须是非空且无首尾空格的字符串")
+		}
+		if !seen[id] {
+			out = append(out, id)
+			seen[id] = true
+		}
+	}
+	return out, nil
 }
 
 // Execution tables deliberately have no cascading database foreign keys.

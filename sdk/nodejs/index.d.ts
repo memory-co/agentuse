@@ -69,7 +69,7 @@ export interface Session {
 
 export interface Message {
  author_agent_version_id?:string;
- seq?:number;run_id?:string;agent_key?:string;agent_name?:string;target_agent_ids?:string[];
+ seq?:number;run_id?:string;agent_key?:string;agent_name?:string;author_user_id?:string;reply_to_message_id?:string;to_agent_ids:string[];to_user_ids:string[];
   id: string;
   session_id: string;
   role: "user" | "assistant";
@@ -112,7 +112,7 @@ export interface SessionDetail { runs?:Run[];deliveries?:Delivery[];run_counts?:
 // 网站的 user id;null 表示 admin 本身。
 export type UserId = string | null;
 
-export interface MessageInput { prompt?: string; input?: any; target_agent_ids?:string[]; }
+export interface MessageInput { prompt?: string; input?: any; to_agent_ids?:string[]; to_user_ids?:string[]; }
 
 export interface ClientOptions {
   baseUrl: string;

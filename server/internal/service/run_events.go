@@ -164,12 +164,21 @@ func (s *Service) ReportClientEvent(ctx context.Context, device string, envelope
 
 				// The final client result becomes one conversation reply, in this transaction.
 				if event.Status != "cancelled" {
+					var author string
+					if err := tx.QueryRowContext(ctx, `SELECT COALESCE(author_user_id,'') FROM messages WHERE id=?`, r.FirstMessageID).Scan(&author); err != nil {
+						return err
+					}
+					toUsers := []string{}
+					if author != "" {
+						toUsers = append(toUsers, author)
+					}
+					recipients, _ := json.Marshal(toUsers)
 					payload, _ := json.Marshal(map[string]any{"ok": event.Status == "completed", "output": event.Output, "error": event.Error, "result": json.RawMessage(envelope.Event)})
 					message, err := insertMessage(ctx, tx, r.SessionID, RoleAssistantMsg, payload, now)
 					if err != nil {
 						return err
 					}
-					if _, err = tx.ExecContext(ctx, `UPDATE messages SET author_agent_id=?,author_agent_version_id=?,reply_to_message_id=? WHERE id=?`, r.AgentID, r.AgentVersionID, r.FirstMessageID, message.ID); err != nil {
+					if _, err = tx.ExecContext(ctx, `UPDATE messages SET author_agent_id=?,author_agent_version_id=?,reply_to_message_id=?,to_user_ids=? WHERE id=?`, r.AgentID, r.AgentVersionID, r.FirstMessageID, string(recipients), message.ID); err != nil {
 						return err
 					}
 					if _, err = tx.ExecContext(ctx, `UPDATE runs SET result_message_id=? WHERE id=?`, message.ID, r.ID); err != nil {

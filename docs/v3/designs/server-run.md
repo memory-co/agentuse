@@ -52,7 +52,7 @@ answer 和 cancel 直接指定既有 run/session。控制 id 只用於傳輸去�
 | run_controls | answer/cancel 的傳輸收據，防止不確定控制被自動重做 |
 | work_run_tokens / run_notifications | Work 授權和匯總去重；直接關聯 message/Agent，不引用 prompt ID |
 
-只支持 schema 4，messages.id 及消息引用直接使用 UUID，messages.seq 保存 conversation 內順序。舊資料庫啟動時明確拒絕，必須使用新資料庫；不提供舊資料保留、遷移或 ID 轉換。
+只支持 schema 5，messages.id 及消息引用直接使用 UUID，messages.seq 保存 conversation 內順序。舊資料庫啟動時明確拒絕，必須使用新資料庫；不提供舊資料保留、遷移或 ID 轉換。
 
 Client 只讀取新版 message/Agent 收據，不轉換舊 inputs 或控制收據。升級時清空本地工作目錄並重新註冊設備。網路協議不向舊版 hello/claim/prompt 降級，Server 與 Client 必須一起更新。
 

@@ -46,7 +46,7 @@
 
 ## 多 agent 共享 session
 
-创建时显式传 mode=multi_agent，不传 agent_id。发送消息带 target_agent_ids，返回 message、runs、deliveries；先建立输入分配，实际 run 由 client accepted 决定。目标省略只保存笔记，不默认调用上次 agent。
+创建时显式传 mode=multi_agent，不传 agent_id。发送消息用 to_agent_ids 和 to_user_ids 指定 Agent 与用户收件人，返回 message、runs、deliveries；先建立输入分配，实际 run 由 client accepted 决定。只有 Agent 收件人会触发执行；用户必须已有会话读取权限。两组省略时均返回 []，只保存笔记，不默认调用上次 agent。
 
 三个 SDK 增加 get/cancel/wait run、wait message runs、reply run request 方法。等待一条消息完成要跟踪 deliveries（accepted 前 run_id 为空），不能只等最初返回的新 runs。WaitSession 对新模式默认等全部执行结束；returnOnWaiting / return_on_waiting / Go WaitOptions 可选择在提问时返回。
 

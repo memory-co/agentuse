@@ -69,7 +69,7 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	created, e := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Prompt: "hello", TargetAgentIDs: []string{a.ID}})
+	created, e := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Prompt: "hello", ToAgentIDs: []string{a.ID}})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -83,7 +83,7 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "again", TargetAgentIDs: []string{a.ID}}); e != nil {
+	if _, e = c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "again", ToAgentIDs: []string{a.ID}}); e != nil {
 		t.Fatal(e)
 	}
 	second := wait(t, c, user, id)
@@ -99,7 +99,7 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "new version", TargetAgentIDs: []string{a.ID}}); e != nil {
+	if _, e = c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "new version", ToAgentIDs: []string{a.ID}}); e != nil {
 		t.Fatal(e)
 	}
 	third := wait(t, c, user, id)

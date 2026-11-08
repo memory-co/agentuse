@@ -4,6 +4,7 @@ package controller
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -197,6 +198,18 @@ func readJSON(r *http.Request, v any) error {
 	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20))
 	if err := dec.Decode(v); err != nil {
 		return errors.New("请求体不是合法 JSON")
+	}
+	return nil
+}
+
+func readMessageJSON(r *http.Request, v any) error {
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	if err := dec.Decode(new(any)); err != io.EOF {
+		return errors.New("请求体必须是单个 JSON 对象")
 	}
 	return nil
 }

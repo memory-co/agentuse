@@ -38,7 +38,7 @@ func reportNative(t *testing.T, s *Service, d Daemon, p protocol.ConversationMes
 func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, reply, err := s.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"first"}`), []string{a.ID}, "")
+	ss, reply, err := s.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"first"}`), []string{a.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 	if err = s.ReportClientEvent(ctx, d.ID, event); err == nil {
 		t.Fatal("sequence conflict accepted")
 	}
-	if _, err = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"supplement"}`), []string{a.ID}, ""); err != nil {
+	if _, err = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"supplement"}`), []string{a.ID}, nil); err != nil {
 		t.Fatal(err)
 	}
 	p2, err := s.DispatchMessage(ctx, d)
@@ -79,12 +79,19 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 	if len(detail.Runs) != 1 || detail.Runs[0].Status != "completed" || detail.Runs[0].Output != "client result" || len(detail.Messages) != 3 {
 		t.Fatalf("bad projection: %+v", detail)
 	}
+	answer := detail.Messages[2]
+	if len(answer.ToAgentIDs) != 0 || len(answer.ToUserIDs) != 1 || answer.ToUserIDs[0] != u.ID || answer.ReplyToMessageID != reply.Message.ID || answer.AgentKey != a.ID {
+		t.Fatalf("final answer must explicitly address the first sender: %+v", answer)
+	}
+	if len(detail.Deliveries) != 2 || len(detail.Messages[0].ToAgentIDs) != 1 || detail.Messages[0].ToAgentIDs[0] != a.ID || len(detail.Messages[0].ToUserIDs) != 0 {
+		t.Fatal("result changed original recipients or scheduled another agent", detail)
+	}
 	for _, prompt := range detail.Deliveries {
 		if prompt.RunID != id || prompt.Status != "completed" {
 			t.Fatal(prompt)
 		}
 	}
-	if _, err = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"next"}`), []string{a.ID}, ""); err != nil {
+	if _, err = s.SendMultiMessage(ctx, u, ss.ID, json.RawMessage(`{"prompt":"next"}`), []string{a.ID}, nil); err != nil {
 		t.Fatal(err)
 	}
 	p3, _ := s.DispatchMessage(ctx, d)
@@ -98,7 +105,7 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 func TestClientRequestReplyCancelAndDisconnectAreAuthoritative(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, _, err := s.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"question"}`), []string{a.ID}, "")
+	ss, _, err := s.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"question"}`), []string{a.ID}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +144,7 @@ func TestClientRequestReplyCancelAndDisconnectAreAuthoritative(t *testing.T) {
 func TestClientEventsCannotCrossOwnershipOrRebindInputs(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, _, _ := s.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"first"}`), []string{a.ID}, "")
+	ss, _, _ := s.CreateMultiSession(ctx, u, "", "", json.RawMessage(`{"prompt":"first"}`), []string{a.ID}, nil)
 	p, _ := s.DispatchMessage(ctx, d)
 	id := uuid.NewString()
 	e := reportNative(t, s, d, p, "client-session", 1, acceptedEvent(id, "input", p.Content))

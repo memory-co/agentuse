@@ -377,16 +377,17 @@ func messageContent(input json.RawMessage, prompt string) (json.RawMessage, erro
 // handleCreateSession 建会话并发出第一条消息。
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Mode           string          `json:"mode"`
-		Title          string          `json:"title"`
-		TargetAgentIDs []string        `json:"target_agent_ids"`
-		DeferStart     bool            `json:"defer_start"`
-		AgentID        string          `json:"agent_id"`
-		WorkID         string          `json:"work_id"`
-		Input          json.RawMessage `json:"input"`
-		Prompt         *string         `json:"prompt"`
+		Mode       string          `json:"mode"`
+		Title      string          `json:"title"`
+		ToAgentIDs []string        `json:"to_agent_ids"`
+		ToUserIDs  []string        `json:"to_user_ids"`
+		DeferStart bool            `json:"defer_start"`
+		AgentID    string          `json:"agent_id"`
+		WorkID     string          `json:"work_id"`
+		Input      json.RawMessage `json:"input"`
+		Prompt     *string         `json:"prompt"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readMessageJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -394,20 +395,21 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "只支持 multi_agent session")
 		return
 	}
-	if req.DeferStart && (req.Prompt != nil || len(req.Input) > 0 || len(req.TargetAgentIDs) > 0) {
+	if req.DeferStart && (req.Prompt != nil || len(req.Input) > 0 || len(req.ToAgentIDs) > 0 || len(req.ToUserIDs) > 0) {
 		writeErr(w, 400, "defer_start 不能同时发送任务")
 		return
 	}
-	s.createMultiSession(w, r, req.WorkID, req.Title, req.AgentID, req.Input, req.Prompt, req.TargetAgentIDs)
+	s.createMultiSession(w, r, req.WorkID, req.Title, req.AgentID, req.Input, req.Prompt, req.ToAgentIDs, req.ToUserIDs)
 }
 
 func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TargetAgentIDs []string        `json:"target_agent_ids"`
-		Input          json.RawMessage `json:"input"`
-		Prompt         string          `json:"prompt"`
+		ToAgentIDs []string        `json:"to_agent_ids"`
+		ToUserIDs  []string        `json:"to_user_ids"`
+		Input      json.RawMessage `json:"input"`
+		Prompt     string          `json:"prompt"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readMessageJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -420,7 +422,7 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, id) {
 		return
 	}
-	reply, err := s.service.SendMultiMessage(r.Context(), u, id, content, req.TargetAgentIDs, r.Header.Get("Idempotency-Key"), len(req.Input) == 0)
+	reply, err := s.service.SendMultiMessage(r.Context(), u, id, content, req.ToAgentIDs, req.ToUserIDs)
 	if err != nil {
 		s.storeErr(w, err)
 		return

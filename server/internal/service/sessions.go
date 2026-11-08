@@ -34,7 +34,7 @@ func insertMessage(ctx context.Context, tx *sql.Tx, sessionID, role string, cont
 	if err != nil {
 		return Message{}, err
 	}
-	return Message{ID: id, Seq: seq, SessionID: sessionID, Role: role, Content: content, CreatedAt: now}, nil
+	return Message{ID: id, Seq: seq, SessionID: sessionID, Role: role, Content: content, CreatedAt: now, ToAgentIDs: []string{}, ToUserIDs: []string{}}, nil
 }
 
 func (s *Service) scanSession(row scanner) (Session, error) { return store.ScanSession(row) }

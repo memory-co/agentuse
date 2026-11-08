@@ -270,16 +270,16 @@ class Client:
     def list_sessions(self, user):
         return self._request("GET", "/api/sessions", user)
 
-    def create_session(self, user, prompt=None, input=None, defer_start=None, mode=None, title=None, target_agent_ids=None):
-        """创建共享会话，可用 target_agent_ids 指定首条消息的执行者。"""
+    def create_session(self, user, prompt=None, input=None, defer_start=None, mode=None, title=None, to_agent_ids=None, to_user_ids=None):
+        """创建共享会话；首条消息可指定 Agent 和用户收件人。"""
         return self._request(
-            "POST", "/api/sessions", user, _drop_none(prompt=prompt, input=input, defer_start=defer_start, mode=mode, title=title, target_agent_ids=target_agent_ids)
+            "POST", "/api/sessions", user, _drop_none(prompt=prompt, input=input, defer_start=defer_start, mode=mode, title=title, to_agent_ids=to_agent_ids, to_user_ids=to_user_ids)
         )
 
-    def send_message(self, user, session_id, prompt=None, input=None, target_agent_ids=None, idempotency_key=None):
+    def send_message(self, user, session_id, prompt=None, input=None, to_agent_ids=None, to_user_ids=None, idempotency_key=None):
         """发送共享消息；返回 message、runs 和 deliveries。"""
         return self._request(
-            "POST", f"/api/sessions/{_q(session_id)}/messages", user, _drop_none(prompt=prompt, input=input, target_agent_ids=target_agent_ids), extra_headers={"Idempotency-Key": idempotency_key} if idempotency_key else None
+            "POST", f"/api/sessions/{_q(session_id)}/messages", user, _drop_none(prompt=prompt, input=input, to_agent_ids=to_agent_ids, to_user_ids=to_user_ids), extra_headers={"Idempotency-Key": idempotency_key} if idempotency_key else None
         )
 
     def get_session(self, user, session_id):

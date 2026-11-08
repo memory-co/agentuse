@@ -97,7 +97,7 @@ agentuse harnesses                                      # 本机检测到的 har
 | DELETE | `/api/daemons/{id}` | 删除 |
 | GET / POST | `/api/agents` | 列 agent / 建 agent `{"id":"code-helper","name":"写代码助手","daemon_id":"dm_…","harness":"claude"}`(id 全局唯一) |
 | PATCH / DELETE | `/api/agents/{id}` | 改名字、切换运行时 `{"daemon_id":"dm_…","harness":"codex"}` / 删除 |
-| GET / POST | `/api/sessions` | 列会话 / 开会话 `{"target_agent_ids":["code-helper"],"prompt":"…"}` |
+| GET / POST | `/api/sessions` | 列会话 / 开会话 `{"to_agent_ids":["code-helper"],"prompt":"…"}` |
 | POST | `/api/sessions/{id}/messages` | 回复 `{"prompt":"…"}`,harness 还没回时 409 |
 | GET / DELETE | `/api/sessions/{id}` | 会话详情(消息和回报) / 删除 |
 | GET / POST | `/api/harnesses` | 列 harness / 注册自定义 harness |
@@ -180,7 +180,7 @@ agentuse attachment download at_xxx --output ./report.pdf
 用上面的 body 创建 session 后，向 `/api/sessions/{id}/messages` 发送：
 
 ```json
-{"prompt":"分别看看实现和风险","target_agent_ids":["coder","reviewer"]}
+{"prompt":"分别看看实现和风险","to_agent_ids":["coder","reviewer"],"to_user_ids":["alice"]}
 ```
 
 返回 `{message, runs, deliveries}`。也支持 `agentuse session send ss_xxx --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有会话统一使用共享模型，未传 mode 也创建 multi_agent。需要服务端和 client 一起升级（`harnessctl-events-v1`）。[设计](docs/v2/designs/session-mentions.md) · [API](docs/v2/apis/sessions.md)。
@@ -233,4 +233,6 @@ Agent 指令与 skills 由 Client 按固定版本 API 获取，通过 init 保�
 
 ### 执行协议升级
 
-Server/client 使用 `agentuse-client/2`：Server 直接投递 conversation message 和目标 Agent，Client 按需获取固定版本配置与 skills 并在本地 init，适配器通过 accepted 返回真实 run UUID。只支持数据库 schema 4 和新版消息收据，不保留旧数据迁移或兼容逻辑。升级需重建 Server 数据库、清空 Client 本地工作目录并重新初始化、注册设备；两端必须一起更新。详见 [协议](docs/v3/designs/protocol.md) 和 [server-run 设计](docs/v3/designs/server-run.md)。
+消息使用 `to_agent_ids` 和 `to_user_ids` 指定收件人：只有 Agent 收件人触发执行，用户收件人必须已有会话读取权限，两组省略时均为 `[]`。CLI 通过 `--agents`、`--users` 分别指定；不保留旧字段别名。
+
+Server/client 使用 `agentuse-client/2`：Server 直接投递 conversation message 和目标 Agent，Client 按需获取固定版本配置与 skills 并在本地 init，适配器通过 accepted 返回真实 run UUID。只支持数据库 schema 5 和新版消息收据，不保留旧数据迁移或兼容逻辑。升级需重建 Server 数据库、清空 Client 本地工作目录并重新初始化、注册设备；两端必须一起更新。详见 [协议](docs/v3/designs/protocol.md) 和 [server-run 设计](docs/v3/designs/server-run.md)。

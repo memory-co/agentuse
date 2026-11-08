@@ -24,7 +24,7 @@ coder：已實現，產物見附件……
 | 對象 | 職責 | 關鍵字段 |
 |---|---|---|
 | session | 所有執行者共用的對話、附件、歸屬和完成標記 | id、user_id、created_by、work_id、title、resolved_at |
-| message | 一條共享消息及其作者、目標 | id、session_id、seq、role、target_agent_ids、run_id（assistant）、agent_key、agent_name、content |
+| message | 一條共享消息及其作者、目標 | id、session_id、seq、role、to_agent_ids、run_id（assistant）、agent_key、agent_name、content |
 | session_run | 一條用戶消息交給一個 agent 的一次邏輯執行 | id、session_id、message_id、agent_id、agent_key、agent_name、daemon_id、harness、status、attempt_id、lease_until、result_message_id |
 
 - 一條消息 @ 三個 agent，保存一條 user message 和三個目標投遞關係；空閒目標新建 run，忙碌目標複用其未結束 run 作爲插話。消息和附件仍只有一份。
@@ -39,7 +39,7 @@ coder：已實現，產物見附件……
 
 界面輸入 `@` 後搜索 agent，選擇後生成攜帶 agent_id 的 mention。顯示名可以重複，服務端路由始終使用全局唯一的 agent_id。
 
-HTTP 請求使用 `target_agent_ids`，服務端不從 prompt 字符串猜目標。郵件地址、代碼塊、引用、附件和 agent 回覆裏的 `@` 不會意外派活；腳本調用 agent 必須傳結構化目標。
+HTTP 請求使用 `to_agent_ids`，服務端不從 prompt 字符串猜目標。郵件地址、代碼塊、引用、附件和 agent 回覆裏的 `@` 不會意外派活；腳本調用 agent 必須傳結構化目標。
 
 - 目標非空：對每個 agent 分別判斷當前 session 中是否有未結束 run。沒有則創建 run；已有 pending/running/waiting run 則把這條消息作爲插話關聯到它，不再創建第二個 run。
 - 同一條消息可以同時是給 A 的插話、給 B 的新任務。只檢查這個 session 中該 agent 的執行，不會插到它在另一個 session 的任務裏。
@@ -67,7 +67,7 @@ Content-Type: application/json
 
 {
   "prompt":"看一下附件裏的需求，分別說說實現和風險。",
-  "target_agent_ids":["coder","reviewer"]
+  "to_agent_ids":["coder","reviewer"]
 }
 ```
 
@@ -75,7 +75,7 @@ Content-Type: application/json
 
 ```json
 {
-  "message":{"id":31,"seq":12,"role":"user","target_agent_ids":["coder","reviewer"],"content":{"prompt":"…"}},
+  "message":{"id":31,"seq":12,"role":"user","to_agent_ids":["coder","reviewer"],"content":{"prompt":"…"}},
   "runs":[
     {"id":"sr_1","message_id":31,"agent_id":"coder","status":"pending"}
   ],
@@ -95,7 +95,7 @@ runs 只列本次新建的執行，deliveries 列每個目標的投遞方式和�
 | `POST /api/sessions/{id}/runs/{run_id}/cancel` | 取消排隊或執行中的 run；重複取消返回同一狀態，已成功/失敗的 run 返回 409 |
 | `POST /api/sessions/{id}/runs/{run_id}/questions/{qid}/answer` | 回答指定 run 的提問，不能跨 run 回答 |
 
-插話也只走 `POST /api/sessions/{id}/messages` 和 target_agent_ids，不單獨暴露 steers 寫接口。內部 steer 仍用於將消息送進正在運行的 harness。
+插話也只走 `POST /api/sessions/{id}/messages` 和 to_agent_ids，不單獨暴露 steers 寫接口。內部 steer 仍用於將消息送進正在運行的 harness。
 
 不提供 session 下的 agent 加入、退出、激活或 rebind 接口。歷史上調用過哪些 agent，由消息和 run 派生展示，不成爲權限或調度依據。
 
@@ -209,7 +209,7 @@ hello 增加 `session-runs-v1` 能力；有附件的執行另要求 `attachments
 ## 工作、插話和提問
 
 - work 的 coordinator_id 繼續指向 session，協調角色改由 work 上的 coordinator_agent_id 指定。它是 work 的調度配置，不把該 session 綁定爲只能用這個 agent。
-- 工作頁輸入框默認選中協調 agent，並顯式發送 target_agent_ids；在這個 session 中也能 @ 其他 agent。只有以該 work 的協調 agent 身份執行的 run 纔得到工作令牌。
+- 工作頁輸入框默認選中協調 agent，並顯式發送 to_agent_ids；在這個 session 中也能 @ 其他 agent。只有以該 work 的協調 agent 身份執行的 run 纔得到工作令牌。
 - 工作令牌綁定當前 run/attempt，隨該執行結束失效；不能擴展到其他工作或普通 session。自動通知協調者時，服務顯式創建以 coordinator_agent_id 爲目標的消息/run，不依賴 session 的默認 agent。
 - 線程的一條消息有多個目標時，等它各目標的投遞得到最終結果後向協調者發一次彙總，逐個署名列結果、失敗或取消原因。插話複用已有 run 的結果；沒送達而改掛後續 run 的目標，等後續執行結束。結束事務先處理未送達消息的改掛，再判斷是否彙總，不能把舊 run 的結束誤當成補充消息已完成。按 `(thread_session_id, message_id)` 去重；仍有離線 pending run 時繼續顯示等待，可以單獨取消。
 - steer/question 通過 run_id/attempt_id 歸屬到具體執行，提問、回答和超時處理不影響其他 run。用戶統一用 messages 接口發消息並 @ agent，服務爲忙碌目標生成內部 steer，提問回答仍使用對應 run/question 的接口。

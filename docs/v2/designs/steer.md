@@ -1,6 +1,6 @@
 # 插話
 
-插話通過 `POST /api/sessions/{id}/messages` 發送，消息包含 prompt 與 target_agent_ids。
+插話通過 `POST /api/sessions/{id}/messages` 發送，消息包含 prompt 與 to_agent_ids。
 
 每個目標獨立路由：沒有活動執行時創建 run；已有 pending/running/waiting run 時記錄 steer delivery。尚未啓動的執行將文本補充合入初始輸入，運行中的執行通過內部 steer 推送。
 

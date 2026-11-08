@@ -60,11 +60,11 @@ func TestMessageProtocolPushAcceptanceAndReplay(t *testing.T) {
 		t.Fatal(ack)
 	}
 	client := agentuse.New(f.e.ts.URL, f.token)
-	first, e := client.SendMessage(ctx, "", f.session.ID, agentuse.MessageRequest{Prompt: "first", TargetAgentIDs: []string{f.agent}})
+	first, e := client.SendMessage(ctx, "", f.session.ID, agentuse.MessageRequest{Prompt: "first", ToAgentIDs: []string{f.agent}})
 	if e != nil {
 		t.Fatal(e)
 	}
-	second, e := client.SendMessage(ctx, "", f.session.ID, agentuse.MessageRequest{Prompt: "second", TargetAgentIDs: []string{f.agent}})
+	second, e := client.SendMessage(ctx, "", f.session.ID, agentuse.MessageRequest{Prompt: "second", ToAgentIDs: []string{f.agent}})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -127,7 +127,7 @@ func TestMessageProtocolPushAcceptanceAndReplay(t *testing.T) {
 		}
 	}
 	send(protocol.Message{Type: protocol.TypeAck, ID: next.ID, Status: protocol.AckUnknown, Error: "send may have been accepted"})
-	third, e := client.SendMessage(ctx, "", f.session.ID, agentuse.MessageRequest{Prompt: "third", TargetAgentIDs: []string{f.agent}})
+	third, e := client.SendMessage(ctx, "", f.session.ID, agentuse.MessageRequest{Prompt: "third", ToAgentIDs: []string{f.agent}})
 	if e != nil {
 		t.Fatal(e)
 	}

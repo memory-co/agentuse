@@ -23,7 +23,7 @@ _, err = c.SetDaemonHarness(ctx, uid, d.ID, "claude", true)
 a, err := c.CreateAgent(ctx, uid, agentuse.CreateAgentRequest{ID: "code-helper", Name: "写代码", DaemonID: d.ID, Harness: "claude"})
 
 // 用这个 agent 发起任务，等它回完(用 ctx 控制超时)
-r, err := c.CreateSession(ctx, uid, agentuse.CreateSessionRequest{TargetAgentIDs: []string{a.ID}, Prompt: "修一下 README 的错别字"})
+r, err := c.CreateSession(ctx, uid, agentuse.CreateSessionRequest{ToAgentIDs: []string{a.ID}, Prompt: "修一下 README 的错别字"})
 wctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 defer cancel()
 detail, err := c.WaitSession(wctx, uid, r.Session.ID, 2*time.Second)
@@ -68,10 +68,19 @@ _, err = io.Copy(destination, r)
 ss, err := c.CreateSession(ctx, user, agentuse.CreateSessionRequest{Mode: "multi_agent"})
 if err != nil { return err }
 reply, err := c.SendMessage(ctx, user, ss.Session.ID, agentuse.MessageRequest{
-    Prompt: "分别看看实现与风险", TargetAgentIDs: []string{"coder", "reviewer"},
+    Prompt: "分别看看实现与风险", ToAgentIDs: []string{"coder", "reviewer"},
 })
 if err != nil { return err }
 detail, err := c.WaitMessageRuns(ctx, user, ss.Session.ID, reply.Message.ID, time.Second)
 ```
 
 Reply.Deliveries 是各目标输入分配，accepted 前 Reply.Runs 可以为空。实际 UUID 及插话归属由 client 决定。另有 GetRun、WaitRun、CancelRun、ReplyRunRequest。新模式 WaitSession 默认等全部执行终态，可传 WaitOptions{ReturnOnWaiting:true}。
+
+消息使用 `to_agent_ids` 和 `to_user_ids`，可同时指定；返回值始终包含这两组数组。只接受新字段，不保留旧字段别名。
+
+```go
+// 只发给已有会话读取权限的用户，不启动 Agent。
+r, err := c.SendMessage(ctx, uid, sessionID, agentuse.MessageRequest{
+    Prompt: "请查看结果", ToUserIDs: []string{uid},
+})
+```

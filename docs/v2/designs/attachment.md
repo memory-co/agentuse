@@ -20,7 +20,7 @@
 
 ## 先建空會話
 
-`POST /api/sessions` 發送 `{}` 即可創建 idle 空會話，上傳文件後，再用 messages 攜帶 target_agent_ids 開始執行。工作協調者也從空會話開始；線程使用 `agentuse work new --defer-start`，上傳後 `agentuse work send --agents <目標> <session> "任務"`。
+`POST /api/sessions` 發送 `{}` 即可創建 idle 空會話，上傳文件後，再用 messages 攜帶 to_agent_ids 開始執行。工作協調者也從空會話開始；線程使用 `agentuse work new --defer-start`，上傳後 `agentuse work send --agents <目標> <session> "任務"`。
 
 ## HTTP 和權限
 
