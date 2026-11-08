@@ -41,6 +41,7 @@ func contextProof(hold bool) (string, error) {
 		RunID          string            `json:"run_id"`
 		SessionID      string            `json:"session_id"`
 		ConversationID string            `json:"conversation_id"`
+		Workspace      string            `json:"workspace"`
 		Inputs         []json.RawMessage `json:"inputs"`
 	}
 	if err = json.Unmarshal(input, &view); err != nil {
@@ -58,7 +59,8 @@ func contextProof(hold bool) (string, error) {
 	}
 	var attachments struct {
 		Attachments []struct {
-			ID string `json:"id"`
+			ID           string `json:"id"`
+			RelativePath string `json:"relative_path"`
 		} `json:"attachments"`
 	}
 	if err = json.Unmarshal(files, &attachments); err != nil {
@@ -73,7 +75,17 @@ func contextProof(hold bool) (string, error) {
 	if err = json.Unmarshal(view.Inputs[0], &firstInput); err != nil || len(firstInput.AttachmentIDs) == 0 {
 		return "", fmt.Errorf("missing current message attachment")
 	}
-	file, err := call("attachment", "read", firstInput.AttachmentIDs[0])
+	var relativePath string
+	for _, file := range attachments.Attachments {
+		if file.ID == firstInput.AttachmentIDs[0] {
+			relativePath = file.RelativePath
+			break
+		}
+	}
+	if relativePath == "" {
+		return "", fmt.Errorf("missing current message attachment path")
+	}
+	file, err := call("attachment", "download", relativePath)
 	if err != nil {
 		return "", err
 	}
@@ -85,7 +97,7 @@ func contextProof(hold bool) (string, error) {
 		return "", err
 	}
 	image, err := os.ReadFile(attachment.LocalPath)
-	if err != nil || attachment.MIMEType != "image/png" {
+	if err != nil || attachment.MIMEType != "image/png" || attachment.LocalPath != filepath.Join(view.Workspace, filepath.FromSlash(relativePath)) {
 		return "", fmt.Errorf("image unavailable: %v", err)
 	}
 	digest := sha256.Sum256(image)
@@ -98,8 +110,8 @@ func contextProof(hold bool) (string, error) {
 			return "", fmt.Errorf("management command exposed in context help")
 		}
 	}
-	if future, err := os.ReadFile("future-file-id"); err == nil && hold {
-		if _, err = call("attachment", "read", strings.TrimSpace(string(future))); err != nil {
+	if future, err := os.ReadFile("future-file-path"); err == nil && hold {
+		if _, err = call("attachment", "download", strings.TrimSpace(string(future))); err != nil {
 			return "", fmt.Errorf("conversation attachment unavailable: %w", err)
 		}
 	}
@@ -120,6 +132,7 @@ func contextProof(hold bool) (string, error) {
 		RunID          string `json:"run_id"`
 		ConversationID string `json:"conversation_id"`
 		Direction      string `json:"direction"`
+		RelativePath   string `json:"relative_path"`
 	}
 	if err = json.Unmarshal(uploaded, &output); err != nil || output.RunID != view.RunID || output.ConversationID != view.ConversationID || output.Direction != "output" {
 		return "", fmt.Errorf("upload lost its run binding: %v", err)
@@ -128,7 +141,7 @@ func contextProof(hold bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	saved, err := call("attachment", "read", output.ID)
+	saved, err := call("attachment", "download", output.RelativePath)
 	if err != nil {
 		return "", err
 	}

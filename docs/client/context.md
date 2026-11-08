@@ -52,13 +52,15 @@ context attachment list
 
 列表以 Server 為準，包含歷史消息、補齊消息及後續上傳的文件；不依賴本地 run 附件收據。
 
-## 讀取圖片或其他文件
+## 下載圖片或其他文件
 
 ```bash
-context attachment read FILE_ID
+context attachment download user_input/截图.png
 ```
 
-命令從 Server 取得該 conversation 的文件元資料，按需下載、校驗大小和 SHA-256，返回 `local_path = workspace/<relative_path>`。例如 Server 的 `user_input/截圖.png` 就保存到 `/絕對路徑/workspace/user_input/截圖.png`。不提前下載，也不另建隱藏附件目錄；已下載且校驗一致的文件可重用。
+參數是 conversation 文件樹中的完整相對路徑，即 `list` 返回的 `relative_path`，不使用附件 ID。路徑包含空格時用引號包住，例如 `context attachment download "user_input/会议 截图.png"`。不接受絕對路徑或 `..` 等越界路徑。
+
+命令從 Server 按路徑查找文件，下載並校驗大小和 SHA-256，返回 `local_path = workspace/<relative_path>`。例如 `user_input/截图.png` 保存到 `/絕對路徑/workspace/user_input/截图.png`。目標始終是 context 綁定的 workspace，從其他工作目錄調用也一樣。目錄不存在時自動建立；已下載且校驗一致的文件重用，缺失或損壞時重新下載。
 圖片用模型原生看圖工具讀取 `local_path`，例如 Codex 的 `view_image` 或 Claude Code 的 `Read`。文本、PDF 等文件使用模型已有的文件工具。命令返回的 JSON 本身只提供文件信息。
 
 ## 上傳輸出文件
@@ -102,8 +104,8 @@ Client 爲本機 session 生成描述文件：
 
 ```bash
 agentuse context --path /絕對路徑/context.json --run RUN_UUID input
-agentuse context --path /絕對路徑/context.json --run RUN_UUID attachment list
-agentuse context --path /絕對路徑/context.json --run RUN_UUID attachment read FILE_ID
+agentuse context --path /絕對路徑/context.json attachment list
+agentuse context --path /絕對路徑/context.json attachment download user_input/截图.png
 agentuse context enter --path /絕對路徑/context.json --run RUN_UUID
 # 進入後：
 context input
@@ -113,14 +115,14 @@ exit
 
 `--path` 默認讀取 `AGENTUSE_CONTEXT`；省略 `--run` 時詢問適配器當前執行。`enter` 使用 `$SHELL`，未設置時使用 `/bin/sh`，工作目錄切換到 conversation workspace，並通過 `AGENTUSE_CONTEXT_RUN` 固定所選 run。裸 `context` 不提供切換 Server、session 或 run 的參數。
 
-文件保留期間可以顯式讀取歷史輸入和輸出；查詢輸出需要 Server 可用，已經緩存的輸入可以按 ID 在本機讀取。歷史 run 的上傳會被拒絕。上下文文件和緩存隨 conversation quota 回收。本地調試支持輸入讀取，沒有 Server 上傳目標。
+文件保留期間可以下載歷史輸入和輸出；列表及按路徑查找需要 Server 可用。歷史 run 的上傳會被拒絕。上下文文件和下載的文件隨 conversation quota 回收。本地調試支持輸入讀取，沒有 Server 文件傳輸目標。
 
 ## Server 業務工具
 
 Work 的協調、跨設備派發和工作授權由 Server 負責。協調 Agent 按 Server 隨消息提供的說明獲取獨立工具；Client 和 context 不判斷 Work 角色。操作其他線程的業務行爲見 [Server Work 手冊](../server/work.md)。
 
-遠端 conversation 管理使用 `agentuse conversation`。文件操作統一爲 `context attachment list/read/upload`；移除頂層 `agentuse attachment`、舊 `context attachments` 和省略 read 的入口，不保留別名。
+遠端 conversation 管理使用 `agentuse conversation`。文件操作統一爲 `context attachment list/download/upload`；下載只按路徑選擇文件，舊的 `read FILE_ID` 入口不保留。頂層 `agentuse attachment`、舊 `context attachments` 和省略子命令的入口也已移除。
 
 命令成功時退出碼爲 `0`，執行或存儲錯誤爲 `1`，參數錯誤爲 `2`。其他管理命令見 [Client CLI](cli.md)。
 
-`attachment list/read` 只需 context 描述文件，不需要活躍 run，也不按 `--run` 過濾；`input/upload/enter` 仍綁定實際 run。
+`attachment list/download` 只需 context 描述文件，不需要活躍 run，也不按 `--run` 過濾；`input/upload/enter` 仍綁定實際 run。

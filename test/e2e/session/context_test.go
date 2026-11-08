@@ -139,7 +139,7 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 					detail, err := c.GetSession(ctx, user, conversation)
 					return err == nil && len(detail.Runs) == 2
 				})
-				if err = os.WriteFile(filepath.Join(workspace, "future-file-id"), []byte(future.ID), 0600); err != nil {
+				if err = os.WriteFile(filepath.Join(workspace, "future-file-path"), []byte(future.RelativePath), 0600); err != nil {
 					t.Fatal(err)
 				}
 				if err = os.WriteFile(filepath.Join(workspace, "context-release"), []byte("go"), 0600); err != nil {
@@ -200,6 +200,26 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 			}
 			if err = json.Unmarshal([]byte(e2eutil.MustRun(t, inspect)), &selected); err != nil || selected.RunID != run.ID {
 				t.Fatal("human context selection failed", selected, err)
+			}
+			// File commands use conversation paths and the bound workspace, even
+			// from another working directory and after this run has completed.
+			if err = os.Remove(proof.File.LocalPath); err != nil {
+				t.Fatal(err)
+			}
+			fetch := exec.Command(cli, "context", "--path", path, "attachment", "download", attachment.RelativePath)
+			fetch.Env = e2eutil.Env(home)
+			fetch.Dir = t.TempDir()
+			var downloaded struct {
+				LocalPath string `json:"local_path"`
+			}
+			if err = json.Unmarshal([]byte(e2eutil.MustRun(t, fetch)), &downloaded); err != nil || downloaded.LocalPath != proof.File.LocalPath {
+				t.Fatal("download ignored context workspace", downloaded, err)
+			}
+			if data, e := os.ReadFile(downloaded.LocalPath); e != nil || !bytes.Equal(data, image) {
+				t.Fatal("downloaded image differs", e)
+			}
+			if _, e := os.Stat(filepath.Join(fetch.Dir, filepath.FromSlash(attachment.RelativePath))); !os.IsNotExist(e) {
+				t.Fatal("download wrote to caller directory", e)
 			}
 			shell := filepath.Join(t.TempDir(), "shell")
 			if err = os.WriteFile(shell, []byte("#!/bin/sh\ncontext input\n"), 0700); err != nil {

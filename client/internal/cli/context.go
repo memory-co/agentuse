@@ -13,26 +13,27 @@ import (
 	"github.com/memory-co/agentuse/internal/command"
 )
 
-const contextUsage = `context —— 当前 run 的输入与文件
+const contextUsage = `context —— 当前 run 的输入与 conversation 文件
 
 用法:
-  context input                 读取已受理的输入，包括补充消息
-  context attachment list        列出当前输入和本次 run 上传的输出文件
-  context attachment read FILE_ID 校验并取得文件的本地路径和 MIME 类型
-  context attachment upload FILE  上传输出文件，自动关联当前 conversation/run
-  context --help                查看可用能力
+  context input                     读取已受理的输入，包括补充消息
+  context attachment list           列出整个 conversation 的附件
+  context attachment download PATH  下载到 workspace 内的对应相对路径
+  context attachment upload FILE    上传输出文件，自动关联当前 conversation/run
+  context --help                    查看可用能力
 `
 const humanContextUsage = `agentuse context —— 访问或进入本机执行上下文
 
 用法:
   agentuse context [--path CONTEXT_JSON] [--run RUN_UUID] input
-  agentuse context [--path CONTEXT_JSON] [--run RUN_UUID] attachment list
-  agentuse context [--path CONTEXT_JSON] [--run RUN_UUID] attachment read FILE_ID
+  agentuse context [--path CONTEXT_JSON] attachment list
+  agentuse context [--path CONTEXT_JSON] attachment download PATH
   agentuse context [--path CONTEXT_JSON] [--run RUN_UUID] attachment upload FILE
   agentuse context [--path CONTEXT_JSON] [--run RUN_UUID] enter
 
---path 默认读取 AGENTUSE_CONTEXT；未指定 run 时由原生适配器的 status 确认当前执行。
-历史 run 需要显式 --run。enter 打开已绑定该 run 的 shell，里面可直接使用 context。
+--path 默认读取 AGENTUSE_CONTEXT。attachment list/download 不需要活跃 run。
+input/upload/enter 未指定 run 时由原生适配器的 status 确认当前执行；历史 run 需要显式 --run。
+enter 打开已绑定该 run 的 shell，里面可直接使用 context。
 `
 
 func ContextMain(args []string) int  { return command.ExitCode(contextCommand(args, true)) }
@@ -97,16 +98,16 @@ func contextCommand(args []string, bound bool) error {
 		}
 	case "attachment":
 		if len(rest) < 2 {
-			return command.UsageErr("context attachment list | read FILE_ID | upload FILE")
+			return command.UsageErr("context attachment list | download PATH | upload FILE")
 		}
 		switch rest[1] {
 		case "list":
 			if len(rest) != 2 {
 				return command.UsageErr("context attachment list 不接受额外参数")
 			}
-		case "read", "upload":
+		case "download", "upload":
 			if len(rest) != 3 {
-				return command.UsageErr("context attachment %s 需要一个文件 ID 或路径", rest[1])
+				return command.UsageErr("context attachment %s 需要一个文件路径", rest[1])
 			}
 		default:
 			return command.UsageErr("未知 attachment 命令 %s", rest[1])
@@ -122,7 +123,7 @@ func contextCommand(args []string, bound bool) error {
 	defer stop()
 	var selected *runservice.ExecutionContext
 	var err error
-	if rest[0] == "attachment" && (rest[1] == "list" || rest[1] == "read") {
+	if rest[0] == "attachment" && (rest[1] == "list" || rest[1] == "download") {
 		selected, err = runservice.OpenConversationContext(ctx, path)
 	} else {
 		selected, err = runservice.OpenExecutionContext(ctx, path, run)
@@ -144,8 +145,8 @@ func contextCommand(args []string, bound bool) error {
 				return err
 			}
 			return json.NewEncoder(os.Stdout).Encode(map[string]any{"attachments": files})
-		case "read":
-			file, err := selected.Attachment(ctx, rest[2])
+		case "download":
+			file, err := selected.DownloadAttachment(ctx, rest[2])
 			if err != nil {
 				return err
 			}

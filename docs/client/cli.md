@@ -194,12 +194,12 @@ AI 在 Client 启动的执行环境中直接使用 `context`，不需要提供 S
 ```bash
 context input
 context attachment list
-context attachment read FILE_ID
+context attachment download user_input/截图.png
 context attachment upload ./report.pdf
 context --help
 ```
 
-`input` 输出当前 run 已受理的输入及来源 message ID。`attachment list` 直接查詢整個 conversation 的 Server 附件；`read` 按需下載、校驗並保存到 workspace/<relative_path>，返回本地路徑和 MIME 類型；兩者不需要活躍 run。圖片再用原生工具讀取。`upload` 自动关联当前 conversation/run，返回附件 ID 和可在回复中引用的 `download_path`，Server 用户可直接查看或下载。所有结果为 JSON。
+`input` 输出当前 run 已受理的输入及来源 message ID。`attachment list` 直接查詢整個 conversation 的 Server 附件；`download` 按 `relative_path` 選擇文件，下載、校驗並保存到 workspace/<relative_path>，返回本地路徑和 MIME 類型；兩者不需要活躍 run。下載不使用附件 ID，從其他目錄調用時也保存到 context 綁定的 workspace。圖片再用原生工具讀取。`upload` 自动关联当前 conversation/run，返回附件元数据和可在回复中引用的 `download_path`，Server 用户可直接查看或下载。所有结果为 JSON。
 
 上传只接受普通文件，不自动发消息或结束执行。Server 在接收及落库时检查 run 的归属与活动状态，已结束 run 无法继续上传。连接中断时可能已经保存；先 `list` 核对，工具不自动重试上传。人类在 Server 页面或通过 API/SDK 上传输入文件，Client AI 通过 context 读取；输出由 AI 上传后在 Server 展示。
 
@@ -209,8 +209,8 @@ context --help
 
 ```bash
 agentuse context --path /绝对路径/context.json --run RUN_ID input
-agentuse context --path /绝对路径/context.json --run RUN_ID attachment list
-agentuse context --path /绝对路径/context.json --run RUN_ID attachment read FILE_ID
+agentuse context --path /绝对路径/context.json attachment list
+agentuse context --path /绝对路径/context.json attachment download user_input/截图.png
 agentuse context enter --path /绝对路径/context.json --run RUN_ID
 # 进入后：
 context input

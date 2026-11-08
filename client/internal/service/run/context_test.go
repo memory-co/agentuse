@@ -141,7 +141,7 @@ func TestContextLocalInputsAndHistoricalSelection(t *testing.T) {
 	if err != nil || len(files) != 0 {
 		t.Fatal(files, err)
 	}
-	if _, err = view.Attachment(context.Background(), "at_missing"); err == nil {
+	if _, err = view.DownloadAttachment(context.Background(), "user_input/missing.png"); err == nil {
 		t.Fatal("unknown file accepted")
 	}
 }
@@ -165,10 +165,6 @@ func TestContextAttachmentsComeFromConversationAndDownloadOnDemand(t *testing.T)
 				t.Error("conversation list filtered by run")
 			}
 			json.NewEncoder(w).Encode(sdk.AttachmentPage{Attachments: []sdk.Attachment{image, other}})
-		case prefix + "/" + image.ID:
-			json.NewEncoder(w).Encode(image)
-		case prefix + "/" + other.ID:
-			json.NewEncoder(w).Encode(other)
 		case prefix + "/" + image.ID + "/content", prefix + "/" + other.ID + "/content":
 			downloads++
 			w.Write(content)
@@ -202,27 +198,31 @@ func TestContextAttachmentsComeFromConversationAndDownloadOnDemand(t *testing.T)
 	if _, err = os.Stat(filepath.Join(f.workspace, "user_input")); !os.IsNotExist(err) {
 		t.Fatal("list downloaded files", err)
 	}
-	if _, err = view.Attachment(context.Background(), "at_missing"); err == nil || downloads != 0 {
-		t.Fatal("unknown file read", err)
+	if _, err = view.DownloadAttachment(context.Background(), "user_input/missing.png"); err == nil || downloads != 0 {
+		t.Fatal("unknown file downloaded", err)
 	}
-	file, err := view.Attachment(context.Background(), image.ID)
+	if _, err = view.DownloadAttachment(context.Background(), image.ID); err == nil || downloads != 0 {
+		t.Fatal("file ID accepted as a path", err)
+	}
+	file, err := view.DownloadAttachment(context.Background(), image.RelativePath)
 	if err != nil || file.LocalPath != filepath.Join(f.workspace, filepath.FromSlash(image.RelativePath)) || downloads != 1 {
 		t.Fatal(file, err)
 	}
-	if _, err = view.Attachment(context.Background(), other.ID); err != nil || downloads != 2 {
+	if _, err = view.DownloadAttachment(context.Background(), other.RelativePath); err != nil || downloads != 2 {
 		t.Fatal("earlier output inaccessible", err)
 	}
-	if _, err = view.Attachment(context.Background(), image.ID); err != nil || downloads != 2 {
+	if _, err = view.DownloadAttachment(context.Background(), image.RelativePath); err != nil || downloads != 2 {
 		t.Fatal("cache not reused", err)
 	}
 	os.Remove(file.LocalPath)
 	outside := filepath.Join(t.TempDir(), "secret.png")
 	os.WriteFile(outside, content, 0600)
 	os.Symlink(outside, file.LocalPath)
-	if _, err = view.Attachment(context.Background(), image.ID); err == nil {
+	if _, err = view.DownloadAttachment(context.Background(), image.RelativePath); err == nil {
 		t.Fatal("symbolic link accepted")
 	}
-	if _, err = view.Attachments(context.Background()); err != nil || lists != 2 {
+	previousLists := lists
+	if _, err = view.Attachments(context.Background()); err != nil || lists != previousLists+1 {
 		t.Fatal("list did not query Server", err, lists)
 	}
 }

@@ -24,7 +24,7 @@ const ContextInstructions = `# Execution context tools
 Call context directly; no Server, conversation or session ID is needed:
 - context input: read the current run's accepted inputs, including supplemental messages.
 - context attachment list: fetch the current attachment list for the entire conversation from Server, including files from earlier messages and runs. Listing does not download files.
-- context attachment read FILE_ID: download on demand, verify, and return the local absolute path, name and MIME type. The file is stored at <workspace>/<relative_path> using the same conversation-relative path shown by Server. Reuse that path in later turns. Use your native image or file tools to read the returned path.
+- context attachment download PATH: download a file by its conversation-relative path, for example user_input/screenshot.png. Use relative_path from the attachment list or message; no file ID is needed. The file is verified and saved at <workspace>/<relative_path>. Reuse that path in later turns. The command returns the local absolute path, name and MIME type; use your native image or file tools to read it.
 - Create output files inside the workspace, for example reports/report.txt. user_input/ is reserved for user uploads. context attachment upload FILE publishes a file to the conversation at the same workspace-relative path and associates it with this run. If Server assigns a different path to avoid a conflict, use the returned relative_path and local_path.
 - Before telling the user that an output file is available, upload it and cite the returned download_path. A local workspace path is not a browser download link. Uploading does not send a reply or finish execution.
 - context --help: show available commands.

@@ -130,7 +130,7 @@ func TestContextUploadsOutputsAndRecoversLostResponseFromServer(t *testing.T) {
 	if err != nil || len(listed) != 1 || listed[0].ID != uploaded.ID {
 		t.Fatal("output required a local receipt", listed, err)
 	}
-	file, err := fresh.Attachment(context.Background(), uploaded.ID)
+	file, err := fresh.DownloadAttachment(context.Background(), uploaded.RelativePath)
 	if err != nil {
 		t.Fatal(err)
 	}

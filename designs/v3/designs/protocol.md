@@ -245,6 +245,6 @@ Work 由 Server 管理，可以跨多個 Client。message 不包含 work_id/work
 
 ## 當前執行的文件交互
 
-Client 的 `context attachment list/read` 直接讀取 Server 的 conversation 附件，不按 run 篩選，無須活躍 run。message 只攜帶本次所選附件元資料，移除額外本地 path；relative_path 統一為 conversation 相對路徑。Client 不提前下載，read 才保存到 workspace/<relative_path>。upload 保留 workspace 相對路徑；若 Server 改名則同步保存在返回路徑。設備發布仍提供 X-Agentuse-Run，Server 校驗活動 run 歸屬。提示詞要求 AI 上傳產物並引用 download_path，不以本地路徑作為交付連結。不新增文件 WebSocket 事件。
+Client 的 `context attachment list/download` 直接讀取 Server 的 conversation 附件，不按 run 篩選，無須活躍 run。message 只攜帶本次所選附件元資料，移除額外本地 path；relative_path 統一為 conversation 相對路徑。Client 不提前下載，download 才保存到 workspace/<relative_path>。upload 保留 workspace 相對路徑；若 Server 改名則同步保存在返回路徑。設備發布仍提供 X-Agentuse-Run，Server 校驗活動 run 歸屬。提示詞要求 AI 上傳產物並引用 download_path，不以本地路徑作為交付連結。不新增文件 WebSocket 事件。
 
 送入模型的 `complete_messages` 使用可讀的對話文字，按順序標示作者、@收件人、引用的消息正文及附件名稱／ID／路徑；不把 API JSON、消息 UUID、序號、雜湊或執行資料直接拼入提示詞。API 維持結構化資料，Client 只負責排版。程式產生的標題、工具說明與提示詞統一使用英文，使用者和 Agent 的原始正文保留原文；既有 native session 的初始化快照不改寫。

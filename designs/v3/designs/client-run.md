@@ -82,7 +82,7 @@ native_runs.go 管引用與查詢，views.go 定義公開視圖，reconcile.go �
 
 ## 執行上下文工具（已實現）
 
-runService 為 harness 提供裸 `context input` 和 `context attachment list/read/upload`，人類通過 `agentuse context` 選擇或進入同一執行上下文。描述文件只固定 session 和來源；當前 run 由公共 status 或顯式選擇確定，仍以 accepted 及來源消息收據關聯輸入。附件不提前下載，list/read 直接查詢 Server 的 conversation 文件，不按 run 限制範圍；read 按需保存到 workspace/<relative_path>，圖片由 AI 原生工具讀取。輸出上傳保留 workspace 相對路徑並關聯活動 run，交付時引用 Server 的 download_path。
+runService 為 harness 提供裸 `context input` 和 `context attachment list/download/upload`，人類通過 `agentuse context` 選擇或進入同一執行上下文。描述文件只固定 session 和來源；當前 run 由公共 status 或顯式選擇確定，仍以 accepted 及來源消息收據關聯輸入。附件不提前下載，list/download 直接查詢 Server 的 conversation 文件，不按 run 限制範圍；download 按需保存到 workspace/<relative_path>，圖片由 AI 原生工具讀取。輸出上傳保留 workspace 相對路徑並關聯活動 run，交付時引用 Server 的 download_path。
 
 Client 選定新建或續用的本地 session 後，才向 Server 讀取 `complete_messages`。Server 根據該 session 已受理的輸入決定補齊範圍；Client 不讀取整份 conversation 自行推算，也不向 harnessctl 增加補歷史命令。實際組裝的 context 保存在既有消息收據中，`context input` 顯示這份內容。
 

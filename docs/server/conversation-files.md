@@ -22,7 +22,7 @@
 
 新會話和後續消息使用相同流程。上傳或發送失敗時保留草稿和已成功上傳的文件，重試會複用這些文件。已經被消息引用的附件會保留到對話刪除時一起清理；未關聯消息的文件可以從文件欄刪除。
 
-消息仍記錄本次選定的附件，Client 不提前下載。`context attachment list` 直接查詢整個 conversation 的 Server 附件，`read` 按需保存到 workspace/<relative_path>；先前或其他 run 的文件同樣可讀，不另設本地路徑映射。
+消息仍記錄本次選定的附件，Client 不提前下載。`context attachment list` 直接查詢整個 conversation 的 Server 附件，`context attachment download PATH` 按 conversation 相對路徑選擇文件，保存到 workspace/<relative_path>；先前或其他 run 的文件同樣可下載，不另設本地路徑映射。
 
 ## AI 輸出
 

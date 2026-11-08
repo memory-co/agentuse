@@ -22,7 +22,7 @@ AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇�
 
 - `context input`：實際 run 定位、狀態及該 UUID 的已受理輸入；context 讀取消息收據中實際送入 harnessctl 的組裝結果，包含必要的 `complete_messages` 補充，不重新查詢最新共享歷史。
 - `context attachment list`：直接查詢 Server 的 conversation 附件列表，不按 run 篩選，不下載文件。
-- `context attachment read FILE_ID`：查詢 Server 元資料，按需下載並校驗，保存到 `workspace/<relative_path>`，返回本地絕對路徑及 MIME 類型。
+- `context attachment download PATH`：以 conversation 相對路徑精確選擇文件，不接受文件 ID；查詢 Server 元資料，下載並校驗，保存到 `workspace/<relative_path>`，返回本地絕對路徑及 MIME 類型。
 - `context attachment upload FILE`：上傳本次 run 的輸出，自動關聯 conversation/run，返回可引用的下載路徑。
 - `context --help`：當前可用能力，不列出註冊、啓停等管理命令。
 
@@ -40,7 +40,7 @@ Client 收到遠端 message 時只保存附件元資料及向 AI 說明名稱、
 
 兩個命令只需要既有 context 描述文件的 conversation 綁定，不讀取 harness status、accepted 或 run 收據來選擇附件。`input`、`upload` 和 `enter` 才需要實際 run；上傳仍保留輸出歸屬和活動狀態檢查。
 
-Server 返回的 `relative_path` 是唯一文件路徑，Client 保存到 `<workspace>/<relative_path>`，不另建隱藏附件目錄。例如 `user_input/manual.pdf` 對應 `workspace/user_input/manual.pdf`。已下載且大小、SHA-256 一致時重用文件，缺失或損壞時按需下載；下載使用同 endpoint 的設備身份，不跟隨重定向，透過 os.Root 校驗父目錄、拒絕符號鏈接與越界路徑，校驗臨時文件後原子發布。
+Server 返回的 `relative_path` 是唯一文件路徑。download 參數使用這個完整相對路徑，在分頁附件列表中精確匹配，不按 basename 猜測，也不接受 ID 別名。Client 保存到 context 綁定的 `<workspace>/<relative_path>`，不受調用者工作目錄影響，不另建隱藏附件目錄。例如 `user_input/manual.pdf` 對應 `workspace/user_input/manual.pdf`。已下載且大小、SHA-256 一致時重用文件，缺失或損壞時按需下載；下載使用同 endpoint 的設備身份，不跟隨重定向，透過 os.Root 校驗父目錄、拒絕符號鏈接與越界路徑，校驗臨時文件後原子發布。
 
 返回本地路徑後，AI 使用原生看圖或文件工具讀取內容。Client 不把圖片 base64 塞進 CLI JSON，也不建立另一個圖片 RPC。Codex、Claude 及自定義適配器共用同一個命令實現。
 
@@ -86,4 +86,4 @@ context.json、命令入口和附件緩存隨既有 conversation quota 一起回
 
 不保留 `agentuse session`、`--session` 或將 conversation 寫入 `AGENTUSE_SESSION` 的舊入口，也不轉換舊本機上下文。
 
-移除頂層 `agentuse attachment`、舊 `context attachments` 和省略 read 的附件入口，不保留別名。
+移除頂層 `agentuse attachment`、舊 `context attachments` 和省略子命令的附件入口，不保留別名。

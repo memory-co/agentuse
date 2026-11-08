@@ -32,13 +32,9 @@ func completeMessagesText(messages []agentuse.CompleteMessage) string {
 			fmt.Fprintf(&b, "> %s\n", line)
 		}
 		if len(m.Attachments) > 0 {
-			b.WriteString("\nAttachments (use context attachment read FILE_ID to fetch):\n")
+			b.WriteString("\nAttachments (use context attachment download PATH to save into the workspace):\n")
 			for _, a := range m.Attachments {
-				fmt.Fprintf(&b, "- %s (file ID: %s)", a.Filename, a.ID)
-				if a.RelativePath != "" {
-					fmt.Fprintf(&b, "; path: %s", a.RelativePath)
-				}
-				b.WriteString("\n")
+				fmt.Fprintf(&b, "- %s\n", a.RelativePath)
 			}
 		}
 	}

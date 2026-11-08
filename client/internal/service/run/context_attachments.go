@@ -75,22 +75,35 @@ func (c *ExecutionContext) Attachments(ctx context.Context) ([]ContextAttachment
 	return out, nil
 }
 
-func (c *ExecutionContext) Attachment(ctx context.Context, id string) (ContextAttachment, error) {
-	client, err := c.client()
+func (c *ExecutionContext) DownloadAttachment(ctx context.Context, path string) (ContextAttachment, error) {
+	relative, err := attachment.RelativePath(path)
 	if err != nil {
 		return ContextAttachment{}, err
 	}
-	selected, err := client.GetAttachment(ctx, "", c.ConversationID, id)
+	if c.EndpointID == endpoint.LocalID {
+		return ContextAttachment{}, fmt.Errorf("本地调试没有 Server，无法下载附件")
+	}
+	files, err := c.conversationAttachments(ctx)
 	if err != nil {
 		return ContextAttachment{}, err
 	}
-	path, err := materializeAttachment(ctx, client, c.ConversationID, c.Workspace, *selected, nil)
-	if err != nil {
-		return ContextAttachment{}, err
+	for _, file := range files {
+		if file.RelativePath != relative {
+			continue
+		}
+		client, err := c.client()
+		if err != nil {
+			return ContextAttachment{}, err
+		}
+		local, err := materializeAttachment(ctx, client, c.ConversationID, c.Workspace, file, nil)
+		if err != nil {
+			return ContextAttachment{}, err
+		}
+		out := c.attachmentMetadata(file)
+		out.LocalPath = local
+		return out, nil
 	}
-	out := c.attachmentMetadata(*selected)
-	out.LocalPath = path
-	return out, nil
+	return ContextAttachment{}, fmt.Errorf("会话中没有路径为 %q 的附件", relative)
 }
 
 func (c *ExecutionContext) UploadAttachment(ctx context.Context, path string) (ContextAttachment, error) {
@@ -157,14 +170,14 @@ func (c *ExecutionContext) UploadAttachment(ctx context.Context, path string) (C
 		return ContextAttachment{}, fmt.Errorf("Server 返回的上传归属不匹配")
 	}
 	if uploaded.SizeBytes != size || uploaded.SHA256 != hex.EncodeToString(digest.Sum(nil)) {
-		return ContextAttachment{}, fmt.Errorf("文件已保存为 %s，但上传内容与读取的源文件不一致；请先列出附件核对", uploaded.ID)
+		return ContextAttachment{}, fmt.Errorf("文件已保存为 %s，但上传内容与读取的源文件不一致；请先列出附件核对", uploaded.RelativePath)
 	}
 	if _, err = file.Seek(0, io.SeekStart); err != nil {
 		return ContextAttachment{}, err
 	}
 	canonical, err := materializeAttachment(ctx, nil, c.ConversationID, c.Workspace, *uploaded, file)
 	if err != nil {
-		return ContextAttachment{}, fmt.Errorf("file published as %s but could not be saved at its conversation path: %w", uploaded.ID, err)
+		return ContextAttachment{}, fmt.Errorf("file published as %s but could not be saved at its conversation path: %w", uploaded.RelativePath, err)
 	}
 	out := c.attachmentMetadata(*uploaded)
 	out.LocalPath = canonical

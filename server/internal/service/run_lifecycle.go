@@ -91,9 +91,9 @@ func (s *Service) prepareMessage(ctx context.Context, tx *sql.Tx, p Delivery) (p
 	}
 
 	if len(out.Attachments) > 0 {
-		instructions += "\n# Current message attachments\nFiles are fetched on demand. Use context attachment read FILE_ID to fetch a file into the workspace at its conversation-relative path before reading it.\n"
+		instructions += "\n# Current message attachments\nFiles are fetched on demand. Use context attachment download PATH with a conversation-relative path below to save a file into the workspace before reading it.\n"
 		for _, file := range out.Attachments {
-			instructions += fmt.Sprintf("- %s (file ID: %s); conversation path: %s\n", file.Filename, file.ID, file.RelativePath)
+			instructions += fmt.Sprintf("- %s\n", file.RelativePath)
 		}
 	}
 	// History is assembled by Server after Client selects its actual local session.

@@ -177,11 +177,11 @@ client 和 server 通过 Go internal 规则隔离；本机 controller 分别查�
 ```bash
 context input
 context attachment list
-context attachment read FILE_ID
+context attachment download user_input/截图.png
 context attachment upload ./report.pdf
 ```
 
-`read` 返回经过大小和 SHA-256 校验的本地绝对路径及 MIME 类型，图片交给原生看图工具读取。`list` 包含当前输入快照和本次 run 的输出，使用 `direction` 区分；其他排队 run 的文件不会混入。`upload` 自动关联 conversation/run，返回可引用的 `download_path`，不会自动回复或结束执行。人类可以用 `agentuse context` 调试同一上下文，详见 [执行上下文手册](docs/client/context.md)。
+`download` 使用 conversation 相对路径，把文件下载到 workspace 的对应路径，校验大小和 SHA-256 后返回本地绝对路径及 MIME 类型，图片交给原生看图工具读取。`list` 直接查询整个 conversation 的文件，使用 `direction` 区分用户输入和 Agent 产物。`upload` 自动关联 conversation/run，返回可引用的 `download_path`，不会自动回复或结束执行。人类可以用 `agentuse context` 调试同一上下文，详见 [执行上下文手册](docs/client/context.md)。
 
 每个 conversation 有独立的文件树，用户输入位于 `user_input/`，AI 产物保留相对路径。页面右侧浏览文件，输入框选择每条消息的附件，消息显示可预览的文件卡片。详见 [对话文件](docs/server/conversation-files.md)。
 

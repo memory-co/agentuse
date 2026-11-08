@@ -55,7 +55,7 @@ func TestNativeInitResourcesAndVersionSessionSelection(t *testing.T) {
 			root := filepath.Join(s.Sessions.Root, "local", conversation.ID, "sessions", first.SessionID)
 			resources := filepath.Join(root, "events.jsonl.d", "resources")
 			b, e := os.ReadFile(filepath.Join(resources, "agents.md"))
-			if e != nil || !strings.HasPrefix(string(b), request.AgentInstructions+"\n") || !strings.Contains(string(b), "context attachment read FILE_ID") {
+			if e != nil || !strings.HasPrefix(string(b), request.AgentInstructions+"\n") || !strings.Contains(string(b), "context attachment download PATH") {
 				t.Fatal(string(b), e)
 			}
 			b, e = os.ReadFile(filepath.Join(resources, "skills", "reviewer", "SKILL.md"))

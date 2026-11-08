@@ -14,12 +14,12 @@ func TestContextHelpOnlyAdvertisesExecutionTools(t *testing.T) {
 		t.Fatal(code, stderr)
 	}
 	help := out + stderr
-	for _, expected := range []string{"context input", "context attachment list", "context attachment read FILE_ID", "context attachment upload FILE"} {
+	for _, expected := range []string{"context input", "context attachment list", "context attachment download PATH", "context attachment upload FILE"} {
 		if !strings.Contains(help, expected) {
 			t.Fatal("missing execution tool", expected)
 		}
 	}
-	for _, management := range []string{"register", "daemon", "user create", "--path", "--run", "--server", "--token"} {
+	for _, management := range []string{"register", "daemon", "user create", "--path", "--run", "--server", "--token", "attachment read", "FILE_ID"} {
 		if strings.Contains(help, management) {
 			t.Fatal("management option exposed", management)
 		}
@@ -36,7 +36,7 @@ func TestContextRequiresBindingAndRejectsScopeOverride(t *testing.T) {
 	if code != 1 || !strings.Contains(stderr, "未进入执行上下文") {
 		t.Fatal(code, stderr)
 	}
-	for _, args := range [][]string{{"--path", "/other", "input"}, {"--run", "other", "input"}, {"--server", "https://other", "input"}, {"register"}, {"enter"}, {"work", "new"}, {"attachments"}, {"attachment", "at_old"}} {
+	for _, args := range [][]string{{"--path", "/other", "input"}, {"--run", "other", "input"}, {"--server", "https://other", "input"}, {"register"}, {"enter"}, {"work", "new"}, {"attachments"}, {"attachment", "at_old"}, {"attachment", "read", "at_old"}, {"attachment", "download"}, {"attachment", "download", "first.txt", "second.txt"}} {
 		capture(t, func() { code = ContextMain(args) })
 		if code != 2 {
 			t.Fatal("bound command accepted a management operation", args, code)
