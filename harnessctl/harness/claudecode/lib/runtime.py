@@ -171,6 +171,8 @@ class Runtime:
         self.message_order = []
         self.work_usage = None
         self.work_cost = None
+        self.session_model = None
+        self.work_model = None
         self.last_error = None
         self.finishing = None
 
@@ -221,12 +223,21 @@ class Runtime:
             self.work_cost = cost
         self.log('usage', usage=usage, cost_usd=cost)
 
-    def result(self, items, status, output='', usage=None, cost=None, error=None):
+    def model(self, value, session=False):
+        # Only native metadata can identify the resolved model. An init alias
+        # or the preceding run's response is not evidence for this execution.
+        if isinstance(value, str) and value.strip() and value != '<synthetic>':
+            if session:
+                self.session_model = value
+            else:
+                self.work_model = value
+
+    def result(self, items, status, output='', usage=None, cost=None, error=None, model=None):
         unresolved = [item for item in items if not item.get('resolved')]
         if not unresolved:
             return
         self.emit('result', run_id=unresolved[0]['run_id'], input_ids=[item['id'] for item in unresolved], status=status,
-                  output=output, usage=usage, cost_usd=cost, error=error)
+                  output=output, model=model, usage=usage, cost_usd=cost, error=error)
         for item in unresolved:
             item['resolved'] = True
 
@@ -242,6 +253,7 @@ class Runtime:
         return dict(state=state, queued=len(self.queued), requests=[v['public'] for v in self.requests.values()],
                     native_session=self.thread if self.thread != 'pending' else None,
                     adapter=self.backend.NAME, pid=os.getpid(), live=True, run_id=self.active_run_id,
+                    run_model=(self.work_model or self.session_model) if self.active_run_id else None,
                     unresolved_inputs=[item['id'] for item in self.inputs.values() if not item.get('resolved')])
 
     def public_status(self):
@@ -356,6 +368,7 @@ class Runtime:
         self.starting = True
         self.work_inputs = [item]
         self.active_run_id = item['run_id']
+        self.work_model = None
         self.messages = {}
         self.message_order = []
         self.work_usage = None
@@ -381,10 +394,12 @@ class Runtime:
         status = 'cancelled' if status == 'interrupted' else status
         output = '\n\n'.join(self.messages[key]['text'] or '' for key in self.message_order)
         error = (fields.get('error') or self.last_error or 'Execution failed') if status == 'failed' else None
-        self.result(self.work_inputs, status, output, self.work_usage, self.work_cost, error)
+        self.result(self.work_inputs, status, output, self.work_usage, self.work_cost, error,
+                    model=self.work_model or self.session_model)
         self.finishing = None
         self.work_inputs = []
         self.active_run_id = None
+        self.work_model = None
         self.turn = None
         self.starting = False
         self.cancelling = False
@@ -669,6 +684,7 @@ def inspect_state(events, config):
                         runs.setdefault(item['run_id'], []).append(item['input_id'])
                     for run_id, input_ids in runs.items():
                         append_event(events, 'result', run_id=run_id, input_ids=input_ids, status='failed', output='',
+                                     model=state.get('run_model') if state.get('run_id') == run_id else None,
                                      usage=None, cost_usd=None, error='Runtime lost; input outcome is uncertain')
                 recovered = 'failed' if pending or requests or state.get('state')=='failed' else 'idle'
                 state.update(state=recovered, queued=0, requests=[], unresolved_inputs=[], run_id=None)

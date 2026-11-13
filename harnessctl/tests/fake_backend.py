@@ -67,7 +67,7 @@ for line in sys.stdin:
             finish()
         elif f.get('type') == 'user':
             if not initialized:
-                emit(dict(type='system', subtype='init', session_id='native-session'))
+                emit(dict(type='system', subtype='init', session_id='native-session', model=os.environ.get('HARNESSCTL_TEST_MODEL')))
                 initialized = True
             text = f['message']['content']
             if '\n\n# Current message\n' in text:text=text.split('\n\n# Current message\n',1)[1]
@@ -97,6 +97,12 @@ for line in sys.stdin:
                     emit(dict(type='assistant',message=dict(id='gated-message',content=[dict(type='text',text='gated done' + ''.join(' '+x for x in claude_extra))])))
                     finish()
                 threading.Thread(target=gated,daemon=True).start()
+            elif text.startswith('model:'):
+                model = text.split(':', 1)[1]
+                emit(dict(type='assistant', message=dict(model=model, content=[dict(type='text', text=text)])))
+                # A child agent's model must not replace the primary response model.
+                emit(dict(type='assistant', parent_tool_use_id='child-tool', message=dict(model='child-model', content=[])))
+                finish()
             elif text == 'environment':
                 emit(dict(type='assistant',message=dict(content=[dict(type='text',text=os.environ.get('AGENTUSE_RUN',''))])))
                 finish()
@@ -133,7 +139,7 @@ for line in sys.stdin:
             skills = [dict(name=p.parent.name, path=str(p), enabled=True) for root in extra_roots for p in Path(root).glob('*/SKILL.md')]
             emit(dict(id=f['id'], result=dict(data=[dict(cwd=f['params']['cwds'][0], skills=skills, errors=[])])))
         elif method in ('thread/start','thread/resume'):
-            emit(dict(id=f['id'], result=dict(thread=dict(id='native-session'))))
+            emit(dict(id=f['id'], result=dict(thread=dict(id='native-session'), model=os.environ.get('HARNESSCTL_TEST_MODEL'))))
         elif method == 'turn/start':
             if f['params']['input'][0]['text'] == 'starting_hold':
                 gate = os.environ.get('HARNESSCTL_TEST_STARTING_GATE')
@@ -149,7 +155,10 @@ for line in sys.stdin:
             emit(dict(id=f['id'], result=dict(turn=dict(id=turn))))
             text = f['params']['input'][0]['text']
             if '\n\n# Current message\n' in text:text=text.split('\n\n# Current message\n',1)[1]
-            if text == 'environment':
+            if text.startswith('model:'):
+                emit(dict(method='model/rerouted', params=dict(threadId='native-session', turnId=turn, fromModel='default', toModel=text.split(':', 1)[1], reason='rateLimited')))
+                finish(output=text)
+            elif text == 'environment':
                 emit(dict(method='item/completed',params=dict(threadId='native-session',turnId=turn,item=dict(type='agentMessage',id='env',text=os.environ.get('AGENTUSE_RUN','')))))
                 finish()
             elif text == 'ask':

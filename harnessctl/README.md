@@ -1,6 +1,6 @@
 # harnessctl/3：本机 Harness CLI 协议
 
-> 当前实现为 harnessctl/3：必须先 init，send 只提交正文，不兼容旧版 send 的配置参数。两个独立包版本为 0.4.0。五种公共事件及其字段保持不变。
+> 当前实现为 harnessctl/3：必须先 init，send 只提交正文，不兼容旧版 send 的配置参数。两个独立包版本为 0.4.1。公共事件仍为五种；result 新增 model 字段，返回每次执行的原生模型信息。
 
 上层先用 init 将工作目录、模型和可选资源绑定到一个事件文件地址，之后只向该地址发送消息、取消执行、查询状态和回复请求。原生首次启动、运行中补充输入、排队、上下文恢复以及后台进程回收，全部由适配器决定。
 
@@ -199,6 +199,8 @@ request_id 只定位一项待回复请求，不是会话身份；由适配器分
 
 init 后尚未执行任何输入时，status 为 idle，run_id=null；这不表示曾调用过模型。
 
+status.model 表示 init 绑定的配置选择，可能是别名或 null。每次执行的模型从 result.model 读取：优先使用该 run 的原生主回复或模型重路由信息，否则使用原生会话确认的模型；原生未提供信息或排队后未执行时返回 null，不把配置值当作执行事实。一个 run 内切换模型时返回最后确认的主模型，不包含子 Agent 的模型。正常失败、取消及能确认归属的失联恢复也保留已知值。
+
 state 为 idle、running、awaiting_reply、cancelling 或 failed；queued 仅统计适配器可确认的待处理输入数，requests 是统一的待回复请求。公开结果不返回 PID、原生 session/thread ID 或要求上层关联的 turn ID。
 
 运行进程已被正常回收时仍可返回 idle；运行进程存在也可能是 idle。status 本身不启动模型或创建新原生会话，不根据快照中一个 PID 就认定进程活着。失联检测通过本机 IPC 和独占锁完成；确认失联后记录失败、过期待回复请求，不把未确认输入重新执行。事件地址不存在返回 4。
@@ -220,7 +222,7 @@ state 为 idle、running、awaiting_reply、cancelling 或 failed；queued 仅�
 | accepted | 完整输入及确认的 run_id/input_id | 可靠落盘后 send 才返回成功 |
 | message | 完整正文快照，按 message_id 更新 | 不依赖流式日志恢复正文 |
 | request | 权限/问题请求的 pending/replied/expired 完整快照 | 不能丢，包含统一答案或失效原因 |
-| result | run 的终态、覆盖的 input_ids、完整输出与计量 | 不能丢，取消/失败也必须表达 |
+| result | run 的终态、覆盖的 input_ids、原生模型 model、完整输出与计量 | 不能丢，取消/失败也必须表达 |
 | log | 流式增量、工具进度、原生控制及进程诊断 | 可丢、可合并、可限流，不承担业务状态 |
 
 文件是 UTF-8 JSONL，只追加。关键事件校验后加锁并 flush/fsync；log 不要求 fsync，其校验或写入失败不改变工作结果。丢掉所有 log 后，仍能重建输入、完整正文、待回复请求及每个 run 的结果。失联恢复按关键事件确认哪些已受理输入仍没有结果，不根据可丢日志猜测，不自动重放。
@@ -254,8 +256,8 @@ python3 -m unittest discover -s harnessctl/tests -v
 python3 harnessctl/package.py
 python3 harnessctl/package.py --adapter claudecode
 cd harnessctl/dist
-sha256sum -c harnessctl-codex-0.4.0-linux.tar.gz.sha256
-sha256sum -c harnessctl-claudecode-0.4.0-linux.tar.gz.sha256
+sha256sum -c harnessctl-codex-0.4.1-linux.tar.gz.sha256
+sha256sum -c harnessctl-claudecode-0.4.1-linux.tar.gz.sha256
 ```
 
 每个压缩包只包含对应的独立适配器目录，使用固定时间和属主元数据，可重复构建。安装/解压不自动执行代码。测试仅复制独立目录到仓库外，并隐藏其他适配器；除现有 stdin、忙时补充、取消、回复、失联和独立归档验证外，还必须覆盖：

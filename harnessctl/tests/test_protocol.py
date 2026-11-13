@@ -128,6 +128,54 @@ class ProtocolTests(unittest.TestCase):
             for flag in ('--delivery','--if-idle','--resume','--id','--backend-arg','--run-id'):
                 self.assertEqual(self.call(adapter,'send',self.root/'absent',flag,'x','prompt').returncode,2)
 
+    def test_result_model_uses_native_metadata_and_resets_each_run(self):
+        for adapter in ADAPTERS:
+            self.env['HARNESSCTL_TEST_MODEL'] = 'resolved-default'
+            event = self.send(adapter, 'model:resolved-turn', '--model', 'requested-alias')
+            first = self.wait(event, 'result', status='completed')
+            self.assertEqual(first['model'], 'resolved-turn')
+            self.send(adapter, 'next', event=event)
+            accepted = self.wait(event, 'accepted', text='next')
+            second = self.wait(event, 'result', run_id=accepted['run_id'])
+            self.assertEqual(second['model'], 'resolved-default')
+            # status.model remains the immutable init selection.
+            self.assertEqual(self.status(adapter, event)['model'], 'requested-alias')
+            self.stop(event)
+            self.env['HARNESSCTL_TEST_MODEL'] = 'resumed-default'
+            self.send(adapter, 'resumed', event=event)
+            accepted = self.wait(event, 'accepted', text='resumed')
+            resumed = self.wait(event, 'result', run_id=accepted['run_id'])
+            self.assertEqual(resumed['model'], 'resumed-default')
+
+    def test_unknown_native_model_is_not_guessed_from_init(self):
+        self.env.pop('HARNESSCTL_TEST_MODEL', None)
+        for adapter in ADAPTERS:
+            event = self.send(adapter, 'done', '--model', 'requested-alias')
+            result = self.wait(event, 'result', status='completed')
+            self.assertIn('model', result)
+            self.assertIsNone(result['model'])
+
+    def test_cancelled_and_lost_runs_do_not_attribute_models_to_queued_inputs(self):
+        self.env['HARNESSCTL_TEST_MODEL'] = 'resolved-default'
+        for adapter in ADAPTERS:
+            for abrupt in (False, True):
+                with self.subTest(adapter=adapter, abrupt=abrupt):
+                    event = self.send(adapter, 'ask', event=self.root / f'{adapter}-{abrupt}.jsonl')
+                    request = self.wait(event, 'request', state='pending')
+                    self.send(adapter, 'queued', event=event)
+                    queued = self.wait(event, 'accepted', text='queued')
+                    self.status(adapter, event)
+                    if abrupt:
+                        self.stop(event, abrupt=True)
+                        self.status(adapter, event)
+                    else:
+                        result = self.call(adapter, 'cancel', event)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                    active_result = self.wait(event, 'result', run_id=request['run_id'])
+                    queued_result = self.wait(event, 'result', run_id=queued['run_id'])
+                    self.assertEqual(active_result['model'], 'resolved-default')
+                    self.assertIsNone(queued_result['model'])
+
     def test_first_send_stdin_continuation_and_binding(self):
         for adapter in ADAPTERS:
             text='literal $HOME `whoami` \\ "quote"\n中文\n'

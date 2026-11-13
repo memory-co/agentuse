@@ -110,7 +110,7 @@ replied 说明答案已写向原生连接，不保证工具已执行。执行结
 
 ## 6. result：交互终态与计量，关键
 
-以下字段全部必填：
+除 model 为兼容旧事件允许缺省外，以下字段全部必填；0.4.1 起的内置适配器始终返回 model：
 
 | 字段 | 类型/取值 |
 |---|---|
@@ -118,21 +118,24 @@ replied 说明答案已写向原生连接，不保证工具已执行。执行结
 | input_ids | 非空、无重复的 string 数组；均属于此 run |
 | status | completed、cancelled、failed |
 | output | string；完整输出汇总，可为空 |
+| model | 非空 string 或 null；原生回报的本次主执行模型，未知或排队后未执行时为 null |
 | usage | object 或 null；统一为 input_tokens、output_tokens、cache_read_tokens、cache_write_tokens 非负整数，未知时为 null。input_tokens 包含缓存输入计量 |
 | cost_usd | 非负有限 number 或 null |
 | error | failed 时为非空 string；其余状态必须为 null |
 
 ```json
-{"type":"result","ts":"2026-11-01T12:00:11Z","run_id":"550e8400-e29b-41d4-a716-446655440000","input_ids":["in-1","in-2"],"status":"completed","output":"已修复单元测试，没有运行集成测试。","usage":{"input_tokens":120,"output_tokens":20},"cost_usd":0.001,"error":null}
+{"type":"result","ts":"2026-11-01T12:00:11Z","run_id":"550e8400-e29b-41d4-a716-446655440000","input_ids":["in-1","in-2"],"status":"completed","output":"已修复单元测试，没有运行集成测试。","model":"gpt-6","usage":{"input_tokens":120,"output_tokens":20},"cost_usd":0.001,"error":null}
 ```
 
 ```json
-{"type":"result","ts":"2026-11-01T12:00:11Z","run_id":"550e8400-e29b-41d4-a716-446655440000","input_ids":["in-1"],"status":"cancelled","output":"","usage":null,"cost_usd":null,"error":null}
+{"type":"result","ts":"2026-11-01T12:00:11Z","run_id":"550e8400-e29b-41d4-a716-446655440000","input_ids":["in-1"],"status":"cancelled","output":"","model":null,"usage":null,"cost_usd":null,"error":null}
 ```
 
 ```json
-{"type":"result","ts":"2026-11-01T12:00:11Z","run_id":"550e8400-e29b-41d4-a716-446655440000","input_ids":["in-1"],"status":"failed","output":"","usage":null,"cost_usd":null,"error":"原生执行进程失联"}
+{"type":"result","ts":"2026-11-01T12:00:11Z","run_id":"550e8400-e29b-41d4-a716-446655440000","input_ids":["in-1"],"status":"failed","output":"","model":null,"usage":null,"cost_usd":null,"error":"原生执行进程失联"}
 ```
+
+model 优先使用本 run 的原生主回复或模型重路由信息，否则使用原生会话确认的模型；不使用 init 的 --model 别名猜测。若主执行切换模型，返回最后确认的主模型，不汇总子 Agent 的模型或表示按模型拆分的计费。正常取消和失败结果保留已确认模型；失联恢复仅在状态快照能确认同一 run 时沿用，其他情况为 null。读取旧事件时缺少 model 按未知处理。
 
 结束一条工具调用、收到中断控制回执或回收空闲进程，都不是 result。只有交互终态才产生结果，不能靠日志判断是否完成。未知计量保持 null，不能当作零。
 

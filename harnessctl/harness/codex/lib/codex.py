@@ -24,7 +24,7 @@ def open_thread(r):
 
 
 def initialize(r):
-    r.request('initialize', dict(clientInfo=dict(name='harnessctl', version='0.4.0'),
+    r.request('initialize', dict(clientInfo=dict(name='harnessctl', version='0.4.1'),
                                  capabilities=dict(experimentalApi=True)))
 
 
@@ -131,6 +131,7 @@ def frame(r, f):
             open_thread(r)
         elif method in ('thread/start', 'thread/resume'):
             r.thread = result['thread']['id']
+            r.model(result.get('model'), session=True)
             r.native_ready(f)
             r.drain()
         elif method == 'turn/start':
@@ -156,7 +157,12 @@ def frame(r, f):
         return
     if p.get('threadId') and p['threadId'] != r.thread:
         return
-    if method == 'turn/completed':
+    if method == 'thread/settings/updated':
+        r.model(p.get('threadSettings', {}).get('model'), session=True)
+    elif method == 'model/rerouted':
+        if r.turn and p.get('turnId') == r.turn:
+            r.model(p.get('toModel'))
+    elif method == 'turn/completed':
         turn = p.get('turn', {})
         if r.turn and turn.get('id') != r.turn:
             return

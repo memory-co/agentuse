@@ -199,6 +199,19 @@ func TestCriticalReaderWaitsForCompleteLine(t *testing.T) {
 	}
 }
 
+func TestResultReaderPreservesReportedModel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	row := `{"type":"result","run_id":"550e8400-e29b-41d4-a716-446655440000","model":"resolved-model","status":"completed"}`
+	if err := os.WriteFile(path, []byte(row+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var offset int64
+	items, err := readEvents(path, &offset)
+	if err != nil || len(items) != 1 || items[0].Model == nil || *items[0].Model != "resolved-model" {
+		t.Fatal(items, err)
+	}
+}
+
 func TestRecoveryCancelsBeforeReleasingSession(t *testing.T) {
 	service, adapter, _ := fixture(t, "codex")
 	cwd := t.TempDir()

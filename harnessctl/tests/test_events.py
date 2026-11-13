@@ -55,9 +55,13 @@ class EventContractTests(unittest.TestCase):
                  dict(good,native={}),dict(good,session_id='s1'),dict(good,message_id=''),
                  dict(result,input_ids=[]),dict(result,input_ids=['in1','in1']),
                  dict(result,status='failed'),dict(result,cost_usd=-1),dict(result,cost_usd=True),
-                 dict(result,usage={'tokens':float('nan')}),dict(result,status='interrupted')]
+                 dict(result,usage={'tokens':float('nan')}),dict(result,status='interrupted'),
+                 dict(result,model=''),dict(result,model=42),dict(result,model=['model-a'])]
         no_id=copy.deepcopy(good);no_id.pop('message_id');invalid.append(no_id)
         for adapter in ADAPTERS:
+            contract = load_contract(adapter)
+            for model in (None, 'resolved-model'):
+                contract.validate_event(dict(result, model=model))
             for event in invalid:
                 with self.subTest(adapter=adapter,event=event):
                     with self.assertRaises(ValueError):load_contract(adapter).validate_event(event)
@@ -157,6 +161,40 @@ for scenario in ('same','race','cancel','reject'):
         assert len(accepted)==1 and len(results)==1
         assert results[0]['input_ids']==[first['id']]
         assert late['resolved']
+"""
+        with tempfile.TemporaryDirectory() as temp:
+            p=subprocess.run([sys.executable,'-c',script,str(ROOT/'harness/claudecode/lib'),temp],capture_output=True,text=True,timeout=5)
+            self.assertEqual(p.returncode,0,p.stderr)
+
+    def test_claude_model_sources_do_not_confuse_child_or_synthetic_messages(self):
+        script = """
+import json,pathlib,sys
+sys.path.insert(0,sys.argv[1])
+import claudecode
+from runtime import Runtime,identity
+root=pathlib.Path(sys.argv[2])
+for source,expected in [('stream','stream-model'),('usage','usage-model'),
+                        ('ambiguous','session-model'),('synthetic','session-model'),('child','session-model')]:
+    p=root/(source+'.jsonl');pathlib.Path(str(p)+'.d').mkdir();p.touch()
+    r=Runtime(p,claudecode,{'cwd':str(root),'model':'requested-alias'})
+    r.thread='native';r.turn='turn';r.active_run_id=identity()
+    r.claude_writes={};r.claude_interrupt=False
+    first={'id':identity(),'text':'initial'}
+    r.inputs[first['id']]=first;r.confirm_input(first,r.active_run_id);r.work_inputs=[first]
+    r.model('session-model',session=True)
+    result={'type':'result','result':'done'}
+    if source=='stream':
+        claudecode.frame(r,{'type':'stream_event','event':{'type':'message_start','message':{'model':'stream-model'}}})
+    elif source in ('usage','ambiguous'):
+        result['modelUsage']={'usage-model':{}}
+        if source=='ambiguous':result['modelUsage']['another-model']={}
+    else:
+        frame={'type':'assistant','message':{'model':'<synthetic>' if source=='synthetic' else 'child-model','content':[]}}
+        if source=='child':frame['parent_tool_use_id']='child-tool'
+        claudecode.frame(r,frame)
+    claudecode.frame(r,result)
+    rows=[json.loads(line) for line in p.read_text().splitlines()]
+    assert next(e for e in rows if e['type']=='result')['model']==expected, source
 """
         with tempfile.TemporaryDirectory() as temp:
             p=subprocess.run([sys.executable,'-c',script,str(ROOT/'harness/claudecode/lib'),temp],capture_output=True,text=True,timeout=5)

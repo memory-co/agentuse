@@ -117,6 +117,7 @@ def consumed(r, item, native):
         from runtime import identity
         r.turn = 'turn_' + identity()
         r.active_run_id = identity()
+        r.work_model = None
         r.work_inputs = []
         r.messages = {}
         r.message_order = []
@@ -171,6 +172,7 @@ def frame(r, f):
         return
     if typ == 'system' and f.get('subtype') == 'init':
         r.thread = f['session_id']
+        r.model(f.get('model'), session=True)
         r.native_ready(f)
     elif typ == 'user':
         item = r.claude_writes.get(f.get('uuid'))
@@ -190,6 +192,8 @@ def frame(r, f):
         if not r.turn:
             r.turn = 'turn_' + str(uuid.uuid4())
             r.log('execution.started', evidence='assistant_output', native=f)
+        if not f.get('parent_tool_use_id'):
+            r.model(f.get('message', {}).get('model'))
         blocks = f.get('message', {}).get('content', [])
         texts = [block.get('text', '') for block in blocks if block.get('type') == 'text']
         if not all(isinstance(text, str) for text in texts):
@@ -203,12 +207,17 @@ def frame(r, f):
         event = f.get('event', {})
         if event.get('type') == 'message_start':
             r.claude_stream_key = event.get('message', {}).get('id')
+            if not f.get('parent_tool_use_id'):
+                r.model(event.get('message', {}).get('model'))
         if event.get('type') == 'content_block_delta' and event.get('delta', {}).get('type') == 'text_delta':
             r.chunk(event['delta']['text'], getattr(r, 'claude_stream_key', None))
     elif typ == 'result':
         if not r.turn:
             r.turn = 'turn_' + str(uuid.uuid4())
             r.log('execution.started', evidence='result', native=f)
+        models = f.get('modelUsage')
+        if r.work_model is None and isinstance(models, dict) and len(models) == 1:
+            r.model(next(iter(models)))
         raw = f.get('usage')
         counts = None if raw is None else dict(input_tokens=raw.get('input_tokens',0)+raw.get('cache_read_input_tokens',0)+raw.get('cache_creation_input_tokens',0),output_tokens=raw.get('output_tokens',0),cache_read_tokens=raw.get('cache_read_input_tokens',0),cache_write_tokens=raw.get('cache_creation_input_tokens',0))
         r.usage(counts, f.get('total_cost_usd'))

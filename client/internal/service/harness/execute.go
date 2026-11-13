@@ -52,6 +52,7 @@ type Event struct {
 	Questions []Question                 `json:"questions"`
 	Status    string                     `json:"status"`
 	Output    string                     `json:"output"`
+	Model     *string                    `json:"model,omitempty"`
 	Error     *string                    `json:"error"`
 	Usage     *agentuse.Usage            `json:"usage"`
 	CostUSD   *float64                   `json:"cost_usd"`

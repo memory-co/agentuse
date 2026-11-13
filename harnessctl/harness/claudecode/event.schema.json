@@ -178,6 +178,10 @@
         "output": {
           "type": "string"
         },
+        "model": {
+          "type": ["string", "null"],
+          "minLength": 1
+        },
         "usage": {
           "type": [
             "object",
