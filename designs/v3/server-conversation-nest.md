@@ -1,8 +1,8 @@
-# 父子 conversation 的協作場景（原 Work）
+# 嵌套 conversation：父子對話協作
 
 > 本文只說明協作場景。父子模型、API、權限、生命週期及數據結構以 [conversation 設計](server-conversation.md#父子對話)為唯一規範，不在此重複定義。新模型尚未實作，當前代碼及 [Work 使用手冊](../../docs/server/work.md)仍保留舊實作。
 
-Work 可以保留為界面中的協作稱呼，底層直接使用 conversation 的父子關係。主、子對話都是普通 conversation，各自支持多 Agent；使用者無需把普通對話轉換為另一種業務實體。
+嵌套對話直接使用 conversation 的父子關係。主、子對話都是普通 conversation，各自支持多 Agent；使用者無需把普通對話轉換為另一種業務實體。
 
 ```mermaid
 flowchart TD

@@ -1,6 +1,6 @@
 # userService：用戶與訪問身份
 
-> 用戶身份與令牌模型已落實到 schema 7。Work 改用父子 conversation 的部分仍為待實作目標，見 [父子 conversation 設計](server-conversation.md#父子對話)。時間為 Unix 秒，關聯由所屬 service 校驗與清理，不聲明數據庫外鍵。
+> 用戶身份與令牌模型已落實到 schema 7。嵌套 conversation 的組織能力仍為待實作目標，見 [父子 conversation 設計](server-conversation.md#父子對話)。時間為 Unix 秒，關聯由所屬 service 校驗與清理，不聲明數據庫外鍵。
 
 ## 職責
 
@@ -19,7 +19,7 @@ userService 管理用戶身份、角色和訪問令牌。它回答“當前請�
 | 重置令牌 | 替換 token_hash，舊令牌立即失效 |
 | 管理員代辦 | 驗證 admin 權限後解析目標用戶；後續操作以該身份進行 |
 
-一個用戶擁有多個 device、agent 和 conversation；Work 視圖直接組織該用戶的父子 conversation。userService 不直接清理這些關聯業務；v3 第一版不提供刪除用戶操作，以免把資源刪除策略混入身份管理。
+一個用戶擁有多個 device、agent 和 conversation；嵌套對話視圖直接組織該用戶的父子 conversation。userService 不直接清理這些關聯業務；v3 第一版不提供刪除用戶操作，以免把資源刪除策略混入身份管理。
 
 ## 表結構
 
@@ -41,4 +41,4 @@ CREATE UNIQUE INDEX users_token
 
 ## 相關設計
 
-[Server 總覽](server-main.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [skillService](server-skill.md) · [Client harnessService](client-harness.md) · [conversationService](server-conversation.md) · [runService](server-run.md) · [fileService](server-file.md) · [Work 視圖](server-work.md)
+[Server 總覽](server-main.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [skillService](server-skill.md) · [Client harnessService](client-harness.md) · [conversationService](server-conversation.md) · [runService](server-run.md) · [fileService](server-file.md) · [嵌套對話視圖](server-conversation-nest.md)

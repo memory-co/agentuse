@@ -1,6 +1,6 @@
 # runService：message/Agent 關係與實際執行
 
-> Work 的父子對話模型是待實作的新設計；本稿按新的職責邊界描述 runService，舊 Work 授權及結算表的刪除見 [父子 conversation 設計](server-conversation.md#父子對話)。
+> 嵌套 conversation 模型是待實作的新設計；本稿按新的職責邊界描述 runService，舊 Work 授權及結算表的刪除見 [父子 conversation 設計](server-conversation.md#父子對話)。
 
 Server 使用 [agentuse-client/2](protocol.md)，直接投遞既有 conversation message。沒有 task、run_input、prompt ID 或預分配的 run UUID。只有 Client 上報的 accepted 才建立實際 run。
 

@@ -39,7 +39,7 @@ client accepted (M2,coder)：
 
 (M2,coder) 最終關聯哪個 run，由適配器決定，並通過 accepted 上報。message 與 run 的 N:M 關係由此建立，消息/Agent 複合鍵直接關聯消息，不另分配執行身份。conversation 不綁定 agent，不設置參與者表或每個 agent 獨立的共享歷史。
 
-收到 client result 後，在**同一事務**保存原始事件、更新 run 與輸入狀態、寫入 agent message、綁定 runs.result_message_id，並重算對話狀態。最終回覆的 reply_to_message_id 指向 first_message_id；messages 不保存 run_id。事務提交後才確認源事件位置，重複上報直接確認已有記錄，不重複寫回復。Work 視圖只讀取對話，不參與執行結果消費。
+收到 client result 後，在**同一事務**保存原始事件、更新 run 與輸入狀態、寫入 agent message、綁定 runs.result_message_id，並重算對話狀態。最終回覆的 reply_to_message_id 指向 first_message_id；messages 不保存 run_id。事務提交後才確認源事件位置，重複上報直接確認已有記錄，不重複寫回復。嵌套對話視圖只讀取對話，不參與執行結果消費。
 
 message、request、log 是執行記錄，不能都變成普通聊天消息。cancel 入隊和送達只表示控制傳輸，斷線也只改變設備連接狀態；這些操作都不生成執行結果。只有 client result 決定 completed/failed/cancelled，cancelled 可以沒有最終回覆。
 
@@ -51,7 +51,7 @@ Conversation 狀態是實際 run 與未完成輸入的聚合投影，優先 wait
 
 ## 父子對話
 
-父子 conversation 是對話自身的組織能力。每個節點都是普通 conversation，均支持多 Agent 消息；頂層對話也可以沒有子對話。界面中曾稱為 Work 的協作方式直接使用這個能力，不增加獨立業務身份、表、service 或執行生命週期。本節與下面的表結構是父子模型的唯一規範；[協作場景](server-work.md)僅提供使用示例。
+父子 conversation 是對話自身的組織能力。每個節點都是普通 conversation，均支持多 Agent 消息；頂層對話也可以沒有子對話。嵌套對話視圖直接使用這個能力，不增加獨立業務身份、表、service 或執行生命週期。本節與下面的表結構是父子模型的唯一規範；[協作場景](server-conversation-nest.md)僅提供使用示例。
 
 ### 關係與歸屬
 
@@ -136,7 +136,7 @@ Client 選定實際本地 session 後，向 Server 讀取 `complete_messages`：
 
 ### conversations
 
-共享對話主表。`user_id` 是資源所有者，`created_by` 是創建者。parent_conversation_id 可指向同一所有者的父對話，僅在創建時指定；所有 conversation 都支持多 Agent，不綁定固定協調 Agent，也不設 mode 字段。Work 視圖直接使用主對話 ID。狀態只投影本對話的消息與執行，不聚合子樹。
+共享對話主表。`user_id` 是資源所有者，`created_by` 是創建者。parent_conversation_id 可指向同一所有者的父對話，僅在創建時指定；所有 conversation 都支持多 Agent，不綁定固定協調 Agent，也不設 mode 字段。嵌套對話視圖直接使用主對話 ID。狀態只投影本對話的消息與執行，不聚合子樹。
 
 ```sql
 CREATE TABLE conversations (
@@ -228,7 +228,7 @@ CREATE INDEX messages_replies ON messages(conversation_id,reply_to_message_id,se
 
 ## 相關設計
 
-[Server 總覽](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [skillService](server-skill.md) · [Client harnessService](client-harness.md) · [runService](server-run.md) · [fileService](server-file.md) · [Work 視圖](server-work.md)
+[Server 總覽](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [skillService](server-skill.md) · [Client harnessService](client-harness.md) · [runService](server-run.md) · [fileService](server-file.md) · [嵌套對話視圖](server-conversation-nest.md)
 
 消息附件採用顯式 attachment_ids 選擇，messages.attachments 保存元數據快照；省略時為空，不繼承會話文件。每個 conversation 的文件樹與目錄操作 TODO 見 [conversation-files.md](conversation-files.md)。
 

@@ -48,10 +48,10 @@ const (
 	ConversationPending = "pending"
 	ConversationRunning = "running"
 	ConversationWaiting = "waiting" // harness 在等用户回答提问，见 designs/v3/server-run.md
-	// ConversationResolved:已完成，见 designs/v3/server-work.md。再发消息就重新打开。
+	// ConversationResolved:已完成，见 designs/v3/server-conversation.md。再发消息就重新打开。
 	ConversationResolved = "resolved"
 
-	// 工作里的角色，见 designs/v3/server-work.md
+	// 当前旧 Work 实现中的角色，见 docs/server/work.md
 	WorkCoordinator = "coordinator"
 	WorkThread      = "thread"
 

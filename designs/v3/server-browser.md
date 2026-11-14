@@ -26,7 +26,7 @@ Server 網頁透過 `GET /api/browser/ws` 建立一條 WebSocket，僅接收資�
 {"type":"changed","changes":[{"resource":"conversations","id":"child_conversation_uuid","parent_conversation_id":"parent_conversation_uuid"}]}
 ```
 
-`resource` 包含 `conversations`、`attachments`、`agents`、`skills`、`devices`、`users`。`id` 指對應資源，附件通知的 id 是 conversation ID；有父對話時附 parent_conversation_id。Work 視圖使用 conversation 資源，不再有獨立 works 資源通知。通知不包含消息正文、附件內容、日誌、執行結果或憑證。
+`resource` 包含 `conversations`、`attachments`、`agents`、`skills`、`devices`、`users`。`id` 指對應資源，附件通知的 id 是 conversation ID；有父對話時附 parent_conversation_id。嵌套對話視圖使用 conversation 資源，不再有獨立 works 資源通知。通知不包含消息正文、附件內容、日誌、執行結果或憑證。
 
 前端依資源精確使相關查詢失效，只重新讀取目前啟用的查詢。對話變更更新該對話詳情及其所在的頂層或子對話列表；附件變更只更新該對話文件列表。遞歸刪除提交後通知被刪除節點及相關列表，刪除通知使用刪除前的父對話 ID。Agent 回覆和 run detail 的輸出使用 Markdown 顯示，支援 GFM 表格、清單、連結及程式碼區塊；使用者消息仍顯示原文。停用原始 HTML，保留安全 URL 過濾，不使用 dangerouslySetInnerHTML。
 

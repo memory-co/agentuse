@@ -67,7 +67,7 @@ S3 使用相同的相對 key，前面可加部署配置的 prefix。Skill 包不
 | GET | /api/skills/{id}/versions/{version_id}/package | 流式下載固定版本 ZIP |
 | DELETE | /api/skills/{id} | 軟刪除技能，不刪除版本、不破壞已有引用 |
 
-Owner/admin 可上傳和發佈。設備只能下載本設備已分配 prompt 的固定 agent 版本所引用的 skill 包，不能憑 device key 枚舉整個技能庫。主、子 conversation 的執行均沿用這套固定版本資源權限，Work 視圖不增加另一種資源授權入口。
+Owner/admin 可上傳和發佈。設備只能下載本設備已分配 prompt 的固定 agent 版本所引用的 skill 包，不能憑 device key 枚舉整個技能庫。主、子 conversation 的執行均沿用這套固定版本資源權限，嵌套對話視圖不增加另一種資源授權入口。
 
 download_path 是當前 server 的相對 API 路徑。skillService 校驗業務範圍後調用 fileService 讀取，不向 client 下發本地路徑、存儲密鑰，也不要求向任意外域 URL 附帶 device key。Client 校驗下載包的大小、SHA-256 和 SKILL.md 元數據，再安全解包給 harnessctl init。
 

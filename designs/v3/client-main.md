@@ -144,4 +144,4 @@ Server 的 agentService/skillService 分別發佈不可變版本，輸入只關�
 
 AI 在執行環境直接使用 `context` 查詢執行身份與狀態、讀寫附件，無需知道 Client 管理命令。人類用 `agentuse context` 顯式選擇本機上下文或進入 shell；遠端會話管理改為 `agentuse conversation`。同 session 多 run 的選擇、conversation 附件的按需讀取與統一路徑見 [client-context.md](client-context.md)，操作見 [執行上下文手冊](../../docs/client/context.md)。
 
-Work 是 Server 的父子 conversation 視圖；對話工具復用普通 conversation API。Client 不包含 Work 命令、主子關係或協調角色邏輯；此組織模型仍待實作，詳見 [父子 conversation 設計](server-conversation.md#父子對話)。
+嵌套對話是 Server 的 conversation 組織視圖；對話工具復用普通 conversation API。Client 不包含 Work 命令、主子關係或協調角色邏輯；此組織模型仍待實作，詳見 [父子 conversation 設計](server-conversation.md#父子對話)。

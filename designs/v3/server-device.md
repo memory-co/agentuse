@@ -87,7 +87,7 @@ CREATE TABLE device_capabilities (
 
 ## 相關設計
 
-[Server 總覽](server-main.md) · [userService](server-user.md) · [agentService](server-agent.md) · [skillService](server-skill.md) · [Client harnessService](client-harness.md) · [conversationService](server-conversation.md) · [runService](server-run.md) · [fileService](server-file.md) · [Work 視圖](server-work.md)
+[Server 總覽](server-main.md) · [userService](server-user.md) · [agentService](server-agent.md) · [skillService](server-skill.md) · [Client harnessService](client-harness.md) · [conversationService](server-conversation.md) · [runService](server-run.md) · [fileService](server-file.md) · [嵌套對話視圖](server-conversation-nest.md)
 
 ## HTTP 入口
 
