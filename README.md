@@ -183,7 +183,7 @@ context attachment upload ./report.pdf
 
 `download` 使用 conversation 相对路径，把文件下载到 workspace 的对应路径，校验大小和 SHA-256 后返回本地绝对路径及 MIME 类型，图片交给原生看图工具读取。`list` 直接查询整个 conversation 的文件，使用 `direction` 区分用户输入和 Agent 产物。`upload` 自动关联 conversation/run，返回可引用的 `download_path`，不会自动回复或结束执行。人类可以用 `agentuse context` 调试同一上下文，详见 [执行上下文手册](docs/client/context.md)。
 
-每个 conversation 有独立的文件树，用户输入位于 `user_input/`，AI 产物保留相对路径。页面右侧浏览文件，输入框选择每条消息的附件，消息显示可预览的文件卡片。详见 [对话文件](docs/server/conversation-files.md)。
+每个 conversation 有独立的文件树，用户输入位于 `user_input/`，AI 产物保留相对路径。“文件”按钮和消息附件打开文件管理器弹层，顶部显示路径、左侧文件树、右侧内容预览；协作会话的右侧栏显示子会话。输入框仍为每条消息单独选择附件。详见 [对话文件](docs/server/conversation-files.md)。
 
 网页会话页和 Go、Python、Node SDK 均支持附件。服务端默认单文件 100 MiB、每会话总计 1 GiB；文件统一通过 fileService 的 conversations 命名空间保存，本地默认 `~/.agentuse/files`，也支持 S3；须与数据库一起管理和备份。[文件树设计](designs/v3/conversation-files.md) · [Client CLI](docs/client/cli.md)。HTTP API 说明见运行中 Server 的 `/api/docs`。
 

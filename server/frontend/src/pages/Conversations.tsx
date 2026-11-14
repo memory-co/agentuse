@@ -2,9 +2,9 @@ import { Markdown } from '@/components/Markdown';
 import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, ChevronRight, Circle, CircleCheck, FolderOpen, LoaderCircle, RotateCcw, Trash2, UserRound, X } from 'lucide-react';
+import { ChevronRight, CircleCheck, FolderOpen, LoaderCircle, MessagesSquare, RotateCcw, Trash2, UserRound, X } from 'lucide-react';
 import { MentionComposer } from '@/components/MentionComposer';
-import { Attachments } from '@/components/Attachments';
+import { FileManager } from '@/components/FileManager';
 import { listAttachments } from '@/lib/attachments';
 import { useMessageFiles } from '@/hooks/use-message-files';
 import { MessageFiles } from '@/components/MessageFiles';
@@ -74,16 +74,24 @@ export function NewConversation({ onCreated }: { onCreated: (id: string) => void
 /** Conversation messages, nested conversations and files. */
 export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () => void }) {
   const t = useT();
- const agents=useAgents();
- const fileDraft=useMessageFiles();
- const [selectedFile,setSelectedFile]=useState<Attachment|null>(null);
- const [filesOpen,setFilesOpen]=useState(true);
- const [wide,setWide]=useState(()=>window.matchMedia('(min-width:1280px)').matches);
- useEffect(()=>{const media=window.matchMedia('(min-width:1280px)');const change=()=>setWide(media.matches);media.addEventListener('change',change);return()=>media.removeEventListener('change',change)},[]);
- const [drawerOpen,setDrawerOpen]=useState(false);
- const attachments=useQuery({queryKey:['attachments',id],queryFn:()=>listAttachments(id)});
- const openFile=(file:Attachment)=>{setSelectedFile(file);if(wide)setFilesOpen(true);else setDrawerOpen(true)};
-
+  const agents = useAgents();
+  const fileDraft = useMessageFiles();
+  const [selectedFile, setSelectedFile] = useState<Attachment | null>(null);
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [childrenOpen, setChildrenOpen] = useState(false);
+  const fileReturnFocus = useRef<HTMLElement | null>(null);
+  const composer = useRef<HTMLDivElement>(null);
+  const attachments = useQuery({ queryKey: ['attachments', id], queryFn: () => listAttachments(id), enabled: filesOpen });
+  const openFiles = (file?: Attachment) => {
+    fileReturnFocus.current = document.activeElement as HTMLElement | null;
+    if (file) setSelectedFile(file);
+    setFilesOpen(true);
+  };
+  const attachFile = (file: Attachment) => {
+    fileDraft.addExisting(file);
+    fileReturnFocus.current = composer.current?.querySelector('textarea') ?? fileReturnFocus.current;
+    setFilesOpen(false);
+  };
 
   const q = useQuery({ queryKey: ['conversations', id], queryFn: () => api<Detail>(`/api/conversations/${id}`) });
   const children=useChildren(id,q.data?.conversation.mode==='collaborative');
@@ -111,7 +119,8 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
         {x.parent_conversation_id && <a className="text-xs text-muted-foreground hover:underline" href={`#/conversations/${x.parent_conversation_id}`}>{t('nest.parent')} · @{x.parent_agent_id}</a>}
         <div className="flex items-start gap-2 border-b pb-3">
           <p className="min-w-0 flex-1 break-all font-mono text-xs text-muted-foreground">{meta}</p>
-          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" aria-label={t('attachment.files')} onClick={()=>wide?setFilesOpen(value=>!value):setDrawerOpen(true)}><FolderOpen />{t('attachment.files')}</Button>
+          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" aria-label={t('attachment.files')} aria-haspopup="dialog" onClick={() => openFiles()}><FolderOpen />{t('attachment.files')}</Button>
+          {x.mode === 'collaborative' && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs xl:hidden" aria-label={t('nest.children')} aria-haspopup="dialog" onClick={() => setChildrenOpen(true)}><MessagesSquare />{t('nest.children')}<span className="text-muted-foreground">{children.data?.length ?? 0}</span></Button>}
           {settled && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" disabled={resolve.isPending} onClick={() => resolve.mutate(x.status === 'idle')}>
             {x.status === 'idle' ? <><CircleCheck />{t('conversation.resolve')}</> : <><RotateCcw />{t('conversation.reopen')}</>}
           </Button>}
@@ -121,22 +130,59 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
         </div>
 
         {(del.isError||resolve.isError) && <ErrorState error={del.error||resolve.error}/>}
-        {x.mode==='collaborative' && <section aria-label={t('nest.children')} className="grid gap-2 rounded-lg border p-3"><h2 className="text-xs font-medium">{t('nest.children')}</h2>{children.isPending ? <Loading/> : children.isError ? <ErrorState error={children.error}/> : children.data?.length ? children.data.map(child=><a key={child.id} className="flex min-w-0 items-center justify-between gap-2 rounded-md p-2 text-sm hover:bg-muted" href={`#/conversations/${child.id}`}><span className="truncate">{child.title||child.id}</span><StatusBadge tone={STATUS_TONE[child.status]}>{statusLabel(child.status)}</StatusBadge></a>) : <p className="text-xs text-muted-foreground">{t('nest.noChildren')}</p>}</section>}
-        {messages.map(m=><div key={m.id} className="grid min-w-0 grid-cols-1 gap-2"><MessageView m={m} onOpenFile={openFile}/>
+
+        {messages.map(m=><div key={m.id} className="grid min-w-0 grid-cols-1 gap-2"><MessageView m={m} onOpenFile={openFiles}/>
         {m.author_role==='user'&&<div className="flex flex-wrap gap-2">{(q.data.deliveries??[]).filter(d=>d.message_id===m.id && !(q.data.runs??[]).some(run=>run.id===d.run_id && run.first_message_id===m.id)).map(d=><span key={`${d.message_id}:${d.agent_id}`} className="rounded-md border px-2 py-1 text-xs" title={d.error}>@{d.agent_id} · {d.status}</span>)}</div>}
         {(q.data.runs??[]).filter(r=>r.first_message_id===m.id).map(run=><RunView key={run.id} run={run} events={events} questions={questions} messages={messages} deliveries={q.data.deliveries ?? []} conversationId={id}/>)}
         </div>)}
         <div ref={bottom} />
       </div>
     </div>
-    <div className="mx-auto w-full max-w-3xl px-4 pb-4">
+    <div ref={composer} className="mx-auto w-full max-w-3xl px-4 pb-4">
       {reply.isError && <div className="pb-2"><ErrorState error={reply.error} /></div>}
       <MentionComposer files={fileDraft.files} onFiles={fileDraft.addFiles} onRemoveFile={fileDraft.remove} key={id} agents={agents.data??[]} users={[...new Set([x.user_id, x.created_by, ...messages.flatMap(m => [m.author_user_id, ...m.to_user_ids])].filter((value): value is string => !!value))]} placeholder={t('conversation.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets,users)=>reply.mutateAsync({prompt,targets,users})}/>
 
     </div>
    </div>
-   {wide ? filesOpen && <aside className="w-80 shrink-0 border-l 2xl:w-96" data-conversation-files={id}><Attachments conversation={id} files={attachments.data??[]} pending={attachments.isPending} error={attachments.error} selected={selectedFile} onSelect={setSelectedFile} onClose={()=>setFilesOpen(false)} onAttach={fileDraft.addExisting} busy={reply.isPending} referenced={new Set(messages.flatMap(message=>message.attachments.map(file=>file.id)))} /></aside> : <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}><SheetContent className="w-[90vw] p-0 sm:max-w-sm [&>button]:hidden"><SheetTitle className="sr-only">{t('attachment.files')}</SheetTitle><SheetDescription className="sr-only">{t('attachment.preview')}</SheetDescription><Attachments conversation={id} files={attachments.data??[]} pending={attachments.isPending} error={attachments.error} selected={selectedFile} onSelect={setSelectedFile} onClose={()=>setDrawerOpen(false)} onAttach={file=>{fileDraft.addExisting(file);setDrawerOpen(false)}} busy={reply.isPending} referenced={new Set(messages.flatMap(message=>message.attachments.map(file=>file.id)))} /></SheetContent></Sheet>}
+   {x.mode === 'collaborative' && <>
+     <aside className="hidden w-80 shrink-0 flex-col border-l xl:flex 2xl:w-96" aria-label={t('nest.children')} data-conversation-children={id}>
+       <ChildConversations conversations={children.data ?? []} pending={children.isPending} error={children.error} />
+     </aside>
+     <Sheet open={childrenOpen} onOpenChange={setChildrenOpen}>
+       <SheetContent className="w-[90vw] p-0 sm:max-w-sm [&>button]:hidden">
+         <SheetTitle className="sr-only">{t('nest.children')}</SheetTitle>
+         <SheetDescription className="sr-only">{t('nest.childrenDescription')}</SheetDescription>
+         <ChildConversations conversations={children.data ?? []} pending={children.isPending} error={children.error} onClose={() => setChildrenOpen(false)} />
+       </SheetContent>
+     </Sheet>
+   </>}
+   <FileManager open={filesOpen} onOpenChange={setFilesOpen} conversation={id} files={attachments.data ?? []} pending={attachments.isPending} error={attachments.error}
+     selected={selectedFile} onSelect={setSelectedFile} onAttach={attachFile} busy={reply.isPending}
+     onRestoreFocus={() => { if (fileReturnFocus.current?.isConnected) fileReturnFocus.current.focus({ preventScroll: true }); }}
+     referenced={new Set(messages.flatMap(message => message.attachments.map(file => file.id)))} />
   </div>;
+}
+
+function ChildConversations({ conversations, pending, error, onClose }: {
+  conversations: Conversation[]; pending: boolean; error: unknown; onClose?: () => void;
+}) {
+  const t = useT();
+  return <section className="flex h-full min-h-0 flex-col bg-background">
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
+      <MessagesSquare className="size-4 text-muted-foreground" />
+      <h2 className="text-sm font-semibold">{t('nest.children')}</h2>
+      <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{conversations.length}</span>
+      {onClose && <Button variant="ghost" size="icon" className="ml-auto size-8" aria-label={t('common.close')} onClick={onClose}><X /></Button>}
+    </header>
+    <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      {pending ? <Loading /> : error ? <ErrorState error={error} /> : conversations.length ? <div className="grid gap-2">
+        {conversations.map(child => <a key={child.id} className="group grid gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={`#/conversations/${child.id}`} onClick={onClose}>
+          <span className="line-clamp-3 break-words text-sm leading-6">{child.title || child.id}</span>
+          <span className="flex items-center justify-between gap-2"><StatusBadge tone={STATUS_TONE[child.status]}>{statusLabel(child.status)}</StatusBadge><ChevronRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></span>
+        </a>)}
+      </div> : <div className="flex h-full min-h-40 flex-col items-center justify-center gap-3 px-4 text-center text-muted-foreground"><MessagesSquare className="size-8 opacity-40" /><p className="text-xs leading-6">{t('nest.noChildren')}</p></div>}
+    </div>
+  </section>;
 }
 
 function MessageView({ m, onOpenFile }: { m: Message; onOpenFile: (file: Attachment) => void }) {

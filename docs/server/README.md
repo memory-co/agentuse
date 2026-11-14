@@ -14,7 +14,7 @@
 
 [Conversation 接口与命名](conversations.md) 说明统一的 `/api/conversations`、SDK 方法、响应字段以及 Client 唯一的 `session_id`。
 
-[对话文件与消息附件](conversation-files.md) 说明右侧文件树、user_input/ 路径和逐条消息的附件选择。
+[对话文件与消息附件](conversation-files.md) 说明文件管理器弹层、user_input/ 路径和逐条消息的附件选择；协作模式右侧显示子会话列表。
 
 共享對話採用增量補齊：Client 選定實際本地 session 後，Server 用 `complete_messages` 提供上次已受理輸入之後、本次之前的消息，排除該 session 已產生的回覆；新 session 才補回先前歷史。本次正文不在補充列表重複出現。設備可通過 `GET /api/conversations/{id}/messages/{message_id}/agents/{agent_id}/context?session_id=...` 讀取此補充，權限限於已投遞給本設備的消息與 Agent。
 
