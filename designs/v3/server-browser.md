@@ -39,3 +39,7 @@ Service 在交易提交成功後發布通知；回滾不發布。設備的 accep
 前端移除固定 HTTP 輪詢。WebSocket 斷線後以退避方式重連，收到 ready 後補讀；失效登入透過 HTTP 確認後返回登入頁。ping/pong 僅維持連線，不定時查詢所有資源。不新增 ACK、通知資料表、事件重放或另一套資料同步協議，資料庫仍是事實來源。
 
 目前通知後仍讀取既有 HTTP 快照；此變更消除無變化時的輪詢，不宣稱已將會話詳情改成增量 API。Server 重啟不保留通知佇列，瀏覽器重連補讀即可恢復。
+
+## 源碼職責
+
+server/internal/notification 的 Broker 只分發變更提示，使用明確的訂閱者 ID、管理員標記及發佈者提供的所有者範圍，不依賴 SQL、store 或 service。用戶變更由 user.Service 以僅管理員範圍發佈；其他資源由所屬服務發佈，對話包含所有者、創建者及父對話引用。設備相關對話由 run.Service 根據 message_agents 查詢，再通過 conversation.Service 發佈。HTTP/WebSocket 層消費通知，不參與業務消息或輪次生成。所有變更仍在業務事務成功提交後發佈。

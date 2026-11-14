@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/service"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 type documentedMedia struct {
@@ -59,7 +59,7 @@ func (d serverAPISpec) resolve(schema map[string]any) map[string]any {
 
 func TestServerDocumentationAuthentication(t *testing.T) {
 	e := newEnv(t, Config{FilesDir: t.TempDir()})
-	_, token := e.user("alice", service.RoleUser)
+	_, token := e.user("alice", agentuse.RoleUser)
 	paths := []string{"/api/docs", "/api/openapi.json", "/api/openapi.yaml", "/api/openapi-3.0.json", "/api/openapi-3.0.yaml", "/api/schemas/Message.json"}
 	for _, path := range paths {
 		if code := e.code("", "GET", path, nil); code != 401 {
@@ -99,7 +99,7 @@ func TestServerDocumentationAuthentication(t *testing.T) {
 
 func TestServerOpenAPIRoutesSchemasAndCredentials(t *testing.T) {
 	e := newEnv(t, Config{FilesDir: t.TempDir()})
-	_, token := e.user("alice", service.RoleUser)
+	_, token := e.user("alice", agentuse.RoleUser)
 	spec := readServerAPISpec(t, e, token)
 	if !strings.HasPrefix(spec.OpenAPI, "3.1.") || len(spec.Paths) < 35 {
 		t.Fatal("incomplete OpenAPI document", spec.OpenAPI, len(spec.Paths))
@@ -226,7 +226,7 @@ func TestServerOpenAPIRoutesSchemasAndCredentials(t *testing.T) {
 
 func TestServerDocumentationConcurrentFirstRequests(t *testing.T) {
 	e := newEnv(t, Config{FilesDir: t.TempDir()})
-	_, token := e.user("alice", service.RoleUser)
+	_, token := e.user("alice", agentuse.RoleUser)
 	var requests sync.WaitGroup
 	for range 8 {
 		for _, path := range []string{"/api/openapi.json", "/api/openapi.yaml", "/api/openapi-3.0.json", "/api/openapi-3.0.yaml"} {

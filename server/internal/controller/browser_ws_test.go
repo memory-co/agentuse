@@ -12,13 +12,13 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/service"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 func TestBrowserNotificationsAuthenticationAndOrigin(t *testing.T) {
 	e := newEnv(t, Config{})
-	_, token := e.user("alice", service.RoleUser)
-	bob, _ := e.user("bob", service.RoleUser)
+	_, token := e.user("alice", agentuse.RoleUser)
+	bob, _ := e.user("bob", agentuse.RoleUser)
 	tests := []struct {
 		token, path, origin string
 		status              int
@@ -49,9 +49,9 @@ func TestBrowserNotificationsAuthenticationAndOrigin(t *testing.T) {
 
 func TestBrowserNotificationsScopeCoalescingAndReconnect(t *testing.T) {
 	e := newEnv(t, Config{})
-	alice, aliceToken := e.user("alice", service.RoleUser)
-	bob, bobToken := e.user("bob", service.RoleUser)
-	_, adminToken := e.user("admin", service.RoleAdmin)
+	alice, aliceToken := e.user("alice", agentuse.RoleUser)
+	bob, bobToken := e.user("bob", agentuse.RoleUser)
+	_, adminToken := e.user("admin", agentuse.RoleAdmin)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	read := func(c *websocket.Conn) browserNotice {
@@ -82,16 +82,16 @@ func TestBrowserNotificationsScopeCoalescingAndReconnect(t *testing.T) {
 	b := dial(bobToken, "")
 	admin := dial(adminToken, "")
 	acting := dial(adminToken, alice.ID)
-	bConversation, _, err := e.st.CreateConversation(ctx, bob, "", "Bob private", "", nil, nil, "", nil)
+	bConversation, _, err := e.st.ConversationService.CreateConversation(ctx, bob, "", "Bob private", "", nil, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	aConversation, _, err := e.st.CreateConversation(ctx, alice, "", "Alice private", "", nil, nil, "", nil)
+	aConversation, _, err := e.st.ConversationService.CreateConversation(ctx, alice, "", "Alice private", "", nil, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 20; i++ {
-		if _, err = e.st.SendMessage(ctx, alice, aConversation.ID, "secret message body", nil, nil, nil, ""); err != nil {
+		if _, err = e.st.ConversationService.SendMessage(ctx, alice, aConversation.ID, "secret message body", nil, nil, nil, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -104,7 +104,7 @@ func TestBrowserNotificationsScopeCoalescingAndReconnect(t *testing.T) {
 		if strings.Contains(string(raw), "secret") || strings.Contains(string(raw), "owners") {
 			t.Fatal("content leaked", string(raw))
 		}
-		detail, e2 := e.st.ReadConversation(ctx, alice, n.Changes[0].ID)
+		detail, e2 := e.st.ConversationService.ReadConversation(ctx, alice, n.Changes[0].ID)
 		if e2 != nil || len(detail.Messages) != 20 {
 			t.Fatal("notification preceded commit", detail, e2)
 		}
@@ -117,19 +117,19 @@ func TestBrowserNotificationsScopeCoalescingAndReconnect(t *testing.T) {
 	}
 	a.CloseNow()
 	// No replay ledger: reconnect receives ready and fetches the current snapshot.
-	_, err = e.st.SendMessage(ctx, alice, aConversation.ID, "while disconnected", nil, nil, nil, "")
+	_, err = e.st.ConversationService.SendMessage(ctx, alice, aConversation.ID, "while disconnected", nil, nil, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	a = dial(aliceToken, "")
-	detail, err := e.st.ReadConversation(ctx, alice, aConversation.ID)
+	detail, err := e.st.ConversationService.ReadConversation(ctx, alice, aConversation.ID)
 	if err != nil || len(detail.Messages) != 21 {
 		t.Fatal(detail, err)
 	}
-	if _, _, err = e.st.ResetUserToken(ctx, alice.ID); err != nil {
+	if _, _, err = e.st.UserService.ResetUserToken(ctx, alice.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = e.st.SendMessage(ctx, alice, aConversation.ID, "after revocation", nil, nil, nil, ""); err != nil {
+	if _, err = e.st.ConversationService.SendMessage(ctx, alice, aConversation.ID, "after revocation", nil, nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	var n browserNotice
@@ -142,11 +142,11 @@ func TestBrowserNotificationsIncludeCommittedClientResults(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var reply service.Reply
+	var reply agentuse.Reply
 	if r := f.e.req(f.token, "POST", "/api/conversations/"+f.conversation.ID+"/messages", map[string]any{"prompt": "input", "to_agent_ids": []string{f.agent}}, &reply); r.StatusCode != 201 {
 		t.Fatal(r.StatusCode)
 	}
-	p, err := f.e.st.DispatchMessage(ctx, f.d)
+	p, err := f.e.st.RunService.DispatchMessage(ctx, f.d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestBrowserNotificationsIncludeCommittedClientResults(t *testing.T) {
 		{"type": "result", "run_id": run, "input_ids": []string{"input"}, "status": "completed", "output": "# Done\n\n**Result**"},
 	} {
 		raw, _ := json.Marshal(event)
-		if err = f.e.st.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: p.AgentVersionID, Revision: "reported", MessageID: p.MessageID, Seq: int64(i + 1), Event: raw}); err != nil {
+		if err = f.e.st.ConversationService.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: p.AgentVersionID, Revision: "reported", MessageID: p.MessageID, Seq: int64(i + 1), Event: raw}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -183,7 +183,7 @@ func TestBrowserNotificationsIncludeCommittedClientResults(t *testing.T) {
 		}
 	}
 
-	var detail service.ConversationDetail
+	var detail agentuse.ConversationDetail
 	if r := f.e.req(f.token, "GET", "/api/conversations/"+f.conversation.ID, nil, &detail); r.StatusCode != 200 || len(detail.Runs) != 1 || detail.Runs[0].Status != "completed" || detail.Runs[0].Output != "# Done\n\n**Result**" {
 		t.Fatal("committed result missing", r.StatusCode, detail)
 	}

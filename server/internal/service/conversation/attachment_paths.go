@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/memory-co/agentuse/internal/attachment"
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
 )
 
 // Assign a unique path without replacing bytes already referenced by a message.
@@ -29,7 +28,7 @@ func (s *Service) assignAttachmentPath(ctx context.Context, tx *sql.Tx, file *at
 	}
 	for version := 2; version < 10000; version++ {
 		if _, err = attachment.RelativePath(candidate); err != nil {
-			return core.ErrAttachmentPathConflict
+			return ErrAttachmentPathConflict
 		}
 		var existing string
 		err = tx.QueryRowContext(ctx, `SELECT relative_path FROM attachments WHERE conversation_id=? AND (relative_path=? OR substr(relative_path,1,length(?)+1)=?||'/' OR substr(?,1,length(relative_path)+1)=relative_path||'/') LIMIT 1`, file.ConversationID, candidate, candidate, candidate, candidate).Scan(&existing)
@@ -51,9 +50,9 @@ func (s *Service) assignAttachmentPath(ctx context.Context, tx *sql.Tx, file *at
 			return err
 		}
 		if strings.HasPrefix(candidate, existing+"/") {
-			return core.ErrAttachmentPathConflict
+			return ErrAttachmentPathConflict
 		}
 		candidate = path.Join(path.Dir(requested), fmt.Sprintf("%s (%d)%s", stem, version, extension))
 	}
-	return core.ErrAttachmentPathConflict
+	return ErrAttachmentPathConflict
 }

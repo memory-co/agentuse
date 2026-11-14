@@ -3,16 +3,22 @@ package run
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
 	skillservice "github.com/memory-co/agentuse/server/internal/service/skill"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // Service owns the run business operations. Peers are explicit contracts.
 type Service struct {
-	*core.Runtime
+	DB         *sql.DB
+	Repository *store.Store
+	Now        func() time.Time
+	Notifier   interface {
+		PushRun(string, protocol.Message)
+	}
 	AgentService        agentService
 	ConversationService conversationService
 	DeviceService       deviceService
@@ -20,17 +26,18 @@ type Service struct {
 }
 
 type agentService interface {
-	ReadVersion(ctx context.Context, q core.QueryReader, id string) (agentuse.AgentVersion, error)
+	ReadVersion(ctx context.Context, q store.QueryReader, id string) (agentuse.AgentVersion, error)
 }
 
 type conversationService interface {
-	GetConversation(ctx context.Context, u core.User, id string) (core.Conversation, error)
+	NotifyConversation(context.Context, string)
+	GetConversation(ctx context.Context, u agentuse.User, id string) (agentuse.Conversation, error)
 	DeliveryChanged(ctx context.Context, conversation string)
-	PrepareMessage(ctx context.Context, tx *sql.Tx, p core.Delivery) (protocol.ConversationMessage, error)
+	PrepareMessage(ctx context.Context, tx *sql.Tx, p agentuse.Delivery) (protocol.ConversationMessage, error)
 	ProjectStatus(ctx context.Context, tx *sql.Tx, conversation string, now int64) error
 }
 
 type deviceService interface {
-	DeviceByKey(ctx context.Context, key string) (core.Device, error)
-	CheckRuntime(ctx context.Context, q core.Querier, deviceID, harness string) error
+	DeviceByKey(ctx context.Context, key string) (agentuse.Device, error)
+	CheckRuntime(ctx context.Context, q store.Querier, deviceID, harness string) error
 }

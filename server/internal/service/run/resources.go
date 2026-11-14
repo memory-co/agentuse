@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 func (s *Service) SkillForCredential(ctx context.Context, token, id, version string) (agentuse.SkillVersion, error) {
@@ -20,12 +20,12 @@ func (s *Service) SkillForCredential(ctx context.Context, token, id, version str
 			return agentuse.SkillVersion{}, err
 		}
 	} else {
-		return agentuse.SkillVersion{}, core.ErrNotFound
+		return agentuse.SkillVersion{}, store.ErrNotFound
 	}
 	if count == 0 {
-		return agentuse.SkillVersion{}, core.ErrNotFound
+		return agentuse.SkillVersion{}, store.ErrNotFound
 	}
-	return s.Skills.Version(ctx, s.DB, core.User{Role: core.RoleAdmin}, id, version, false)
+	return s.Skills.Version(ctx, s.DB, agentuse.User{Role: agentuse.RoleAdmin}, id, version, false)
 }
 
 // AgentVersionForCredential authorizes the fixed version before native acceptance.
@@ -41,14 +41,14 @@ func (s *Service) AgentVersionForCredential(ctx context.Context, token, id, vers
 			return agentuse.AgentVersion{}, err
 		}
 	} else {
-		return agentuse.AgentVersion{}, core.ErrNotFound
+		return agentuse.AgentVersion{}, store.ErrNotFound
 	}
 	if count == 0 {
-		return agentuse.AgentVersion{}, core.ErrNotFound
+		return agentuse.AgentVersion{}, store.ErrNotFound
 	}
 	v, err := s.AgentService.ReadVersion(ctx, s.DB, version)
 	if err == nil && v.AgentID != id {
-		return agentuse.AgentVersion{}, core.ErrNotFound
+		return agentuse.AgentVersion{}, store.ErrNotFound
 	}
 	return v, err
 }

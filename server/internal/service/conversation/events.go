@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 
 	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/service/run"
 )
 
@@ -18,15 +18,15 @@ func (s *Service) ReportClientEvent(ctx context.Context, device string, envelope
 
 type conversationEvents struct{ service *Service }
 
-func (c conversationEvents) Applied(ctx context.Context, tx *sql.Tx, envelope protocol.ClientEvent, event run.ExecutionFacts, completed *core.Run) error {
+func (c conversationEvents) Applied(ctx context.Context, tx *sql.Tx, envelope protocol.ClientEvent, event run.ExecutionFacts, completed *agentuse.Run) error {
 	s := c.service
 	if completed != nil {
-		conversation, err := s.LookupConversation(ctx, tx, core.User{Role: core.RoleAdmin}, completed.ConversationID)
+		conversation, err := s.LookupConversation(ctx, tx, agentuse.User{Role: agentuse.RoleAdmin}, completed.ConversationID)
 		if err != nil {
 			return err
 		}
 		if event.Status == "cancelled" && conversation.ParentConversationID == "" {
-			return s.ProjectStatus(ctx, tx, envelope.ConversationID, s.Unix())
+			return s.ProjectStatus(ctx, tx, envelope.ConversationID, s.Now().Unix())
 		}
 		var author string
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(author_user_id,'') FROM messages WHERE id=?`, completed.FirstMessageID).Scan(&author); err != nil {
@@ -47,7 +47,7 @@ func (c conversationEvents) Applied(ctx context.Context, tx *sql.Tx, envelope pr
 		if text == "" && event.Status == "failed" {
 			text = "The execution failed."
 		}
-		message, err := s.insertMessage(ctx, tx, completed.ConversationID, core.RoleAgentMsg, text, s.Unix())
+		message, err := s.insertMessage(ctx, tx, completed.ConversationID, agentuse.RoleAgentMsg, text, s.Now().Unix())
 		if err != nil {
 			return err
 		}
@@ -61,7 +61,7 @@ func (c conversationEvents) Applied(ctx context.Context, tx *sql.Tx, envelope pr
 			return err
 		}
 	}
-	return s.ProjectStatus(ctx, tx, envelope.ConversationID, s.Unix())
+	return s.ProjectStatus(ctx, tx, envelope.ConversationID, s.Now().Unix())
 }
 
 func (c conversationEvents) Committed(ctx context.Context, conversation string, result bool) {
@@ -71,7 +71,7 @@ func (c conversationEvents) Committed(ctx context.Context, conversation string, 
 		if err := s.ReconcileRoundNotifications(ctx); err != nil {
 			s.Log.Printf("round notification pending for %s: %v", conversation, err)
 		}
-		if record, err := s.GetConversation(ctx, core.User{Role: core.RoleAdmin}, conversation); err == nil {
+		if record, err := s.GetConversation(ctx, agentuse.User{Role: agentuse.RoleAdmin}, conversation); err == nil {
 			s.PublishConversationChange(record, "attachments")
 		}
 	}

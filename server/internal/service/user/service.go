@@ -1,10 +1,15 @@
 package user
 
 import (
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
+	"database/sql"
+	"time"
+
+	"github.com/memory-co/agentuse/server/internal/notification"
 )
 
 // Service owns the user business operations. Peers are explicit contracts.
 type Service struct {
-	*core.Runtime
+	DB      *sql.DB
+	Now     func() time.Time
+	Changes *notification.Broker
 }

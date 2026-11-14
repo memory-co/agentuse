@@ -15,19 +15,21 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/attachment"
-	"github.com/memory-co/agentuse/server/internal/service"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	conversationservice "github.com/memory-co/agentuse/server/internal/service/conversation"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 type attachmentKey struct{}
 
-func attachmentAccess(r *http.Request) service.AttachmentAccess {
-	return r.Context().Value(attachmentKey{}).(service.AttachmentAccess)
+func attachmentAccess(r *http.Request) conversationservice.AttachmentAccess {
+	return r.Context().Value(attachmentKey{}).(conversationservice.AttachmentAccess)
 }
 func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := requestToken(r)
 		finish := func(w http.ResponseWriter, r *http.Request) {
-			a := service.AttachmentAccess{User: currentUser(r), Token: token}
+			a := conversationservice.AttachmentAccess{User: currentUser(r), Token: token}
 			h(w, r.WithContext(context.WithValue(r.Context(), attachmentKey{}, a)))
 		}
 		if !strings.HasPrefix(token, "dk_") {
@@ -52,7 +54,7 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 			s.attachmentErr(w, err)
 			return
 		}
-		a := service.AttachmentAccess{User: u, DeviceID: d.ID, Token: token, RunID: r.Header.Get("X-Agentuse-Run")}
+		a := conversationservice.AttachmentAccess{User: u, DeviceID: d.ID, Token: token, RunID: r.Header.Get("X-Agentuse-Run")}
 		if r.Header.Get("X-Agentuse-Conversation") != "" {
 			source, err := s.deviceSource(r)
 			if err != nil {
@@ -67,13 +69,13 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 }
 func (s *Server) attachmentErr(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, service.ErrAttachmentUnauthorized):
+	case errors.Is(err, conversationservice.ErrAttachmentUnauthorized):
 		writeErr(w, 401, err.Error())
-	case errors.Is(err, service.ErrNotFound):
+	case errors.Is(err, store.ErrNotFound):
 		writeErr(w, 404, "会话或附件不存在")
-	case errors.Is(err, service.ErrAttachmentReferenced), errors.Is(err, service.ErrAttachmentPathConflict), errors.Is(err, service.ErrAttachmentRun), errors.Is(err, service.ErrAttachmentCapability):
+	case errors.Is(err, conversationservice.ErrAttachmentReferenced), errors.Is(err, conversationservice.ErrAttachmentPathConflict), errors.Is(err, conversationservice.ErrAttachmentRun), errors.Is(err, conversationservice.ErrAttachmentCapability):
 		writeErr(w, 409, err.Error())
-	case errors.Is(err, service.ErrAttachmentQuota):
+	case errors.Is(err, conversationservice.ErrAttachmentQuota):
 		writeErr(w, 413, err.Error())
 	default:
 		s.log.Printf("attachment: %v", err)
@@ -258,13 +260,13 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 	}
 	if a.RunID != "" {
 		v.CreatedByRunID = a.RunID
-		if run, e := s.service.RunService.GetRun(r.Context(), service.User{Role: service.RoleAdmin}, v.ConversationID, a.RunID); e == nil {
+		if run, e := s.service.RunService.GetRun(r.Context(), agentuse.User{Role: agentuse.RoleAdmin}, v.ConversationID, a.RunID); e == nil {
 			v.CreatedByAgentID = run.AgentID
 		}
 	}
 	err = s.service.ConversationService.PublishAttachment(r.Context(), a, &v, tmp)
 	if err != nil {
-		if errors.Is(err, service.ErrNotFound) {
+		if errors.Is(err, store.ErrNotFound) {
 			writeErr(w, 409, "上传期间会话或权限发生变化")
 			return
 		}
@@ -301,7 +303,7 @@ func (s *Server) handleListAttachments(w http.ResponseWriter, r *http.Request) {
 	}
 	page, err := s.service.ConversationService.ListAttachments(r.Context(), r.PathValue("id"), r.URL.Query().Get("cursor"), limit, run)
 	if err != nil {
-		if errors.Is(err, service.ErrAttachmentCursor) {
+		if errors.Is(err, conversationservice.ErrAttachmentCursor) {
 			writeErr(w, 400, err.Error())
 		} else {
 			s.attachmentErr(w, err)

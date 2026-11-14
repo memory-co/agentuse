@@ -1,6 +1,5 @@
 package store
 
-const RunCapability = "agentuse-client/2"
 const runSchema = `
 -- A message target has no independent task/input identity.
 CREATE TABLE IF NOT EXISTS message_agents (

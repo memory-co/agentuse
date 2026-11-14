@@ -3,22 +3,23 @@ package conversation
 import (
 	"context"
 
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // ReadConversation returns one consistent view. A completed delivery must never be
 // paired with messages read before its result was committed.
-func (s *Service) ReadConversation(ctx context.Context, u core.User, id string) (core.ConversationDetail, error) {
+func (s *Service) ReadConversation(ctx context.Context, u agentuse.User, id string) (agentuse.ConversationDetail, error) {
 	return s.readConversation(ctx, u, id, 0)
 }
-func (s *Service) ReadRound(ctx context.Context, u core.User, id string, seq int64) (core.ConversationDetail, error) {
+func (s *Service) ReadRound(ctx context.Context, u agentuse.User, id string, seq int64) (agentuse.ConversationDetail, error) {
 	if seq <= 0 {
-		return core.ConversationDetail{}, core.ErrNotFound
+		return agentuse.ConversationDetail{}, store.ErrNotFound
 	}
 	return s.readConversation(ctx, u, id, seq)
 }
-func (s *Service) readConversation(ctx context.Context, u core.User, id string, roundSeq int64) (core.ConversationDetail, error) {
-	var detail core.ConversationDetail
+func (s *Service) readConversation(ctx context.Context, u agentuse.User, id string, roundSeq int64) (agentuse.ConversationDetail, error) {
+	var detail agentuse.ConversationDetail
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return detail, err
@@ -46,7 +47,7 @@ func (s *Service) readConversation(ctx context.Context, u core.User, id string, 
 		return detail, err
 	}
 	if roundSeq > 0 {
-		var selected *core.ConversationRound
+		var selected *agentuse.ConversationRound
 		for i := range detail.Rounds {
 			if detail.Rounds[i].Seq == roundSeq {
 				selected = &detail.Rounds[i]
@@ -54,10 +55,10 @@ func (s *Service) readConversation(ctx context.Context, u core.User, id string, 
 			}
 		}
 		if selected == nil {
-			return detail, core.ErrNotFound
+			return detail, store.ErrNotFound
 		}
 		included := map[string]bool{}
-		messages := []core.Message{}
+		messages := []agentuse.Message{}
 		for _, m := range detail.Messages {
 			if m.Seq >= selected.StartMessageSeq && (selected.EndMessageSeq == nil || m.Seq <= *selected.EndMessageSeq) {
 				messages = append(messages, m)
@@ -65,7 +66,7 @@ func (s *Service) readConversation(ctx context.Context, u core.User, id string, 
 			}
 		}
 		detail.Messages = messages
-		runs := []core.Run{}
+		runs := []agentuse.Run{}
 		runIDs := map[string]bool{}
 		for _, r := range detail.Runs {
 			if included[r.FirstMessageID] {
@@ -74,28 +75,28 @@ func (s *Service) readConversation(ctx context.Context, u core.User, id string, 
 			}
 		}
 		detail.Runs = runs
-		deliveries := []core.Delivery{}
+		deliveries := []agentuse.Delivery{}
 		for _, d := range detail.Deliveries {
 			if included[d.MessageID] {
 				deliveries = append(deliveries, d)
 			}
 		}
 		detail.Deliveries = deliveries
-		events := []core.ConversationEvent{}
+		events := []agentuse.ConversationEvent{}
 		for _, e := range detail.Events {
 			if runIDs[e.RunID] {
 				events = append(events, e)
 			}
 		}
 		detail.Events = events
-		questions := []core.Question{}
+		questions := []agentuse.Question{}
 		for _, q := range detail.Questions {
 			if runIDs[q.RunID] {
 				questions = append(questions, q)
 			}
 		}
 		detail.Questions = questions
-		detail.Rounds = []core.ConversationRound{*selected}
+		detail.Rounds = []agentuse.ConversationRound{*selected}
 	}
 	detail.RunCounts = map[string]int{}
 	for _, run := range detail.Runs {

@@ -10,15 +10,15 @@ import (
 func TestMessageContextIsScopedToDeliveredDevice(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
 	ctx := context.Background()
-	_, err := f.e.st.SendMessage(ctx, f.u, f.conversation.ID, "shared-note", nil, nil, nil, "")
+	_, err := f.e.st.ConversationService.SendMessage(ctx, f.u, f.conversation.ID, "shared-note", nil, nil, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	reply, err := f.e.st.SendMessage(ctx, f.u, f.conversation.ID, "current", []string{f.agent}, nil, nil, "")
+	reply, err := f.e.st.ConversationService.SendMessage(ctx, f.u, f.conversation.ID, "current", []string{f.agent}, nil, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := f.e.st.DispatchMessage(ctx, f.d)
+	p, err := f.e.st.RunService.DispatchMessage(ctx, f.d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,11 +30,11 @@ func TestMessageContextIsScopedToDeliveredDevice(t *testing.T) {
 	if _, err = client.GetMessageContext(ctx, f.conversation.ID, reply.Message.ID, "wrong-agent", "new-local-conversation"); !agentuse.IsStatus(err, 404) {
 		t.Fatal("cross-agent context", err)
 	}
-	other, err := f.e.st.CreateDevice(ctx, f.u.ID, "other")
+	other, err := f.e.st.DeviceService.CreateDevice(ctx, f.u.ID, "other")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, key, err := f.e.st.RegisterDevice(ctx, other.SetupToken, "")
+	_, key, err := f.e.st.DeviceService.RegisterDevice(ctx, other.SetupToken, "")
 	if err != nil {
 		t.Fatal(err)
 	}

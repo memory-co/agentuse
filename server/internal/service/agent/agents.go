@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
+	"github.com/memory-co/agentuse/server/internal/notification"
 	skillservice "github.com/memory-co/agentuse/server/internal/service/skill"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
@@ -43,7 +43,7 @@ func agentWriteErr(err error, id, name string) error {
 }
 
 // CreateAgent is the internal convenience form for a version-one configuration.
-func (s *Service) CreateAgent(ctx context.Context, user, id, name, device, harness, description string) (core.Agent, error) {
+func (s *Service) CreateAgent(ctx context.Context, user, id, name, device, harness, description string) (agentuse.Agent, error) {
 	return s.CreateConfiguredAgent(ctx, user, id, agentuse.AgentConfig{Name: name, DeviceID: device, Harness: harness, Description: description})
 }
 func (s *Service) validateAgentConfig(ctx context.Context, tx *sql.Tx, user, id string, c *agentuse.AgentConfig) error {
@@ -77,7 +77,7 @@ func (s *Service) validateAgentConfig(ctx context.Context, tx *sql.Tx, user, id 
 	}
 	names, ids := map[string]bool{}, map[string]bool{}
 	for _, ref := range c.Skills {
-		v, e := s.Skills.Version(ctx, tx, core.User{ID: user}, ref.SkillID, ref.SkillVersionID, true)
+		v, e := s.Skills.Version(ctx, tx, agentuse.User{ID: user}, ref.SkillID, ref.SkillVersionID, true)
 		if e != nil {
 			return e
 		}
@@ -91,7 +91,7 @@ func (s *Service) validateAgentConfig(ctx context.Context, tx *sql.Tx, user, id 
 	return nil
 }
 func (s *Service) writeAgentVersion(ctx context.Context, tx *sql.Tx, v agentuse.AgentVersion) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO agent_versions(id,agent_id,version,name,description,device_id,harness,model,instructions,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, v.ID, v.AgentID, v.Version, v.Name, v.Description, v.DeviceID, v.Harness, core.NullIfEmpty(v.Model), v.Instructions, v.CreatedAt)
+	_, err := tx.ExecContext(ctx, `INSERT INTO agent_versions(id,agent_id,version,name,description,device_id,harness,model,instructions,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, v.ID, v.AgentID, v.Version, v.Name, v.Description, v.DeviceID, v.Harness, store.NullIfEmpty(v.Model), v.Instructions, v.CreatedAt)
 	if err != nil {
 		return err
 	}
@@ -102,43 +102,43 @@ func (s *Service) writeAgentVersion(ctx context.Context, tx *sql.Tx, v agentuse.
 	}
 	return nil
 }
-func projection(id, user string, created, updated int64, v agentuse.AgentVersion) core.Agent {
-	return core.Agent{ID: id, UserID: user, CurrentVersionID: v.ID, Version: v.Version, Name: v.Name, Description: v.Description, DeviceID: v.DeviceID, Harness: v.Harness, Model: v.Model, Instructions: v.Instructions, Skills: v.Skills, CreatedAt: created, UpdatedAt: updated}
+func projection(id, user string, created, updated int64, v agentuse.AgentVersion) agentuse.Agent {
+	return agentuse.Agent{ID: id, UserID: user, CurrentVersionID: v.ID, Version: v.Version, Name: v.Name, Description: v.Description, DeviceID: v.DeviceID, Harness: v.Harness, Model: v.Model, Instructions: v.Instructions, Skills: v.Skills, CreatedAt: created, UpdatedAt: updated}
 }
-func (s *Service) CreateConfiguredAgent(ctx context.Context, user, id string, c agentuse.AgentConfig) (core.Agent, error) {
+func (s *Service) CreateConfiguredAgent(ctx context.Context, user, id string, c agentuse.AgentConfig) (agentuse.Agent, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
-		id = core.RandomID("ag_")
+		id = store.RandomID("ag_")
 	} else if !agentIDRe.MatchString(id) {
-		return core.Agent{}, errors.New("agent id 只能用小写字母、数字、- 和 _,最长 64 个字符")
+		return agentuse.Agent{}, errors.New("agent id 只能用小写字母、数字、- 和 _,最长 64 个字符")
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
-		return core.Agent{}, err
+		return agentuse.Agent{}, err
 	}
 	defer tx.Rollback()
 	if err = s.validateAgentConfig(ctx, tx, user, id, &c); err != nil {
-		return core.Agent{}, err
+		return agentuse.Agent{}, err
 	}
-	now := s.Unix()
-	v := agentuse.AgentVersion{ID: core.NewUUID(), AgentID: id, Version: 1, AgentConfig: c, CreatedAt: now}
+	now := s.Now().Unix()
+	v := agentuse.AgentVersion{ID: store.NewUUID(), AgentID: id, Version: 1, AgentConfig: c, CreatedAt: now}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO agents(id,user_id,current_version_id,created_at,updated_at) VALUES(?,?,?,?,?)`, id, user, v.ID, now, now); err != nil {
-		return core.Agent{}, agentWriteErr(err, id, c.Name)
+		return agentuse.Agent{}, agentWriteErr(err, id, c.Name)
 	}
 	if err = s.writeAgentVersion(ctx, tx, v); err != nil {
-		return core.Agent{}, err
+		return agentuse.Agent{}, err
 	}
 	if err = tx.Commit(); err != nil {
-		return core.Agent{}, err
+		return agentuse.Agent{}, err
 	}
-	s.NotifyResource("agents", id, user)
+	s.Changes.Publish(notification.Change{Resource: "agents", ID: id}, user)
 	return projection(id, user, now, now, v), nil
 }
-func (s *Service) ReadVersion(ctx context.Context, q core.QueryReader, id string) (agentuse.AgentVersion, error) {
+func (s *Service) ReadVersion(ctx context.Context, q store.QueryReader, id string) (agentuse.AgentVersion, error) {
 	var v agentuse.AgentVersion
 	err := q.QueryRowContext(ctx, `SELECT id,agent_id,version,name,description,device_id,harness,COALESCE(model,''),instructions,created_at FROM agent_versions WHERE id=?`, id).Scan(&v.ID, &v.AgentID, &v.Version, &v.Name, &v.Description, &v.DeviceID, &v.Harness, &v.Model, &v.Instructions, &v.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = core.ErrNotFound
+		err = store.ErrNotFound
 	}
 	if err != nil {
 		return v, err
@@ -158,25 +158,25 @@ func (s *Service) ReadVersion(ctx context.Context, q core.QueryReader, id string
 	}
 	return v, rows.Err()
 }
-func (s *Service) GetAgentVersion(ctx context.Context, u core.User, id, version string) (agentuse.AgentVersion, error) {
+func (s *Service) GetAgentVersion(ctx context.Context, u agentuse.User, id, version string) (agentuse.AgentVersion, error) {
 	var owner string
 	err := s.DB.QueryRowContext(ctx, `SELECT user_id FROM agents WHERE id=?`, id).Scan(&owner)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = core.ErrNotFound
+		err = store.ErrNotFound
 	}
 	if err != nil {
 		return agentuse.AgentVersion{}, err
 	}
 	if !u.IsAdmin() && owner != u.ID {
-		return agentuse.AgentVersion{}, core.ErrNotFound
+		return agentuse.AgentVersion{}, store.ErrNotFound
 	}
 	v, err := s.ReadVersion(ctx, s.DB, version)
 	if err == nil && v.AgentID != id {
-		err = core.ErrNotFound
+		err = store.ErrNotFound
 	}
 	return v, err
 }
-func (s *Service) AgentVersions(ctx context.Context, u core.User, id string) ([]agentuse.AgentVersion, error) {
+func (s *Service) AgentVersions(ctx context.Context, u agentuse.User, id string) ([]agentuse.AgentVersion, error) {
 	if _, err := s.GetAgent(ctx, u, id); err != nil {
 		return nil, err
 	}
@@ -208,54 +208,54 @@ func (s *Service) AgentVersions(ctx context.Context, u core.User, id string) ([]
 	}
 	return out, nil
 }
-func (s *Service) PublishAgentVersion(ctx context.Context, u core.User, id, base string, c agentuse.AgentConfig) (core.Agent, error) {
+func (s *Service) PublishAgentVersion(ctx context.Context, u agentuse.User, id, base string, c agentuse.AgentConfig) (agentuse.Agent, error) {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
-		return core.Agent{}, err
+		return agentuse.Agent{}, err
 	}
 	defer tx.Rollback()
 	var owner, head string
 	var created, updated int64
 	err = tx.QueryRowContext(ctx, `SELECT user_id,current_version_id,created_at,updated_at FROM agents WHERE id=? AND deleted_at IS NULL`, id).Scan(&owner, &head, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = core.ErrNotFound
+		err = store.ErrNotFound
 	}
 	if err != nil {
-		return core.Agent{}, err
+		return agentuse.Agent{}, err
 	}
 	if !u.IsAdmin() && u.ID != owner {
-		return core.Agent{}, core.ErrNotFound
+		return agentuse.Agent{}, store.ErrNotFound
 	}
 	if base == "" || base != head {
-		return core.Agent{}, skillservice.ErrConflict
+		return agentuse.Agent{}, skillservice.ErrConflict
 	}
 	if err = s.validateAgentConfig(ctx, tx, owner, id, &c); err != nil {
-		return core.Agent{}, err
+		return agentuse.Agent{}, err
 	}
 	old, err := s.ReadVersion(ctx, tx, head)
 	if err != nil {
-		return core.Agent{}, err
+		return agentuse.Agent{}, err
 	}
 	if reflect.DeepEqual(c, old.AgentConfig) {
-		s.NotifyResource("agents", id, owner)
+		s.Changes.Publish(notification.Change{Resource: "agents", ID: id}, owner)
 		return projection(id, owner, created, updated, old), nil
 	}
-	now := s.Unix()
-	v := agentuse.AgentVersion{ID: core.NewUUID(), AgentID: id, Version: old.Version + 1, AgentConfig: c, CreatedAt: now}
+	now := s.Now().Unix()
+	v := agentuse.AgentVersion{ID: store.NewUUID(), AgentID: id, Version: old.Version + 1, AgentConfig: c, CreatedAt: now}
 	if err = s.writeAgentVersion(ctx, tx, v); err != nil {
-		return core.Agent{}, err
+		return agentuse.Agent{}, err
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE agents SET current_version_id=?,updated_at=? WHERE id=?`, v.ID, now, id); err != nil {
-		return core.Agent{}, err
+		return agentuse.Agent{}, err
 	}
 	if err = tx.Commit(); err != nil {
-		return core.Agent{}, err
+		return agentuse.Agent{}, err
 	}
-	s.NotifyResource("agents", id, owner)
+	s.Changes.Publish(notification.Change{Resource: "agents", ID: id}, owner)
 	return projection(id, owner, created, now, v), nil
 }
 
-func (s *Service) DeleteAgent(ctx context.Context, u core.User, id string) error {
+func (s *Service) DeleteAgent(ctx context.Context, u agentuse.User, id string) error {
 	a, err := s.GetAgent(ctx, u, id)
 	if err != nil {
 		return err
@@ -265,26 +265,26 @@ func (s *Service) DeleteAgent(ctx context.Context, u core.User, id string) error
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, `UPDATE agents SET deleted_at=?,updated_at=? WHERE id=?`, s.Unix(), s.Unix(), id); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE agents SET deleted_at=?,updated_at=? WHERE id=?`, s.Now().Unix(), s.Now().Unix(), id); err != nil {
 		return err
 	}
 	err = tx.Commit()
 	if err == nil {
-		s.NotifyResource("agents", id, a.UserID)
+		s.Changes.Publish(notification.Change{Resource: "agents", ID: id}, a.UserID)
 		if s.ConversationService != nil {
 			s.ConversationService.ParentAgentDeleted(ctx, id)
 		}
 	}
 	return err
 }
-func (s *Service) GetAgent(ctx context.Context, u core.User, id string) (core.Agent, error) {
-	q := core.AgentCols + ` WHERE id=?`
+func (s *Service) GetAgent(ctx context.Context, u agentuse.User, id string) (agentuse.Agent, error) {
+	q := store.AgentCols + ` WHERE id=?`
 	args := []any{id}
 	if !u.IsAdmin() {
 		q += ` AND user_id=?`
 		args = append(args, u.ID)
 	}
-	a, err := core.ScanAgent(s.DB.QueryRowContext(ctx, q, args...))
+	a, err := store.ScanAgent(s.DB.QueryRowContext(ctx, q, args...))
 	if err != nil {
 		return a, err
 	}
@@ -292,8 +292,8 @@ func (s *Service) GetAgent(ctx context.Context, u core.User, id string) (core.Ag
 	a.Skills = v.Skills
 	return a, err
 }
-func (s *Service) ListAgents(ctx context.Context, u core.User) ([]core.Agent, error) {
-	q := core.AgentCols
+func (s *Service) ListAgents(ctx context.Context, u agentuse.User) ([]agentuse.Agent, error) {
+	q := store.AgentCols
 	args := []any{}
 	if !u.IsAdmin() {
 		q += ` WHERE user_id=?`
@@ -304,9 +304,9 @@ func (s *Service) ListAgents(ctx context.Context, u core.User) ([]core.Agent, er
 	if err != nil {
 		return nil, err
 	}
-	out := []core.Agent{}
+	out := []agentuse.Agent{}
 	for rows.Next() {
-		a, e := core.ScanAgent(rows)
+		a, e := store.ScanAgent(rows)
 		if e != nil {
 			rows.Close()
 			return nil, e

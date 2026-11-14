@@ -8,7 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 type ExecutionFacts struct {
@@ -24,7 +25,7 @@ type ExecutionFacts struct {
 }
 
 type ExecutionEventConsumer interface {
-	Applied(context.Context, *sql.Tx, protocol.ClientEvent, ExecutionFacts, *core.Run) error
+	Applied(context.Context, *sql.Tx, protocol.ClientEvent, ExecutionFacts, *agentuse.Run) error
 	Committed(context.Context, string, bool)
 }
 
@@ -51,7 +52,7 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 		}
 	}
 	err := s.Repository.Tx(ctx, func(tx *sql.Tx) error {
-		var completed *core.Run
+		var completed *agentuse.Run
 		var existing, existingConversation, existingAgent, existingVersion, existingMessage string
 		err := tx.QueryRowContext(ctx, `SELECT payload,conversation_id,agent_id,agent_version_id,message_id FROM run_events WHERE device_id=? AND session_id=? AND event_seq=?`, device, envelope.SessionID, envelope.Seq).Scan(&existing, &existingConversation, &existingAgent, &existingVersion, &existingMessage)
 		if err == nil {
@@ -68,7 +69,7 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 			return err
 		}
 		if authorized == 0 {
-			return core.ErrNotFound
+			return store.ErrNotFound
 		}
 		var rebound int
 		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM run_events WHERE device_id=? AND session_id=? AND (conversation_id<>? OR agent_id<>? OR agent_version_id<>?)`, device, envelope.SessionID, envelope.ConversationID, envelope.AgentID, envelope.AgentVersionID).Scan(&rebound); err != nil {
@@ -84,10 +85,10 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 				return err
 			}
 			if err == nil && (owner != device || clientSessionID != envelope.SessionID || agentID != envelope.AgentID) {
-				return core.ErrNotFound
+				return store.ErrNotFound
 			}
 		}
-		now := s.Unix()
+		now := s.Now().Unix()
 		if event.Type == "accepted" {
 			if envelope.MessageID == "" || event.InputID == "" {
 				return fmt.Errorf("accepted requires message and input identity")
@@ -105,7 +106,7 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 			if _, err = tx.ExecContext(ctx, `INSERT INTO runs(id,conversation_id,first_message_id,agent_id,agent_version_id,device_id,session_id,harness,harness_revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, event.RunID, envelope.ConversationID, prompt.MessageID, envelope.AgentID, envelope.AgentVersionID, device, envelope.SessionID, envelope.Harness, envelope.Revision, now, now); err != nil {
 				return err
 			}
-			r, err := scanNativeRun(tx.QueryRowContext(ctx, nativeRunCols+` WHERE id=?`, event.RunID))
+			r, err := store.ScanRun(tx.QueryRowContext(ctx, nativeRunCols+` WHERE id=?`, event.RunID))
 			if err != nil {
 				return err
 			}
@@ -116,7 +117,7 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 				return err
 			}
 		} else if event.Type != "log" {
-			r, err := scanNativeRun(tx.QueryRowContext(ctx, nativeRunCols+` WHERE id=? AND device_id=? AND session_id=? AND conversation_id=? AND agent_id=? AND agent_version_id=?`, event.RunID, device, envelope.SessionID, envelope.ConversationID, envelope.AgentID, envelope.AgentVersionID))
+			r, err := store.ScanRun(tx.QueryRowContext(ctx, nativeRunCols+` WHERE id=? AND device_id=? AND session_id=? AND conversation_id=? AND agent_id=? AND agent_version_id=?`, event.RunID, device, envelope.SessionID, envelope.ConversationID, envelope.AgentID, envelope.AgentVersionID))
 			if err != nil {
 				return err
 			}
@@ -194,18 +195,18 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 	}
 	return err
 }
-func (s *Service) RunEvents(ctx context.Context, conversation string) ([]core.ConversationEvent, error) {
+func (s *Service) RunEvents(ctx context.Context, conversation string) ([]agentuse.ConversationEvent, error) {
 	return s.EventsIn(ctx, s.DB, conversation)
 }
-func (s *Service) EventsIn(ctx context.Context, q core.RowsQuerier, conversation string) ([]core.ConversationEvent, error) {
+func (s *Service) EventsIn(ctx context.Context, q store.RowsQuerier, conversation string) ([]agentuse.ConversationEvent, error) {
 	rows, err := q.QueryContext(ctx, `SELECT id,conversation_id,session_id,run_id,agent_id,agent_version_id,device_id,event_seq,kind,payload,created_at FROM run_events WHERE conversation_id=? ORDER BY id`, conversation)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []core.ConversationEvent{}
+	out := []agentuse.ConversationEvent{}
 	for rows.Next() {
-		var e core.ConversationEvent
+		var e agentuse.ConversationEvent
 		var raw string
 		if err = rows.Scan(&e.ID, &e.ConversationID, &e.SessionID, &e.RunID, &e.AgentID, &e.AgentVersionID, &e.DeviceID, &e.EventSeq, &e.Kind, &raw, &e.CreatedAt); err != nil {
 			return nil, err

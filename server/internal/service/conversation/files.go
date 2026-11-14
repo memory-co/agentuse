@@ -9,14 +9,13 @@ import (
 	"strings"
 
 	"github.com/memory-co/agentuse/internal/attachment"
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
 )
 
 const conversationFileNamespace = "conversations"
 
 // OpenConversationFile applies conversation access rules before opening bytes.
 // Storage backends only receive the namespace and relative storage key.
-func (s *Service) OpenConversationFile(ctx context.Context, access core.AttachmentAccess, conversation, path string) (io.ReadCloser, int64, error) {
+func (s *Service) OpenConversationFile(ctx context.Context, access AttachmentAccess, conversation, path string) (io.ReadCloser, int64, error) {
 	if _, err := attachment.RelativePath(path); err != nil {
 		return nil, 0, err
 	}
@@ -34,7 +33,7 @@ func (s *Service) OpenConversationFile(ctx context.Context, access core.Attachme
 // Raw conversation files share the same backend and serialization as attachments.
 // Referenced attachments remain immutable; ordinary unreferenced raw files may
 // be overwritten according to the namespace's business policy.
-func (s *Service) PutConversationFile(ctx context.Context, access core.AttachmentAccess, conversation, path string, source io.Reader) error {
+func (s *Service) PutConversationFile(ctx context.Context, access AttachmentAccess, conversation, path string, source io.Reader) error {
 	if _, err := attachment.RelativePath(path); err != nil {
 		return err
 	}
@@ -55,7 +54,7 @@ func (s *Service) PutConversationFile(ctx context.Context, access core.Attachmen
 			return err
 		}
 		if registered != 0 {
-			return core.ErrAttachmentReferenced
+			return ErrAttachmentReferenced
 		}
 		return s.Files.Put(ctx, conversationFileNamespace, conversation+"/"+path, source, false)
 	})

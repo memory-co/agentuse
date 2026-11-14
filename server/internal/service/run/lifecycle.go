@@ -7,11 +7,12 @@ import (
 	"fmt"
 
 	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // DispatchMessage selects one durable input. It does not create or predict a run.
-func (s *Service) DispatchMessage(ctx context.Context, d core.Device, capacity ...protocol.Message) (protocol.ConversationMessage, error) {
+func (s *Service) DispatchMessage(ctx context.Context, d agentuse.Device, capacity ...protocol.Message) (protocol.ConversationMessage, error) {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return protocol.ConversationMessage{}, err
@@ -21,7 +22,7 @@ func (s *Service) DispatchMessage(ctx context.Context, d core.Device, capacity .
 	args := []any{d.ID}
 	if len(capacity) > 0 && capacity[0].FreeSessions <= 0 {
 		if len(capacity[0].ActiveStreams) == 0 {
-			return protocol.ConversationMessage{}, core.ErrNotFound
+			return protocol.ConversationMessage{}, store.ErrNotFound
 		}
 		query += ` AND (`
 		for i, stream := range capacity[0].ActiveStreams {
@@ -46,12 +47,12 @@ func (s *Service) DispatchMessage(ctx context.Context, d core.Device, capacity .
 	if err != nil {
 		return out, err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE message_agents SET status='sent',dispatch=?,updated_at=? WHERE message_id=? AND agent_id=?`, string(dispatch), s.Unix(), p.MessageID, p.AgentID); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE message_agents SET status='sent',dispatch=?,updated_at=? WHERE message_id=? AND agent_id=?`, string(dispatch), s.Now().Unix(), p.MessageID, p.AgentID); err != nil {
 		return out, err
 	}
 	err = tx.Commit()
 	if err == nil {
-		s.NotifyConversation(ctx, out.ConversationID)
+		s.ConversationService.NotifyConversation(ctx, out.ConversationID)
 	}
 	return out, err
 }
@@ -104,10 +105,10 @@ func (s *Service) RejectMessage(ctx context.Context, device, id, status, reason 
 		if status == protocol.AckUnknown || p.Status == "unknown" {
 			state = "unknown"
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE message_agents SET status=?,error=?,updated_at=? WHERE message_id=? AND agent_id=?`, state, reason, s.Unix(), message, agent); err != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE message_agents SET status=?,error=?,updated_at=? WHERE message_id=? AND agent_id=?`, state, reason, s.Now().Unix(), message, agent); err != nil {
 			return err
 		}
-		return s.ConversationService.ProjectStatus(ctx, tx, p.ConversationID, s.Unix())
+		return s.ConversationService.ProjectStatus(ctx, tx, p.ConversationID, s.Now().Unix())
 	})
 	if err == nil {
 		s.ConversationService.DeliveryChanged(ctx, conversation)
@@ -121,36 +122,36 @@ func (s *Service) DeviceConversationAccess(ctx context.Context, device, conversa
 		return err
 	}
 	if n == 0 {
-		return core.ErrNotFound
+		return store.ErrNotFound
 	}
 	return nil
 }
-func (s *Service) CancelRun(ctx context.Context, u core.User, conversation, id string) (core.Run, error) {
+func (s *Service) CancelRun(ctx context.Context, u agentuse.User, conversation, id string) (agentuse.Run, error) {
 	r, err := s.GetRun(ctx, u, conversation, id)
 	if err != nil {
 		return r, err
 	}
 	if r.Status != "running" && r.Status != "waiting" {
-		return r, core.ErrConversationState
+		return r, ErrRunState
 	}
 	_, err = s.queueControl(ctx, r, "cancel", "", nil, u.ID)
 	return r, err
 }
-func (s *Service) queueControl(ctx context.Context, r core.Run, kind, request string, answer json.RawMessage, user string) (protocol.SessionControl, error) {
+func (s *Service) queueControl(ctx context.Context, r agentuse.Run, kind, request string, answer json.RawMessage, user string) (protocol.SessionControl, error) {
 	prefix := "c:"
 	if kind == protocol.TypeAnswer {
 		prefix = "a:"
 	}
-	out := protocol.SessionControl{ID: prefix + core.NewUUID(), ConversationID: r.ConversationID, SessionID: r.SessionID, RunID: r.ID, RequestID: request, Answer: answer}
-	res, err := s.DB.ExecContext(ctx, `INSERT INTO run_controls(id,conversation_id,session_id,run_id,device_id,kind,request_id,answer,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM run_controls WHERE run_id=? AND kind=? AND request_id=? AND state IN ('pending','unknown','delivered'))`, out.ID, r.ConversationID, r.SessionID, r.ID, r.DeviceID, kind, request, core.NullIfEmpty(string(answer)), s.Unix(), s.Unix(), r.ID, kind, request)
+	out := protocol.SessionControl{ID: prefix + store.NewUUID(), ConversationID: r.ConversationID, SessionID: r.SessionID, RunID: r.ID, RequestID: request, Answer: answer}
+	res, err := s.DB.ExecContext(ctx, `INSERT INTO run_controls(id,conversation_id,session_id,run_id,device_id,kind,request_id,answer,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM run_controls WHERE run_id=? AND kind=? AND request_id=? AND state IN ('pending','unknown','delivered'))`, out.ID, r.ConversationID, r.SessionID, r.ID, r.DeviceID, kind, request, store.NullIfEmpty(string(answer)), s.Now().Unix(), s.Now().Unix(), r.ID, kind, request)
 	if err == nil {
 		if n, _ := res.RowsAffected(); n == 0 {
-			return out, core.ErrConversationState
+			return out, ErrRunState
 		}
 	}
 	if err == nil {
 		s.Notifier.PushRun(r.DeviceID, protocol.Message{Type: kind, ID: out.ID, Control: &out})
-		s.NotifyConversation(ctx, r.ConversationID)
+		s.ConversationService.NotifyConversation(ctx, r.ConversationID)
 	}
 	return out, err
 }
@@ -184,11 +185,11 @@ func (s *Service) ConfirmControl(ctx context.Context, device, id, status, messag
 	} else if status != protocol.AckOK {
 		return fmt.Errorf("invalid control ACK")
 	}
-	_, err := s.DB.ExecContext(ctx, `UPDATE run_controls SET state=?,error=?,updated_at=? WHERE id=? AND device_id=? AND state IN ('pending','unknown')`, state, message, s.Unix(), id, device)
+	_, err := s.DB.ExecContext(ctx, `UPDATE run_controls SET state=?,error=?,updated_at=? WHERE id=? AND device_id=? AND state IN ('pending','unknown')`, state, message, s.Now().Unix(), id, device)
 	if err == nil {
 		var conversation string
 		if e := s.DB.QueryRowContext(ctx, `SELECT conversation_id FROM run_controls WHERE id=? AND device_id=?`, id, device).Scan(&conversation); e == nil {
-			s.NotifyConversation(ctx, conversation)
+			s.ConversationService.NotifyConversation(ctx, conversation)
 		}
 	}
 	return err
@@ -212,13 +213,32 @@ func (s *Service) RetireDeviceDeliveries(ctx context.Context, tx *sql.Tx, id, re
 	if err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE message_agents SET status=CASE WHEN status='pending' THEN 'rejected' ELSE 'unknown' END,error=?,updated_at=? WHERE device_id=? AND status IN ('pending','sent')`, reason, s.Unix(), id); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE message_agents SET status=CASE WHEN status='pending' THEN 'rejected' ELSE 'unknown' END,error=?,updated_at=? WHERE device_id=? AND status IN ('pending','sent')`, reason, s.Now().Unix(), id); err != nil {
 		return err
 	}
 	for _, c := range conversations {
-		if err = s.ConversationService.ProjectStatus(ctx, tx, c, s.Unix()); err != nil {
+		if err = s.ConversationService.ProjectStatus(ctx, tx, c, s.Now().Unix()); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// NotifyDeviceConversations resolves execution ownership before publishing hints.
+func (s *Service) NotifyDeviceConversations(ctx context.Context, id string) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT DISTINCT conversation_id FROM message_agents WHERE device_id=?`, id)
+	if err != nil {
+		return
+	}
+	var ids []string
+	for rows.Next() {
+		var conversation string
+		if rows.Scan(&conversation) == nil {
+			ids = append(ids, conversation)
+		}
+	}
+	rows.Close()
+	for _, conversation := range ids {
+		s.ConversationService.NotifyConversation(ctx, conversation)
+	}
 }

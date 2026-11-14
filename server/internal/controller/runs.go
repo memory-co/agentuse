@@ -4,8 +4,6 @@ import (
 	"net/http"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-
-	"github.com/memory-co/agentuse/server/internal/service"
 )
 
 func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
@@ -22,7 +20,7 @@ func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err)
 		return
 	}
-	filtered := []service.ConversationEvent{}
+	filtered := []agentuse.ConversationEvent{}
 	for _, e := range events {
 		if e.RunID == run.ID {
 			filtered = append(filtered, e)

@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/service"
+	deviceservice "github.com/memory-co/agentuse/server/internal/service/device"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // newStore 开一个内存库，测试结束时关掉。时钟每读一次走一秒，按时间排序的结果是确定的。
@@ -23,25 +26,25 @@ func newStore(t *testing.T) *service.Service {
 }
 
 // registered 建一台已注册的 device,并上报 harnesses。
-func registered(t *testing.T, s *service.Service, u service.User, name string, harnesses ...string) service.Device {
+func registered(t *testing.T, s *service.Service, u agentuse.User, name string, harnesses ...string) agentuse.Device {
 	t.Helper()
 	ctx := context.Background()
-	d, err := s.CreateDevice(ctx, u.ID, name)
+	d, err := s.DeviceService.CreateDevice(ctx, u.ID, name)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d, _, err = s.RegisterDevice(ctx, d.SetupToken, name); err != nil {
+	if d, _, err = s.DeviceService.RegisterDevice(ctx, d.SetupToken, name); err != nil {
 		t.Fatal(err)
 	}
-	var rep []service.ReportedHarness
+	var rep []deviceservice.ReportedHarness
 	for _, h := range harnesses {
-		rep = append(rep, service.ReportedHarness{Name: h})
+		rep = append(rep, deviceservice.ReportedHarness{Name: h})
 	}
-	if _, err := s.DeviceConnected(ctx, d, rep); err != nil {
+	if _, err := s.DeviceService.DeviceConnected(ctx, d, rep); err != nil {
 		t.Fatal(err)
 	}
 	for _, h := range harnesses {
-		if err := s.SetDeviceHarnessEnabled(ctx, u, d.ID, h, true); err != nil {
+		if err := s.DeviceService.SetDeviceHarnessEnabled(ctx, u, d.ID, h, true); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -55,7 +58,7 @@ func TestOpenFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	u, _, err := s.CreateUser(ctx, "u1", "alice", service.RoleUser)
+	u, _, err := s.UserService.CreateUser(ctx, "u1", "alice", agentuse.RoleUser)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,21 +70,21 @@ func TestOpenFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if got, err := s.GetUser(ctx, u.ID); err != nil || got.Name != "alice" {
+	if got, err := s.UserService.GetUser(ctx, u.ID); err != nil || got.Name != "alice" {
 		t.Fatalf("reopen: %v %+v", err, got)
 	}
-	hs, _ := s.ListHarnesses(ctx)
+	hs, _ := s.DeviceService.ListHarnesses(ctx)
 	if len(hs) != 0 {
 		t.Fatalf("unreported harnesses after reopen: %+v", hs)
 	}
 }
 
 func TestSecrets(t *testing.T) {
-	a, b := service.RandomToken("ut_"), service.RandomToken("ut_")
+	a, b := store.RandomToken("ut_"), store.RandomToken("ut_")
 	if a == b || len(a) != 3+48 || a[:3] != "ut_" {
 		t.Fatalf("tokens: %q %q", a, b)
 	}
-	if service.HashSecret(a) == service.HashSecret(b) || service.HashSecret(a) != service.HashSecret(a) || len(service.HashSecret(a)) != 64 {
+	if store.HashSecret(a) == store.HashSecret(b) || store.HashSecret(a) != store.HashSecret(a) || len(store.HashSecret(a)) != 64 {
 		t.Fatal("hash")
 	}
 	if id := randomID("dev_"); len(id) != len("dev_")+16 {

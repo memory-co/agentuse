@@ -5,20 +5,21 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/memory-co/agentuse/server/internal/service"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	runservice "github.com/memory-co/agentuse/server/internal/service/run"
 )
 
 type sourceKey struct{}
 
-func currentSource(r *http.Request) *service.AgentSource {
-	v, _ := r.Context().Value(sourceKey{}).(*service.AgentSource)
+func currentSource(r *http.Request) *runservice.AgentSource {
+	v, _ := r.Context().Value(sourceKey{}).(*runservice.AgentSource)
 	return v
 }
 
-func (s *Server) deviceSource(r *http.Request) (service.AgentSource, error) {
+func (s *Server) deviceSource(r *http.Request) (runservice.AgentSource, error) {
 	d, err := s.service.DeviceService.DeviceByKey(r.Context(), requestToken(r))
 	if err != nil {
-		return service.AgentSource{}, err
+		return runservice.AgentSource{}, err
 	}
 	v, err := s.service.RunService.ExecutionSource(r.Context(), d.ID, r.Header.Get("X-Agentuse-Conversation"), r.Header.Get("X-Agentuse-Agent"), r.Header.Get("X-Agentuse-Session"), r.Header.Get("X-Agentuse-Run"))
 	if err != nil {
@@ -28,7 +29,7 @@ func (s *Server) deviceSource(r *http.Request) (service.AgentSource, error) {
 	if err != nil {
 		return v, err
 	}
-	u.Role = service.RoleUser
+	u.Role = agentuse.RoleUser
 	v.User = u
 	if _, err = s.service.ConversationService.GetConversation(r.Context(), u, v.ConversationID); err != nil {
 		return v, err
@@ -63,7 +64,7 @@ func (s *Server) conversationAuth(h http.HandlerFunc) http.HandlerFunc {
 				s.storeErr(w, err)
 				return
 			}
-			u.Role = service.RoleUser
+			u.Role = agentuse.RoleUser
 			h(w, r.WithContext(context.WithValue(r.Context(), userKey{}, u)))
 			return
 		}

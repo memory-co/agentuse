@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	server "github.com/memory-co/agentuse/server/internal/controller"
 	"github.com/memory-co/agentuse/server/internal/service"
 )
@@ -27,8 +28,8 @@ func TestServerAdminCommands(t *testing.T) {
 	ctx := context.Background()
 	ts := httptest.NewServer(server.New(st, server.Config{Logger: log.New(io.Discard, "", 0)}))
 	defer ts.Close()
-	_, adminTok, _ := st.CreateUser(ctx, "", "admin", service.RoleAdmin)
-	_, userTok, _ := st.CreateUser(ctx, "", "bob", service.RoleUser)
+	_, adminTok, _ := st.UserService.CreateUser(ctx, "", "admin", agentuse.RoleAdmin)
+	_, userTok, _ := st.UserService.CreateUser(ctx, "", "bob", agentuse.RoleUser)
 
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "server-cli.json")
@@ -48,8 +49,8 @@ func TestServerAdminCommands(t *testing.T) {
 	if code := Main([]string{"user", "create", "alice", "-id", "u_10086", "-config", cfg}); code != 0 {
 		t.Fatalf("user create: %d", code)
 	}
-	u, err := st.GetUser(ctx, "u_10086")
-	if err != nil || u.Name != "alice" || u.Role != service.RoleUser {
+	u, err := st.UserService.GetUser(ctx, "u_10086")
+	if err != nil || u.Name != "alice" || u.Role != agentuse.RoleUser {
 		t.Fatalf("created: %v %+v", err, u)
 	}
 	if code := Main([]string{"user", "list", "-json", "-config", cfg}); code != 0 {
@@ -96,7 +97,7 @@ func TestBootstrapAdmin(t *testing.T) {
 	if tok == nil || !strings.Contains(logs.String(), "http://h:1/login?token="+tok[1]) {
 		t.Fatalf("first start:\n%s", logs.String())
 	}
-	if u, err := st.UserByToken(ctx, tok[1]); err != nil || !u.IsAdmin() {
+	if u, err := st.UserService.UserByToken(ctx, tok[1]); err != nil || !u.IsAdmin() {
 		t.Fatalf("admin: %v %+v", err, u)
 	}
 
@@ -109,7 +110,7 @@ func TestBootstrapAdmin(t *testing.T) {
 	if err := bootstrapAdmin(ctx, st, "http://h:1", true); err != nil || !strings.Contains(logs.String(), "已重置") {
 		t.Fatalf("reset: %v %q", err, logs.String())
 	}
-	if _, err := st.UserByToken(ctx, tok[1]); err == nil {
+	if _, err := st.UserService.UserByToken(ctx, tok[1]); err == nil {
 		t.Fatal("old admin token should be invalid")
 	}
 }

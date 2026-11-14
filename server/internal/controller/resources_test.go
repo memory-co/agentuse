@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/service"
+	deviceservice "github.com/memory-co/agentuse/server/internal/service/device"
 )
 
 func zipSkill(t *testing.T, text string) []byte {
@@ -26,8 +26,8 @@ func zipSkill(t *testing.T, text string) []byte {
 func TestSkillAPIAndAssignedDeviceDownload(t *testing.T) {
 	e := newEnv(t, Config{FilesDir: t.TempDir()})
 	ctx := context.Background()
-	u, token := e.user("alice", service.RoleUser)
-	_, otherToken := e.user("bob", service.RoleUser)
+	u, token := e.user("alice", agentuse.RoleUser)
+	_, otherToken := e.user("bob", agentuse.RoleUser)
 	c := agentuse.New(e.ts.URL, token)
 	data := zipSkill(t, "v1")
 	skill, err := c.PublishSkill(ctx, "", "", "", bytes.NewReader(data))
@@ -41,19 +41,19 @@ func TestSkillAPIAndAssignedDeviceDownload(t *testing.T) {
 	if _, err = other.GetSkillVersion(ctx, "", skill.ID, skill.CurrentVersionID); !agentuse.IsStatus(err, 404) {
 		t.Fatal("other user read skill", err)
 	}
-	d, err := e.st.CreateDevice(ctx, u.ID, "assigned")
+	d, err := e.st.DeviceService.CreateDevice(ctx, u.ID, "assigned")
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, key, err := e.st.RegisterDevice(ctx, d.SetupToken, "")
+	d, key, err := e.st.DeviceService.RegisterDevice(ctx, d.SetupToken, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = e.st.DeviceConnected(ctx, d, []service.ReportedHarness{{Name: "codex"}})
+	_, err = e.st.DeviceService.DeviceConnected(ctx, d, []deviceservice.ReportedHarness{{Name: "codex"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = e.st.SetDeviceHarnessEnabled(ctx, u, d.ID, "codex", true); err != nil {
+	if err = e.st.DeviceService.SetDeviceHarnessEnabled(ctx, u, d.ID, "codex", true); err != nil {
 		t.Fatal(err)
 	}
 	device := agentuse.New(e.ts.URL, key)
@@ -70,11 +70,11 @@ func TestSkillAPIAndAssignedDeviceDownload(t *testing.T) {
 	if _, err = device.GetSkillVersion(ctx, "", skill.ID, skill.CurrentVersionID); !agentuse.IsStatus(err, 404) {
 		t.Fatal("device read unassigned skill metadata", err)
 	}
-	_, _, err = e.st.CreateConversation(ctx, u, "", "", "test", []string{a.ID}, nil, "", nil)
+	_, _, err = e.st.ConversationService.CreateConversation(ctx, u, "", "", "test", []string{a.ID}, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := e.st.DispatchMessage(ctx, d)
+	p, err := e.st.RunService.DispatchMessage(ctx, d)
 	if err != nil || p.AgentVersionID != a.CurrentVersionID {
 		t.Fatal(p, err)
 	}
@@ -128,9 +128,9 @@ func TestSkillAPIAndAssignedDeviceDownload(t *testing.T) {
 func TestConversationFilesUseOwnNamespaceAndCleanup(t *testing.T) {
 	e := newEnv(t, Config{FilesDir: t.TempDir()})
 	ctx := context.Background()
-	u, token := e.user("files", service.RoleUser)
-	_, other := e.user("other", service.RoleUser)
-	ss, _, err := e.st.CreateConversation(ctx, u, "", "files", "", nil, nil, "", nil)
+	u, token := e.user("files", agentuse.RoleUser)
+	_, other := e.user("other", agentuse.RoleUser)
+	ss, _, err := e.st.ConversationService.CreateConversation(ctx, u, "", "files", "", nil, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

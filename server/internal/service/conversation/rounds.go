@@ -7,17 +7,19 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	deviceservice "github.com/memory-co/agentuse/server/internal/service/device"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 const roundColumns = `SELECT conversation_id,seq,start_message_seq,end_message_seq,created_at,finished_at FROM conversation_rounds`
 
-func scanRound(row core.Scanner) (core.ConversationRound, error) {
-	var r core.ConversationRound
+func scanRound(row store.Scanner) (agentuse.ConversationRound, error) {
+	var r agentuse.ConversationRound
 	var end, finished sql.NullInt64
 	err := row.Scan(&r.ConversationID, &r.Seq, &r.StartMessageSeq, &end, &r.CreatedAt, &finished)
 	if errors.Is(err, sql.ErrNoRows) {
-		return r, core.ErrNotFound
+		return r, store.ErrNotFound
 	}
 	if end.Valid {
 		r.EndMessageSeq = &end.Int64
@@ -30,15 +32,15 @@ func scanRound(row core.Scanner) (core.ConversationRound, error) {
 
 // Start a local round only for input with Agent recipients. All inputs arriving
 // before quiescence join this interval, irrespective of native run boundaries.
-func (s *Service) startRound(ctx context.Context, tx *sql.Tx, conversation string, messageSeq int64) (*core.ConversationRound, error) {
+func (s *Service) startRound(ctx context.Context, tx *sql.Tx, conversation string, messageSeq int64) (*agentuse.ConversationRound, error) {
 	r, err := scanRound(tx.QueryRowContext(ctx, roundColumns+` WHERE conversation_id=? AND finished_at IS NULL`, conversation))
 	if err == nil {
 		return &r, nil
 	}
-	if !errors.Is(err, core.ErrNotFound) {
+	if !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
-	r = core.ConversationRound{ConversationID: conversation, StartMessageSeq: messageSeq, CreatedAt: s.Unix()}
+	r = agentuse.ConversationRound{ConversationID: conversation, StartMessageSeq: messageSeq, CreatedAt: s.Now().Unix()}
 	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM conversation_rounds WHERE conversation_id=?`, conversation).Scan(&r.Seq); err != nil {
 		return nil, err
 	}
@@ -49,12 +51,12 @@ func (s *Service) finishRound(ctx context.Context, tx *sql.Tx, conversation stri
 	_, err := tx.ExecContext(ctx, `UPDATE conversation_rounds SET end_message_seq=(SELECT MAX(seq) FROM messages WHERE conversation_id=?),finished_at=? WHERE conversation_id=? AND finished_at IS NULL AND NOT EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status IN ('running','waiting')) AND NOT EXISTS(SELECT 1 FROM message_agents WHERE conversation_id=? AND status IN ('pending','sent','unknown','accepted'))`, conversation, now, conversation, conversation, conversation)
 	return err
 }
-func (s *Service) rounds(ctx context.Context, q core.QueryReader, conversation string) ([]core.ConversationRound, error) {
+func (s *Service) rounds(ctx context.Context, q store.QueryReader, conversation string) ([]agentuse.ConversationRound, error) {
 	rows, err := q.QueryContext(ctx, roundColumns+` WHERE conversation_id=? ORDER BY seq`, conversation)
 	if err != nil {
 		return nil, err
 	}
-	out := []core.ConversationRound{}
+	out := []agentuse.ConversationRound{}
 	for rows.Next() {
 		r, e := scanRound(rows)
 		if e != nil {
@@ -75,7 +77,7 @@ func (s *Service) rounds(ctx context.Context, q core.QueryReader, conversation s
 	}
 	return out, nil
 }
-func (s *Service) projectRoundDelivery(ctx context.Context, q core.Querier, r *core.ConversationRound) error {
+func (s *Service) projectRoundDelivery(ctx context.Context, q store.Querier, r *agentuse.ConversationRound) error {
 	if r.FinishedAt == nil {
 		return nil
 	}
@@ -115,19 +117,19 @@ func (s *Service) notifyFinishedRound(ctx context.Context, childID string, seq i
 		if err != nil {
 			return err
 		}
-		child, err := s.LookupConversation(ctx, tx, core.User{Role: core.RoleAdmin}, childID)
+		child, err := s.LookupConversation(ctx, tx, agentuse.User{Role: agentuse.RoleAdmin}, childID)
 		if err != nil {
 			return err
 		}
 		if child.ParentConversationID == "" {
-			return core.ErrConversationScope
+			return ErrConversationScope
 		}
-		parent, err := s.LookupConversation(ctx, tx, core.User{Role: core.RoleAdmin}, child.ParentConversationID)
+		parent, err := s.LookupConversation(ctx, tx, agentuse.User{Role: agentuse.RoleAdmin}, child.ParentConversationID)
 		if err != nil {
 			return err
 		}
 		if parent.Mode != "collaborative" || parent.ParentConversationID != "" || parent.UserID != child.UserID {
-			return core.ErrConversationScope
+			return ErrConversationScope
 		}
 		var found int
 		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM messages WHERE conversation_id=? AND author_conversation_id=? AND author_round_seq=?`, parent.ID, childID, seq).Scan(&found); err != nil {
@@ -141,9 +143,9 @@ func (s *Service) notifyFinishedRound(ctx context.Context, childID string, seq i
 			return err
 		}
 		targets, _ := json.Marshal([]string{child.ParentAgentID})
-		id := core.NewUUID()
+		id := store.NewUUID()
 		text := fmt.Sprintf("Child conversation %q finished round %d. Read this round, review every Agent's results and any failures, then decide whether to respond or send follow-up instructions.", child.Title, r.Seq)
-		_, err = tx.ExecContext(ctx, `INSERT INTO messages(id,seq,conversation_id,author_role,author_conversation_id,author_round_seq,to_agent_ids,content,created_at) VALUES(?,?,?,'child_conversation',?,?,?,?,?)`, id, messageSeq, parent.ID, childID, seq, string(targets), text, s.Unix())
+		_, err = tx.ExecContext(ctx, `INSERT INTO messages(id,seq,conversation_id,author_role,author_conversation_id,author_round_seq,to_agent_ids,content,created_at) VALUES(?,?,?,'child_conversation',?,?,?,?,?)`, id, messageSeq, parent.ID, childID, seq, string(targets), text, s.Now().Unix())
 		if err != nil {
 			return err
 		}
@@ -153,7 +155,7 @@ func (s *Service) notifyFinishedRound(ctx context.Context, childID string, seq i
 		if _, err = s.startRound(ctx, tx, parent.ID, messageSeq); err != nil {
 			return err
 		}
-		if err = s.ProjectStatus(ctx, tx, parent.ID, s.Unix()); err != nil {
+		if err = s.ProjectStatus(ctx, tx, parent.ID, s.Now().Unix()); err != nil {
 			return err
 		}
 		parentID = parent.ID
@@ -202,7 +204,7 @@ func (s *Service) ReconcileRoundNotifications(ctx context.Context) error {
 			// Preserve round order for this child while allowing other children
 			// to notify their coordinators independently.
 			blocked[v.id] = true
-			if !errors.Is(err, core.ErrRuntimeUnavailable) && !errors.Is(err, core.ErrNotFound) {
+			if !errors.Is(err, deviceservice.ErrRuntimeUnavailable) && !errors.Is(err, store.ErrNotFound) {
 				failures = append(failures, err)
 			}
 		}

@@ -3,10 +3,11 @@ package device
 import (
 	"context"
 
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/notification"
 )
 
-func (s *Service) DeleteDevice(ctx context.Context, u core.User, id string) error {
+func (s *Service) DeleteDevice(ctx context.Context, u agentuse.User, id string) error {
 	d, err := s.GetDevice(ctx, u, id)
 	if err != nil {
 		return err
@@ -15,23 +16,23 @@ func (s *Service) DeleteDevice(ctx context.Context, u core.User, id string) erro
 		return err
 	}
 	s.Notifier.Disconnect(id)
-	s.NotifyDeviceConversations(ctx, id)
+	s.RunService.NotifyDeviceConversations(ctx, id)
 	s.Notifier.KickUser(d.UserID)
-	s.NotifyResource("devices", id, d.UserID)
+	s.Changes.Publish(notification.Change{Resource: "devices", ID: id}, d.UserID)
 	return nil
 }
 
-func (s *Service) ResetDeviceSetup(ctx context.Context, u core.User, id string) (core.Device, error) {
+func (s *Service) ResetDeviceSetup(ctx context.Context, u agentuse.User, id string) (agentuse.Device, error) {
 	d, err := s.resetDeviceSetup(ctx, u, id)
 	if err == nil {
 		s.Notifier.Disconnect(d.ID)
-		s.NotifyDeviceConversations(ctx, d.ID)
-		s.NotifyResource("devices", d.ID, d.UserID)
+		s.RunService.NotifyDeviceConversations(ctx, d.ID)
+		s.Changes.Publish(notification.Change{Resource: "devices", ID: d.ID}, d.UserID)
 	}
 	return d, err
 }
 
-func (s *Service) SetDeviceHarnessEnabled(ctx context.Context, u core.User, id, harness string, enabled bool) error {
+func (s *Service) SetDeviceHarnessEnabled(ctx context.Context, u agentuse.User, id, harness string, enabled bool) error {
 	if err := s.setDeviceHarnessEnabled(ctx, u, id, harness, enabled); err != nil {
 		return err
 	}
@@ -39,7 +40,7 @@ func (s *Service) SetDeviceHarnessEnabled(ctx context.Context, u core.User, id, 
 	if err != nil {
 		return err
 	}
-	s.NotifyResource("devices", id, d.UserID)
+	s.Changes.Publish(notification.Change{Resource: "devices", ID: id}, d.UserID)
 	if enabled {
 		s.Notifier.KickUser(d.UserID)
 	}

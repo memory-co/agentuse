@@ -29,18 +29,18 @@ func TestContextOutputAttributionFilteringAndUploadLifetime(t *testing.T) {
 		t.Helper()
 		seq++
 		data, _ := json.Marshal(event)
-		err := f.e.st.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: p.AgentVersionID, Revision: "test", MessageID: p.MessageID, Seq: seq, Event: data})
+		err := f.e.st.ConversationService.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: p.AgentVersionID, Revision: "test", MessageID: p.MessageID, Seq: seq, Event: data})
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 	start := func(prompt, input string) (protocol.ConversationMessage, string) {
 		t.Helper()
-		_, err := f.e.st.SendMessage(ctx, f.u, f.conversation.ID, prompt, []string{f.agent}, nil, nil, "")
+		_, err := f.e.st.ConversationService.SendMessage(ctx, f.u, f.conversation.ID, prompt, []string{f.agent}, nil, nil, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		p, err := f.e.st.DispatchMessage(ctx, f.d)
+		p, err := f.e.st.RunService.DispatchMessage(ctx, f.d)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -93,7 +93,7 @@ func TestContextOutputAttributionFilteringAndUploadLifetime(t *testing.T) {
 	if outputs, err = device.AllRunAttachments(ctx, "", f.conversation.ID, one); err != nil || len(outputs) != 2 {
 		t.Fatal("historical outputs unreadable", outputs, err)
 	}
-	foreign, _, err := f.e.st.CreateConversation(ctx, f.u, "", "elsewhere", "", nil, nil, "", nil)
+	foreign, _, err := f.e.st.ConversationService.CreateConversation(ctx, f.u, "", "elsewhere", "", nil, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,18 +159,18 @@ func TestDeviceReadsItsOutputsAfterAnyTerminalResult(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			fixture := attachmentEnv(t, 4096, 16384)
 			ctx := context.Background()
-			_, err := fixture.e.st.SendMessage(ctx, fixture.u, fixture.conversation.ID, "output", []string{fixture.agent}, nil, nil, "")
+			_, err := fixture.e.st.ConversationService.SendMessage(ctx, fixture.u, fixture.conversation.ID, "output", []string{fixture.agent}, nil, nil, "")
 			if err != nil {
 				t.Fatal(err)
 			}
-			message, err := fixture.e.st.DispatchMessage(ctx, fixture.d)
+			message, err := fixture.e.st.RunService.DispatchMessage(ctx, fixture.d)
 			if err != nil {
 				t.Fatal(err)
 			}
 			run := uuid.NewString()
 			send := func(seq int64, event any) {
 				data, _ := json.Marshal(event)
-				err := fixture.e.st.ReportClientEvent(ctx, fixture.d.ID, protocol.ClientEvent{ConversationID: fixture.conversation.ID, SessionID: "native", AgentID: fixture.agent, AgentVersionID: message.AgentVersionID, Revision: "test", MessageID: message.MessageID, Seq: seq, Event: data})
+				err := fixture.e.st.ConversationService.ReportClientEvent(ctx, fixture.d.ID, protocol.ClientEvent{ConversationID: fixture.conversation.ID, SessionID: "native", AgentID: fixture.agent, AgentVersionID: message.AgentVersionID, Revision: "test", MessageID: message.MessageID, Seq: seq, Event: data})
 				if err != nil {
 					t.Fatal(err)
 				}

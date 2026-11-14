@@ -6,13 +6,13 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/memory-co/agentuse/server/internal/service"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 func TestMessageRecipientsAreExplicitAndOnlyAgentsExecute(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
-	admin, adminToken := f.e.user("moderator", service.RoleAdmin)
-	_, outsiderToken := f.e.user("outsider", service.RoleUser)
+	admin, adminToken := f.e.user("moderator", agentuse.RoleAdmin)
+	_, outsiderToken := f.e.user("outsider", agentuse.RoleUser)
 	path := "/api/conversations/" + f.conversation.ID
 
 	cases := []struct {
@@ -28,7 +28,7 @@ func TestMessageRecipientsAreExplicitAndOnlyAgentsExecute(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Repeated recipients must be normalized before storing or dispatching.
 			body := map[string]any{"prompt": "@" + f.agent, "to_agent_ids": append(append([]string{}, tc.agents...), tc.agents...), "to_user_ids": append(append([]string{}, tc.users...), tc.users...)}
-			var reply service.Reply
+			var reply agentuse.Reply
 			if code := f.e.req(f.token, http.MethodPost, path+"/messages", body, &reply).StatusCode; code != 201 {
 				t.Fatal(code)
 			}
@@ -39,7 +39,7 @@ func TestMessageRecipientsAreExplicitAndOnlyAgentsExecute(t *testing.T) {
 			if len(reply.Deliveries) != tc.deliveries || len(reply.Runs) != 0 {
 				t.Fatalf("only agent recipients may create delivery relations: %+v", reply)
 			}
-			var detail service.ConversationDetail
+			var detail agentuse.ConversationDetail
 			if code := f.e.req(adminToken, http.MethodGet, path, nil, &detail).StatusCode; code != 200 {
 				t.Fatal(code)
 			}
@@ -58,7 +58,7 @@ func TestMessageRecipientsAreExplicitAndOnlyAgentsExecute(t *testing.T) {
 
 func TestInvalidRecipientsRejectTheWholeMessage(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
-	outsider, outsiderToken := f.e.user("outsider", service.RoleUser)
+	outsider, outsiderToken := f.e.user("outsider", agentuse.RoleUser)
 	ctx := context.Background()
 	path := "/api/conversations/" + f.conversation.ID
 	cases := []struct {
@@ -82,7 +82,7 @@ func TestInvalidRecipientsRejectTheWholeMessage(t *testing.T) {
 			if code := f.e.code(f.token, http.MethodPost, path+"/messages", tc.body); code != tc.code {
 				t.Fatalf("status %d, want %d", code, tc.code)
 			}
-			detail, err := f.e.st.ReadConversation(ctx, f.u, f.conversation.ID)
+			detail, err := f.e.st.ConversationService.ReadConversation(ctx, f.u, f.conversation.ID)
 			if err != nil || len(detail.Messages) != 0 || len(detail.Deliveries) != 0 || detail.Conversation.Status != "idle" {
 				t.Fatalf("invalid recipients partially committed: %+v, %v", detail, err)
 			}
@@ -103,7 +103,7 @@ func TestInvalidRecipientsRejectTheWholeMessage(t *testing.T) {
 			t.Fatal("invalid create accepted", body, code)
 		}
 	}
-	conversations, err := f.e.st.ListConversations(ctx, f.u, 100)
+	conversations, err := f.e.st.ConversationService.ListConversations(ctx, f.u, 100)
 	if err != nil || len(conversations) != 1 {
 		t.Fatal("failed create leaked a conversation", conversations, err)
 	}
@@ -111,10 +111,10 @@ func TestInvalidRecipientsRejectTheWholeMessage(t *testing.T) {
 
 func TestCreateConversationWithHumanRecipients(t *testing.T) {
 	e := newEnv(t, Config{})
-	u, token := e.user("alice", service.RoleUser)
+	u, token := e.user("alice", agentuse.RoleUser)
 	var reply struct {
-		Conversation service.Conversation `json:"conversation"`
-		service.Reply
+		Conversation agentuse.Conversation `json:"conversation"`
+		agentuse.Reply
 	}
 	body := map[string]any{"prompt": "FYI", "to_user_ids": []string{u.ID, u.ID}}
 	if code := e.req(token, http.MethodPost, "/api/conversations", body, &reply).StatusCode; code != 201 {

@@ -12,7 +12,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/service"
+	conversationservice "github.com/memory-co/agentuse/server/internal/service/conversation"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // env 是一个跑在 httptest 上的服务，带一个内存库。
@@ -38,9 +41,9 @@ func newEnv(t *testing.T, cfg Config) *env {
 }
 
 // user 建一个用户，返回它的令牌。
-func (e *env) user(name, role string) (service.User, string) {
+func (e *env) user(name, role string) (agentuse.User, string) {
 	e.t.Helper()
-	u, tok, err := e.st.CreateUser(context.Background(), "", name, role)
+	u, tok, err := e.st.UserService.CreateUser(context.Background(), "", name, role)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -109,11 +112,11 @@ func TestBaseURL(t *testing.T) {
 func TestStoreErr(t *testing.T) {
 	s := &Server{}
 	for err, code := range map[error]int{
-		service.ErrNotFound:                              404,
-		fmt.Errorf("wrap: %w", service.ErrNotFound):      404,
-		service.ErrConversationBusy:                      409,
-		errors.New("名字不对"):                               400,
-		fmt.Errorf("x: %w", service.ErrConversationBusy): 409,
+		store.ErrNotFound:                                            404,
+		fmt.Errorf("wrap: %w", store.ErrNotFound):                    404,
+		conversationservice.ErrConversationBusy:                      409,
+		errors.New("名字不对"):                                           400,
+		fmt.Errorf("x: %w", conversationservice.ErrConversationBusy): 409,
 	} {
 		w := httptest.NewRecorder()
 		s.storeErr(w, err)

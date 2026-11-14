@@ -12,8 +12,11 @@ import (
 	"strings"
 
 	"github.com/memory-co/agentuse/server/internal/service"
+	conversationservice "github.com/memory-co/agentuse/server/internal/service/conversation"
 	fileservice "github.com/memory-co/agentuse/server/internal/service/file"
+	runservice "github.com/memory-co/agentuse/server/internal/service/run"
 	skillservice "github.com/memory-co/agentuse/server/internal/service/skill"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 type Config struct {
@@ -51,6 +54,7 @@ func New(st *service.Service, cfg Config) *Server {
 	s := &Server{cfg: cfg, log: cfg.Logger, mux: http.NewServeMux()}
 	s.service = st
 	if st != nil {
+		st.Log = cfg.Logger
 		s.service.ConversationService.ConfigureConversationAttachments(cfg.AttachmentMaxBytes, cfg.AttachmentConversationMaxBytes, cfg.Logger)
 	}
 	if s.cfg.ClientHandler == nil {
@@ -138,19 +142,19 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 }
 
 func (s *Server) storeErr(w http.ResponseWriter, err error) {
-	if errors.Is(err, service.ErrConversationScope) {
+	if errors.Is(err, conversationservice.ErrConversationScope) {
 		writeErr(w, 403, err.Error())
 		return
 	}
-	if errors.Is(err, service.ErrConversationChildren) {
+	if errors.Is(err, conversationservice.ErrConversationChildren) {
 		writeErr(w, 409, err.Error())
 		return
 	}
-	if errors.Is(err, service.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, store.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 		writeErr(w, http.StatusNotFound, "不存在")
 		return
 	}
-	if errors.Is(err, skillservice.ErrConflict) || errors.Is(err, service.ErrConversationBusy) || errors.Is(err, service.ErrQuestionClosed) || errors.Is(err, service.ErrConversationState) || errors.Is(err, service.ErrAttachmentReferenced) || errors.Is(err, service.ErrAttachmentPathConflict) || errors.Is(err, fileservice.ErrExists) {
+	if errors.Is(err, skillservice.ErrConflict) || errors.Is(err, conversationservice.ErrConversationBusy) || errors.Is(err, runservice.ErrQuestionClosed) || errors.Is(err, conversationservice.ErrConversationState) || errors.Is(err, runservice.ErrRunState) || errors.Is(err, conversationservice.ErrAttachmentReferenced) || errors.Is(err, conversationservice.ErrAttachmentPathConflict) || errors.Is(err, fileservice.ErrExists) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}

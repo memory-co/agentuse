@@ -7,10 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	agentuse "github.com/memory-co/agentuse/sdk/golang"
-
 	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/service"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 const cookieName = "agentuse_token"
@@ -20,7 +19,7 @@ const actAsHeader = "X-Agentuse-User"
 
 type userKey struct{}
 
-func currentUser(r *http.Request) service.User { return r.Context().Value(userKey{}).(service.User) }
+func currentUser(r *http.Request) agentuse.User { return r.Context().Value(userKey{}).(agentuse.User) }
 
 func requestToken(r *http.Request) string {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
@@ -61,12 +60,12 @@ func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 }
 
 // actAs 取 X-Agentuse-User 指的用户，第一次出现就自动建(role = user,name 取 id)。
-func (s *Server) actAs(ctx context.Context, id string) (service.User, error) {
+func (s *Server) actAs(ctx context.Context, id string) (agentuse.User, error) {
 	u, err := s.service.UserService.GetUser(ctx, id)
-	if !errors.Is(err, service.ErrNotFound) {
+	if !errors.Is(err, store.ErrNotFound) {
 		return u, err
 	}
-	if u, _, err = s.service.UserService.CreateUser(ctx, id, id, service.RoleUser); err != nil {
+	if u, _, err = s.service.UserService.CreateUser(ctx, id, id, agentuse.RoleUser); err != nil {
 		if again, e := s.service.UserService.GetUser(ctx, id); e == nil { // 并发请求抢先建了
 			return again, nil
 		}
@@ -142,7 +141,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Role == "" {
-		req.Role = service.RoleUser
+		req.Role = agentuse.RoleUser
 	}
 	u, token, err := s.service.UserService.CreateUser(r.Context(), req.ID, req.Name, req.Role)
 	if err != nil {
@@ -223,11 +222,11 @@ func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 
 // deviceView 是页面上一台 device:待注册的附带安装命令。
 type deviceView struct {
-	service.Device
+	agentuse.Device
 	SetupCommand string `json:"setup_command,omitempty"`
 }
 
-func (s *Server) view(r *http.Request, d service.Device) deviceView {
+func (s *Server) view(r *http.Request, d agentuse.Device) deviceView {
 	v := deviceView{Device: d}
 	if d.SetupToken != "" {
 		v.SetupCommand = setupCommand(s.baseURL(r), d.SetupToken)
@@ -325,7 +324,7 @@ func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
-	var out []service.Conversation
+	var out []agentuse.Conversation
 	var err error
 	if parent != "" {
 		out, err = s.service.ConversationService.ListChildren(r.Context(), currentUser(r), parent, 100)
@@ -364,7 +363,7 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	var reply service.Reply
+	var reply agentuse.Reply
 	var err error
 	if source := currentSource(r); source != nil {
 		reply, err = s.service.ConversationService.SendAgentMessage(r.Context(), *source, r.PathValue("id"), req.Prompt, req.ToAgentIDs, req.ToUserIDs, req.AttachmentIDs, req.ReplyToMessageID)
@@ -387,7 +386,7 @@ func (s *Server) handleGetConversation(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var v service.ConversationDetail
+	var v agentuse.ConversationDetail
 	var err error
 	if raw, ok := r.URL.Query()["round"]; ok {
 		if len(raw) != 1 {
@@ -479,7 +478,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d, key, err := s.service.DeviceService.RegisterDevice(r.Context(), strings.TrimSpace(req.Token), req.Hostname)
-	if errors.Is(err, service.ErrNotFound) {
+	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusUnauthorized, "安装令牌无效或已用过，请在页面上重新生成安装命令")
 		return
 	}

@@ -32,7 +32,7 @@ func TestMessagesKeepOnlyTheirSelectedAttachments(t *testing.T) {
 		seq++
 		run := uuid.NewString()
 		event, _ := json.Marshal(map[string]any{"type": "accepted", "run_id": run, "input_id": run, "text": message.Content})
-		if err := f.e.st.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: message.AgentVersionID, Revision: "test", MessageID: message.MessageID, Seq: seq, Event: event}); err != nil {
+		if err := f.e.st.ConversationService.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: message.AgentVersionID, Revision: "test", MessageID: message.MessageID, Seq: seq, Event: event}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -48,7 +48,7 @@ func TestMessagesKeepOnlyTheirSelectedAttachments(t *testing.T) {
 		if len(reply.Message.Attachments) != count {
 			t.Fatal("message snapshot differs", reply.Message.Attachments)
 		}
-		delivery, err := f.e.st.DispatchMessage(ctx, f.d)
+		delivery, err := f.e.st.RunService.DispatchMessage(ctx, f.d)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,7 +77,7 @@ func TestMessagesKeepOnlyTheirSelectedAttachments(t *testing.T) {
 	if err != nil || len(fileOnly.Message.Attachments) != 1 {
 		t.Fatal(fileOnly, err)
 	}
-	delivery, err := f.e.st.DispatchMessage(ctx, f.d)
+	delivery, err := f.e.st.RunService.DispatchMessage(ctx, f.d)
 	if err != nil || !delivery.Valid() || len(delivery.Attachments) != 1 {
 		t.Fatal(delivery, err)
 	}
@@ -101,14 +101,14 @@ func TestConversationPathsAndAgentReplyFiles(t *testing.T) {
 	if _, err := user.SendMessage(ctx, "", f.conversation.ID, sdk.MessageRequest{Prompt: "make report", ToAgentIDs: []string{f.agent}}); err != nil {
 		t.Fatal(err)
 	}
-	message, err := f.e.st.DispatchMessage(ctx, f.d)
+	message, err := f.e.st.RunService.DispatchMessage(ctx, f.d)
 	if err != nil {
 		t.Fatal(err)
 	}
 	run := uuid.NewString()
 	report := func(seq int64, event any) {
 		data, _ := json.Marshal(event)
-		if err := f.e.st.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: message.AgentVersionID, Revision: "test", MessageID: message.MessageID, Seq: seq, Event: data}); err != nil {
+		if err := f.e.st.ConversationService.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: message.AgentVersionID, Revision: "test", MessageID: message.MessageID, Seq: seq, Event: data}); err != nil {
 			t.Fatal(err)
 		}
 	}

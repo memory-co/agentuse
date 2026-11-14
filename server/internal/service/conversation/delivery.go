@@ -8,23 +8,23 @@ import (
 
 	"github.com/memory-co/agentuse/internal/attachment"
 	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // prepareMessage assembles conversation context for a fixed delivery assignment.
-func (s *Service) PrepareMessage(ctx context.Context, tx *sql.Tx, p core.Delivery) (protocol.ConversationMessage, error) {
-	ss, err := s.LookupConversation(ctx, tx, core.User{Role: core.RoleAdmin}, p.ConversationID)
+func (s *Service) PrepareMessage(ctx context.Context, tx *sql.Tx, p agentuse.Delivery) (protocol.ConversationMessage, error) {
+	ss, err := s.LookupConversation(ctx, tx, agentuse.User{Role: agentuse.RoleAdmin}, p.ConversationID)
 	if err != nil {
 		return protocol.ConversationMessage{}, err
 	}
 	out := protocol.ConversationMessage{ConversationID: p.ConversationID, MessageID: p.MessageID, AgentID: p.AgentID, AgentVersionID: p.AgentVersionID, Content: p.Content, Attachments: []attachment.Attachment{}}
 	instructions := executionPolicy(ss)
-	source, err := store.ScanMessage(tx.QueryRowContext(ctx, core.MessageCols+` WHERE id=? AND conversation_id=?`, p.MessageID, p.ConversationID))
+	source, err := store.ScanMessage(tx.QueryRowContext(ctx, store.MessageCols+` WHERE id=? AND conversation_id=?`, p.MessageID, p.ConversationID))
 	if err != nil {
 		return out, err
 	}
-	if source.AuthorRole == core.RoleChildConversationMsg {
+	if source.AuthorRole == agentuse.RoleChildConversationMsg {
 		instructions += fmt.Sprintf("\n# Child conversation round finished\nThis notification is from the child conversation, not an Agent speaking in this conversation. Read the completed interval with context conversation read %s --round %d before responding. Files remain in that child's tree; use context attachment list --conversation %s and context attachment download PATH --conversation %s.\n", source.AuthorConversationID, source.AuthorRoundSeq, source.AuthorConversationID, source.AuthorConversationID)
 	}
 	if ss.ParentConversationID != "" {
@@ -84,7 +84,7 @@ settled. The coordinator may send instructions for a later round. Do not send a
 separate parent message or a duplicate report.
 `
 
-func executionPolicy(v core.Conversation) string {
+func executionPolicy(v agentuse.Conversation) string {
 	if v.Mode == "collaborative" {
 		return coordinatorPolicy
 	}

@@ -10,27 +10,27 @@ import (
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/protocol"
 	sdk "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/service"
+	deviceservice "github.com/memory-co/agentuse/server/internal/service/device"
 )
 
 func TestNestedConversationAPISourceScopesAndIndependentFiles(t *testing.T) {
 	e := newEnv(t, Config{FilesDir: t.TempDir()})
 	ctx := context.Background()
-	u, token := e.user("nested-owner", service.RoleUser)
+	u, token := e.user("nested-owner", sdk.RoleUser)
 	human := sdk.New(e.ts.URL, token)
-	device := func(name string) (service.Device, *sdk.Client) {
-		d, err := e.st.CreateDevice(ctx, u.ID, name)
+	device := func(name string) (sdk.Device, *sdk.Client) {
+		d, err := e.st.DeviceService.CreateDevice(ctx, u.ID, name)
 		if err != nil {
 			t.Fatal(err)
 		}
-		d, key, err := e.st.RegisterDevice(ctx, d.SetupToken, "")
+		d, key, err := e.st.DeviceService.RegisterDevice(ctx, d.SetupToken, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err = e.st.DeviceConnected(ctx, d, []service.ReportedHarness{{Name: "codex"}}); err != nil {
+		if _, err = e.st.DeviceService.DeviceConnected(ctx, d, []deviceservice.ReportedHarness{{Name: "codex"}}); err != nil {
 			t.Fatal(err)
 		}
-		if err = e.st.SetDeviceHarnessEnabled(ctx, u, d.ID, "codex", true); err != nil {
+		if err = e.st.DeviceService.SetDeviceHarnessEnabled(ctx, u, d.ID, "codex", true); err != nil {
 			t.Fatal(err)
 		}
 		return d, sdk.New(e.ts.URL, key)
@@ -52,14 +52,14 @@ func TestNestedConversationAPISourceScopesAndIndependentFiles(t *testing.T) {
 	if _, err = parentClient.CreateConversation(ctx, "", sdk.CreateConversationRequest{ParentConversationID: parent.Conversation.ID}); !sdk.IsStatus(err, 403) {
 		t.Fatal("unreported source allowed", err)
 	}
-	accept := func(d service.Device, c *sdk.Client, session string) {
-		input, err := e.st.DispatchMessage(ctx, d)
+	accept := func(d sdk.Device, c *sdk.Client, session string) {
+		input, err := e.st.RunService.DispatchMessage(ctx, d)
 		if err != nil {
 			t.Fatal(err)
 		}
 		run := uuid.NewString()
 		event, _ := json.Marshal(map[string]any{"type": "accepted", "run_id": run, "input_id": "initial", "text": input.Content})
-		if err = e.st.ReportClientEvent(ctx, d.ID, protocol.ClientEvent{ConversationID: input.ConversationID, MessageID: input.MessageID, AgentID: input.AgentID, AgentVersionID: input.AgentVersionID, Revision: "test", SessionID: session, Seq: 1, Event: event}); err != nil {
+		if err = e.st.ConversationService.ReportClientEvent(ctx, d.ID, protocol.ClientEvent{ConversationID: input.ConversationID, MessageID: input.MessageID, AgentID: input.AgentID, AgentVersionID: input.AgentVersionID, Revision: "test", SessionID: session, Seq: 1, Event: event}); err != nil {
 			t.Fatal(err)
 		}
 		c.Source = &sdk.ConversationSource{ConversationID: input.ConversationID, AgentID: input.AgentID, SessionID: session, RunID: run}
@@ -159,7 +159,7 @@ func TestNestedConversationAPISourceScopesAndIndependentFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	for {
-		input, e2 := e.st.DispatchMessage(ctx, other)
+		input, e2 := e.st.RunService.DispatchMessage(ctx, other)
 		if e2 != nil {
 			t.Fatal(e2)
 		}

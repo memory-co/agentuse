@@ -9,10 +9,10 @@ import (
 
 	"github.com/memory-co/agentuse/internal/attachment"
 	sdk "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
-func (s *Service) messageAttachments(ctx context.Context, q core.Querier, conversation string, ids []string) ([]sdk.Attachment, error) {
+func (s *Service) messageAttachments(ctx context.Context, q store.Querier, conversation string, ids []string) ([]sdk.Attachment, error) {
 	if len(ids) > 64 {
 		return nil, fmt.Errorf("一条消息最多包含 64 个附件")
 	}
@@ -26,7 +26,7 @@ func (s *Service) messageAttachments(ctx context.Context, q core.Querier, conver
 			continue
 		}
 		seen[id] = true
-		file, err := core.ScanAttachment(q.QueryRowContext(ctx, core.AttachmentCols+` WHERE conversation_id=? AND id=?`, conversation, id))
+		file, err := store.ScanAttachment(q.QueryRowContext(ctx, store.AttachmentCols+` WHERE conversation_id=? AND id=?`, conversation, id))
 		if err != nil {
 			return nil, err
 		}
@@ -35,14 +35,14 @@ func (s *Service) messageAttachments(ctx context.Context, q core.Querier, conver
 	return files, nil
 }
 func mustAttachmentJSON(files []sdk.Attachment) []byte { data, _ := json.Marshal(files); return data }
-func (s *Service) attachRunOutputs(ctx context.Context, tx *sql.Tx, run core.Run, message string) error {
+func (s *Service) attachRunOutputs(ctx context.Context, tx *sql.Tx, run sdk.Run, message string) error {
 	files := []sdk.Attachment{}
-	rows, err := tx.QueryContext(ctx, core.AttachmentCols+` WHERE conversation_id=? AND created_by_run_id=? ORDER BY created_at,id`, run.ConversationID, run.ID)
+	rows, err := tx.QueryContext(ctx, store.AttachmentCols+` WHERE conversation_id=? AND created_by_run_id=? ORDER BY created_at,id`, run.ConversationID, run.ID)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
-		file, e := core.ScanAttachment(rows)
+		file, e := store.ScanAttachment(rows)
 		if e != nil {
 			rows.Close()
 			return e

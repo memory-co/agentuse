@@ -111,8 +111,8 @@ func TestServerServicePackageDependencies(t *testing.T) {
 	const prefix = "github.com/memory-co/agentuse/server/internal/service"
 	allowed := map[string]map[string]bool{
 		"user": {}, "device": {}, "agent": {"skill": true},
-		"conversation": {"run": true, "file": true}, "run": {"skill": true},
-		"skill": {"file": true}, "file": {}, "internal": {},
+		"conversation": {"run": true, "file": true, "device": true}, "run": {"skill": true},
+		"skill": {"file": true}, "file": {},
 	}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -154,12 +154,74 @@ func TestServerServicePackageDependencies(t *testing.T) {
 				continue
 			}
 			target := strings.TrimPrefix(value, prefix+"/")
-			if target == "internal/core" {
-				continue
-			}
 			peer := strings.Split(target, "/")[0]
 			if peer != domain && !peers[peer] {
 				t.Errorf("%s imports %s outside its allowed dependencies; use a narrow peer contract", rel, peer)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Services declare the capabilities they consume. DTO aliases and an embedded
+// dependency container would recreate the removed core layer under another name.
+func TestServerServicesUseDirectModelsAndExplicitDependencies(t *testing.T) {
+	root := filepath.Join("..", "..", "server", "internal")
+	business := map[string]bool{"user": true, "device": true, "agent": true, "conversation": true, "run": true}
+	for _, directory := range []string{"service", "store"} {
+		err := filepath.WalkDir(filepath.Join(root, directory), func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return err
+			}
+			f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+			if err != nil {
+				return err
+			}
+			ast.Inspect(f, func(node ast.Node) bool {
+				typeSpec, ok := node.(*ast.TypeSpec)
+				if !ok {
+					return true
+				}
+				if typeSpec.Assign.IsValid() {
+					t.Errorf("%s re-exports type %s; use its owning package directly", path, typeSpec.Name.Name)
+				}
+				if directory != "service" || !business[filepath.Base(filepath.Dir(path))] || typeSpec.Name.Name != "Service" {
+					return true
+				}
+				if service, ok := typeSpec.Type.(*ast.StructType); ok {
+					for _, field := range service.Fields.List {
+						if len(field.Names) == 0 {
+							t.Errorf("%s embeds a shared dependency container; declare each dependency", path)
+						}
+					}
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestServerNotificationsDoNotQueryBusinessData(t *testing.T) {
+	root := filepath.Join("..", "..", "server", "internal", "notification")
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return err
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, im := range f.Imports {
+			value, _ := strconv.Unquote(im.Path.Value)
+			if value == "database/sql" || strings.HasPrefix(value, "github.com/memory-co/agentuse/server/internal/") {
+				t.Errorf("%s imports %s; notification audiences must be resolved by the business owner", path, value)
 			}
 		}
 		return nil

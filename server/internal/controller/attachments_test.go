@@ -15,42 +15,44 @@ import (
 	"testing"
 
 	"github.com/memory-co/agentuse/internal/attachment"
-	"github.com/memory-co/agentuse/server/internal/service"
+	"github.com/memory-co/agentuse/internal/protocol"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	deviceservice "github.com/memory-co/agentuse/server/internal/service/device"
 )
 
 type attachmentFixture struct {
 	e            *env
-	u            service.User
+	u            agentuse.User
 	token, key   string
-	d            service.Device
-	conversation service.Conversation
+	d            agentuse.Device
+	conversation agentuse.Conversation
 	agent        string
 }
 
 func attachmentEnv(t *testing.T, max, total int64) *attachmentFixture {
 	t.Setenv("TMPDIR", t.TempDir())
 	e := newEnv(t, Config{FilesDir: t.TempDir(), AttachmentMaxBytes: max, AttachmentConversationMaxBytes: total})
-	u, tok := e.user("alice", service.RoleUser)
+	u, tok := e.user("alice", agentuse.RoleUser)
 	ctx := context.Background()
-	d, err := e.st.CreateDevice(ctx, u.ID, "laptop")
+	d, err := e.st.DeviceService.CreateDevice(ctx, u.ID, "laptop")
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, key, err := e.st.RegisterDevice(ctx, d.SetupToken, "")
+	d, key, err := e.st.DeviceService.RegisterDevice(ctx, d.SetupToken, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = e.st.DeviceConnected(ctx, d, []service.ReportedHarness{{Name: "claude"}}, []string{attachment.Capability, service.RunCapability}); err != nil {
+	if _, err = e.st.DeviceService.DeviceConnected(ctx, d, []deviceservice.ReportedHarness{{Name: "claude"}}, []string{attachment.Capability, protocol.ExecutionProtocol}); err != nil {
 		t.Fatal(err)
 	}
-	if err = e.st.SetDeviceHarnessEnabled(ctx, u, d.ID, "claude", true); err != nil {
+	if err = e.st.DeviceService.SetDeviceHarnessEnabled(ctx, u, d.ID, "claude", true); err != nil {
 		t.Fatal(err)
 	}
-	var agent service.Agent
+	var agent agentuse.Agent
 	e.req(tok, "POST", "/api/agents", map[string]string{"name": "coder", "device_id": d.ID, "harness": "claude"}, &agent)
 	var res struct {
-		Conversation service.Conversation
-		Message      *service.Message
+		Conversation agentuse.Conversation
+		Message      *agentuse.Message
 	}
 	r := e.req(tok, "POST", "/api/conversations", map[string]any{}, &res)
 	if r.StatusCode != 201 || res.Conversation.Status != "idle" || res.Message != nil {
@@ -94,7 +96,7 @@ func rawUpload(t *testing.T, f *attachmentFixture, token, filename, data string,
 func TestAttachmentsLifecycle(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
 	e := f.e
-	if msgs, err := e.st.Messages(context.Background(), f.conversation.ID); err != nil || len(msgs) != 0 {
+	if msgs, err := e.st.ConversationService.Messages(context.Background(), f.conversation.ID); err != nil || len(msgs) != 0 {
 		t.Fatalf("empty conversation: %v %v", msgs, err)
 	}
 	var first attachment.Attachment
@@ -135,7 +137,7 @@ func TestAttachmentsLifecycle(t *testing.T) {
 	if r.StatusCode != 200 || string(b) != "hello" || r.Header.Get("X-Content-Type-Options") != "nosniff" || !strings.HasPrefix(r.Header.Get("Content-Disposition"), "attachment;") {
 		t.Fatalf("content %d %s %+v", r.StatusCode, b, r.Header)
 	}
-	bobUser, bob := e.user("bob", service.RoleUser)
+	bobUser, bob := e.user("bob", agentuse.RoleUser)
 	for _, tok := range []string{bob, ""} {
 		want := 404
 		if tok == "" {
@@ -145,14 +147,14 @@ func TestAttachmentsLifecycle(t *testing.T) {
 			t.Fatalf("unauthorized %s", tok)
 		}
 	}
-	_, admin := e.user("admin", service.RoleAdmin)
+	_, admin := e.user("admin", agentuse.RoleAdmin)
 	if e.code(admin, "GET", first.DownloadPath, nil) != 200 {
 		t.Fatal("admin")
 	}
 	if e.req(admin, "GET", first.DownloadPath, nil, nil, actAsHeader, bobUser.ID).StatusCode != 404 {
 		t.Fatal("act as scope")
 	}
-	ss, _, _ := e.st.CreateConversation(context.Background(), f.u, "", "other", "", nil, nil, "", nil)
+	ss, _, _ := e.st.ConversationService.CreateConversation(context.Background(), f.u, "", "other", "", nil, nil, "", nil)
 	if e.code(f.token, "GET", attachment.Path(ss.ID)+"/"+first.ID+"/content", nil) != 404 {
 		t.Fatal("cross-conversation")
 	}
@@ -171,7 +173,7 @@ func TestAttachmentsLifecycle(t *testing.T) {
 	if e.code(f.token, "DELETE", "/api/conversations/"+f.conversation.ID, nil) != 204 {
 		t.Fatal("conversation delete")
 	}
-	if yes, err := e.st.AttachmentExists(context.Background(), next.Attachments[0].ConversationID, next.Attachments[0].ID); err != nil || yes {
+	if yes, err := e.st.ConversationService.AttachmentExists(context.Background(), next.Attachments[0].ConversationID, next.Attachments[0].ID); err != nil || yes {
 		t.Fatal("cascade")
 	}
 }
@@ -251,11 +253,11 @@ func TestAttachmentUploadRechecksIdentityAndConversation(t *testing.T) {
 			part, _ := mw.CreateFormFile("file", "late.txt")
 			part.Write([]byte("late"))
 			if mode == "reset-token" {
-				if _, _, err := f.e.st.ResetUserToken(context.Background(), f.u.ID); err != nil {
+				if _, _, err := f.e.st.UserService.ResetUserToken(context.Background(), f.u.ID); err != nil {
 					t.Fatal(err)
 				}
 			} else {
-				if err := f.e.st.DeleteConversation(context.Background(), f.u, f.conversation.ID); err != nil {
+				if err := f.e.st.ConversationService.DeleteConversation(context.Background(), f.u, f.conversation.ID); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -269,7 +271,7 @@ func TestAttachmentUploadRechecksIdentityAndConversation(t *testing.T) {
 			if code != want && !(mode == "delete-conversation" && code == 404) {
 				t.Fatalf("got %d want %d", code, want)
 			}
-			yes, err := f.e.st.AttachmentExists(context.Background(), f.conversation.ID, "at_missing")
+			yes, err := f.e.st.ConversationService.AttachmentExists(context.Background(), f.conversation.ID, "at_missing")
 			if err != nil || yes {
 				t.Fatal("failed upload persisted")
 			}

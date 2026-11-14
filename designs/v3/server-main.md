@@ -154,7 +154,13 @@ sequenceDiagram
 | `skill.Service` | 獨立的 `skill/` 包；版本校驗、發佈、元數據和包讀取 |
 | `file.Service` | 獨立的 `file/` 包；通用字節後端 |
 
-每個業務目錄都是獨立 Go package，service 頂層的生產代碼只保留 `services.go` 組裝入口與公共類型別名。各包通過所需方法的接口協作，根入口統一連接依賴。共用設施放在 `internal/core/`，包括數據庫、時鐘、日誌、通知、查詢接口與共用類型；此內部支撐包不引用業務 service。業務服務層測試集中放在 `test/`，包含真實數據庫及跨 service 協作的回歸測試。Conversation 的文件鎖和附件限制由 `conversation.Service` 自己持有。
+每個業務目錄都是獨立 Go package。service 頂層只保留 services.go 組裝入口，使用具名字段連接各服務，負責資源配置及生命週期；調用方明確使用 UserService、ConversationService 等所屬對象。各服務用接口描述所需的業務協作，並直接聲明 DB、時鐘、日誌及所需通知方法，不嵌入共用 Runtime 容器。
+
+模型直接使用 sdk/golang 的公開 DTO，狀態常量也由該 SDK 定義；不經 store、core 或 service 逐層轉發。執行來源 AgentSource 歸 run，附件訪問參數 AttachmentAccess 歸 conversation，Client 上報身份 ReportedHarness 歸 device。SQL 執行接口、列定義、掃描和空值參數處理歸 store；業務錯誤及輸入校驗歸各自服務。收件人與 harness capabilities 分別按所屬業務校驗。
+
+server/internal/notification 僅負責通知分發：Broker 按調用方明確提供的所有者與管理員身份隔離訂閱、合併變更並限制隊列長度；Client 描述設備傳輸方法，各服務只依賴自己使用的方法。通知包不查庫，也不決定業務訪問範圍。conversation.Service 確定對話通知的所有者和父引用；run.Service 查詢設備相關的執行對話，再請 conversation.Service 發出變更。業務服務層測試集中放在 test/，通知分發器的獨立測試放在 notification 包。
+
+已移除 service/internal/core 及模型別名匯總；不保留轉發入口。Conversation 的文件鎖、附件限制、對話狀態和輪次通知仍由 conversation.Service 持有。
 
 跨業務寫入通過接收同一 `*sql.Tx` 的所屬 service 方法完成：設備刪除由 runService 處理投遞狀態，由 conversationService 清空附件的設備歸屬。文件清理和瀏覽器通知在提交後執行。架構測試遞歸檢查各包的依賴與 SQL 寫入歸屬，並禁止向組裝目錄新增業務實現；回滾測試覆蓋跨業務清理失敗。
 

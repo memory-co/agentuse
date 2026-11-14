@@ -1,6 +1,11 @@
 // SQL used by the server metadata services. Native execution facts are client-owned.
 package store
 
+import (
+	"context"
+	"database/sql"
+)
+
 const CheckRuntimeSelect = `SELECT 1 FROM device_harnesses WHERE device_id = ? AND harness = ? AND user_id = ?`
 
 const RuntimeErrSelect = `SELECT available, enabled FROM device_harnesses WHERE device_id = ? AND harness = ?`
@@ -130,3 +135,23 @@ const ListUsersSelect = `SELECT id, name, role, created_at FROM users ORDER BY c
 const RenameConversationUpdate = `UPDATE conversations SET title = ? WHERE id = ?`
 
 const SetResolvedUpdate = `UPDATE conversations SET status = ?, updated_at = ? WHERE id = ?`
+
+// Query contracts accept both *sql.DB and a caller-owned *sql.Tx.
+type Scanner interface{ Scan(...any) error }
+type Querier interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+type RowsQuerier interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+type QueryReader interface {
+	Querier
+	RowsQuerier
+}
+
+func NullIfEmpty(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}

@@ -1,4 +1,4 @@
-// Conversation attachment metadata, authorization and quotas belong to the conversation business layer.
+// Device capabilities are snapshots of the connected Client and its harnesses.
 package device
 
 import (

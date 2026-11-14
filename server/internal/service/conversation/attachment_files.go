@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"github.com/memory-co/agentuse/internal/attachment"
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
 )
 
 type conversationAttachmentLimits struct{ MaxBytes, ConversationMaxBytes int64 }
@@ -42,9 +41,9 @@ func (s *Service) OpenAttachmentFile(ctx context.Context, conversation, id strin
 	return stream, nil
 }
 
-func (s *Service) PublishAttachment(ctx context.Context, a core.AttachmentAccess, v *attachment.Attachment, temp string) error {
+func (s *Service) PublishAttachment(ctx context.Context, a AttachmentAccess, v *attachment.Attachment, temp string) error {
 	if v.SizeBytes < 0 || v.SizeBytes > s.conversationAttachmentLimits.MaxBytes {
-		return core.ErrAttachmentQuota
+		return ErrAttachmentQuota
 	}
 	if s.Files == nil {
 		return fmt.Errorf("file storage unavailable")
@@ -72,7 +71,7 @@ func (s *Service) PublishAttachment(ctx context.Context, a core.AttachmentAccess
 	return err
 }
 
-func (s *Service) DeleteAttachment(ctx context.Context, a core.AttachmentAccess, conversation, id string) error {
+func (s *Service) DeleteAttachment(ctx context.Context, a AttachmentAccess, conversation, id string) error {
 	s.conversationFilesMu.Lock()
 	defer s.conversationFilesMu.Unlock()
 	metadata, err := s.GetAttachment(ctx, conversation, id)

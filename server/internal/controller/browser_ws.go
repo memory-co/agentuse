@@ -7,12 +7,12 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
-	"github.com/memory-co/agentuse/server/internal/service"
+	"github.com/memory-co/agentuse/server/internal/notification"
 )
 
 type browserNotice struct {
-	Type    string                  `json:"type"`
-	Changes []service.BrowserChange `json:"changes,omitempty"`
+	Type    string                `json:"type"`
+	Changes []notification.Change `json:"changes,omitempty"`
 }
 
 // Browser WebSockets use the existing HttpOnly login cookie. Only the acting
@@ -37,7 +37,8 @@ func (s *Server) serveBrowserWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer ws.Close(websocket.StatusNormalClosure, "")
 	ctx := ws.CloseRead(r.Context())
-	sub, unsubscribe := s.service.BrowserChanges.Subscribe(currentUser(r))
+	actor := currentUser(r)
+	sub, unsubscribe := s.service.BrowserChanges.Subscribe(actor.ID, actor.IsAdmin())
 	defer unsubscribe()
 	valid := func() bool {
 		u, e := s.service.UserService.UserByToken(ctx, token)

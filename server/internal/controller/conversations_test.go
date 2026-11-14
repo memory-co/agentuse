@@ -9,12 +9,11 @@ import (
 	"testing"
 
 	sdk "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/service"
 )
 
 func TestConversationsReplaceServerSessionRoutesAndFields(t *testing.T) {
 	e := newEnv(t, Config{FilesDir: t.TempDir()})
-	_, token := e.user("conversation-owner", service.RoleUser)
+	_, token := e.user("conversation-owner", sdk.RoleUser)
 	var created map[string]json.RawMessage
 	if code := e.req(token, "POST", "/api/conversations", map[string]any{}, &created).StatusCode; code != http.StatusCreated {
 		t.Fatal(code)
@@ -22,7 +21,7 @@ func TestConversationsReplaceServerSessionRoutesAndFields(t *testing.T) {
 	if len(created["conversation"]) == 0 || created["session"] != nil {
 		t.Fatal("incorrect create response", created)
 	}
-	var conversation service.Conversation
+	var conversation sdk.Conversation
 	if err := json.Unmarshal(created["conversation"], &conversation); err != nil || conversation.ID == "" {
 		t.Fatal(conversation, err)
 	}
@@ -91,8 +90,8 @@ func TestConversationsReplaceServerSessionRoutesAndFields(t *testing.T) {
 
 func TestDeviceRoutesUseOnlyV3ResourceNames(t *testing.T) {
 	e := newEnv(t, Config{FilesDir: t.TempDir()})
-	_, token := e.user("device-owner", service.RoleUser)
-	var device service.Device
+	_, token := e.user("device-owner", sdk.RoleUser)
+	var device sdk.Device
 	if code := e.req(token, "POST", "/api/devices", map[string]string{"name": "Worker"}, &device).StatusCode; code != 201 {
 		t.Fatal(code)
 	}

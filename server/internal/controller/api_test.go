@@ -2,18 +2,18 @@ package controller
 
 import (
 	"context"
-	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"net/http"
 	"testing"
 
 	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/service"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	deviceservice "github.com/memory-co/agentuse/server/internal/service/device"
 )
 
 func TestAuth(t *testing.T) {
 	e := newEnv(t, Config{})
-	_, adminTok := e.user("root", service.RoleAdmin)
-	alice, aliceTok := e.user("alice", service.RoleUser)
+	_, adminTok := e.user("root", agentuse.RoleAdmin)
+	alice, aliceTok := e.user("alice", agentuse.RoleUser)
 
 	if c := e.code("", "GET", "/api/me", nil); c != http.StatusUnauthorized {
 		t.Fatalf("no token: %d", c)
@@ -21,7 +21,7 @@ func TestAuth(t *testing.T) {
 	if c := e.code("ut_bad", "GET", "/api/me", nil); c != http.StatusUnauthorized {
 		t.Fatalf("bad token: %d", c)
 	}
-	var me service.User
+	var me agentuse.User
 	if e.req(aliceTok, "GET", "/api/me", nil, &me); me.ID != alice.ID {
 		t.Fatalf("me: %+v", me)
 	}
@@ -48,16 +48,16 @@ func TestAuth(t *testing.T) {
 
 func TestActAsUser(t *testing.T) {
 	e := newEnv(t, Config{})
-	_, adminTok := e.user("root", service.RoleAdmin)
-	alice, aliceTok, _ := e.st.CreateUser(context.Background(), "alice", "alice", service.RoleUser)
+	_, adminTok := e.user("root", agentuse.RoleAdmin)
+	alice, aliceTok, _ := e.st.UserService.CreateUser(context.Background(), "alice", "alice", agentuse.RoleUser)
 
 	// 不存在的用户自动建
-	var me service.User
-	if r := e.req(adminTok, "GET", "/api/me", nil, &me, actAsHeader, "u_10086"); r.StatusCode != 200 || me.ID != "u_10086" || me.Role != service.RoleUser {
+	var me agentuse.User
+	if r := e.req(adminTok, "GET", "/api/me", nil, &me, actAsHeader, "u_10086"); r.StatusCode != 200 || me.ID != "u_10086" || me.Role != agentuse.RoleUser {
 		t.Fatalf("act as new user: %d %+v", r.StatusCode, me)
 	}
 	// 代为 alice 添加的 device 挂在 alice 下
-	var d service.Device
+	var d agentuse.Device
 	if r := e.req(adminTok, "POST", "/api/devices", map[string]string{"name": "x"}, &d, actAsHeader, alice.ID); r.StatusCode != http.StatusCreated || d.UserID != alice.ID {
 		t.Fatalf("create device as alice: %d %+v", r.StatusCode, d)
 	}
@@ -73,9 +73,9 @@ func TestActAsUser(t *testing.T) {
 
 func TestLogin(t *testing.T) {
 	e := newEnv(t, Config{})
-	alice, tok := e.user("alice", service.RoleUser)
+	alice, tok := e.user("alice", agentuse.RoleUser)
 
-	var u service.User
+	var u agentuse.User
 	resp := e.req("", "POST", "/api/login", map[string]string{"token": " " + tok + " "}, &u)
 	if resp.StatusCode != 200 || u.ID != alice.ID || cookie(resp) == nil || cookie(resp).Value != tok || !cookie(resp).HttpOnly {
 		t.Fatalf("login: %d %+v %+v", resp.StatusCode, u, cookie(resp))
@@ -117,15 +117,15 @@ func cookie(resp *http.Response) *http.Cookie {
 
 func TestUsersAPI(t *testing.T) {
 	e := newEnv(t, Config{PublicURL: "https://agentuse.example.com"})
-	_, adminTok := e.user("root", service.RoleAdmin)
+	_, adminTok := e.user("root", agentuse.RoleAdmin)
 
 	var created struct {
-		User     service.User `json:"user"`
-		Token    string       `json:"token"`
-		LoginURL string       `json:"login_url"`
+		User     agentuse.User `json:"user"`
+		Token    string        `json:"token"`
+		LoginURL string        `json:"login_url"`
 	}
 	if r := e.req(adminTok, "POST", "/api/users", map[string]string{"id": "u_1", "name": "alice"}, &created); r.StatusCode != http.StatusCreated ||
-		created.User.Role != service.RoleUser || created.LoginURL != "https://agentuse.example.com/login?token="+created.Token {
+		created.User.Role != agentuse.RoleUser || created.LoginURL != "https://agentuse.example.com/login?token="+created.Token {
 		t.Fatalf("create: %d %+v", r.StatusCode, created)
 	}
 	if c := e.code(adminTok, "POST", "/api/users", map[string]string{"name": "alice"}); c != http.StatusBadRequest {
@@ -144,7 +144,7 @@ func TestUsersAPI(t *testing.T) {
 	if c := e.code(adminTok, "POST", "/api/users/nobody/token", nil); c != http.StatusNotFound {
 		t.Fatalf("reset unknown: %d", c)
 	}
-	var users []service.User
+	var users []agentuse.User
 	if e.req(adminTok, "GET", "/api/users", nil, &users); len(users) != 2 {
 		t.Fatalf("list: %+v", users)
 	}
@@ -152,9 +152,9 @@ func TestUsersAPI(t *testing.T) {
 
 func TestHarnessesAPIIsOnlyADeviceReportView(t *testing.T) {
 	e := newEnv(t, Config{})
-	u, token := e.user("alice", service.RoleUser)
+	u, token := e.user("alice", agentuse.RoleUser)
 	e.deviceWith(u, "custom-local")
-	var hs []service.Harness
+	var hs []agentuse.Harness
 	if r := e.req(token, "GET", "/api/harnesses", nil, &hs); r.StatusCode != 200 || len(hs) != 1 || hs[0].Name != "custom-local" {
 		t.Fatal(r.StatusCode, hs)
 	}
@@ -164,29 +164,29 @@ func TestHarnessesAPIIsOnlyADeviceReportView(t *testing.T) {
 }
 
 // deviceWith 建一台 u 的、已上报并开启 harnesses 的 device。
-func (e *env) deviceWith(u service.User, harnesses ...string) service.Device {
+func (e *env) deviceWith(u agentuse.User, harnesses ...string) agentuse.Device {
 	e.t.Helper()
 	ctx := context.Background()
-	d, _ := e.st.CreateDevice(ctx, u.ID, "laptop")
-	d, _, _ = e.st.RegisterDevice(ctx, d.SetupToken, "")
-	var rep []service.ReportedHarness
+	d, _ := e.st.DeviceService.CreateDevice(ctx, u.ID, "laptop")
+	d, _, _ = e.st.DeviceService.RegisterDevice(ctx, d.SetupToken, "")
+	var rep []deviceservice.ReportedHarness
 	for _, h := range harnesses {
-		rep = append(rep, service.ReportedHarness{Name: h})
+		rep = append(rep, deviceservice.ReportedHarness{Name: h})
 	}
-	e.st.DeviceConnected(ctx, d, rep)
+	e.st.DeviceService.DeviceConnected(ctx, d, rep)
 	for _, h := range harnesses {
-		e.st.SetDeviceHarnessEnabled(ctx, u, d.ID, h, true)
+		e.st.DeviceService.SetDeviceHarnessEnabled(ctx, u, d.ID, h, true)
 	}
 	return d
 }
 
 func TestAgentsAPI(t *testing.T) {
 	e := newEnv(t, Config{})
-	alice, aliceTok := e.user("alice", service.RoleUser)
-	_, bobTok := e.user("bob", service.RoleUser)
+	alice, aliceTok := e.user("alice", agentuse.RoleUser)
+	_, bobTok := e.user("bob", agentuse.RoleUser)
 	d := e.deviceWith(alice, "claude", "codex")
 
-	var a service.Agent
+	var a agentuse.Agent
 	if r := e.req(aliceTok, "POST", "/api/agents", map[string]string{"id": "coder", "name": "写代码", "device_id": d.ID, "harness": "claude"}, &a); r.StatusCode != http.StatusCreated || a.ID != "coder" {
 		t.Fatalf("create: %d %+v", r.StatusCode, a)
 	}
@@ -215,7 +215,7 @@ func TestAgentsAPI(t *testing.T) {
 	if c := e.code(aliceTok, "POST", "/api/agents/coder/versions", "x"); c != http.StatusBadRequest {
 		t.Fatalf("bad json: %d", c)
 	}
-	var list []service.Agent
+	var list []agentuse.Agent
 	if e.req(aliceTok, "GET", "/api/agents", nil, &list); len(list) != 1 {
 		t.Fatalf("list: %+v", list)
 	}
@@ -235,8 +235,8 @@ func TestAgentsAPI(t *testing.T) {
 
 func TestDevicesAPI(t *testing.T) {
 	e := newEnv(t, Config{})
-	_, aliceTok := e.user("alice", service.RoleUser)
-	_, bobTok := e.user("bob", service.RoleUser)
+	_, aliceTok := e.user("alice", agentuse.RoleUser)
+	_, bobTok := e.user("bob", agentuse.RoleUser)
 
 	// 不带请求体也能建
 	var v deviceView
@@ -281,8 +281,8 @@ func TestDevicesAPI(t *testing.T) {
 	if c := e.code(aliceTok, "PUT", "/api/devices/"+v.ID+"/harnesses/claude", "x"); c != http.StatusBadRequest {
 		t.Fatalf("toggle bad json: %d", c)
 	}
-	d, _ := e.st.DeviceByKey(context.Background(), reg.Key)
-	e.st.DeviceConnected(context.Background(), d, []service.ReportedHarness{{Name: "claude"}})
+	d, _ := e.st.DeviceService.DeviceByKey(context.Background(), reg.Key)
+	e.st.DeviceService.DeviceConnected(context.Background(), d, []deviceservice.ReportedHarness{{Name: "claude"}})
 	if r := e.req(aliceTok, "PUT", "/api/devices/"+v.ID+"/harnesses/claude", map[string]bool{"enabled": true}, &v); r.StatusCode != 200 || !v.Harnesses[0].Enabled {
 		t.Fatalf("toggle: %d %+v", r.StatusCode, v)
 	}
@@ -291,7 +291,7 @@ func TestDevicesAPI(t *testing.T) {
 	if c := e.code(bobTok, "POST", "/api/devices/"+v.ID+"/reset", nil); c != http.StatusNotFound {
 		t.Fatalf("bob reset: %d", c)
 	}
-	if r := e.req(aliceTok, "POST", "/api/devices/"+v.ID+"/reset", nil, &v); r.StatusCode != 200 || v.SetupCommand == "" || v.Status != service.DevicePending {
+	if r := e.req(aliceTok, "POST", "/api/devices/"+v.ID+"/reset", nil, &v); r.StatusCode != 200 || v.SetupCommand == "" || v.Status != agentuse.DevicePending {
 		t.Fatalf("reset: %d %+v", r.StatusCode, v)
 	}
 	if c := e.code(reg.Key, "GET", "/api/client/me", nil); c != http.StatusUnauthorized {

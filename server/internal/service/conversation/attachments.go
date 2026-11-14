@@ -9,32 +9,32 @@ import (
 	"errors"
 
 	"github.com/memory-co/agentuse/internal/attachment"
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
-func (s *Service) attachmentConversation(ctx context.Context, q core.Querier, a core.AttachmentAccess, id string, upload bool) (core.Conversation, error) {
+func (s *Service) attachmentConversation(ctx context.Context, q store.Querier, a AttachmentAccess, id string, upload bool) (agentuse.Conversation, error) {
 	u := a.User
 	if a.DeviceID != "" {
 		var owner string
-		if err := q.QueryRowContext(ctx, store.AttachmentConversationSelect, a.DeviceID, core.HashSecret(a.Token)).Scan(&owner); err != nil {
+		if err := q.QueryRowContext(ctx, store.AttachmentConversationSelect, a.DeviceID, store.HashSecret(a.Token)).Scan(&owner); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return core.Conversation{}, core.ErrAttachmentUnauthorized
+				return agentuse.Conversation{}, ErrAttachmentUnauthorized
 			}
-			return core.Conversation{}, err
+			return agentuse.Conversation{}, err
 		}
-		u = core.User{Role: core.RoleAdmin}
+		u = agentuse.User{Role: agentuse.RoleAdmin}
 	}
 	if a.DeviceID == "" {
 		var authID, role string
-		if err := q.QueryRowContext(ctx, store.AttachmentConversationSelect3, core.HashSecret(a.Token)).Scan(&authID, &role); err != nil {
+		if err := q.QueryRowContext(ctx, store.AttachmentConversationSelect3, store.HashSecret(a.Token)).Scan(&authID, &role); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return core.Conversation{}, core.ErrAttachmentUnauthorized
+				return agentuse.Conversation{}, ErrAttachmentUnauthorized
 			}
-			return core.Conversation{}, err
+			return agentuse.Conversation{}, err
 		}
-		if authID != a.User.ID && role != core.RoleAdmin {
-			return core.Conversation{}, core.ErrAttachmentUnauthorized
+		if authID != a.User.ID && role != agentuse.RoleAdmin {
+			return agentuse.Conversation{}, ErrAttachmentUnauthorized
 		}
 		if authID == u.ID {
 			u.Role = role
@@ -56,7 +56,7 @@ func (s *Service) attachmentConversation(ctx context.Context, q core.Querier, a 
 		}
 		if allowed == 0 {
 			if upload || a.SourceConversationID == "" {
-				return ss, core.ErrNotFound
+				return ss, store.ErrNotFound
 			}
 			var valid int
 			err := q.QueryRowContext(ctx, `SELECT count(*) FROM conversations c JOIN message_agents p ON p.conversation_id=c.id WHERE c.id=? AND c.user_id=? AND p.device_id=? AND p.agent_id=? AND p.status IN ('sent','unknown','accepted','completed','failed','cancelled') AND ((c.mode='collaborative' AND c.parent_conversation_id IS NULL AND c.id=?) OR c.parent_conversation_id=?)`, a.SourceConversationID, ss.UserID, a.DeviceID, a.SourceAgentID, ss.ParentConversationID, ss.ID).Scan(&valid)
@@ -64,13 +64,13 @@ func (s *Service) attachmentConversation(ctx context.Context, q core.Querier, a 
 				return ss, err
 			}
 			if valid == 0 {
-				return ss, core.ErrNotFound
+				return ss, store.ErrNotFound
 			}
 		}
 		if upload {
 			if err := s.attachmentRun(ctx, q, a, ss.ID, a.RunID, true); err != nil {
-				if errors.Is(err, core.ErrNotFound) {
-					return ss, core.ErrAttachmentRun
+				if errors.Is(err, store.ErrNotFound) {
+					return ss, ErrAttachmentRun
 				}
 				return ss, err
 			}
@@ -80,12 +80,12 @@ func (s *Service) attachmentConversation(ctx context.Context, q core.Querier, a 
 	return ss, nil
 }
 
-func (s *Service) AttachmentConversation(ctx context.Context, a core.AttachmentAccess, id string, upload bool) (core.Conversation, error) {
+func (s *Service) AttachmentConversation(ctx context.Context, a AttachmentAccess, id string, upload bool) (agentuse.Conversation, error) {
 	return s.attachmentConversation(ctx, s.DB, a, id, upload)
 }
 
 // CommitAttachment serializes authorization, quota and metadata with publishing the file.
-func (s *Service) CommitAttachment(ctx context.Context, a core.AttachmentAccess, v *attachment.Attachment, max int64, publish func() error) error {
+func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v *attachment.Attachment, max int64, publish func() error) error {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -102,28 +102,28 @@ func (s *Service) CommitAttachment(ctx context.Context, a core.AttachmentAccess,
 		return err
 	}
 	if v.SizeBytes > max || used > max-v.SizeBytes {
-		return core.ErrAttachmentQuota
+		return ErrAttachmentQuota
 	}
 	if err = publish(); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, store.CommitAttachmentInsert, v.ID, v.ConversationID, v.Filename, v.ContentType, v.SizeBytes, v.SHA256, v.CreatedBy, v.Source, core.NullIfEmpty(v.DeviceID), v.CreatedAt, core.NullIfEmpty(v.CreatedByRunID), v.RelativePath)
+	_, err = tx.ExecContext(ctx, store.CommitAttachmentInsert, v.ID, v.ConversationID, v.Filename, v.ContentType, v.SizeBytes, v.SHA256, v.CreatedBy, v.Source, store.NullIfEmpty(v.DeviceID), v.CreatedAt, store.NullIfEmpty(v.CreatedByRunID), v.RelativePath)
 	if err != nil {
 		return err
 	}
 	err = tx.Commit()
 	if err == nil {
-		if ss, e := s.GetConversation(ctx, core.User{Role: core.RoleAdmin}, v.ConversationID); e == nil {
+		if ss, e := s.GetConversation(ctx, agentuse.User{Role: agentuse.RoleAdmin}, v.ConversationID); e == nil {
 			s.PublishConversationChange(ss, "attachments")
 		}
 	}
 	return err
 }
 
-func (s *Service) NewAttachmentID() string { return core.RandomID("at_") }
+func (s *Service) NewAttachmentID() string { return store.RandomID("at_") }
 
 func (s *Service) GetAttachment(ctx context.Context, conversation, id string) (attachment.Attachment, error) {
-	return core.ScanAttachment(s.DB.QueryRowContext(ctx, core.AttachmentCols+store.GetAttachmentClause, conversation, id))
+	return store.ScanAttachment(s.DB.QueryRowContext(ctx, store.AttachmentCols+store.GetAttachmentClause, conversation, id))
 }
 
 func (s *Service) ListAttachments(ctx context.Context, conversation, cursor string, limit int, run string) (attachment.Page, error) {
@@ -137,16 +137,16 @@ func (s *Service) ListAttachments(ctx context.Context, conversation, cursor stri
 	if cursor != "" {
 		b, e := base64.RawURLEncoding.DecodeString(cursor)
 		if e != nil || json.Unmarshal(b, &after) != nil || after.Conversation != conversation || after.Run != run || !attachment.ValidID(after.ID, "at_") || after.Time < 0 {
-			return out, core.ErrAttachmentCursor
+			return out, ErrAttachmentCursor
 		}
 	}
-	rows, err := s.DB.QueryContext(ctx, core.AttachmentCols+store.ListAttachmentsClause, conversation, run, run, after.Time, after.Time, after.ID, limit+1)
+	rows, err := s.DB.QueryContext(ctx, store.AttachmentCols+store.ListAttachmentsClause, conversation, run, run, after.Time, after.Time, after.ID, limit+1)
 	if err != nil {
 		return out, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		a, e := core.ScanAttachment(rows)
+		a, e := store.ScanAttachment(rows)
 		if e != nil {
 			return out, e
 		}
@@ -170,7 +170,7 @@ func (s *Service) ListAttachments(ctx context.Context, conversation, cursor stri
 	return out, nil
 }
 
-func (s *Service) deleteAttachment(ctx context.Context, a core.AttachmentAccess, conversation, id string) error {
+func (s *Service) deleteAttachment(ctx context.Context, a AttachmentAccess, conversation, id string) error {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -184,7 +184,7 @@ func (s *Service) deleteAttachment(ctx context.Context, a core.AttachmentAccess,
 		return err
 	}
 	if referenced > 0 {
-		return core.ErrAttachmentReferenced
+		return ErrAttachmentReferenced
 	}
 
 	r, err := tx.ExecContext(ctx, store.DeleteAttachmentDelete, conversation, id)
@@ -193,11 +193,11 @@ func (s *Service) deleteAttachment(ctx context.Context, a core.AttachmentAccess,
 	}
 	n, _ := r.RowsAffected()
 	if n == 0 {
-		return core.ErrNotFound
+		return store.ErrNotFound
 	}
 	err = tx.Commit()
 	if err == nil {
-		if ss, e := s.GetConversation(ctx, core.User{Role: core.RoleAdmin}, conversation); e == nil {
+		if ss, e := s.GetConversation(ctx, agentuse.User{Role: agentuse.RoleAdmin}, conversation); e == nil {
 			s.PublishConversationChange(ss, "attachments")
 		}
 	}
@@ -211,17 +211,25 @@ func (s *Service) AttachmentExists(ctx context.Context, conversation, id string)
 }
 
 // AttachmentRun checks attribution without changing the general conversation read scope.
-func (s *Service) AttachmentRun(ctx context.Context, a core.AttachmentAccess, conversation, run string) error {
+func (s *Service) AttachmentRun(ctx context.Context, a AttachmentAccess, conversation, run string) error {
 	return s.attachmentRun(ctx, s.DB, a, conversation, run, false)
 }
-func (s *Service) attachmentRun(ctx context.Context, q core.Querier, a core.AttachmentAccess, conversation, run string, active bool) error {
+func (s *Service) attachmentRun(ctx context.Context, q store.Querier, a AttachmentAccess, conversation, run string, active bool) error {
 	var count int
 	err := q.QueryRowContext(ctx, `SELECT count(*) FROM runs WHERE id=? AND conversation_id=? AND (?='' OR device_id=?) AND (?=0 OR status IN ('running','waiting'))`, run, conversation, a.DeviceID, a.DeviceID, active).Scan(&count)
 	if err != nil {
 		return err
 	}
 	if count == 0 {
-		return core.ErrNotFound
+		return store.ErrNotFound
 	}
 	return nil
+}
+
+// AttachmentAccess is revalidated inside the upload transaction.
+type AttachmentAccess struct {
+	User                                agentuse.User
+	DeviceID, Token                     string
+	SourceConversationID, SourceAgentID string
+	RunID                               string
 }

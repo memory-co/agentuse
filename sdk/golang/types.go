@@ -1,6 +1,8 @@
 package agentuse
 
-import "encoding/json"
+import (
+	"encoding/json"
+)
 
 // Public conversation objects follow docs/server/conversations.md; times are Unix seconds.
 
@@ -216,3 +218,20 @@ type ConversationSource struct {
 }
 
 func (u User) IsAdmin() bool { return u.Role == "admin" }
+
+// Public identity, conversation and device states used by the Server and clients.
+const (
+	RoleAdmin                = "admin"
+	RoleUser                 = "user"
+	RoleUserMsg              = "user"
+	RoleAgentMsg             = "agent"
+	RoleChildConversationMsg = "child_conversation"
+	DevicePending            = "pending"
+	DeviceOnline             = "online"
+	DeviceOffline            = "offline"
+	ConversationIdle         = "idle"
+	ConversationPending      = "pending"
+	ConversationRunning      = "running"
+	ConversationWaiting      = "waiting"
+	ConversationResolved     = "resolved"
+)

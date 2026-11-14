@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/service/internal/core"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // CompleteMessages renders only the history missing from this actual local
@@ -41,20 +41,20 @@ func (s *Service) CompleteMessages(ctx context.Context, device, conversation, me
 	if err != nil {
 		return out, err
 	}
-	rows, err := tx.QueryContext(ctx, core.MessageCols+` WHERE conversation_id=? AND seq>? AND seq<? AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.result_message_id=messages.id AND r.device_id=? AND r.session_id=?) ORDER BY seq`, conversation, after, current, device, localSession)
+	rows, err := tx.QueryContext(ctx, store.MessageCols+` WHERE conversation_id=? AND seq>? AND seq<? AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.result_message_id=messages.id AND r.device_id=? AND r.session_id=?) ORDER BY seq`, conversation, after, current, device, localSession)
 	if err != nil {
 		return out, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		m, e := core.ScanMessage(rows)
+		m, e := store.ScanMessage(rows)
 		if e != nil {
 			return out, e
 		}
 		authorRole, authorID := m.AuthorRole, m.AuthorUserID
-		if m.AuthorRole == core.RoleAgentMsg {
+		if m.AuthorRole == agentuse.RoleAgentMsg {
 			authorID = m.AuthorAgentID
-		} else if m.AuthorRole == core.RoleChildConversationMsg {
+		} else if m.AuthorRole == agentuse.RoleChildConversationMsg {
 			authorID = m.AuthorConversationID
 		}
 		out.CompleteMessages = append(out.CompleteMessages, agentuse.CompleteMessage{ID: m.ID, Seq: m.Seq, AuthorRole: authorRole, AuthorID: authorID, AuthorRoundSeq: m.AuthorRoundSeq, Text: m.Content, ToAgentIDs: m.ToAgentIDs, ToUserIDs: m.ToUserIDs, Attachments: m.Attachments})

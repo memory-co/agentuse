@@ -27,10 +27,6 @@ type Service struct {
 	Files    *file.Service
 	Now      func() time.Time
 }
-type Querier interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-}
 
 const columns = `SELECT v.id,v.skill_id,v.version,v.name,v.description,v.package_path,v.sha256,v.size_bytes,v.created_at FROM skill_versions v`
 
@@ -58,7 +54,7 @@ func scan(row interface{ Scan(...any) error }) (agentuse.SkillVersion, error) {
 	v.DownloadPath = "/api/skills/" + v.SkillID + "/versions/" + v.ID + "/package"
 	return v, err
 }
-func (s *Service) Version(ctx context.Context, q Querier, user agentuse.User, id, version string, forPublish bool) (agentuse.SkillVersion, error) {
+func (s *Service) Version(ctx context.Context, q store.QueryReader, user agentuse.User, id, version string, forPublish bool) (agentuse.SkillVersion, error) {
 	var owner string
 	var deleted sql.NullInt64
 	err := q.QueryRowContext(ctx, `SELECT user_id,deleted_at FROM skills WHERE id=?`, id).Scan(&owner, &deleted)

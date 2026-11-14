@@ -4,10 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/memory-co/agentuse/internal/command"
-	"github.com/memory-co/agentuse/server/internal/hub"
-	"github.com/memory-co/agentuse/server/internal/service"
-	fileservice "github.com/memory-co/agentuse/server/internal/service/file"
 	"log"
 	"net"
 	"net/http"
@@ -17,8 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memory-co/agentuse/internal/command"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	server "github.com/memory-co/agentuse/server/internal/controller"
+	"github.com/memory-co/agentuse/server/internal/hub"
+	"github.com/memory-co/agentuse/server/internal/service"
+	fileservice "github.com/memory-co/agentuse/server/internal/service/file"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
@@ -161,11 +161,11 @@ func bootstrapAdmin(ctx context.Context, st *service.Service, base string, reset
 	if err != nil {
 		return err
 	}
-	var u store.User
+	var u agentuse.User
 	var token string
 	switch {
 	case n == 0:
-		if u, token, err = st.UserService.CreateUser(ctx, "", "admin", store.RoleAdmin); err != nil {
+		if u, token, err = st.UserService.CreateUser(ctx, "", "admin", agentuse.RoleAdmin); err != nil {
 			return err
 		}
 		log.Printf("第一次启动，已创建管理员 %s(id %s)", u.Name, u.ID)
@@ -214,7 +214,7 @@ func runLogin(args []string) error {
 	if err != nil {
 		return err
 	}
-	if me.Role != store.RoleAdmin {
+	if me.Role != agentuse.RoleAdmin {
 		return fmt.Errorf("%s 不是管理员，管理命令需要管理员令牌", me.Name)
 	}
 	if err := saveClientConfig(*path, clientConfig{Server: c.BaseURL, Token: c.Token}); err != nil {
@@ -258,7 +258,7 @@ func runUserCreate(args []string) error {
 	name := args[0]
 	cf, h := clientFlags("agentuse-server user create")
 	id := cf.String("id", "", "用户 id,填接入方自己的 user id;不填生成 UUID")
-	role := cf.String("role", store.RoleUser, "角色: user / admin")
+	role := cf.String("role", agentuse.RoleUser, "角色: user / admin")
 	if err := command.Parse(cf.FlagSet, args[1:]); err != nil {
 		return err
 	}

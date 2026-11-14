@@ -14,7 +14,10 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/memory-co/agentuse/internal/protocol"
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/service"
+	deviceservice "github.com/memory-co/agentuse/server/internal/service/device"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 type Hub struct {
@@ -24,7 +27,7 @@ type Hub struct {
 	conns   map[string]*deviceConn
 }
 type deviceConn struct {
-	d        service.Device
+	d        agentuse.Device
 	ws       *websocket.Conn
 	cancel   context.CancelFunc
 	sendMu   sync.Mutex
@@ -87,9 +90,9 @@ func (h *Hub) serve(ctx context.Context, c *deviceConn) error {
 	if first.Type != protocol.TypeHeartbeat {
 		return errors.New("heartbeat required")
 	}
-	reported := []service.ReportedHarness{}
+	reported := []deviceservice.ReportedHarness{}
 	for _, a := range first.Harnesses {
-		reported = append(reported, service.ReportedHarness{Name: a.Name, Version: a.Version, Revision: a.Revision, Capabilities: a.Capabilities})
+		reported = append(reported, deviceservice.ReportedHarness{Name: a.Name, Version: a.Version, Revision: a.Revision, Capabilities: a.Capabilities})
 	}
 	if _, err := h.service.DeviceService.DeviceConnected(ctx, c.d, reported, []string{protocol.ExecutionProtocol, "conversation-attachments-v1"}); err != nil {
 		return err
@@ -226,7 +229,7 @@ func (c *deviceConn) reserve(m protocol.ConversationMessage) {
 func (h *Hub) dispatch(ctx context.Context, c *deviceConn) error {
 	for {
 		m, err := h.service.RunService.DispatchMessage(ctx, c.d, c.capacity)
-		if errors.Is(err, service.ErrNotFound) {
+		if errors.Is(err, store.ErrNotFound) {
 			return nil
 		}
 		if err != nil {
