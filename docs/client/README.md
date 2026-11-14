@@ -15,3 +15,5 @@ AI 在每次执行中可以直接使用 `context status`、`context attachment l
 [Server 使用文档](../server/README.md) 说明中心服务如何部署。开发资料位于 [Client 设计](../../designs/v3/client-main.md)，适配器接口见 [harnessctl](../../harnessctl/README.md)。
 
 跨 Client 的任务拆分和结果回传使用[嵌套 conversation](../server/conversations.md#模式与嵌套)，Agent 直接调用 `context conversation`。
+
+[Client 本机 API](api.md)说明本机登录、来源与执行查询，以及 local 执行控制接口。

@@ -23,6 +23,16 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 | GET | `/api/conversations/{id}/attachments/{attachment_id}/content` | 下载附件内容 |
 | GET / PUT | `/api/conversations/{id}/files/{path...}` | 按路径读写通用 conversation 文件 |
 
+## 多 Agent 共享消息示例
+
+先用 `POST /api/conversations` 和请求体 `{}` 创建空会话，再向该会话的 `POST /api/conversations/{id}/messages` 发送：
+
+```json
+{"prompt":"分别看看实现和风险","to_agent_ids":["coder","reviewer"],"to_user_ids":["alice"]}
+```
+
+前提是这些 Agent 可用于当前用户，用户收件人已拥有会话读取权限。只有 Agent 收件人触发执行，两组都为空时只保存备注。返回包含 `message`、`runs`、`deliveries`，有 Agent 收件人时额外返回 `round`；实际 run ID 在 Client 的 accepted 后才确定。命令行操作见 [Client conversation 命令](../client/cli.md#conversation远端会话)。
+
 ## 模式与嵌套
 
 创建时可指定 `mode: "single" | "collaborative"`，省略默认 single，创建后不可修改。single 在当前对话中完成任务；collaborative 的 Agent 负责拆分、协调和汇总，在本机 `context conversation` 命令中创建子对话。两种模式都支持多个 Agent。

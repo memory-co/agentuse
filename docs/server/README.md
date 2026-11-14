@@ -6,6 +6,8 @@
 
 服务默认监听 `:8080`。第一次启动时会创建管理员，并在日志中显示登录令牌和登录链接。登录管理页面后，访问 `/api/docs` 查看并调试 API；也可使用用户 Bearer token 读取 `/api/openapi.json` 或 `/api/openapi.yaml`。
 
+[API 手册](api.md)集中说明鉴权、设备、Agent、Skill、用户和 WebSocket 入口；消息和文件接口由对应专题说明。
+
 [Client 使用文档](../client/README.md) 说明执行设备如何注册、启动及查看本机执行记录。开发和协议资料位于 [Server 设计](../../designs/v3/server-main.md)。
 
 [对话协作](conversations.md#模式与嵌套) 说明单体/协作模式、子会话及结果回传。

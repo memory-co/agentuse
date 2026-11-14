@@ -109,6 +109,8 @@ AGENTUSE_UI_ADDR=127.0.0.1:7901 agentuse start
 
 显式设置 `AGENTUSE_UI_ADDR=''` 可关闭页面。配置、注册来源和适配器变化在重启 Client 后生效。使用同一执行根目录的两个 Client 不能同时运行。
 
+需要从其他机器访问本机页面时，显式设置 `local_http.host: 0.0.0.0`，重启后使用主机地址和本机页面令牌访问。
+
 ### 多个 Server
 
 对不同地址重复执行注册：
@@ -186,6 +188,8 @@ agentuse harnesses [--config FILE] [--json]
 默认显示 harness 名称、命令路径和版本；未安装或禁用时显示对应状态。`--json` 输出探测结果数组。
 
 Client 使用启动时的适配器和可用性快照。安装、升级或启停 harness 后，重启 Client，再在 Server 页面确认设备上报并启用对应 harness。
+
+自定义适配器放在配置目录下的 `harness/<name>/local/`，需提供 `manifest.json` 与可执行的 `harnessctl` 入口，遵循 init/send/reply/cancel/status 和五类公共事件协议。`local/disabled` 文件可禁用该适配器；修改后重启 Client。格式见 [独立 harnessctl](../../harnessctl/README.md)。
 
 ## context：执行身份、状态与文件
 
