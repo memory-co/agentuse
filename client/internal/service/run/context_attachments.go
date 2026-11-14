@@ -163,6 +163,14 @@ func (c *ExecutionContext) UploadAttachment(ctx context.Context, path string) (C
 	if err != nil {
 		return ContextAttachment{}, err
 	}
+	// Native accepted can precede its Server report. Reuse the read-only
+	// source check; never retry a POST whose outcome could already be committed.
+	if c.fileSource == nil {
+		client, err = c.ConversationClient(ctx)
+		if err != nil {
+			return ContextAttachment{}, err
+		}
+	}
 	uploaded, err := client.UploadAttachmentAt(ctx, "", c.ConversationID, filepath.ToSlash(relative), file)
 	if err != nil {
 		return ContextAttachment{}, fmt.Errorf("上传失败；连接中断时可能已保存，请先用 context attachment list 核对: %w", err)

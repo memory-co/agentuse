@@ -24,6 +24,7 @@ func TestContextUploadsOutputsAndRecoversLostResponseFromServer(t *testing.T) {
 	outputs := []sdk.Attachment{}
 	contents := map[string][]byte{}
 	var posts atomic.Int64
+	var sourceChecks atomic.Int64
 	var mutex sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer dk_context" || r.Header.Get("X-Agentuse-Run") != run {
@@ -35,6 +36,16 @@ func TestContextUploadsOutputsAndRecoversLostResponseFromServer(t *testing.T) {
 		defer mutex.Unlock()
 		path := "/api/conversations/" + conversation + "/attachments"
 		switch {
+		case r.Method == "GET" && r.URL.Path == "/api/conversations/"+conversation:
+			if r.Header.Get("X-Agentuse-Conversation") != conversation {
+				t.Error("source check missing conversation identity")
+			}
+			if sourceChecks.Add(1) <= 2 {
+				w.WriteHeader(403)
+				json.NewEncoder(w).Encode(map[string]string{"error": "execution source is not yet reported"})
+				return
+			}
+			json.NewEncoder(w).Encode(sdk.ConversationDetail{Conversation: sdk.Conversation{ID: conversation}})
 		case r.Method == "GET" && r.URL.Path == path:
 			if r.URL.Query().Get("run_id") != "" {
 				t.Error("list must not filter by run")
@@ -43,6 +54,11 @@ func TestContextUploadsOutputsAndRecoversLostResponseFromServer(t *testing.T) {
 			}
 			json.NewEncoder(w).Encode(sdk.AttachmentPage{Attachments: outputs})
 		case r.Method == "POST" && r.URL.Path == path:
+			if sourceChecks.Load() < 3 {
+				t.Error("upload raced the Server accepted report")
+				w.WriteHeader(409)
+				return
+			}
 			number := posts.Add(1)
 			file, head, err := r.FormFile("file")
 			if err != nil {
