@@ -55,9 +55,9 @@ Conversation 狀態是實際 run 與未完成輸入的聚合投影，優先 wait
 
 ### 關係與歸屬
 
-parent_conversation_id 為空表示頂層對話，非空時指向已存在的父對話。每個對話最多有一個父對話，僅在創建時指定；首版不提供掛接、移動或重新指定父對話，因而不會生成自引用或環。子對話可用相同接口繼續創建下一級對話。
+parent_conversation_id 為空表示頂層協調對話；非空時表示直接執行任務的內層對話，其父節點必須是頂層。整體只允許兩層，內層不能繼續創建 conversation。每個對話最多有一個父對話，僅在創建時指定；不提供掛接、移動或重新指定父對話，因而不會生成自引用或環。Server 在創建事務中校驗來源分工及父節點為頂層，違反層級限制返回 403，對所有入口及管理員均一致。
 
-子對話繼承父對話的 user_id，created_by 按普通創建規則記錄。HTTP 入口復用通用身份校驗，本 service 校驗父對話的訪問與創建權限；讀取、發消息及文件操作仍按目標 conversation 校驗。Client 使用當前 endpoint 的設備身份及 execution context，Server 用已派發的消息/Agent 關係核對來源，再按真實父子關係限定允許的操作。Agent 清單也僅返回該來源可用的角色。父向子樹操作、子向直接父對話反饋均須由通用接口支持，不把憑據交換或協調角色判定加入組織視圖。
+子對話繼承父對話的 user_id，created_by 按普通創建規則記錄。HTTP 入口復用通用身份校驗，本 service 校驗父對話的訪問與創建權限；讀取、發消息及文件操作仍按目標 conversation 校驗。Client 使用當前 endpoint 的設備身份及 execution context；設備請求必須有可核對的來源，缺失時直接拒絕，不降級成整個設備所有者的權限。Server 用已派發的消息/Agent 關係核對來源，再按真實父子關係限定允許的操作。Agent 清單也僅返回該來源可用的角色。頂層只能操作自己的直接子對話；內層僅執行自身任務及向直接父對話反饋，不能利用普通創建 API、省略父 ID 或代填頂層 ID 繞過禁止再委派的限制。這些操作均須由通用接口支持，不把憑據交換或協調角色判定加入組織視圖。
 
 主、子對話各自保留消息歷史、文件樹和狀態。各節點的消息仍以 to_agent_ids / to_user_ids 明確選擇收件人，不繼承父對話上一次的收件人，也不綁定固定協調 Agent。工作目標及約束由消息表達，名稱和所有者使用 conversation 的既有字段。子對話另保存 parent_to_agent_ids / parent_to_user_ids 作為默認回信地址：由 Agent 創建時默認指向該創建者 Agent，由人類創建時默認指向該用戶。調用方可顯式指定，接收者須通過父對話的普通收件人校驗；子對話的回信地址不能兩組都為空。頂層對話的這兩組字段為空。
 
@@ -113,7 +113,7 @@ parent_conversation_id 為空表示頂層對話，非空時指向已存在的父
 
 需要同一輪等待時，調用方仍可使用普通 conversation 的等待／讀取能力；自動回傳也允許父 Agent 先處理其他輸入，之後再接收結果。父子關係及回傳均屬於 conversation 消息協作，不建立獨立 Work 結算狀態。
 
-pending/running/waiting/idle 與 resolved 都只描述所選對話。界面可組合展示子對話的既有狀態，不另存組織視圖的總狀態。普通刪除遇到子對話時返回 409；只有顯式 recursive=true 才在同一事務確定子樹、校驗全部節點的權限與可刪除狀態並執行清理，任一節點忙碌則整體拒絕。有待回傳而目標父對話不在刪除範圍內的源消息時，也拒絕刪除，避免丟掉仍需送出的反饋。文件前綴在數據庫提交後按既有方式清理。刪除一個子對話不影響父對話及兄弟對話。
+pending/running/waiting/idle 與 resolved 都只描述所選對話。界面可組合展示子對話的既有狀態，不另存組織視圖的總狀態。普通刪除遇到子對話時返回 409；只有顯式 recursive=true 才在同一事務確定頂層及其全部直接子對話、校驗全部節點的權限與可刪除狀態並執行清理，任一節點忙碌則整體拒絕。有待回傳而目標父對話不在刪除範圍內的源消息時，也拒絕刪除，避免丟掉仍需送出的反饋。文件前綴在數據庫提交後按既有方式清理。刪除一個子對話不影響父對話及兄弟對話。
 
 ### 待替換的舊 Work 結構
 
@@ -128,6 +128,8 @@ pending/running/waiting/idle 與 resolved 都只描述所選對話。界面可�
 | Work 專用工具及返回包裝 | 收斂為 conversation API 的調用入口，不另行管理角色或執行身份 |
 
 本次只改設計稿。當前運行代碼及使用文檔仍描述舊實作；後續整體實作時同步修改 schema、controller、SDK、Server 工具、界面及使用文檔，不做新舊模型混用。
+
+對話分工的提示詞由 Server 根據真實 parent_conversation_id 生成，透過每次派發的 message.context 明確要求頂層協調、內層直接執行。完整模板及 CLI 能力表見 [嵌套對話設計](server-conversation-nest.md#兩層分工與提示詞)。該約束不改變 Agent 版本或原生執行身份。
 
 ## 標識和消息順序
 
@@ -149,7 +151,7 @@ Client 選定實際本地 session 後，向 Server 讀取 `complete_messages`：
 
 ### conversations
 
-共享對話主表。`user_id` 是資源所有者，`created_by` 是創建者。parent_conversation_id 可指向同一所有者的父對話，僅在創建時指定；所有 conversation 都支持多 Agent，不綁定固定協調 Agent，也不設 mode 字段。嵌套對話視圖直接使用主對話 ID。狀態只投影本對話的消息與執行，不聚合子樹。parent_to_agent_ids / parent_to_user_ids 是回信地址；創建者的缺省值及顯式收件人均由本 service 校驗。回信地址與 parent_conversation_id 在首版均於創建時固定，源反饋的收件人另保存逐消息快照。
+共享對話主表。`user_id` 是資源所有者，`created_by` 是創建者。parent_conversation_id 只可指向同一所有者的頂層對話，僅在創建時指定；所有 conversation 都支持多 Agent，不綁定固定協調 Agent，也不設 mode 字段。嵌套對話視圖直接使用主對話 ID。狀態只投影本對話的消息與執行，不聚合子樹。parent_to_agent_ids / parent_to_user_ids 是回信地址；創建者的缺省值及顯式收件人均由本 service 校驗。回信地址與 parent_conversation_id 在首版均於創建時固定，源反饋的收件人另保存逐消息快照。
 
 ```sql
 CREATE TABLE conversations (

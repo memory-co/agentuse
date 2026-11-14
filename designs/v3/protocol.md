@@ -241,7 +241,7 @@ Local 與遠端共用相同的資源校驗、session 綁定和 harnessctl 執行
 
 ## 嵌套 conversation 的業務邊界
 
-嵌套對話的目標是 conversation 的父子組織，關係仍待 Server 實作。主、子對話都可以有多個 Agent，均通過相同 message、accepted 和事件鏈路執行；message 的 conversation_id 始終是本次目標對話。父對話引用只保存在 Server 的對話模型中，無需進入 WebSocket。Client 不判斷主子角色或提供 Work 子命令；Server 工具復用 conversation HTTP API，不增加 Work 握手、憑據交換或執行身份。詳見 [父子 conversation 設計](server-conversation.md#父子對話)。
+嵌套對話的目標是 conversation 的父子組織，關係仍待 Server 實作。主、子對話都可以有多個 Agent，均通過相同 message、accepted 和事件鏈路執行；message 的 conversation_id 始終是本次目標對話。父對話引用由 Server 管理，Client 可經普通 HTTP 元數據讀取，無需新增 WebSocket 字段。Server 每次 message.context 都附頂層協調或內層直接執行的提示詞；Client 按 Server 關係限制工具能力，不推斷業務角色或提供 Work 子命令；Server 工具復用 conversation HTTP API，不增加 Work 握手、憑據交換或執行身份。詳見 [父子 conversation 設計](server-conversation.md#父子對話)。
 
 ## 當前執行的文件交互
 
