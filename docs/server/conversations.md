@@ -10,7 +10,7 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 |---|---|---|
 | GET / POST | `/api/conversations` | 顶层列表 / 创建对话 |
 | GET | `/api/conversations?parent_conversation_id=P` | 直接子对话列表 |
-| POST | `/api/conversations/{id}/parent/messages` | 子 Agent 向创建者反馈 |
+| GET | `/api/conversations/{id}?round=N` | 读取指定轮次的消息及执行范围 |
 | GET / DELETE | `/api/conversations/{id}` | 读取完整快照 / 删除对话 |
 | POST | `/api/conversations/{id}/messages` | 发送消息，明确指定收件人与附件 |
 | POST | `/api/conversations/{id}/resolve`、`reopen` | 标记完成 / 重新打开 |
@@ -35,11 +35,33 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 
 查询 `GET /api/conversations?parent_conversation_id=P` 列出直接子对话。父子关系、mode、标题和状态均位于普通 `conversation` 对象中。前端左侧导航可展开子会话，协作会话右侧独立显示子会话列表；子页面通过顶部标题栏中、标题前的左箭头返回父会话；桌面同时显示“返回父会话”，小屏幕保留图标和可访问名称。“文件”按钮或消息附件打开文件管理器弹层，各会话文件树互相独立。删除有子会话的根节点必须显式 `DELETE /api/conversations/P?recursive=true`，所有节点均不能有活跃执行或待派发输入。
 
-子会话的显式反馈使用 `POST /api/conversations/C/parent/messages`，JSON 为 `{"prompt":"需要澄清的问题"}`；最终 Agent 回复自动回传。源消息先保存，父消息按 `to_agent_ids=[parent_agent_id]` 普通入队；父 run 已结束仍可继续处理。返回 `delivery: pending/delivered/failed`，delivered 仅表示父消息已保存。
+子会话的结果只保存在子会话中。整轮所有 Agent 输入和执行结束后，Server 自动向父会话生成一条通知：
 
-源 Message 的 `parent_delivery`、`parent_message_id`、`parent_delivery_error` 是只读投影。父消息的 `source_conversation_id/source_message_id` 用于去重和来源导航；附件留在源对话，不能跨对话复用附件 ID。临时故障会补发，重放不重复落消息。
+```json
+{
+  "author_role": "child_conversation",
+  "author_conversation_id": "child-uuid",
+  "author_round_seq": 1,
+  "to_agent_ids": ["creating-parent-agent"],
+  "to_user_ids": [],
+  "attachments": [],
+  "content": "Child conversation finished round 1. Read this round and review its results."
+}
+```
 
-设备协作请求使用设备密钥，并携带 `X-Agentuse-Conversation`、`X-Agentuse-Agent`、`X-Agentuse-Session`、`X-Agentuse-Run`。Server 校验已上报的真实执行来源；协作根 Agent 只可管理自己的直接子对话，子 Agent 只能读自身及向父反馈。文件读取额外允许显式访问直接相关的父/子文件树。命令自动绑定这些来源，AI 不需手填身份或凭据。
+这条消息的作者是子会话，author_agent_id、author_agent_version_id 和 author_user_id 为空。它走普通消息分配，固定唤起创建子会话的 parent_agent_id，不依赖创建时的父 run 存活。前端显示子会话来源和轮次，点击查看该轮；子会话保留各 Agent 的原始回复。没有 Client 主动向父发消息的命令或 API。
+
+每个 conversation 有本地递增的 rounds。第一条含 Agent 收件人的输入开始一轮；尚未结束时的追加输入属于同一轮。所有 run 和投递均已收束时固定 end_message_seq/finished_at，每轮只生成一次父通知。失败、取消和已确认拒绝也会结束；离线、unknown 和原生人工等待不会。空会话、备注、仅用户收件人、文件上传、标记完成不产生轮次通知。
+
+子 Agent 缺少信息时在最终回复中说明问题并正常结束，协调者收到通知后读取该轮，再通过普通 send 指定子 Agent 发出答案，开始下一轮。整轮结束不等于任务成功，需要检查所有消息、runs 和 deliveries。
+
+`GET /api/conversations/C?round=N` 只返回该轮范围内的消息、关联投递、run、事件和问题，rounds 只有该轮；不存在返回 404，非法轮次返回 400。消息范围在结束后固定，不混入下一轮。conversation 的状态和 parent_delivery 仍是当前投影。页面的轮次视图只读，可返回完整会话。
+
+已结束子轮次的 parent_delivery / parent_message_id / parent_delivery_error 是只读投影：pending 表示待补送，delivered 表示父消息与目标分配已保存，failed 表示创建 Agent 已删除。delivered 不代表父 Agent 已处理。子结果先提交，父侧故障不回滚它；Server 重启或重放会按轮次补送，同一来源轮次不重复通知。
+
+附件仍留在各自文件树，协调者显式读取子产物，不能复用子附件 ID。删除尚有待送轮次的子会话会被拒绝；显式删除整个父子树时可一并清理。
+
+设备协作请求使用设备密钥，并携带 `X-Agentuse-Conversation`、`X-Agentuse-Agent`、`X-Agentuse-Session`、`X-Agentuse-Run`。Server 校验已上报的真实执行来源；协作根 Agent 只可管理自己的直接子对话，子 Agent 只能读自身，不得主动给父会话发消息。文件读取额外允许显式访问直接相关的父/子文件树。命令自动绑定这些来源，AI 不需手填身份或凭据。
 
 ## 字段
 
@@ -52,13 +74,14 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
   "runs": [],
   "deliveries": [],
   "questions": [],
-  "events": []
+  "events": [],
+  "rounds": []
 }
 ```
 
 Message、Attachment、Run、Delivery、Question 和 ConversationEvent 用 `conversation_id` 表示 Server 对话归属。`session_id` 只有一个，由 Client 生成；Run、Delivery 和 ConversationEvent 记录这个相同的值以关联本地执行，Client 上下文和 WebSocket 也使用同名字段。Server 不生成自己的 session，也不提供 `client_session_id` 别名。
 
-Message 的 author_role 为 user/agent，content 是原始正文字符串；author_user_id 与 author_agent_id 按作者类型填写，Agent 同时记录固定的 author_agent_version_id。author_name 由用户或该 Agent 版本关联读取，消息不包含执行结果包装或 run_id。
+Message 的 author_role 为 user/agent/child_conversation。content 是正文字符串；用户填 author_user_id，Agent 填 author_agent_id 和固定 author_agent_version_id，子会话通知填 author_conversation_id 和 author_round_seq。author_name 由用户、Agent 固定版本或子会话标题关联读取；消息不包含执行结果包装或 run_id。child_conversation 作者及轮次均由 Server 生成，发送接口不接受伪造。
 
 发送消息可用 reply_to_message_id 回复同一 conversation 中的消息。消息通过 `to_agent_ids`、`to_user_ids` 指定收件人，`attachment_ids` 指定本条消息的文件。只有 Agent 收件人触发执行；实际 run UUID 由 Client 的 accepted 事件返回。附件操作见 [对话文件](conversation-files.md)。
 
@@ -78,15 +101,15 @@ Message 的 author_role 为 user/agent，content 是原始正文字符串；auth
 | 重开 | `ReopenConversation` | `reopenConversation` | `reopen_conversation` |
 | 等待 | `WaitConversation` | `waitConversation` | `wait_conversation` |
 | 直接子对话 | `ListChildren` | `listChildren` | `list_children` |
-| 向父反馈 | `SendParentMessage` | `sendParentMessage` | `send_parent_message` |
+| 指定轮次 | `GetConversationRound` | `getConversationRound` | `get_conversation_round` |
 | 删除子树 | `DeleteConversationTree` | `deleteConversationTree` | `delete_conversation_tree` |
 
-Go 类型为 `Conversation`、`ConversationDetail`、`ConversationEvent`、`CreateConversationRequest` 和 `CreateConversationResponse`，创建和详情通过 `.Conversation` 读取对话。Node/Python JSON 使用 `.conversation` / `["conversation"]`。旧方法、类型和响应字段不保留别名。
+Go 类型为 `Conversation`、`ConversationRound`、`ConversationDetail`、`ConversationEvent`、`CreateConversationRequest` 和 `CreateConversationResponse`，创建和详情通过 `.Conversation` 读取对话。Node/Python JSON 使用 `.conversation` / `["conversation"]`。旧方法、类型和响应字段不保留别名。
 
 ## 存储与更新
 
-当前数据库 schema 8 使用 `conversations` 表；消息、附件、投递、run、事件、请求和控制记录使用 `conversation_id`。原生执行归属继续使用 `session_id`。
+当前数据库 schema 9 使用 `conversations` 表；消息、附件、投递、run、事件、请求和控制记录使用 `conversation_id`。原生执行归属继续使用 `session_id`。
 
-创建对话省略 prompt 即创建空对话。mode 只接受 single/collaborative；不接受 input、defer_start 或旧消息字段；向原生 harness 投递的输入格式由 Client 负责。
+创建对话省略 prompt 即创建空对话。创建或发消息包含 Agent 收件人时，成功结果额外含 `round`，可保留 `round.seq` 用于固定读取/等待。mode 只接受 single/collaborative；不接受 input、defer_start 或旧消息字段；向原生 harness 投递的输入格式由 Client 负责。
 
 不迁移或读取旧数据库；更新时重建 Server 数据库，并一起更新 Client、前端和 SDK。附件总量配置使用 `--attachment-conversation-max-bytes` / `AGENTUSE_ATTACHMENT_CONVERSATION_MAX_BYTES`。设计约束见 [Server conversation 设计](../../designs/v3/server-conversation.md)。

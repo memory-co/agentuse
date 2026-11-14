@@ -85,3 +85,7 @@ c.delete_conversation_tree(uid, r["conversation"]["id"])
 ```
 
 设备工具使用 Source/source 携带实际 conversation_id、agent_id、session_id、run_id，由 Server 验证；不另申请工作令牌。向父反馈和最终回复的回传规则见 [Conversation 文档](../../docs/server/conversations.md#模式与嵌套)。
+
+## 子会话轮次
+
+Server 在子会话所有输入和执行结束后，自动生成 `author_role: "child_conversation"` 通知；用 `author_conversation_id` 和 `author_round_seq` 读取对应结果：`client.get_conversation_round(user, child_id, 1)`。这返回该轮消息及执行范围，详情包含 `rounds`；创建/发送 Agent 输入时返回 `round`。Agent 结果只在子会话保存，Client 无主动向父发消息入口。更多边界见 [Conversation](../../docs/server/conversations.md#模式与嵌套)。

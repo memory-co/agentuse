@@ -43,6 +43,7 @@ type Delivery = agentuse.Delivery
 type Reply = agentuse.Reply
 
 type ConversationDetail = agentuse.ConversationDetail
+type ConversationRound = agentuse.ConversationRound
 
 const (
 	ConversationIdle    = "idle"
@@ -52,8 +53,9 @@ const (
 	// ConversationResolved:已完成，见 designs/v3/server-conversation.md。再发消息就重新打开。
 	ConversationResolved = "resolved"
 
-	RoleUserMsg  = "user"
-	RoleAgentMsg = "agent"
+	RoleUserMsg              = "user"
+	RoleAgentMsg             = "agent"
+	RoleChildConversationMsg = "child_conversation"
 )
 
 type Conversation = agentuse.Conversation

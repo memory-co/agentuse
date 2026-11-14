@@ -96,9 +96,23 @@ func TestNestedConversationAPISourceScopesAndIndependentFiles(t *testing.T) {
 	if _, err = childClient.GetConversation(ctx, "", parent.Conversation.ID); !sdk.IsStatus(err, 403) {
 		t.Fatal("ordinary leaf parent read bypass", err)
 	}
-	feedback, err := childClient.SendParentMessage(ctx, "", child.Conversation.ID, sdk.ParentMessageRequest{Prompt: "Which target?"})
-	if err != nil || feedback.Delivery != "delivered" {
-		t.Fatal(feedback, err)
+	if code := e.code(childClient.Token, "POST", "/api/conversations/"+child.Conversation.ID+"/parent/messages", map[string]any{"prompt": "removed"}); code != 404 {
+		t.Fatal("manual parent endpoint remains", code)
+	}
+	round, err := parentClient.GetConversationRound(ctx, "", child.Conversation.ID, 1)
+	if err != nil || len(round.Rounds) != 1 || round.Rounds[0].Seq != 1 || len(round.Messages) != 1 || len(round.Runs) != 1 {
+		t.Fatal(round, err)
+	}
+	if _, err = childClient.GetConversationRound(ctx, "", parent.Conversation.ID, 1); !sdk.IsStatus(err, 403) {
+		t.Fatal("round read escaped leaf scope", err)
+	}
+	for _, query := range []string{"round=0", "round=-1", "round=abc", "round=1&round=2", "round=", "unknown=1"} {
+		if code := e.code(token, "GET", "/api/conversations/"+child.Conversation.ID+"?"+query, nil); code != 400 {
+			t.Fatal(query, code)
+		}
+	}
+	if _, err = human.GetConversationRound(ctx, "", child.Conversation.ID, 2); !sdk.IsStatus(err, 404) {
+		t.Fatal("missing round", err)
 	}
 	if _, err = parentClient.SendMessage(ctx, "", child.Conversation.ID, sdk.MessageRequest{Prompt: "Use main", ToAgentIDs: []string{b.ID}}); err != nil {
 		t.Fatal(err)

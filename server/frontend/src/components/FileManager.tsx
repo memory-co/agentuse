@@ -65,7 +65,7 @@ function FilePreview({ file }: { file: Attachment }) {
 
 interface FileBrowserProps {
   conversation: string; files: Attachment[]; pending: boolean; error: unknown; selected: Attachment | null;
-  onSelect: (file: Attachment | null) => void; onAttach: (file: Attachment) => void; busy?: boolean; referenced: Set<string>;
+  onSelect: (file: Attachment | null) => void; onAttach: (file: Attachment) => void; busy?: boolean; readOnly?: boolean; referenced: Set<string>;
 }
 
 export function FileManager({ open, onOpenChange, onRestoreFocus, ...props }: FileBrowserProps & {
@@ -93,7 +93,7 @@ export function FileManager({ open, onOpenChange, onRestoreFocus, ...props }: Fi
   </Dialog.Root>;
 }
 
-function FileBrowser({ conversation, files, pending, error, selected, onSelect, onAttach, busy, referenced }: FileBrowserProps) {
+function FileBrowser({ conversation, files, pending, error, selected, onSelect, onAttach, busy, readOnly, referenced }: FileBrowserProps) {
   const t = useT();
   const [search, setSearch] = useState('');
   const [folder, setFolder] = useState('');
@@ -222,8 +222,8 @@ function FileBrowser({ conversation, files, pending, error, selected, onSelect, 
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium" title={selectedFile.relative_path}>{selectedFile.filename}</p><p className="mt-1 truncate text-xs text-muted-foreground">{selectedFile.size_bytes.toLocaleString()} B{selectedFile.created_by_agent_id && ` · @${selectedFile.created_by_agent_id}`}</p></div>
             <div className="flex w-full flex-wrap items-center gap-1 sm:w-auto">
               <Button variant="outline" size="sm" disabled={download.isPending} onClick={() => download.mutate(selectedFile)}><Download />{t('attachment.download')}</Button>
-              <Button variant="ghost" size="sm" disabled={busy} onClick={() => onAttach(selectedFile)}><Plus />{t('attachment.attach')}</Button>
-              {!referenced.has(selectedFile.id) && <Confirm title={t('attachment.delete')} description={selectedFile.relative_path} onConfirm={() => remove.mutate(selectedFile)}><Button size="icon" variant="ghost" className="size-8 text-destructive" aria-label={t('attachment.delete')} disabled={remove.isPending}><Trash2 /></Button></Confirm>}
+              {!readOnly && <Button variant="ghost" size="sm" disabled={busy} onClick={() => onAttach(selectedFile)}><Plus />{t('attachment.attach')}</Button>}
+              {!readOnly && !referenced.has(selectedFile.id) && <Confirm title={t('attachment.delete')} description={selectedFile.relative_path} onConfirm={() => remove.mutate(selectedFile)}><Button size="icon" variant="ghost" className="size-8 text-destructive" aria-label={t('attachment.delete')} disabled={remove.isPending}><Trash2 /></Button></Confirm>}
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-auto bg-muted/10"><FilePreview key={selectedFile.id} file={selectedFile} /></div>

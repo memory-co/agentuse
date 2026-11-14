@@ -97,7 +97,7 @@ const InsertMessageInsert = `INSERT INTO messages (id,seq,conversation_id,author
 
 const ConversationCols = `SELECT id,user_id,created_by,COALESCE(parent_conversation_id,''),COALESCE(parent_agent_id,''),mode,title,status,created_at,updated_at FROM conversations`
 
-const MessageCols = `SELECT id,conversation_id,author_role,content,created_at,COALESCE(author_agent_id,''),CASE WHEN author_role='agent' THEN COALESCE((SELECT name FROM agent_versions WHERE id=messages.author_agent_version_id),'') ELSE COALESCE((SELECT name FROM users WHERE id=messages.author_user_id),'') END,to_agent_ids,to_user_ids,COALESCE(author_user_id,''),COALESCE(reply_to_message_id,''),COALESCE(author_agent_version_id,''),seq,attachments,parent_delivery_requested,COALESCE(source_conversation_id,''),COALESCE(source_message_id,'') FROM messages`
+const MessageCols = `SELECT id,conversation_id,author_role,content,created_at,COALESCE(author_agent_id,''),CASE WHEN author_role='agent' THEN COALESCE((SELECT name FROM agent_versions WHERE id=messages.author_agent_version_id),'') WHEN author_role='child_conversation' THEN COALESCE((SELECT title FROM conversations WHERE id=messages.author_conversation_id),'') ELSE COALESCE((SELECT name FROM users WHERE id=messages.author_user_id),'') END,to_agent_ids,to_user_ids,COALESCE(author_user_id,''),COALESCE(reply_to_message_id,''),COALESCE(author_agent_version_id,''),seq,attachments,COALESCE(author_conversation_id,''),COALESCE(author_round_seq,0) FROM messages`
 
 const GetConversationClause = ` WHERE id = ?`
 

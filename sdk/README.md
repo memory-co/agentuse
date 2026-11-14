@@ -52,6 +52,6 @@
 
 Agent 和共享 skill 独立版本化：创建 agent 会发布 v1，后续配置修改调用版本发布 API，旧版本不可变。先上传根目录含 SKILL.md 的 ZIP，再在 agent 配置的 skills 中固定 skill_id 与 skill_version_id；skill 发布新版本不会自动升级 agent。各 SDK 均提供版本查询、skill 上传和固定版本下载方法。完整规则见 [agentService](../designs/v3/server-agent.md) 和 [skillService](../designs/v3/server-skill.md)。
 
-Message 使用 author_role=user/agent、author_user_id / author_agent_id 和纯字符串 content。reply_to_message_id 引用同一 conversation 的消息，执行结果在 Run 中。session_id 只由 Client 生成，Server 记录同一个值；不存在 client_session_id。
+Message 使用 author_role=user/agent/child_conversation 和纯字符串 content。用户与 Agent 分别填写 author_user_id / author_agent_id；子会话通知填写 author_conversation_id / author_round_seq，不带 Agent 作者。reply_to_message_id 引用同一 conversation 的消息，执行结果在 Run 中。session_id 只由 Client 生成，Server 记录同一个值；不存在 client_session_id。
 
-协作根 Agent 使用 context conversation 创建 single 子对话，子对话的问题和最终结果固定回传创建者 parent_agent_id。SDK 提供 ListChildren/listChildren/list_children、SendParentMessage/sendParentMessage/send_parent_message 和显式删除子树方法；设备工具通过实际执行 Source/source 传递来源，不增加工作令牌。详见 [Conversation](../docs/server/conversations.md#模式与嵌套)。
+协作根 Agent 使用 context conversation 创建 single 子对话。每个子会话整轮结束后，Server 自动向创建者 parent_agent_id 发送 child_conversation 通知，包含 author_conversation_id 与 author_round_seq；各 Agent 结果保留在子对话。SDK 提供 ListChildren/listChildren/list_children、GetConversationRound/getConversationRound/get_conversation_round 和显式删除子树方法。创建/发送 Agent 输入会返回 round；详情含 rounds。设备工具使用实际执行 Source/source，不增加工作令牌。详见 [Conversation](../docs/server/conversations.md#模式与嵌套)。

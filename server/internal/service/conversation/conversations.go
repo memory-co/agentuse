@@ -130,7 +130,7 @@ func (s *Service) deleteConversation(ctx context.Context, u core.User, id string
 		}
 		if v.ParentConversationID != "" && v.ParentConversationID != root.ID {
 			var pending int
-			if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM messages m WHERE m.conversation_id=? AND m.parent_delivery_requested=1 AND NOT EXISTS(SELECT 1 FROM messages f WHERE f.conversation_id=? AND f.source_message_id=m.id)`, v.ID, v.ParentConversationID).Scan(&pending); err != nil {
+			if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM conversation_rounds r WHERE r.conversation_id=? AND r.finished_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id=? AND m.author_conversation_id=r.conversation_id AND m.author_round_seq=r.seq)`, v.ID, v.ParentConversationID).Scan(&pending); err != nil {
 				return err
 			}
 			if pending > 0 {
@@ -179,17 +179,15 @@ func (s *Service) messages(ctx context.Context, q core.QueryReader, conversation
 	if err != nil {
 		return nil, err
 	}
-	for i := range out {
-		if err = s.projectParentDelivery(ctx, q, &out[i]); err != nil {
-			return nil, err
-		}
-	}
 	return out, nil
 }
 
 func (s *Service) ProjectStatus(ctx context.Context, tx *sql.Tx, conversation string, now int64) error {
 	_, err := tx.ExecContext(ctx, `UPDATE conversations SET status=CASE WHEN EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status='waiting') THEN 'waiting' WHEN EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status='running') THEN 'running' WHEN EXISTS(SELECT 1 FROM message_agents WHERE conversation_id=? AND status IN ('pending','sent','unknown')) THEN 'pending' WHEN status='resolved' THEN 'resolved' ELSE 'idle' END,updated_at=? WHERE id=?`, conversation, conversation, conversation, now, conversation)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.finishRound(ctx, tx, conversation, now)
 }
 
 func (s *Service) createConversation(ctx context.Context, u core.User, parent, title, input string, toAgentIDs, toUserIDs []string, mode string, source *core.AgentSource) (core.Conversation, *core.Reply, error) {
@@ -390,10 +388,15 @@ func (s *Service) SendMessageTx(ctx context.Context, tx *sql.Tx, u core.User, ss
 			return core.Reply{}, err
 		}
 	}
+	out := core.Reply{Message: &m, Runs: []core.Run{}}
+	if len(toAgentIDs) > 0 {
+		if out.Round, err = s.startRound(ctx, tx, ss.ID, m.Seq); err != nil {
+			return core.Reply{}, err
+		}
+	}
 	if err = s.ProjectStatus(ctx, tx, ss.ID, s.Unix()); err != nil {
 		return core.Reply{}, err
 	}
-	out := core.Reply{Message: &m, Runs: []core.Run{}}
 	out.Deliveries, err = s.RunService.DeliveriesIn(ctx, tx, `message_id=?`, m.ID)
 	return out, err
 }
@@ -404,7 +407,7 @@ func (s *Service) deleteConversationContents(ctx context.Context, tx *sql.Tx, id
 	if err := s.RunService.DeleteConversationExecution(ctx, tx, id); err != nil {
 		return err
 	}
-	for _, query := range []string{`DELETE FROM attachments WHERE conversation_id=?`, `DELETE FROM messages WHERE conversation_id=?`} {
+	for _, query := range []string{`DELETE FROM conversation_rounds WHERE conversation_id=?`, `DELETE FROM attachments WHERE conversation_id=?`, `DELETE FROM messages WHERE conversation_id=?`} {
 		if _, err := tx.ExecContext(ctx, query, id); err != nil {
 			return err
 		}

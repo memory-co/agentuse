@@ -6,6 +6,16 @@ export type Locale = 'zh' | 'en';
 export const locales: { value: Locale; label: string }[] = [{ value: 'zh', label: '中文' }, { value: 'en', label: 'English' }];
 
 const zh = {
+  'nest.childAuthor': '子会话',
+  'nest.deletedChild': '已删除的子会话',
+  'nest.round': '第 {n} 轮',
+  'nest.roundActive': '执行中',
+  'nest.roundEnded': '已结束',
+  'nest.roundNotice': '第 {n} 轮执行已结束，请查看本轮结果。',
+  'nest.readRound': '查看本轮结果',
+  'nest.fullConversation': '查看完整会话',
+  'nest.invalidRound': '轮次必须为正整数',
+
   'nest.parentTarget': '回传父会话',
   'nest.mode': '会话模式',
   'nest.single': '单体模式',
@@ -17,9 +27,9 @@ const zh = {
   'nest.parent': '返回父会话',
   'nest.source': '查看源消息与文件',
   'nest.deleteTree': '删除此会话及其全部子会话？',
-  'nest.delivery.pending': '等待回传父会话',
-  'nest.delivery.delivered': '已送达父会话',
-  'nest.delivery.failed': '回传父会话失败',
+  'nest.delivery.pending': '等待通知协调者',
+  'nest.delivery.delivered': '已通知协调者',
+  'nest.delivery.failed': '通知协调者失败',
 
   'common.loading': '加载中…', 'common.cancel': '取消', 'common.ok': '确定', 'common.delete': '删除', 'common.copy': '复制', 'common.copyFailed': '复制失败，请手动选中', 'common.close': '关闭',
   'common.name': '名字', 'common.description': '说明', 'common.user': '用户', 'common.admin': '管理员', 'common.normalUser': '普通用户', 'common.create': '创建', 'common.new': '新建',
@@ -92,6 +102,16 @@ const zh = {
 type Key = keyof typeof zh;
 
 const en: Record<Key, string> = {
+  'nest.childAuthor': 'Child conversation',
+  'nest.deletedChild': 'Deleted child conversation',
+  'nest.round': 'Round {n}',
+  'nest.roundActive': 'In progress',
+  'nest.roundEnded': 'Finished',
+  'nest.roundNotice': 'Round {n} has finished. Review its results.',
+  'nest.readRound': 'View round results',
+  'nest.fullConversation': 'View full conversation',
+  'nest.invalidRound': 'Round must be a positive integer',
+
   'nest.parentTarget': 'Return to parent',
   'nest.mode': 'Conversation mode',
   'nest.single': 'Single',
@@ -103,9 +123,9 @@ const en: Record<Key, string> = {
   'nest.parent': 'Parent conversation',
   'nest.source': 'View source message and files',
   'nest.deleteTree': 'Delete this conversation and all of its child conversations?',
-  'nest.delivery.pending': 'Return to parent pending',
-  'nest.delivery.delivered': 'Delivered to parent',
-  'nest.delivery.failed': 'Return to parent failed',
+  'nest.delivery.pending': 'Coordinator notification pending',
+  'nest.delivery.delivered': 'Coordinator notified',
+  'nest.delivery.failed': 'Coordinator notification failed',
 
   'common.loading': 'Loading…', 'common.cancel': 'Cancel', 'common.ok': 'OK', 'common.delete': 'Delete', 'common.copy': 'Copy', 'common.copyFailed': 'Copy failed, please select it manually', 'common.close': 'Close',
   'common.name': 'Name', 'common.description': 'Description', 'common.user': 'User', 'common.admin': 'Admin', 'common.normalUser': 'User', 'common.create': 'Create', 'common.new': 'Create',

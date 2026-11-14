@@ -68,14 +68,13 @@ export interface Conversation {
 }
 
 export interface Message {
- parent_delivery_requested?: boolean; parent_delivery?: "pending"|"delivered"|"failed"; parent_message_id?:string;parent_delivery_error?:string;
- source_conversation_id?:string; source_message_id?:string;
+ author_conversation_id?:string; author_round_seq?:number;
  attachments: Attachment[];
  author_agent_version_id?:string;
  seq?:number;author_agent_id?:string;author_name?:string;author_user_id?:string;reply_to_message_id?:string;to_agent_ids:string[];to_user_ids:string[];
   id: string;
   conversation_id: string;
-  author_role: "user" | "agent";
+  author_role: "user" | "agent" | "child_conversation";
   content: string;
   created_at: number;
 }
@@ -96,9 +95,10 @@ export interface Run {
 export interface Delivery {
  agent_version_id:string;message_id:string;conversation_id:string;agent_id:string;device_id:string;harness:string;content:string;run_id?:string;input_id?:string;session_id?:string;status:string;error?:string}
 export interface RunDetail { run:Run;events:ConversationEvent[] }
-export interface Reply { message:Message;runs:Run[];deliveries:Delivery[] }
+export interface Reply {round?:ConversationRound; message:Message;runs:Run[];deliveries:Delivery[] }
 export interface WaitOptions { interval?:number;timeout?:number;returnOnWaiting?:boolean }
-export interface ConversationDetail { runs?:Run[];deliveries?:Delivery[];run_counts?:Record<string,number>; conversation: Conversation; messages: Message[]; questions: Question[]; events: ConversationEvent[]; }
+export interface ConversationRound {conversation_id:string;seq:number;start_message_seq:number;end_message_seq?:number;created_at:number;finished_at?:number;parent_delivery?:"pending"|"delivered"|"failed";parent_message_id?:string;parent_delivery_error?:string}
+export interface ConversationDetail {rounds:ConversationRound[]; runs?:Run[];deliveries?:Delivery[];run_counts?:Record<string,number>; conversation: Conversation; messages: Message[]; questions: Question[]; events: ConversationEvent[]; }
 
 // 网站的 user id;null 表示 admin 本身。
 export type UserId = string | null;
@@ -106,7 +106,6 @@ export type UserId = string | null;
 export interface MessageInput { reply_to_message_id?:string; attachment_ids?:string[]; prompt?: string; to_agent_ids?:string[]; to_user_ids?:string[]; }
 
 export interface ConversationSource {conversation_id:string;agent_id:string;session_id:string;run_id:string}
-export interface ParentMessageResponse {message:Message;parent_conversation_id:string;parent_message_id?:string;delivery:"pending"|"delivered"|"failed";error?:string}
 export interface ClientOptions {
  source?: ConversationSource;
   baseUrl: string;
@@ -168,16 +167,16 @@ export declare class Client {
   deleteDevice(user: UserId, deviceId: string): Promise<void>;
 
   listConversations(user: UserId): Promise<Conversation[]>;
-  createConversation(user: UserId, req: Omit<MessageInput,"attachment_ids"> & { title?:string; mode?:"single"|"collaborative";parent_conversation_id?:string; }): Promise<{ conversation: Conversation; message?: Message; runs:Run[];deliveries:Delivery[] }>;
+  createConversation(user: UserId, req: Omit<MessageInput,"attachment_ids"> & { title?:string; mode?:"single"|"collaborative";parent_conversation_id?:string; }): Promise<{ conversation: Conversation; message?: Message; round?:ConversationRound; runs:Run[];deliveries:Delivery[] }>;
   /** 返回共享消息和各目标的 runs/deliveries。 */
   sendMessage(user: UserId, conversationId: string, req: MessageInput): Promise<Reply>;
   getConversation(user: UserId, conversationId: string): Promise<ConversationDetail>;
+  getConversationRound(user:UserId,conversationId:string,round:number):Promise<ConversationDetail>;
   /** 回答 harness 的提问(会话 waiting 时)。answers 是 { 问题: 答案 }。 */
   deleteConversation(user: UserId, conversationId: string): Promise<void>;
   resolveConversation(user: UserId, conversationId: string): Promise<Conversation>;
   reopenConversation(user: UserId, conversationId: string): Promise<Conversation>;
   listChildren(user:UserId,parentId:string):Promise<Conversation[]>;
-  sendParentMessage(user:UserId,conversationId:string,req:{prompt?:string;attachment_ids?:string[]}):Promise<ParentMessageResponse>;
   deleteConversationTree(user:UserId,conversationId:string):Promise<void>;
   waitConversation(user: UserId, conversationId: string, opts?: WaitOptions): Promise<ConversationDetail>;
 }

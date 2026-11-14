@@ -45,6 +45,9 @@ const ConversationWaiting = store.ConversationWaiting
 const ConversationResolved = store.ConversationResolved
 const RoleUserMsg = store.RoleUserMsg
 const RoleAgentMsg = store.RoleAgentMsg
+const RoleChildConversationMsg = store.RoleChildConversationMsg
+
+type ConversationRound = store.ConversationRound
 
 type Conversation = store.Conversation
 type Message = store.Message

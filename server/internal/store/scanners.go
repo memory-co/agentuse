@@ -70,7 +70,7 @@ func ScanConversation(row scanner) (Conversation, error) {
 func ScanMessage(row scanner) (Message, error) {
 	var m Message
 	var content, agents, users, attachments string
-	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorRole, &content, &m.CreatedAt, &m.AuthorAgentID, &m.AuthorName, &agents, &users, &m.AuthorUserID, &m.ReplyToMessageID, &m.AuthorAgentVersionID, &m.Seq, &attachments, &m.ParentDeliveryRequested, &m.SourceConversationID, &m.SourceMessageID)
+	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorRole, &content, &m.CreatedAt, &m.AuthorAgentID, &m.AuthorName, &agents, &users, &m.AuthorUserID, &m.ReplyToMessageID, &m.AuthorAgentVersionID, &m.Seq, &attachments, &m.AuthorConversationID, &m.AuthorRoundSeq)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Message{}, ErrNotFound
 	}

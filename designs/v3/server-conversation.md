@@ -2,7 +2,7 @@
 
 > 執行鏈路使用 [agentuse-client/2](protocol.md)：直接投遞 message，消息/Agent 關係見 [server-run.md](server-run.md)，不再有 task 或獨立輸入 ID。
 
-> 本稿對應 schema 8 的嵌套 conversation 實作。關聯不聲明數據庫外鍵，由 service 校驗與清理；不讀取或遷移舊數據庫。
+> 本稿對應 schema 9 的嵌套 conversation 實作。關聯不聲明數據庫外鍵，由 service 校驗與清理；不讀取或遷移舊數據庫。
 
 ## 職責
 
@@ -53,7 +53,7 @@ Conversation 狀態是實際 run 與未完成輸入的聚合投影，優先 wait
 
 ## 父子對話
 
-父子 conversation 是對話自身的組織與協作能力。每個節點都是普通 conversation，均支持多 Agent 消息；頂層對話也可以沒有子對話。嵌套對話視圖直接使用這個能力，不增加獨立業務身份、表、service 或執行生命週期。本節與下面的表結構是父子模型的唯一規範；[協作場景](server-conversation-nest.md)僅提供使用示例。
+父子 conversation 是對話自身的組織與協作能力。每個節點都是普通 conversation，均支持多 Agent 消息；頂層對話也可以沒有子對話。嵌套對話視圖直接使用這個能力；輪次元數據只固定消息範圍及結束事實，不增加 Work、任務身份、service 或原生執行生命週期。本節與下面的表結構是父子模型的唯一規範；[協作場景](server-conversation-nest.md)僅提供使用示例。
 
 ### 關係與歸屬
 
@@ -61,7 +61,7 @@ Conversation 狀態是實際 run 與未完成輸入的聚合投影，優先 wait
 
 parent_conversation_id 為空表示頂層對話；非空時表示直接執行任務的內層對話，其父節點必須是 collaborative 頂層。整體只允許兩層，內層不能繼續創建 conversation。每個對話最多有一個父對話，僅在創建時指定；不提供掛接、移動或重新指定父對話，因而不會生成自引用或環。Server 在創建事務中校驗來源分工及父節點為頂層，違反層級限制返回 403，對所有入口及管理員均一致。
 
-子對話繼承父對話的 user_id，created_by 按普通創建規則記錄。HTTP 入口復用通用身份校驗，本 service 校驗父對話的訪問與創建權限；讀取、發消息及文件操作仍按目標 conversation 校驗。Client 使用當前 endpoint 的設備身份及 execution context；設備請求必須有可核對的來源，缺失時直接拒絕，不降級成整個設備所有者的權限。Server 用已上報的實際 run/session、設備及 Agent 關係核對來源，再按真實父子關係限定允許的操作。Agent 清單也僅返回該來源可用的角色。協作模式頂層只能操作自己的直接子對話；內層僅執行自身任務及向直接父對話反饋，不能利用普通創建 API、省略父 ID 或代填頂層 ID 繞過禁止再委派的限制。這些操作均須由通用接口支持，不把憑據交換或協調角色判定加入組織視圖。
+子對話繼承父對話的 user_id，created_by 按普通創建規則記錄。HTTP 入口復用通用身份校驗，本 service 校驗父對話的訪問與創建權限；讀取、發消息及文件操作仍按目標 conversation 校驗。Client 使用當前 endpoint 的設備身份及 execution context；設備請求必須有可核對的來源，缺失時直接拒絕，不降級成整個設備所有者的權限。Server 用已上報的實際 run/session、設備及 Agent 關係核對來源，再按真實父子關係限定允許的操作。Agent 清單也僅返回該來源可用的角色。協作模式頂層只能操作自己的直接子對話；內層僅執行自身任務，由 Server 在整輪結束後通知直接父對話，不能利用普通創建 API、省略父 ID 或代填頂層 ID 繞過禁止再委派的限制。這些操作均須由通用接口支持，不把憑據交換或協調角色判定加入組織視圖。
 
 主、子對話各自保留消息歷史、文件樹和狀態。各節點的消息仍以 to_agent_ids / to_user_ids 明確選擇收件人，不繼承父對話上一次的收件人，也不綁定固定協調 Agent。工作目標及約束由消息表達，名稱和所有者使用 conversation 的既有字段。子對話用 parent_conversation_id 和 parent_agent_id 記錄「由哪個父對話中的哪個 Agent 創建」。Server 從已校驗的 context conversation create 來源寫入這對標識，調用方不能任意指定或覆蓋 parent_agent_id。它是創建關係，不依賴某條消息的收件人、message_id、run_id 或原生 session。頂層兩個字段均為空，內層均非空；父對話可以有多個 Agent，每個子對話各自記錄實際發起者。
 
@@ -74,8 +74,8 @@ parent_conversation_id 為空表示頂層對話；非空時表示直接執行任
 | POST | /api/conversations | 創建對話；mode 為 single/collaborative，可選 parent_conversation_id 表示父對話 |
 | GET | /api/conversations | 列出當前身份可見的頂層對話 |
 | GET | /api/conversations?parent_conversation_id=P | 列出 P 的直接子對話，包含空對話 |
-| POST | /api/conversations/{id}/parent/messages | 在來源子對話保存反饋，固定回傳給 parent_conversation_id 中的 parent_agent_id，不接受回信收件人參數 |
-| GET | /api/conversations/{id} | 讀取普通對話快照，含 parent_conversation_id |
+| GET | /api/conversations/{id} | 讀取普通對話快照，含 parent_conversation_id 及 rounds |
+| GET | /api/conversations/{id}?round=N | 讀取第 N 輪的消息及執行範圍，N 必須為正整數 |
 | POST | /api/conversations/{id}/messages | 明確選擇收件人及附件，發送普通消息 |
 | POST | /api/conversations/{id}/resolve、reopen | 操作該對話自身的完成標記 |
 | DELETE | /api/conversations/{id} | 刪除無子對話且可刪除的對話 |
@@ -93,45 +93,61 @@ parent_conversation_id 為空表示頂層對話；非空時表示直接執行任
 {"mode":"single","parent_conversation_id":"parent-conversation-uuid","title":"搜索接口","prompt":"實現接口並驗證邊界條件","to_agent_ids":["coder","tester"]}
 ```
 
-省略 prompt 和收件人即可先創建空子對話。之後發消息，使用同一套 conversation API。AI 只上傳自己的輸出；父側輸入文件由子 Agent 顯式讀取父文件樹，不跨對話復用附件 ID。返回值仍為 conversation、message、runs、deliveries，不新增 Work 響應包裝。
+省略 prompt 和收件人即可先創建空子對話。之後發消息，使用同一套 conversation API。AI 只上傳自己的輸出；父側輸入文件由子 Agent 顯式讀取父文件樹，不跨對話復用附件 ID。返回值為 conversation、message、runs、deliveries；存在 Agent 輸入時同時返回 round，空對話或備註不返回 round。
 
 子對話必須由已校驗的 Agent context 創建；人類或管理員可創建頂層對話，再向頂層 Agent 提出委派要求，不能在普通用戶請求中代填 parent_agent_id 建立子對話。創建子對話及其首條消息共用普通創建事務，任一收件人或內容校驗失敗時整體回滾。指定父對話的創建或列表請求先校驗父對話存在且可訪問，否則返回 404；不將不存在或無權訪問的父對話當作空列表。
 
-### 消息、反饋與生命週期
+### 輪次與自動通知
 
-創建子對話時，調用方在首條消息中提供子問題及必要背景，不隱式複製父對話的全部歷史、初始化指令或附件。reply_to_message_id 仍只引用同一 conversation 的既有消息。
+創建子對話時，調用方在首條消息中提供子問題及必要背景，不隱式複製父對話的全部歷史、初始化指令或附件。Agent 的最終回覆只保存在該子對話，作者仍為 agent，並記錄固定 Agent 版本。
 
-子對話的問題和進展由 context conversation send --parent 提交；本地產生的最終 Agent 回覆在保存時自動請求回傳。源消息可靠落庫後，由本 service 將正文、固定作者及來源引用送入直接父對話。回傳目標只由子對話的 parent_conversation_id / parent_agent_id 決定。父消息生成時設 to_agent_ids=[parent_agent_id]、to_user_ids=[]，再在父對話建立普通 message_agents 分配。源子消息維持自身的消息語義，不保存父側收件人快照，也不從源消息或父消息的收件人數組推算創建關係。
+**回傳只有一條路徑：子 conversation 的整輪執行結束後，由 Server 自動生成一條 child_conversation 消息送到父 conversation。** Client 不提供主動向父發消息的命令或接口，也不能用普通消息接口繞過來源範圍限制。通知不複製某個 Agent 的正文，不偽裝成父對話中的 Agent。
 
-父消息是普通消息，會按已記錄的發起 Agent 入隊。parent_agent_id 使用穩定的 Agent 身份；具體版本在這條父消息入隊時按普通規則固定，不綁定創建子對話時的 run 或 Agent 版本。父 Agent 執行中時，沿既有輸入鏈路交給適配器決定如何受理；已結束時啟動後續執行；設備離線時保留待派發輸入。父 Agent 回答子問題時，向原子對話發普通消息並明確選擇子 Agent。整條通路不依賴某個父 run 持續存活，也不引入新的問題或任務身份。
+輪次由 conversationService 管理，定義如下：
 
-回傳須符合以下規則：
+1. 沒有活動輪次時，第一條含 Agent 收件人的輸入開始新一輪，記錄本對話內遞增的 seq 和 start_message_seq。創建空對話、備註、僅發給用戶的消息、上傳文件及 resolve/reopen 不開始或完成一輪。
+2. 活動輪次尚未收束時收到的 Agent 輸入加入同一輪。一輪可以包含多個 Agent、多條輸入及多個原生 run，與 run 的 accepted/result 邊界互相獨立，不新增任務 ID。
+3. 只有當本對話沒有 running/waiting run，也沒有 pending/sent/unknown/accepted 投遞時，才在同一事務固定 end_message_seq、finished_at。結果消息、run/投遞狀態與輪次結束邊界一起提交；後續輸入開始下一輪，不再改寫已結束區間。
+4. completed、failed、cancelled 及已確認的投遞拒絕均可使一輪收束。投遞 unknown、設備離線、排隊和原生人工請求均不算結束。沒有 result 的拒絕不捏造 Agent 回覆或 run，原因保留在投遞記錄中。
 
-- 源子消息保存 parent_delivery_requested，只有本地最終回覆或顯式反饋才能置為 1。父對話發下來的任務和轉發副本不設這個標記，避免自動回聲。
-- 父消息保存 source_conversation_id / source_message_id，保留源消息的作者、固定版本及正文。reply_to_message_id 仍只引用同一對話，不能冒用源子消息作跨對話回覆 ID。
-- 相同 source_message_id 向同一目標 conversation 最多落一條消息，父消息和 message_agents 在同一事務提交。轉發副本的 parent_delivery_requested 為 0，不再逐級自動轉發。
-- 子對話結果和源消息先提交。父接收者暫時不可用時不回滾子結果；按已提交且標記回傳的源消息，以及缺失的父消息來源引用補送，覆蓋通知丟失、進程重啟和臨時錯誤。不掃描 run 作為 Work 結算。
-- 回傳狀態由源記錄及父消息引用投影。反饋接口返回源 message、parent_conversation_id、可缺省的 parent_message_id，以及 pending / delivered / failed；消息讀取 DTO 也提供同樣的只讀回傳狀態投影。delivered 只表示父消息已保存，不表示父 Agent 已處理。發起 Agent 被刪除等不可恢復錯誤須顯示 failed 和原因，保留源反饋及創建關係，不自動清空或改寫 parent_agent_id，也不改成回給用戶或其他 Agent。
-- 取消、投遞拒絕及準備失敗等沒有最終正文的結束情況，也須在源對話保存有明確對象的狀態反饋並回傳；以已確認的結果或拒絕事實為依據，不從設備離線推斷執行失敗或捏造 run。
-- 附件留在來源對話；父消息保留來源引用，文件讀取再次校驗來源範圍，不直接把子附件 ID 當成父對話附件。
+「輪次結束」只表示所有執行已收束，不等於任務成功，也不等於用戶標記 resolved。子 Agent 遇到缺失信息或阻礙時，在最終答復中說明問題並正常結束，不能一邊等待協調者回信、一邊佔住同一輪。Server 通知父側後，協調者讀取結果並用普通 send 向該子對話指定 Agent 發送答案，開始下一輪。原生人工授權/提問保留原有 request/reply 鏈路，等待期間不發結束通知。
 
-需要同一輪等待時，調用方仍可使用普通 conversation 的等待／讀取能力；自動回傳也允許父 Agent 先處理其他輸入，之後再接收結果。父子關係及回傳均屬於 conversation 消息協作，不建立獨立 Work 結算狀態。
+父消息示例：
 
-pending/running/waiting/idle 與 resolved 都只描述所選對話。界面可組合展示子對話的既有狀態，不另存組織視圖的總狀態。普通刪除遇到子對話時返回 409；只有顯式 recursive=true 才在同一事務確定頂層及其全部直接子對話、校驗全部節點的權限與可刪除狀態並執行清理，任一節點忙碌則整體拒絕。有待回傳而目標父對話不在刪除範圍內的源消息時，也拒絕刪除，避免丟掉仍需送出的反饋。文件前綴在數據庫提交後按既有方式清理。刪除一個子對話不影響父對話及兄弟對話。
+```json
+{
+  "conversation_id": "parent-conversation-uuid",
+  "author_role": "child_conversation",
+  "author_conversation_id": "child-conversation-uuid",
+  "author_round_seq": 1,
+  "to_agent_ids": ["creating-parent-agent"],
+  "to_user_ids": [],
+  "attachments": [],
+  "content": "Child conversation finished round 1. Read this round and review its results."
+}
+```
 
-### 待替換的舊 Work 結構
+author_user_id、author_agent_id、author_agent_version_id 均為空，author_name 讀取子對話標題。author_conversation_id 是作者身份；author_round_seq 固定通知所指的輪次。reply_to_message_id 仍只引用同一對話的消息，不能填子消息 ID。子文件留在子對話文件樹，協調者顯式按子對話及路徑讀取，不復用附件 ID。
 
-| 現有結構 | 目標 |
-|---|---|
-| works 及獨立工作 UUID | 移除，直接使用主 conversation 的身份和元數據 |
-| conversations.work_id、coordinator_id、work_role | 用 parent_conversation_id 表達對話關係 |
-| coordinator_agent_id | 移除，每條消息明確指定零個、一個或多個 Agent |
-| work_run_tokens、工作授權兌換接口 | 移除；Work 不擁有憑據或身份校驗邏輯 |
-| run_notifications、Work 結算與補償掃描 | 移除；改用 conversation 源消息及父消息引用完成回傳與去重 |
-| /api/works 及獨立 threads API | 移除，使用本節的 conversation 創建、查詢和消息接口 |
-| Work 專用工具及返回包裝 | 收斂為 conversation API 的調用入口，不另行管理角色或執行身份 |
+目標始終是子對話創建時記錄的 parent_agent_id；它獨立於某條消息的收件人或父 run 是否存活。父消息與普通 message_agents 分配原子提交，版本在這次父消息入隊時固定。父 Agent 正在執行時由適配器決定受理方式；父 run 已結束時可啓動後續執行；設備離線時保留待派發輸入。發起 Agent 已刪除時保留父子關係，顯示 failed 及原因，不改發給其他 Agent 或用戶。
 
-schema 8 已移除 Work 表、工作令牌、通知結算、專用 API/腳本/CLI/SDK 及前端頁面。更新時重建數據庫，同步更新 Client、Server 和 SDK，不保留舊入口。
+### 可靠性與範圍讀取
+
+子結果和輪次結束先提交，通知使用獨立事務；父側臨時不可用不能回滾子結果。已結束輪次本身就是持久化的通知意圖。Server 在結果/投遞變更後及定期補送時，找出缺少父通知的輪次；父消息的 (conversation_id, author_conversation_id, author_round_seq) 唯一鍵去重。進程重啓、事件重放及重複補送最多保存一條通知，同一子對話按輪次順序補送。這保證消息只落庫一次；原生執行仍沿既有可靠投遞協議。
+
+rounds 的 parent_delivery、parent_message_id、parent_delivery_error 是只讀投影：pending 表示已結束待通知，delivered 表示父消息及其分配已保存，failed 表示發起 Agent 已刪除。delivered 不表示父 Agent 已處理。這些字段屬於輪次，不屬於某條 Agent 結果消息；頂層及未結束輪次不投影回傳狀態。
+
+GET /api/conversations/{id}?round=N 返回 [start_message_seq,end_message_seq] 內的消息、該區間輸入關聯的投遞與 run，以及這些 run 的事件和問題，rounds 僅含指定輪次。不存在的輪次返回 404；非法、重複或未知查詢參數返回 400。對話元數據與回傳狀態仍為當前投影，不宣稱整個 DTO 是歷史時點快照。已結束輪次的消息與執行範圍不受下一輪影響；活動輪次可讀取當前進度。
+
+Client 的 read CHILD_ID --round N 使用此接口。wait CHILD_ID --round N 等待該輪結束；省略 --round 時在開始等待時固定最新輪次，沒有任何輪次則立即返回 no_round。目標輪次結束即 settled，即使下一輪已開始也不繼續等。新父輸入、原生提問、父 run 結束及超時可以中斷等待；等待不是獲得自動通知的前提。
+
+前端父對話使用子對話圖標和來源標題展示通知，不展示為 @Agent 回覆；連結打開指定輪次。子對話歷史保留各 Agent 原始回覆，並顯示輪次及通知狀態。指定輪次頁面提供只讀消息與執行範圍，可返回完整對話。
+
+### 狀態與刪除
+
+pending/running/waiting/idle 與 resolved 都只描述所選對話；子樹不另存總狀態。普通刪除遇到子對話時返回 409；顯式 recursive=true 才在同一事務確定整個子樹、校驗所有節點的權限與可刪除狀態並執行清理，任一節點忙碌則整體拒絕。有已結束但尚未送達的輪次，且其父對話不在刪除範圍內時，也拒絕刪除，避免丟掉待送通知。清理包含 conversation_rounds，文件前綴在數據庫提交後清理。單獨刪除可刪除的子對話不影響父對話及兄弟對話；已送達通知保留作者來源，來源已刪除時界面顯示來源不可用。
+
+Work 表、工作令牌、專用 API/CLI/SDK 和前端頁面均已移除。schema 9 不讀取、遷移舊數據，兩端、前端和 SDK 一起更新；使用新數據庫，不保留舊回傳入口或別名。
 
 對話分工的提示詞由 Server 根據 mode 及真實 parent_conversation_id 生成，透過每次派發的 message.context 明確要求 collaborative 頂層協調、single 頂層直接執行、內層直接執行。完整模板及 CLI 能力表見 [嵌套對話設計](server-conversation-nest.md#兩層分工與提示詞)。該約束不改變 Agent 版本或原生執行身份。
 
@@ -149,7 +165,7 @@ Client 選定實際本地 session 後，向 Server 讀取 `complete_messages`：
 
 ## 已實現的消息模型與本次組織調整
 
-本文 SQL 對應當前 schema 8。共享對話使用 conversation_id，原生執行會話使用 Client 產生的 session_id；兩者保持獨立。消息正文仍為原始字符串，收件人、作者、附件及執行關係沿用既有模型。mode 是 conversation 創建參數，不是舊的消息執行包裝；不接受 input/defer_start 或其他舊別名。父子協作不增加執行身份、表或 service。
+本文 SQL 對應當前 schema 9。共享對話使用 conversation_id，原生執行會話使用 Client 產生的 session_id；兩者保持獨立。消息正文仍為原始字符串，收件人、作者、附件及執行關係沿用既有模型。mode 是 conversation 創建參數，不是舊的消息執行包裝；不接受 input/defer_start 或其他舊別名。父子協作不增加執行身份或 service；conversation_rounds 只保存本對話內的輪次區間。
 
 ## 表結構
 
@@ -185,9 +201,9 @@ CREATE INDEX conversations_created_by
 
 ### messages
 
-共享對話的原始消息。`content` 統一保存對話正文；`author_role` 爲 user/agent；`author_user_id`、`author_agent_id` 按作者類型二選一。Agent 回覆還記錄 `author_agent_version_id`，關聯具體不可變版本讀取當時名稱；用戶名稱關聯 users，不保存 agent_key、agent_name 字符串快照。
+共享對話的原始消息。`content` 統一保存對話正文；`author_role` 爲 user/agent/child_conversation。user 填 author_user_id，agent 填 author_agent_id 及固定 author_agent_version_id；child_conversation 填 author_conversation_id 及 author_round_seq。名稱分別關聯 users、不可變 Agent 版本和子對話標題，不保存 agent_key、agent_name 字符串快照。
 
-`to_agent_ids` 和 `to_user_ids` 保存消息的收件人，兩者均為 JSON 字符串數組，可同時非空，用戶消息和 Agent 消息使用相同規則：
+`to_agent_ids` 和 `to_user_ids` 保存消息的收件人，兩者均為 JSON 字符串數組，可同時非空，三種作者的消息使用相同規則：
 
 - `to_agent_ids`：穩定的 agents.id 數組，表示哪些 Agent 要處理這條消息；具體版本和實際執行歸屬保存在 message_agents 與 runs。
 - `to_user_ids`：users.id 數組，表示消息發給哪些用戶；這些收件人不觸發 Agent 執行。
@@ -204,7 +220,7 @@ service 校驗元素為非空 ID 字符串，分別去重，檢查 Agent 可在�
 
 文件先通過附件 API 上傳，再在消息中引用；省略或空數組表示本條消息沒有附件，不繼承會話的其他文件。service 在寫入消息的同一事務內校驗附件屬於當前 conversation，將完整元數據快照保存到 `messages.attachments` JSON 數組，包含 `id`、`relative_path`、文件名、大小和摘要等字段。字節內容按 conversation_id/relative_path 存儲，`attachments.relative_path` 定義會話內的文件樹；用戶上傳位於 `user_input/`，AI 輸出可以使用多級相對路徑。最終 Agent 回覆保存本次 run 上傳的輸出文件快照。路徑和刪除規則見 [conversation-files.md](conversation-files.md)。
 
-service 寫入時保證 user 消息只填 author_user_id，agent 消息填寫 author_agent_id 和 author_agent_version_id，並檢查版本屬於該 agent。讀取作者用 LEFT JOIN；角色選擇器展示當前版本名稱，歷史 agent 回覆按作者版本展示，不受後來改名影響。軟刪除不清空消息作者或已發佈版本。
+service 寫入時保證 user 消息只填 author_user_id，agent 消息填 author_agent_id 和 author_agent_version_id 並檢查版本歸屬；child_conversation 消息只填 author_conversation_id、author_round_seq，僅可由 Server 的輪次通知流程創建。讀取作者用 LEFT JOIN；角色選擇器展示當前版本名稱，歷史 agent 回覆按作者版本展示，不受後來改名影響。軟刪除不清空消息作者或已發佈版本。
 
 message 永遠回覆另一條 message，不回覆 run。發送請求可顯式填寫 `reply_to_message_id`；service 在同一事務檢查它是同一 conversation 的既有消息，跨對話引用整體回滾。`reply_to_message_id` 表示被回覆的消息，字段保存被回覆消息的 UUID，開頭的根消息爲空；後續用戶消息、agent 回覆都可以引用同 conversation 中已有的消息。messages 不保存 run_id，也不以 run 爲對話層級。
 
@@ -226,36 +242,62 @@ CREATE TABLE messages (
     id TEXT NOT NULL PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     seq INTEGER NOT NULL,
-    author_role TEXT NOT NULL CHECK(author_role IN ('user','agent')),
+    author_role TEXT NOT NULL CHECK(author_role IN ('user','agent','child_conversation')),
     content TEXT NOT NULL,
     attachments TEXT NOT NULL DEFAULT '[]',
     author_user_id TEXT,
     author_agent_id TEXT,
     author_agent_version_id TEXT,
+    author_conversation_id TEXT,
+    author_round_seq INTEGER,
     to_agent_ids TEXT NOT NULL DEFAULT '[]',
     to_user_ids TEXT NOT NULL DEFAULT '[]',
     reply_to_message_id TEXT,
-    parent_delivery_requested INTEGER NOT NULL DEFAULT 0 CHECK(parent_delivery_requested IN (0,1)),
-    source_conversation_id TEXT,
-    source_message_id TEXT,
     created_at INTEGER NOT NULL,
-    CHECK ((source_conversation_id IS NULL AND source_message_id IS NULL)
-        OR (source_conversation_id IS NOT NULL AND source_message_id IS NOT NULL))
+    CHECK ((author_role='child_conversation'
+            AND author_conversation_id IS NOT NULL
+            AND author_round_seq IS NOT NULL AND author_round_seq>0
+            AND author_user_id IS NULL AND author_agent_id IS NULL
+            AND author_agent_version_id IS NULL)
+        OR (author_role IN ('user','agent')
+            AND author_conversation_id IS NULL AND author_round_seq IS NULL))
 );
-CREATE UNIQUE INDEX messages_conversation_seq ON messages(conversation_id,seq);
+CREATE UNIQUE INDEX messages_conversation ON messages(conversation_id,seq);
 CREATE INDEX messages_replies ON messages(conversation_id,reply_to_message_id,seq);
-CREATE UNIQUE INDEX messages_source ON messages(conversation_id,source_message_id)
-    WHERE source_message_id IS NOT NULL;
+CREATE UNIQUE INDEX messages_child_round
+    ON messages(conversation_id,author_conversation_id,author_round_seq)
+    WHERE author_role='child_conversation';
 ```
 
-parent_delivery_requested 是源消息的回傳意圖，source_conversation_id / source_message_id 是回傳副本的來源；兩個來源字段同時填寫，service 檢查真實父子關係及源消息存在。這些字段均由 Server 編排維護，不接受調用方任意偽造。它們不改變執行身份，表結構也不在嵌套場景稿重複定義。
+### conversation_rounds
+
+每個 conversation 的本地輪次區間。seq 僅在同一對話中遞增，不是另一個全局 UUID 或執行身份。根對話也記錄輪次，只有有父關係的已結束輪次會生成通知。service 在同一事務校驗起止消息歸屬、序號、靜止條件和真實父子關係；不提供調用方修改輪次的接口。
+
+```sql
+CREATE TABLE conversation_rounds (
+    conversation_id TEXT NOT NULL,
+    seq INTEGER NOT NULL CHECK(seq>0),
+    start_message_seq INTEGER NOT NULL CHECK(start_message_seq>0),
+    end_message_seq INTEGER,
+    created_at INTEGER NOT NULL,
+    finished_at INTEGER,
+    PRIMARY KEY(conversation_id,seq),
+    CHECK ((end_message_seq IS NULL AND finished_at IS NULL)
+        OR (end_message_seq IS NOT NULL AND end_message_seq>=start_message_seq
+            AND finished_at IS NOT NULL))
+);
+CREATE UNIQUE INDEX conversation_rounds_active ON conversation_rounds(conversation_id)
+    WHERE finished_at IS NULL;
+```
+
+輪次結束後不再改寫 start/end/finished_at。parent_delivery 等是從該區間、父通知與 Agent 是否存在計算的 DTO 字段，不另存一套回傳狀態機。表結構只在本稿維護，協作場景稿不重複定義。
 
 ### 合併掉的輔助表
 
 | 原表 | v3 處理 |
 |---|---|
 | message_formats | 不再建表，也不保留 format 字段；消息與執行副本均保存正文 |
-| message_authors | 不再建表，作者保存在 messages.author_role、author_user_id、author_agent_id、author_agent_version_id；名稱關聯用戶或固定 agent 版本讀取；回覆關係使用 reply_to_message_id，執行關聯留在 runs |
+| message_authors | 不再建表，作者保存在 messages.author_role、author_user_id、author_agent_id、author_agent_version_id；child_conversation 作者使用 author_conversation_id、author_round_seq；名稱關聯用戶、固定 Agent 版本或子對話標題讀取；回覆關係使用 reply_to_message_id，執行關聯留在 runs |
 
 這些信息仍有作用，但都是一條消息自身的屬性，不需要再各拆一張 1:1 的表。
 
@@ -265,4 +307,4 @@ parent_delivery_requested 是源消息的回傳意圖，source_conversation_id /
 
 消息附件採用顯式 attachment_ids 選擇，messages.attachments 保存元數據快照；省略時為空，不繼承會話文件。每個 conversation 的文件樹與目錄操作 TODO 見 [conversation-files.md](conversation-files.md)。
 
-送入模型的 `complete_messages` 使用可讀的對話文字，按順序標示作者、@收件人、引用的消息正文及附件名稱／ID／路徑；不把 API JSON、消息 UUID、序號、雜湊或執行資料直接拼入提示詞。API 維持結構化資料，Client 只負責排版。程式產生的標題、工具說明與提示詞統一使用英文，使用者和 Agent 的原始正文保留原文；既有 native session 的初始化快照不改寫。
+送入模型的 `complete_messages` 使用可讀的對話文字，按順序標示作者、@收件人、引用的消息正文及附件名稱／ID／路徑；不把 API JSON、消息 UUID、序號、雜湊或執行資料直接拼入提示詞。子對話通知保留可操作的 context conversation read CHILD_ID --round N 指令，作為來源導航。API 維持結構化資料，Client 只負責排版。程式產生的標題、工具說明與提示詞統一使用英文，使用者和 Agent 的原始正文保留原文；既有 native session 的初始化快照不改寫。

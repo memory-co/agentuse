@@ -271,8 +271,8 @@ func custom() int {
 			fmt.Fprintln(os.Stderr, string(b), err)
 			return 2
 		}
-		if b, err := contextCommand("conversation", "send", "--parent", "Execution started."); err != nil {
-			fmt.Fprintln(os.Stderr, string(b), err)
+		if _, err := contextCommand("conversation", "send", "--parent", "forbidden"); err == nil {
+			fmt.Fprintln(os.Stderr, "manual parent send is still available")
 			return 2
 		}
 		emit(map[string]any{"type": "result", "ok": true, "output": "Child execution complete.", "session_id": "native-" + in.RunID})

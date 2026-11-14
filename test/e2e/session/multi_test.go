@@ -302,17 +302,19 @@ func TestMultiNativeSteerQuestionAndNestedConversation(t *testing.T) {
 		if e != nil || detail.Conversation.Status != "idle" {
 			return false
 		}
-		feedback := 0
-		final := false
+		notifications := 0
 		for _, m := range detail.Messages {
-			if m.SourceConversationID == childID {
-				feedback++
-				if m.Content == "Child execution complete." {
-					final = true
+			if m.AuthorRole == "child_conversation" && m.AuthorConversationID == childID && m.AuthorRoundSeq == 1 {
+				if m.AuthorAgentID != "" || m.AuthorUserID != "" || m.AuthorAgentVersionID != "" {
+					t.Fatal("child notification has an Agent author", m)
 				}
+				notifications++
+			}
+			if m.AuthorRole == "agent" && m.AuthorAgentID == "worker" {
+				t.Fatal("worker result leaked into parent", m)
 			}
 		}
-		return final && feedback == 2
+		return notifications == 1
 	})
 	children, err := c.ListChildren(ctx, user, parent.Conversation.ID)
 	if err != nil || len(children) != 1 || children[0].ParentAgentID != "native" || children[0].Mode != "single" {
@@ -321,6 +323,16 @@ func TestMultiNativeSteerQuestionAndNestedConversation(t *testing.T) {
 	child, err := c.GetConversation(ctx, user, childID)
 	if err != nil || len(child.Runs) != 1 || child.Runs[0].AgentID != "worker" || child.Runs[0].DeviceID != workerDevice.ID || child.Runs[0].Status != "completed" {
 		t.Fatal(child, err)
+	}
+	if len(child.Rounds) != 1 || child.Rounds[0].FinishedAt == nil || child.Rounds[0].ParentDelivery != "delivered" {
+		t.Fatal("unfinished round", child.Rounds)
+	}
+	if len(child.Messages) != 2 || child.Messages[1].AuthorRole != "agent" || child.Messages[1].Content != "Child execution complete." {
+		t.Fatal("missing child result", child.Messages)
+	}
+	round, err := c.GetConversationRound(ctx, user, childID, 1)
+	if err != nil || len(round.Messages) != 2 || len(round.Rounds) != 1 {
+		t.Fatal(round, err)
 	}
 	files, err := c.AllAttachments(ctx, user, childID)
 	if err != nil || len(files) != 1 || files[0].RelativePath != "result.txt" {

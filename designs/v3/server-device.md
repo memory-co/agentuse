@@ -1,6 +1,6 @@
 # deviceService：執行設備
 
-> 本文規則已落實到 schema 8、Server API 與業務 service。使用 device/conversation 命名；session_id 只引用 Client 本地執行會話。時間為 Unix 秒，JSON 使用 TEXT，關聯由 service 在事務內校驗與清理，不聲明數據庫外鍵。
+> 本文規則已落實到 schema 9、Server API 與業務 service。使用 device/conversation 命名；session_id 只引用 Client 本地執行會話。時間為 Unix 秒，JSON 使用 TEXT，關聯由 service 在事務內校驗與清理，不聲明數據庫外鍵。
 
 ## 職責
 

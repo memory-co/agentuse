@@ -65,6 +65,21 @@ class Delivery(TypedDict, total=False):
     status: str
     error: str
 
+class _RoundOptional(TypedDict, total=False):
+    end_message_seq: int
+    finished_at: int
+    parent_delivery: Literal["pending", "delivered", "failed"]
+    parent_message_id: str
+    parent_delivery_error: str
+
+
+class ConversationRound(_RoundOptional):
+    conversation_id: str
+    seq: int
+    start_message_seq: int
+    created_at: int
+
+
 class RunDetail(TypedDict):
     run: Run
     events: List[dict]
@@ -336,8 +351,9 @@ class Client:
     def list_children(self, user, parent_id):
         return self._request("GET", f"/api/conversations?parent_conversation_id={_q(parent_id)}", user)
 
-    def send_parent_message(self, user, conversation_id, prompt=None, attachment_ids=None):
-        return self._request("POST", f"/api/conversations/{_q(conversation_id)}/parent/messages", user, _drop_none(prompt=prompt, attachment_ids=attachment_ids))
+    def get_conversation_round(self, user, conversation_id, round_seq):
+        """Return the fixed message/execution interval of one conversation-local round."""
+        return self._request("GET", f"/api/conversations/{_q(conversation_id)}?round={_q(round_seq)}", user)
 
     def delete_conversation_tree(self, user, conversation_id):
         self._request("DELETE", f"/api/conversations/{_q(conversation_id)}?recursive=true", user)

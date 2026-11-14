@@ -54,8 +54,10 @@ func (s *Service) CompleteMessages(ctx context.Context, device, conversation, me
 		authorRole, authorID := m.AuthorRole, m.AuthorUserID
 		if m.AuthorRole == core.RoleAgentMsg {
 			authorID = m.AuthorAgentID
+		} else if m.AuthorRole == core.RoleChildConversationMsg {
+			authorID = m.AuthorConversationID
 		}
-		out.CompleteMessages = append(out.CompleteMessages, agentuse.CompleteMessage{ID: m.ID, Seq: m.Seq, AuthorRole: authorRole, AuthorID: authorID, Text: m.Content, ToAgentIDs: m.ToAgentIDs, ToUserIDs: m.ToUserIDs, Attachments: m.Attachments})
+		out.CompleteMessages = append(out.CompleteMessages, agentuse.CompleteMessage{ID: m.ID, Seq: m.Seq, AuthorRole: authorRole, AuthorID: authorID, AuthorRoundSeq: m.AuthorRoundSeq, Text: m.Content, ToAgentIDs: m.ToAgentIDs, ToUserIDs: m.ToUserIDs, Attachments: m.Attachments})
 	}
 	return out, rows.Err()
 }

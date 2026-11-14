@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -230,10 +231,10 @@ func (c *Client) ListChildren(ctx context.Context, user, parent string) ([]Conve
 	err := c.do(ctx, user, "GET", "/api/conversations?parent_conversation_id="+url.QueryEscape(parent), nil, &out)
 	return out, err
 }
-func (c *Client) SendParentMessage(ctx context.Context, user, conversation string, req ParentMessageRequest) (*ParentMessageResponse, error) {
-	var out ParentMessageResponse
-	err := c.do(ctx, user, "POST", "/api/conversations/"+esc(conversation)+"/parent/messages", req, &out)
-	return &out, err
+func (c *Client) GetConversationRound(ctx context.Context, user, conversation string, seq int64) (*ConversationDetail, error) {
+	var d ConversationDetail
+	err := c.do(ctx, user, "GET", "/api/conversations/"+esc(conversation)+"?round="+strconv.FormatInt(seq, 10), nil, &d)
+	return &d, err
 }
 func (c *Client) DeleteConversationTree(ctx context.Context, user, conversation string) error {
 	return c.do(ctx, user, "DELETE", "/api/conversations/"+esc(conversation)+"?recursive=true", nil, nil)

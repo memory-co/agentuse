@@ -75,8 +75,8 @@ func (s *Service) ConfigureFiles(files *file.Service) {
 }
 
 func (s *Service) Run(ctx context.Context) {
-	if err := s.ConversationService.ReconcileParentMessages(ctx); err != nil {
-		s.Log.Printf("parent message reconciliation: %v", err)
+	if err := s.ConversationService.ReconcileRoundNotifications(ctx); err != nil {
+		s.Log.Printf("round notification reconciliation: %v", err)
 	}
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
@@ -85,8 +85,8 @@ func (s *Service) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			if err := s.ConversationService.ReconcileParentMessages(ctx); err != nil {
-				s.Log.Printf("parent message reconciliation: %v", err)
+			if err := s.ConversationService.ReconcileRoundNotifications(ctx); err != nil {
+				s.Log.Printf("round notification reconciliation: %v", err)
 			}
 			s.Notifier.KickAll()
 		}
@@ -145,6 +145,10 @@ type ReportedHarness = core.ReportedHarness
 
 const RoleAdmin = core.RoleAdmin
 const RoleAgentMsg = core.RoleAgentMsg
+const RoleChildConversationMsg = core.RoleChildConversationMsg
+
+type ConversationRound = core.ConversationRound
+
 const RoleUser = core.RoleUser
 const RoleUserMsg = core.RoleUserMsg
 

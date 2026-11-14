@@ -103,26 +103,22 @@ type Conversation struct {
 }
 
 type Message struct {
-	ParentDeliveryRequested bool         `json:"parent_delivery_requested,omitempty"`
-	SourceConversationID    string       `json:"source_conversation_id,omitempty"`
-	SourceMessageID         string       `json:"source_message_id,omitempty"`
-	ParentDelivery          string       `json:"parent_delivery,omitempty"`
-	ParentMessageID         string       `json:"parent_message_id,omitempty"`
-	ParentDeliveryError     string       `json:"parent_delivery_error,omitempty"`
-	AuthorAgentID           string       `json:"author_agent_id,omitempty"`
-	AuthorName              string       `json:"author_name,omitempty"`
-	AuthorRole              string       `json:"author_role"`
-	Attachments             []Attachment `json:"attachments" nullable:"false"`
-	AuthorUserID            string       `json:"author_user_id,omitempty"`
-	ReplyToMessageID        string       `json:"reply_to_message_id,omitempty"`
-	AuthorAgentVersionID    string       `json:"author_agent_version_id,omitempty"`
-	Seq                     int64        `json:"seq"`
-	ToAgentIDs              []string     `json:"to_agent_ids" nullable:"false"`
-	ToUserIDs               []string     `json:"to_user_ids" nullable:"false"`
-	ID                      string       `json:"id"`
-	ConversationID          string       `json:"conversation_id"`
-	Content                 string       `json:"content"`
-	CreatedAt               int64        `json:"created_at"`
+	AuthorConversationID string       `json:"author_conversation_id,omitempty"`
+	AuthorRoundSeq       int64        `json:"author_round_seq,omitempty"`
+	AuthorAgentID        string       `json:"author_agent_id,omitempty"`
+	AuthorName           string       `json:"author_name,omitempty"`
+	AuthorRole           string       `json:"author_role" enum:"user,agent,child_conversation"`
+	Attachments          []Attachment `json:"attachments" nullable:"false"`
+	AuthorUserID         string       `json:"author_user_id,omitempty"`
+	ReplyToMessageID     string       `json:"reply_to_message_id,omitempty"`
+	AuthorAgentVersionID string       `json:"author_agent_version_id,omitempty"`
+	Seq                  int64        `json:"seq"`
+	ToAgentIDs           []string     `json:"to_agent_ids" nullable:"false"`
+	ToUserIDs            []string     `json:"to_user_ids" nullable:"false"`
+	ID                   string       `json:"id"`
+	ConversationID       string       `json:"conversation_id"`
+	Content              string       `json:"content"`
+	CreatedAt            int64        `json:"created_at"`
 }
 
 type ConversationEvent struct {
@@ -158,13 +154,28 @@ type CreateConversationRequest struct {
 }
 
 type CreateConversationResponse struct {
-	Runs         []Run        `json:"runs" nullable:"false"`
-	Deliveries   []Delivery   `json:"deliveries" nullable:"false"`
-	Conversation Conversation `json:"conversation"`
-	Message      *Message     `json:"message,omitempty"`
+	Round        *ConversationRound `json:"round,omitempty"`
+	Runs         []Run              `json:"runs" nullable:"false"`
+	Deliveries   []Delivery         `json:"deliveries" nullable:"false"`
+	Conversation Conversation       `json:"conversation"`
+	Message      *Message           `json:"message,omitempty"`
+}
+
+// ConversationRound is a conversation-local execution interval, not a run or task.
+type ConversationRound struct {
+	ConversationID      string `json:"conversation_id"`
+	Seq                 int64  `json:"seq"`
+	StartMessageSeq     int64  `json:"start_message_seq"`
+	EndMessageSeq       *int64 `json:"end_message_seq,omitempty"`
+	CreatedAt           int64  `json:"created_at"`
+	FinishedAt          *int64 `json:"finished_at,omitempty"`
+	ParentDelivery      string `json:"parent_delivery,omitempty" enum:"pending,delivered,failed"`
+	ParentMessageID     string `json:"parent_message_id,omitempty"`
+	ParentDeliveryError string `json:"parent_delivery_error,omitempty"`
 }
 
 type ConversationDetail struct {
+	Rounds       []ConversationRound `json:"rounds" nullable:"false"`
 	Runs         []Run               `json:"runs"`
 	Deliveries   []Delivery          `json:"deliveries"`
 	RunCounts    map[string]int      `json:"run_counts"`
@@ -189,9 +200,10 @@ type Question struct {
 
 // Reply 包含共享消息和各目标的执行/投递。
 type Reply struct {
-	Runs       []Run      `json:"runs"`
-	Deliveries []Delivery `json:"deliveries"`
-	Message    *Message   `json:"message"`
+	Round      *ConversationRound `json:"round,omitempty"`
+	Runs       []Run              `json:"runs"`
+	Deliveries []Delivery         `json:"deliveries"`
+	Message    *Message           `json:"message"`
 }
 
 // ConversationSource identifies an existing Client execution; Server verifies it.
@@ -201,18 +213,6 @@ type ConversationSource struct {
 	AgentID        string `json:"agent_id"`
 	SessionID      string `json:"session_id"`
 	RunID          string `json:"run_id"`
-}
-
-type ParentMessageRequest struct {
-	Prompt        string   `json:"prompt"`
-	AttachmentIDs []string `json:"attachment_ids,omitempty"`
-}
-type ParentMessageResponse struct {
-	Message              Message `json:"message"`
-	ParentConversationID string  `json:"parent_conversation_id"`
-	ParentMessageID      string  `json:"parent_message_id,omitempty"`
-	Delivery             string  `json:"delivery"`
-	Error                string  `json:"error,omitempty"`
 }
 
 func (u User) IsAdmin() bool { return u.Role == "admin" }

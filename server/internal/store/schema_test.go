@@ -9,7 +9,7 @@ import (
 )
 
 func TestOpenRejectsOtherDatabaseSchemas(t *testing.T) {
-	for _, revision := range []int{0, 1, 2, 3, 4, 5, 6, 7, 9} {
+	for _, revision := range []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 10} {
 		for _, table := range []string{"sessions", "conversations"} {
 			t.Run(fmt.Sprintf("%d/%s", revision, table), func(t *testing.T) {
 				path := filepath.Join(t.TempDir(), "unsupported.db")
@@ -43,7 +43,7 @@ func TestConversationSchemaSeparatesConversationsAndNativeSessions(t *testing.T)
 	}
 	defer st.Close()
 	var revision, oldTables int
-	if err := st.db.QueryRow("PRAGMA user_version").Scan(&revision); err != nil || revision != 8 {
+	if err := st.db.QueryRow("PRAGMA user_version").Scan(&revision); err != nil || revision != 9 {
 		t.Fatal(revision, err)
 	}
 	if err := st.db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('sessions','works','work_run_tokens','run_notifications')").Scan(&oldTables); err != nil || oldTables != 0 {

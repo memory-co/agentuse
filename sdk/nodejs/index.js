@@ -138,6 +138,7 @@ export class Client {
   // 会话 idle 时返回 message;忙时是插话，返回 steer。
   sendMessage(user, conversationId, req) { return this._request("POST", `/api/conversations/${q(conversationId)}/messages`, user, req); }
   // → { conversation, messages, runs, deliveries, questions, events }
+  getConversationRound(user, conversationId, round) { return this._request("GET", `/api/conversations/${q(conversationId)}?round=${q(round)}`, user); }
   getConversation(user, conversationId) { return this._request("GET", `/api/conversations/${q(conversationId)}`, user); }
   // 回答 harness 的提问(会话 waiting 时):answers 是 { 问题: 答案 },多选用 ", " 拼起来。已答过或过期抛 409。
   async deleteConversation(user, conversationId) { await this._request("DELETE", `/api/conversations/${q(conversationId)}`, user); }
@@ -160,7 +161,6 @@ export class Client {
   }
 
   listChildren(user, parentId) { return this._request("GET", `/api/conversations?parent_conversation_id=${q(parentId)}`, user); }
-  sendParentMessage(user, conversationId, req) { return this._request("POST", `/api/conversations/${q(conversationId)}/parent/messages`, user, req); }
   async deleteConversationTree(user, conversationId) { await this._request("DELETE", `/api/conversations/${q(conversationId)}?recursive=true`, user); }
 
   async waitConversation(user, conversationId, { interval = 2000, timeout, returnOnWaiting = false } = {}) {

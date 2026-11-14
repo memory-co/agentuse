@@ -62,11 +62,11 @@ type ConversationWait struct {
 	Detail *sdk.ConversationDetail `json:"detail"`
 }
 
-// WaitChild yields on feedback as well as completion, allowing the coordinator's
-// native input channel to resume while an executor needs an answer.
-func (c *ExecutionContext) WaitChild(ctx context.Context, client *sdk.Client, id string, timeout time.Duration) (*ConversationWait, error) {
-	if timeout <= 0 {
-		return nil, fmt.Errorf("timeout must be positive")
+// WaitChild fixes a conversation-local round when waiting begins. A later round
+// must not delay or contaminate the results of that completed interval.
+func (c *ExecutionContext) WaitChild(ctx context.Context, client *sdk.Client, id string, round int64, timeout time.Duration) (*ConversationWait, error) {
+	if timeout <= 0 || round < 0 {
+		return nil, fmt.Errorf("timeout must be positive and round cannot be negative")
 	}
 	parent, err := client.GetConversation(ctx, "", c.ConversationID)
 	if err != nil {
@@ -78,35 +78,37 @@ func (c *ExecutionContext) WaitChild(ctx context.Context, client *sdk.Client, id
 			baseline = m.Seq
 		}
 	}
+	child, err := client.GetConversation(ctx, "", id)
+	if err != nil {
+		return nil, err
+	}
+	if child.Conversation.ParentConversationID != c.ConversationID {
+		return nil, fmt.Errorf("只能等待当前 conversation 的直接子会话")
+	}
+	if round == 0 {
+		if len(child.Rounds) == 0 {
+			return &ConversationWait{Reason: "no_round", Detail: child}, nil
+		}
+		round = child.Rounds[len(child.Rounds)-1].Seq
+	}
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 	ticker := time.NewTicker(300 * time.Millisecond)
 	defer ticker.Stop()
-	var child *sdk.ConversationDetail
 	for {
-		child, err = client.GetConversation(ctx, "", id)
+		child, err = client.GetConversationRound(ctx, "", id, round)
 		if err != nil {
 			return nil, err
 		}
-		if child.Conversation.ParentConversationID != c.ConversationID {
-			return nil, fmt.Errorf("只能等待当前 conversation 的直接子会话")
+		if len(child.Rounds) != 1 || child.Rounds[0].Seq != round {
+			return nil, fmt.Errorf("Server returned an invalid round snapshot")
 		}
-		status := child.Conversation.Status
-		if status == "idle" || status == "resolved" {
+		if child.Rounds[0].FinishedAt != nil {
 			return &ConversationWait{Reason: "settled", Detail: child}, nil
 		}
-		if status == "waiting" {
-			return &ConversationWait{Reason: "needs_input", Detail: child}, nil
-		}
-		var latestTask int64
-		for _, m := range child.Messages {
-			if !m.ParentDeliveryRequested && len(m.ToAgentIDs) > 0 && m.Seq > latestTask {
-				latestTask = m.Seq
-			}
-		}
-		for _, m := range child.Messages {
-			if m.ParentDeliveryRequested && m.Seq > latestTask {
-				return &ConversationWait{Reason: "parent_feedback", Detail: child}, nil
+		for _, r := range child.Runs {
+			if r.Status == "waiting" {
+				return &ConversationWait{Reason: "needs_input", Detail: child}, nil
 			}
 		}
 		parent, err = client.GetConversation(ctx, "", c.ConversationID)
@@ -114,12 +116,11 @@ func (c *ExecutionContext) WaitChild(ctx context.Context, client *sdk.Client, id
 			return nil, err
 		}
 		for _, m := range parent.Messages {
-			if m.Seq <= baseline {
-				continue
-			}
-			for _, agent := range m.ToAgentIDs {
-				if agent == c.AgentID {
-					return &ConversationWait{Reason: "new_input", Detail: child}, nil
+			if m.Seq > baseline {
+				for _, a := range m.ToAgentIDs {
+					if a == c.AgentID {
+						return &ConversationWait{Reason: "new_input", Detail: child}, nil
+					}
 				}
 			}
 		}

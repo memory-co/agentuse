@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
@@ -350,6 +351,7 @@ func (s *Server) handleCreateConversation(w http.ResponseWriter, r *http.Request
 	}
 	out := agentuse.CreateConversationResponse{Conversation: v, Runs: []agentuse.Run{}, Deliveries: []agentuse.Delivery{}}
 	if reply != nil {
+		out.Round = reply.Round
 		out.Message = reply.Message
 		out.Runs = reply.Runs
 		out.Deliveries = reply.Deliveries
@@ -379,7 +381,28 @@ func (s *Server) handleGetConversation(w http.ResponseWriter, r *http.Request) {
 	if !s.conversationInScope(w, r, r.PathValue("id"), false) {
 		return
 	}
-	v, err := s.service.ConversationService.ReadConversation(r.Context(), currentUser(r), r.PathValue("id"))
+	for key := range r.URL.Query() {
+		if key != "round" {
+			writeErr(w, 400, "unknown query parameter: "+key)
+			return
+		}
+	}
+	var v service.ConversationDetail
+	var err error
+	if raw, ok := r.URL.Query()["round"]; ok {
+		if len(raw) != 1 {
+			writeErr(w, 400, "round must be a positive integer")
+			return
+		}
+		seq, e := strconv.ParseInt(raw[0], 10, 64)
+		if e != nil || seq <= 0 {
+			writeErr(w, 400, "round must be a positive integer")
+			return
+		}
+		v, err = s.service.ConversationService.ReadRound(r.Context(), currentUser(r), r.PathValue("id"), seq)
+	} else {
+		v, err = s.service.ConversationService.ReadConversation(r.Context(), currentUser(r), r.PathValue("id"))
+	}
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -394,24 +417,6 @@ func (s *Server) conversationInScope(w http.ResponseWriter, r *http.Request, id 
 		}
 	}
 	return true
-}
-func (s *Server) handleParentMessage(w http.ResponseWriter, r *http.Request) {
-	source := currentSource(r)
-	if source == nil || source.ConversationID != r.PathValue("id") {
-		writeErr(w, 403, "parent feedback requires the source execution context")
-		return
-	}
-	var req agentuse.ParentMessageRequest
-	if err := readMessageJSON(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	out, err := s.service.ConversationService.SendParentMessage(r.Context(), *source, req.Prompt, req.AttachmentIDs)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	writeJSON(w, 201, out)
 }
 func (s *Server) handleResolveConversation(w http.ResponseWriter, r *http.Request) {
 	v, err := s.service.ConversationService.ResolveConversation(r.Context(), currentUser(r), r.PathValue("id"))

@@ -19,8 +19,13 @@ func completeMessagesText(messages []agentuse.CompleteMessage) string {
 		role := "User"
 		if m.AuthorRole == "agent" {
 			role = "Agent"
+		} else if m.AuthorRole == "child_conversation" {
+			role = "Child conversation"
 		}
 		fmt.Fprintf(&b, "\n## %s %s", role, m.AuthorID)
+		if m.AuthorRole == "child_conversation" {
+			fmt.Fprintf(&b, " (round %d finished; read with context conversation read %s --round %d)", m.AuthorRoundSeq, m.AuthorID, m.AuthorRoundSeq)
+		}
 		for _, id := range m.ToAgentIDs {
 			fmt.Fprintf(&b, " @%s", id)
 		}

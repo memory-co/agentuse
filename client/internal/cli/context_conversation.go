@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -19,17 +20,15 @@ const conversationContextUsage = `context conversation —— 协调当前 conve
   context conversation agents
   context conversation create [--title TITLE] [--mode single] [--agents IDS] [--users IDS] [MESSAGE]
   context conversation list
-  context conversation read CHILD_ID
+  context conversation read CHILD_ID [--round N]
   context conversation send CHILD_ID --agents IDS MESSAGE
-  context conversation wait CHILD_ID [--timeout 5m]
+  context conversation wait CHILD_ID [--round N] [--timeout 5m]
 
-子会话可用:
-  context conversation send --parent MESSAGE
-结果正常回复即可，Server 会自动回传。wait 遇到反馈或新输入会提前返回。
+子会话每轮全部执行结束后由 Server 自动通知协调者。wait 可被新输入或原生提问中断。
 `
-const childConversationUsage = `context conversation send --parent MESSAGE
-向创建本子会话的 Agent 提问或报告阻碍。最终结果正常回复即可自动回传。
-当前为单体子会话，不能再创建子会话。
+const childConversationUsage = `当前为单体子会话，直接执行任务，不能再创建会话。
+需要澄清或遇到阻碍时，在最终答复中说明并正常结束本轮。
+Server 会在整轮执行结束后通知协调者；保留 status 和 attachment 执行工具。
 `
 const singleConversationUsage = "当前为单体模式，直接完成任务；不提供 conversation 拆分命令。\n"
 
@@ -58,9 +57,12 @@ func runContextConversation(ctx context.Context, path, run string, args []string
 	}
 	op := args[0]
 	fs := command.NewFlags("context conversation " + op)
-	title, mode, agents, users, timeout, parent := "", "single", "", "", 5*time.Minute, false
+	title, mode, agents, users, timeout := "", "single", "", "", 5*time.Minute
+	var round int64
 	switch op {
-	case "agents", "list", "read":
+	case "agents", "list":
+	case "read":
+		fs.Int64Var(&round, "round", 0, "指定子会话轮次")
 	case "create":
 		fs.StringVar(&title, "title", "", "子会话标题")
 		fs.StringVar(&mode, "mode", "single", "子会话模式：single")
@@ -69,8 +71,8 @@ func runContextConversation(ctx context.Context, path, run string, args []string
 	case "send":
 		fs.StringVar(&agents, "agents", "", "Agent ID，逗号分隔")
 		fs.StringVar(&users, "users", "", "用户 ID，逗号分隔")
-		fs.BoolVar(&parent, "parent", false, "回传父会话")
 	case "wait":
+		fs.Int64Var(&round, "round", 0, "固定等待轮次，省略时选择开始等待时的最新轮次")
 		fs.DurationVar(&timeout, "timeout", 5*time.Minute, "最长等待时间")
 	default:
 		return command.UsageErr("未知 conversation 命令 %s", op)
@@ -85,7 +87,7 @@ func runContextConversation(ctx context.Context, path, run string, args []string
 		}
 		if strings.HasPrefix(v, "-") {
 			flags = append(flags, v)
-			if v != "--parent" && !strings.Contains(v, "=") && v != "--help" && v != "-h" {
+			if !strings.Contains(v, "=") && v != "--help" && v != "-h" {
 				i++
 				if i == len(args) {
 					return command.UsageErr("%s 缺少值", v)
@@ -106,11 +108,17 @@ func runContextConversation(ctx context.Context, path, run string, args []string
 	if (op == "read" || op == "wait") && len(values) != 1 {
 		return command.UsageErr("%s 需要 CHILD_ID", op)
 	}
-	if op == "send" && ((parent && len(values) < 1) || (!parent && len(values) < 2)) {
-		return command.UsageErr("send CHILD_ID --agents IDS MESSAGE | send --parent MESSAGE")
+	if op == "send" && len(values) < 2 {
+		return command.UsageErr("send CHILD_ID --agents IDS MESSAGE")
 	}
-	if parent && (agents != "" || users != "") {
-		return command.UsageErr("--parent 的收件人由 parent_agent_id 确定")
+	roundSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "round" {
+			roundSet = true
+		}
+	})
+	if roundSet && round <= 0 {
+		return command.UsageErr("--round 必须为正整数")
 	}
 	c, err := runservice.OpenExecutionContext(ctx, path, run)
 	if err != nil {
@@ -124,12 +132,8 @@ func runContextConversation(ctx context.Context, path, run string, args []string
 	if err != nil {
 		return err
 	}
-	if parent {
-		if d.Conversation.ParentConversationID == "" {
-			return fmt.Errorf("当前 conversation 没有父会话")
-		}
-	} else if d.Conversation.Mode != "collaborative" || d.Conversation.ParentConversationID != "" {
-		return fmt.Errorf("只有协作模式可管理直接子会话；子会话用 send --parent 回传")
+	if d.Conversation.Mode != "collaborative" || d.Conversation.ParentConversationID != "" {
+		return fmt.Errorf("只有协作模式可管理直接子会话；子会话正常结束本轮后会自动通知协调者")
 	}
 	ids := func(s string) []string {
 		out := []string{}
@@ -149,15 +153,15 @@ func runContextConversation(ctx context.Context, path, run string, args []string
 	case "create":
 		result, err = client.CreateConversation(ctx, "", sdk.CreateConversationRequest{Mode: mode, ParentConversationID: c.ConversationID, Title: title, Prompt: strings.Join(values, " "), ToAgentIDs: ids(agents), ToUserIDs: ids(users)})
 	case "read":
-		result, err = client.GetConversation(ctx, "", values[0])
-	case "send":
-		if parent {
-			result, err = client.SendParentMessage(ctx, "", c.ConversationID, sdk.ParentMessageRequest{Prompt: strings.Join(values, " ")})
+		if round > 0 {
+			result, err = client.GetConversationRound(ctx, "", values[0], round)
 		} else {
-			result, err = client.SendMessage(ctx, "", values[0], sdk.MessageRequest{Prompt: strings.Join(values[1:], " "), ToAgentIDs: ids(agents), ToUserIDs: ids(users)})
+			result, err = client.GetConversation(ctx, "", values[0])
 		}
+	case "send":
+		result, err = client.SendMessage(ctx, "", values[0], sdk.MessageRequest{Prompt: strings.Join(values[1:], " "), ToAgentIDs: ids(agents), ToUserIDs: ids(users)})
 	case "wait":
-		result, err = c.WaitChild(ctx, client, values[0], timeout)
+		result, err = c.WaitChild(ctx, client, values[0], round, timeout)
 	}
 	if err != nil {
 		return err

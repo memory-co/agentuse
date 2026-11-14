@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strconv"
 )
 
 // Execute the bare context command from the actual native run environment.
@@ -26,6 +27,9 @@ func contextConversationSpawn(agent, prompt string) ([]byte, error) {
 		Conversation struct {
 			ID string `json:"id"`
 		} `json:"conversation"`
+		Round struct {
+			Seq int64 `json:"seq"`
+		} `json:"round"`
 	}
 	if err = json.Unmarshal(b, &created); err != nil {
 		return b, err
@@ -33,8 +37,8 @@ func contextConversationSpawn(agent, prompt string) ([]byte, error) {
 	if b, err = contextCommand("conversation", "list"); err != nil {
 		return b, err
 	}
-	if b, err = contextCommand("conversation", "wait", created.Conversation.ID, "--timeout", "10s"); err != nil {
+	if b, err = contextCommand("conversation", "wait", created.Conversation.ID, "--round", strconv.FormatInt(created.Round.Seq, 10), "--timeout", "10s"); err != nil {
 		return b, err
 	}
-	return contextCommand("conversation", "read", created.Conversation.ID)
+	return contextCommand("conversation", "read", created.Conversation.ID, "--round", strconv.FormatInt(created.Round.Seq, 10))
 }

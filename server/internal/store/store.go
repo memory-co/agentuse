@@ -77,17 +77,28 @@ CREATE TABLE IF NOT EXISTS messages (
   id         TEXT PRIMARY KEY,
   seq        INTEGER NOT NULL,
   conversation_id TEXT NOT NULL,
-  author_role TEXT NOT NULL CHECK(author_role IN ('user','agent')),
+  author_role TEXT NOT NULL CHECK(author_role IN ('user','agent','child_conversation')),
   content    TEXT NOT NULL,
   attachments TEXT NOT NULL DEFAULT '[]', author_user_id TEXT, author_agent_id TEXT, to_agent_ids TEXT NOT NULL DEFAULT '[]', to_user_ids TEXT NOT NULL DEFAULT '[]', reply_to_message_id TEXT, author_agent_version_id TEXT,
-  parent_delivery_requested INTEGER NOT NULL DEFAULT 0 CHECK(parent_delivery_requested IN (0,1)),
-  source_conversation_id TEXT, source_message_id TEXT,
+  author_conversation_id TEXT, author_round_seq INTEGER,
   created_at INTEGER NOT NULL,
-  CHECK ((source_conversation_id IS NULL AND source_message_id IS NULL) OR (source_conversation_id IS NOT NULL AND source_message_id IS NOT NULL))
+  CHECK ((author_role='child_conversation' AND author_conversation_id IS NOT NULL AND author_round_seq IS NOT NULL AND author_round_seq>0 AND author_user_id IS NULL AND author_agent_id IS NULL AND author_agent_version_id IS NULL) OR (author_role IN ('user','agent') AND author_conversation_id IS NULL AND author_round_seq IS NULL))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id, seq);
 CREATE INDEX IF NOT EXISTS messages_replies ON messages(conversation_id,reply_to_message_id,seq);
-CREATE UNIQUE INDEX IF NOT EXISTS messages_source ON messages(conversation_id,source_message_id) WHERE source_message_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS messages_child_round ON messages(conversation_id,author_conversation_id,author_round_seq) WHERE author_role='child_conversation';
+
+CREATE TABLE IF NOT EXISTS conversation_rounds (
+ conversation_id TEXT NOT NULL,
+ seq INTEGER NOT NULL CHECK(seq>0),
+ start_message_seq INTEGER NOT NULL CHECK(start_message_seq>0),
+ end_message_seq INTEGER,
+ created_at INTEGER NOT NULL,
+ finished_at INTEGER,
+ PRIMARY KEY(conversation_id,seq),
+ CHECK ((end_message_seq IS NULL AND finished_at IS NULL) OR (end_message_seq IS NOT NULL AND end_message_seq>=start_message_seq AND finished_at IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS conversation_rounds_active ON conversation_rounds(conversation_id) WHERE finished_at IS NULL;
 
 `
 
@@ -118,11 +129,11 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if revision != 8 && (existing > 0 || revision != 0) {
+	if revision != 9 && (existing > 0 || revision != 0) {
 		db.Close()
 		return nil, errors.New("unsupported database schema: reset the database before starting this version")
 	}
-	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=8;"); err != nil {
+	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=9;"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("store: initialize: %w", err)
 	}

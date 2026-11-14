@@ -46,7 +46,7 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 		"users":   "user",
 		"devices": "device", "device_harnesses": "device", "device_capabilities": "device",
 		"agents": "agent", "agent_versions": "agent", "agent_version_skills": "agent",
-		"conversations": "conversation", "messages": "conversation", "attachments": "conversation",
+		"conversations": "conversation", "conversation_rounds": "conversation", "messages": "conversation", "attachments": "conversation",
 		"message_agents": "run", "runs": "run", "run_events": "run", "run_requests": "run", "run_controls": "run",
 		"skills": "skill", "skill_versions": "skill",
 	}

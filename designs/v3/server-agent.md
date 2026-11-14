@@ -1,6 +1,6 @@
 # agentService：不可變 Agent 版本與 Skill 版本關聯
 
-> 版本化鏈路已實現，使用數據庫 schema 8 和 agentuse-client/2。表之間不聲明數據庫外鍵。HTTP、DTO 和 agent_versions 統一使用 device_id。
+> 版本化鏈路已實現，使用數據庫 schema 9 和 agentuse-client/2。表之間不聲明數據庫外鍵。HTTP、DTO 和 agent_versions 統一使用 device_id。
 
 ## 職責與對象關係
 

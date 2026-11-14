@@ -16,7 +16,7 @@ import { api } from '@/lib/api';
 import { useActAs } from '@/lib/actas';
 import { queryClient } from '@/lib/query';
 import { useAgents } from '@/pages/Agents';
-import type { Message, Question, Conversation, ConversationDetail as Detail, ConversationEvent, ConversationStatus, Run, Delivery, User, Attachment } from '@/lib/types';
+import type { Message, Question, Conversation, ConversationDetail as Detail, ConversationEvent, ConversationStatus, ConversationRound, Run, Delivery, User, Attachment } from '@/lib/types';
 import { cn, fmtTime } from '@/lib/utils';
 import { t, useT } from '@/lib/i18n';
 
@@ -95,7 +95,10 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
     setFilesOpen(false);
   };
 
-  const q = useQuery({ queryKey: ['conversations', id], queryFn: () => api<Detail>(`/api/conversations/${id}`) });
+  const roundParam = new URLSearchParams(location.hash.split('?')[1] ?? '').get('round');
+  const selectedRound = roundParam === null ? undefined : Number(roundParam);
+  const invalidRound = selectedRound !== undefined && (!Number.isSafeInteger(selectedRound) || selectedRound <= 0);
+  const q = useQuery({ queryKey: selectedRound === undefined ? ['conversations', id] : ['conversations', id, 'round', selectedRound], queryFn: () => api<Detail>(`/api/conversations/${id}${selectedRound === undefined ? '' : `?round=${selectedRound}`}`), enabled: !invalidRound });
   const children=useChildren(id,q.data?.conversation.mode==='collaborative');
   const reply = useMutation({
     mutationFn: async ({prompt,targets,users}: {prompt:string;targets:string[];users:string[]}) => {const attachment_ids=await fileDraft.upload(id);const body={prompt,to_agent_ids:targets,to_user_ids:users,attachment_ids};return api(`/api/conversations/${id}/messages`, { method:'POST', body });},
@@ -105,9 +108,8 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
   const resolve = useMutation({ mutationFn: (done: boolean) => api(`/api/conversations/${id}/${done ? 'resolve' : 'reopen'}`, { method: 'POST' }), onSuccess: () => { void refresh(); } });
   const bottom = useRef<HTMLDivElement>(null);
   const count = (q.data?.messages.length ?? 0) + (q.data?.events.length ?? 0);
-  const sourceMessage=new URLSearchParams(location.hash.split('?')[1]??'').get('message');
-  useEffect(()=>{if(sourceMessage&&q.data){const node=document.querySelector(`[data-message-id="${CSS.escape(sourceMessage)}"]`);node?.scrollIntoView({block:'center'});node?.classList.add('ring-2','ring-primary','rounded-lg');return()=>node?.classList.remove('ring-2','ring-primary','rounded-lg')}},[sourceMessage,q.data?.messages.length]);
-  useEffect(() => { if(!sourceMessage)bottom.current?.scrollIntoView({ block: 'end' }); }, [count,sourceMessage]);
+  useEffect(() => { if(selectedRound === undefined) bottom.current?.scrollIntoView({block:'end'}); }, [count,selectedRound]);
+  if (invalidRound) return <ErrorState error={t('nest.invalidRound')} />;
   if (q.isPending) return <div className="px-6"><Loading /></div>;
   if (q.isError) return <div className="px-6 py-6"><ErrorState error={q.error} /></div>;
   const { conversation: x, messages, events } = q.data;
@@ -123,28 +125,29 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
           <p className="min-w-0 flex-1 break-all font-mono text-xs text-muted-foreground">{meta}</p>
           <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" aria-label={t('attachment.files')} aria-haspopup="dialog" onClick={() => openFiles()}><FolderOpen />{t('attachment.files')}</Button>
           {x.mode === 'collaborative' && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs xl:hidden" aria-label={t('nest.children')} aria-haspopup="dialog" onClick={() => setChildrenOpen(true)}><MessagesSquare />{t('nest.children')}<span className="text-muted-foreground">{children.data?.length ?? 0}</span></Button>}
-          {settled && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" disabled={resolve.isPending} onClick={() => resolve.mutate(x.status === 'idle')}>
+          {selectedRound === undefined && settled && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" disabled={resolve.isPending} onClick={() => resolve.mutate(x.status === 'idle')}>
             {x.status === 'idle' ? <><CircleCheck />{t('conversation.resolve')}</> : <><RotateCcw />{t('conversation.reopen')}</>}
           </Button>}
-          {settled && <Confirm title={t('conversation.deleteTitle')} description={t(x.mode==='collaborative'?'nest.deleteTree':'conversation.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
+          {selectedRound === undefined && settled && <Confirm title={t('conversation.deleteTitle')} description={t(x.mode==='collaborative'?'nest.deleteTree':'conversation.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
             <Button variant="ghost" size="icon" className="size-7 text-destructive" aria-label={t('conversation.delete')}><Trash2 /></Button>
           </Confirm>}
         </div>
 
+        {selectedRound !== undefined && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 p-3 text-xs"><span>{t('nest.round', {n:selectedRound})} · {t(q.data.rounds[0]?.finished_at !== undefined ? 'nest.roundEnded' : 'nest.roundActive')}</span><a className="underline" href={`#/conversations/${id}`}>{t('nest.fullConversation')}</a></div>}
         {(del.isError||resolve.isError) && <ErrorState error={del.error||resolve.error}/>}
 
-        {messages.map(m=><div key={m.id} className="grid min-w-0 grid-cols-1 gap-2"><MessageView m={m} onOpenFile={openFiles}/>
-        {m.author_role==='user'&&<div className="flex flex-wrap gap-2">{(q.data.deliveries??[]).filter(d=>d.message_id===m.id && !(q.data.runs??[]).some(run=>run.id===d.run_id && run.first_message_id===m.id)).map(d=><span key={`${d.message_id}:${d.agent_id}`} className="rounded-md border px-2 py-1 text-xs" title={d.error}>@{d.agent_id} · {d.status}</span>)}</div>}
+        {messages.map(m=><div key={m.id} className="grid min-w-0 grid-cols-1 gap-2">{x.parent_conversation_id && q.data.rounds.filter(round => round.start_message_seq === m.seq).map(round => <RoundStatus key={round.seq} round={round} />)}<MessageView m={m} onOpenFile={openFiles}/>
+        {m.to_agent_ids.length>0&&<div className="flex flex-wrap gap-2">{(q.data.deliveries??[]).filter(d=>d.message_id===m.id && !(q.data.runs??[]).some(run=>run.id===d.run_id && run.first_message_id===m.id)).map(d=><span key={`${d.message_id}:${d.agent_id}`} className="rounded-md border px-2 py-1 text-xs" title={d.error}>@{d.agent_id} · {d.status}</span>)}</div>}
         {(q.data.runs??[]).filter(r=>r.first_message_id===m.id).map(run=><RunView key={run.id} run={run} events={events} questions={questions} messages={messages} deliveries={q.data.deliveries ?? []} conversationId={id}/>)}
         </div>)}
         <div ref={bottom} />
       </div>
     </div>
-    <div ref={composer} className="mx-auto w-full max-w-3xl px-4 pb-4">
+    {selectedRound === undefined && <div ref={composer} className="mx-auto w-full max-w-3xl px-4 pb-4">
       {reply.isError && <div className="pb-2"><ErrorState error={reply.error} /></div>}
       <MentionComposer files={fileDraft.files} onFiles={fileDraft.addFiles} onRemoveFile={fileDraft.remove} key={`${id}:${sender}`} initialTargets={lastSent?.to_agent_ids ?? []} agents={agents.data??[]} users={[...new Set([x.user_id, x.created_by, ...messages.flatMap(m => [m.author_user_id, ...m.to_user_ids])].filter((value): value is string => !!value))]} placeholder={t('conversation.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets,users)=>reply.mutateAsync({prompt,targets,users})}/>
 
-    </div>
+    </div>}
    </div>
    {x.mode === 'collaborative' && <>
      <aside className="hidden w-80 shrink-0 flex-col border-l xl:flex 2xl:w-96" aria-label={t('nest.children')} data-conversation-children={id}>
@@ -159,7 +162,7 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
      </Sheet>
    </>}
    <FileManager open={filesOpen} onOpenChange={setFilesOpen} conversation={id} files={attachments.data ?? []} pending={attachments.isPending} error={attachments.error}
-     selected={selectedFile} onSelect={setSelectedFile} onAttach={attachFile} busy={reply.isPending}
+     selected={selectedFile} onSelect={setSelectedFile} onAttach={attachFile} busy={reply.isPending} readOnly={selectedRound !== undefined}
      onRestoreFocus={() => { if (fileReturnFocus.current?.isConnected) fileReturnFocus.current.focus({ preventScroll: true }); }}
      referenced={new Set(messages.flatMap(message => message.attachments.map(file => file.id)))} />
   </div>;
@@ -187,13 +190,30 @@ function ChildConversations({ conversations, pending, error, onClose }: {
   </section>;
 }
 
+function RoundStatus({round}:{round:ConversationRound}) {
+ const t=useT();
+ return <div className="mt-2 flex flex-wrap items-center gap-2 border-t pt-3 text-xs text-muted-foreground" data-conversation-round={round.seq}>
+  <a className="font-medium hover:underline" href={`#/conversations/${round.conversation_id}?round=${round.seq}`}>{t('nest.round',{n:round.seq})}</a>
+  <span>{t(round.finished_at === undefined ? 'nest.roundActive' : 'nest.roundEnded')}</span>
+  {round.parent_delivery && <span className={cn(round.parent_delivery==='failed'&&'text-destructive')} title={round.parent_delivery_error}>{t(`nest.delivery.${round.parent_delivery}`)}{round.parent_delivery_error&&` · ${round.parent_delivery_error}`}</span>}
+ </div>;
+}
+
 function MessageView({ m, onOpenFile }: { m: Message; onOpenFile: (file: Attachment) => void }) {
  const t=useT();
  const targetLabel = <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" data-message-targets={m.id}>
    {m.to_agent_ids.map(agent => <span key={`agent:${agent}`} className="break-all font-medium">@{agent}</span>)}
    {m.to_user_ids.map(user => <span key={`user:${user}`} className="inline-flex items-center gap-1 break-all font-medium"><UserRound className="size-3 shrink-0" />{user}</span>)}
-   {!m.to_agent_ids.length && !m.to_user_ids.length && <span>{t(m.parent_delivery_requested?'nest.parentTarget':'mention.noteOnly')}</span>}
+   {m.author_role==='user' && !m.to_agent_ids.length && !m.to_user_ids.length && <span>{t('mention.noteOnly')}</span>}
  </div>;
+ if(m.author_role==='child_conversation') {
+  return <div className="grid gap-3 rounded-lg border bg-muted/20 p-4" data-child-notification={m.id}>
+   <a className="flex items-start gap-2 text-sm font-medium hover:underline" href={`#/conversations/${m.author_conversation_id}?round=${m.author_round_seq}`}><MessagesSquare className="mt-0.5 size-4 shrink-0"/><span className="break-words">{t('nest.childAuthor')} · {m.author_name || t('nest.deletedChild')}</span></a>
+   <p className="text-sm text-muted-foreground">{t('nest.roundNotice',{n:m.author_round_seq ?? 0})}</p>
+   <a className="w-fit text-xs underline" href={`#/conversations/${m.author_conversation_id}?round=${m.author_round_seq}`}>{t('nest.readRound')}</a>
+   {targetLabel}
+  </div>;
+ }
  if(m.author_role==='user') {
   return <div className="ml-auto grid min-w-0 max-w-[85%] gap-1.5 rounded-2xl bg-muted px-4 py-2.5 text-sm" title={fmtTime(m.created_at)} data-message-id={m.id}>
     {targetLabel}<div className="whitespace-pre-wrap break-words">{m.content}</div>
@@ -203,8 +223,7 @@ function MessageView({ m, onOpenFile }: { m: Message; onOpenFile: (file: Attachm
  return <div className="grid min-w-0 grid-cols-1 gap-1.5" title={fmtTime(m.created_at)} data-message-id={m.id}>
   {targetLabel}
   {m.author_agent_id && <div className="text-xs font-medium text-muted-foreground">@{m.author_agent_id}{m.author_name && ` · ${m.author_name}`}</div>}
-  {m.source_conversation_id && <a className="text-xs text-muted-foreground underline" href={`#/conversations/${m.source_conversation_id}?message=${m.source_message_id}`}>{t('nest.source')}</a>}
-  {m.parent_delivery && <span className={cn('text-xs text-muted-foreground',m.parent_delivery==='failed'&&'text-destructive')} title={m.parent_delivery_error}>{t(`nest.delivery.${m.parent_delivery}`)}{m.parent_delivery_error&&` · ${m.parent_delivery_error}`}</span>}
+
   <Markdown>{m.content}</Markdown><MessageFiles files={m.attachments} onOpen={onOpenFile}/>
  </div>;
 }

@@ -14,9 +14,9 @@ Server 保存對話、組織任務並跟蹤執行。用戶的一臺執行設備�
 
 ## 實現約束
 
-執行協議已採用 agentuse-client/2：server 不預創建 run，只有 client 的 accepted 創建實際 UUID；五種公共事件原樣入庫，沒有 attempt、租約、原生能力分支或 server harnessService。詳細協議、實際 SQL、重連規則及 schema 8 升級約束見 [server-run.md](server-run.md)。
+執行協議已採用 agentuse-client/2：server 不預創建 run，只有 client 的 accepted 創建實際 UUID；五種公共事件原樣入庫，沒有 attempt、租約、原生能力分支或 server harnessService。詳細協議、實際 SQL、重連規則及 schema 9 升級約束見 [server-run.md](server-run.md)。
 
-Server 的對話 HTTP 入口、SDK 模型、響應字段和存儲均使用 conversation：`/api/conversations`、`conversation`、`conversations` 表及 `conversation_id`。Client 生成唯一的 `session_id`，Server 只記錄這個值以關聯原生執行，不生成另一套會話 ID，也不提供 `client_session_id` 別名。設備管理入口為 `/api/devices`，Client 註冊與身份查詢為 `/api/client/register`、`/api/client/me`。消息 UUID、兩組收件人和消息附件快照均在 schema 8 實現。附件存儲提供按 conversation 隔離的文件樹，見 [conversation-files.md](conversation-files.md)；通用 fileService 的本地/S3 後端仍獨立處理其他資源文件。
+Server 的對話 HTTP 入口、SDK 模型、響應字段和存儲均使用 conversation：`/api/conversations`、`conversation`、`conversations` 表及 `conversation_id`。Client 生成唯一的 `session_id`，Server 只記錄這個值以關聯原生執行，不生成另一套會話 ID，也不提供 `client_session_id` 別名。設備管理入口為 `/api/devices`，Client 註冊與身份查詢為 `/api/client/register`、`/api/client/me`。消息 UUID、兩組收件人和消息附件快照均在 schema 9 實現。附件存儲提供按 conversation 隔離的文件樹，見 [conversation-files.md](conversation-files.md)；通用 fileService 的本地/S3 後端仍獨立處理其他資源文件。
 
 Agent/Skill 版本化已實現，分別見 [agentService](server-agent.md) 與 [skillService](server-skill.md)：有效配置變更發佈不可變版本；輸入入隊時固定版本，client 首次使用該版本時創建新的 session/init 綁定。共享 ZIP 經 fileService 的 skills 命名空間保存，通過 HTTP 下載，不在 WebSocket 發送文件或原生命令。
 
@@ -60,11 +60,11 @@ Server 分爲三層：
 
 這裏的“擁有”指主要維護職責，不表示其他 service 不能讀取。跨業務修改通過所屬 service 完成；由編排操作統一事務，不能把各次調用做成互不相關的獨立提交。
 
-各 service 的詳細職責和表結構見上表。runService 文檔給出已實現的執行層結構；Agent/Skill 版本表和 fileService 已實現，設備與單對話消息元數據已實現，父子對話組織仍待按嵌套對話設計調整；輸入分配、client 執行身份和原樣事件上報已實現。
+各 service 的詳細職責和表結構見上表。runService 文檔給出已實現的執行層結構；Agent/Skill 版本表和 fileService 已實現，設備與單對話消息元數據已實現，父子對話與按輪次自動通知已實現；輸入分配、client 執行身份和原樣事件上報已實現。
 
 所有表不聲明數據庫外鍵，只保存關聯 ID。創建/修改時由 service 檢查目標存在、歸屬和狀態；刪除時協調相關 service 顯式清理或清空關聯字段，並在同一事務提交。數據庫保留主鍵、唯一索引和必要的 CHECK 約束，不依賴自動級聯。
 
-conversationService 負責發送消息的業務編排，調用 runService 建立任務分配。runService 透過 executionEventConsumer 發出執行事實，由 conversation 編排器在同一事務保存回覆及對話狀態；run 投影不直接寫 messages。回覆保存到來源 conversation。需要回父對話的源消息先提交，再由 conversationService 按明確收件人回傳為普通父消息並去重；界面只讀取消息和狀態，不建立 Work 執行結算。
+conversationService 負責發送消息的業務編排，調用 runService 建立任務分配。runService 透過 executionEventConsumer 發出執行事實，由 conversation 編排器在同一事務保存回覆及對話狀態；run 投影不直接寫 messages。回覆保存到來源 conversation。子結果與輪次結束先提交，再由 conversationService 自動生成 child_conversation 通知，固定交給創建者 parent_agent_id 並按來源輪次去重；界面只讀取消息和狀態，不建立 Work 執行結算。
 
 ### 2.1 userService、deviceService、agentService
 
@@ -109,7 +109,7 @@ Server 只認識設備上報的 harness 標識、版本和能力，不設 harnes
 
 fileService 統一按命名空間存儲字節，不綁定 conversation。conversations 空間保存共享對話文件；skills 空間保存獨立的 skill 版本 ZIP。conversationService 和 skillService 分別校驗業務權限與清理時機。fileService 不寫文件數據庫記錄；conversation-files.md 定義的附件業務元數據歸 conversationService 管理，文件字節仍走同一命名空間；skill 包摘要和路徑屬於 skillService 的版本元數據。
 
-嵌套對話用一個 conversation 管理多個子 conversation。主、子對話均支持多 Agent，收件人由每條消息明確指定。conversationService 用 parent_conversation_id 保存父子關係，復用普通創建、列表、讀取、發送及文件接口；無獨立 Work ID、固定協調 Agent 或工作授權層。具體操作及舊結構的刪除清單見 [conversation 設計](server-conversation.md#父子對話)。
+嵌套對話用一個 conversation 管理多個子 conversation。主、子對話均支持多 Agent，收件人由每條消息明確指定。conversationService 用 parent_conversation_id 保存父子關係，復用普通創建、列表、讀取、發送及文件接口；無獨立 Work ID、固定協調 Agent 或工作授權層。具體操作及輪次邊界見 [conversation 設計](server-conversation.md#父子對話)。
 
 ## 三、每次消息進入 Server
 
@@ -118,7 +118,7 @@ fileService 統一按命名空間存儲字節，不綁定 conversation。convers
 3. 提交後 Server 依 heartbeat 容量直接發送 message 和目標 Agent/版本；Client 缺少配置或技能時自己讀固定版本 API，準備資源並 init。
 4. client 通過 harnessctl send 執行。accepted 決定實際 run UUID，可能與上次相同，也可能不同。
 5. Server 驗證並保存五類公共事件，提交後確認源位置；只從這些事件投影執行狀態。
-6. result 與來源 conversation 的最終回覆一起提交；子對話的最終消息及顯式反饋按子對話記錄的 parent_agent_id 送入父對話，使用普通消息投遞喚起指定收件人。補送基於消息引用，不建立 run 彙總狀態。
+6. result 與來源 conversation 的最終回覆一起提交；子結果只保存在子對話。整輪所有輸入與執行收束後，Server 生成 child_conversation 通知，按 parent_agent_id 普通投遞喚起創建者；補送基於已結束輪次與父通知唯一來源鍵。
 
 原生執行及原生工具的權限交互在 Client；Server 的 HTTP 身份及業務訪問權限由 controller 和所屬 service 校驗。HTTP 取消或回答只入傳輸隊列，斷線不製造執行結果。完整規則以 server-run.md 爲準。
 
@@ -140,7 +140,7 @@ sequenceDiagram
 
 ## 四、當前源碼組織
 
-本節描述目前代碼的職責拆分。當前 schema 8 已實作嵌套對話並移除 Work。
+本節描述目前代碼的職責拆分。當前 schema 9 已實作嵌套對話並移除 Work。
 
 `server/internal/service/services.go` 中的 `Service` 是組裝入口，負責創建業務對象、連接依賴和配置存儲與通知。HTTP controller、WebSocket hub 及啓動流程顯式調用對應對象，例如 `ConversationService.SendMessage`、`RunService.DispatchMessage`。
 
