@@ -74,6 +74,8 @@ export function NewConversation({ onCreated }: { onCreated: (id: string) => void
 /** Conversation messages, nested conversations and files. */
 export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () => void }) {
   const t = useT();
+  const actAs = useActAs();
+  const sender = actAs || queryClient.getQueryData<User>(['me'])?.id;
   const agents = useAgents();
   const fileDraft = useMessageFiles();
   const [selectedFile, setSelectedFile] = useState<Attachment | null>(null);
@@ -109,6 +111,7 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
   if (q.isPending) return <div className="px-6"><Loading /></div>;
   if (q.isError) return <div className="px-6 py-6"><ErrorState error={q.error} /></div>;
   const { conversation: x, messages, events } = q.data;
+  const lastSent = [...messages].reverse().find(message => message.author_role === 'user' && message.author_user_id === sender);
   const questions = q.data.questions ?? [];
   const meta = t(`nest.${x.mode}`);
   const settled = x.status === 'idle' || x.status === 'resolved';
@@ -140,7 +143,7 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
     </div>
     <div ref={composer} className="mx-auto w-full max-w-3xl px-4 pb-4">
       {reply.isError && <div className="pb-2"><ErrorState error={reply.error} /></div>}
-      <MentionComposer files={fileDraft.files} onFiles={fileDraft.addFiles} onRemoveFile={fileDraft.remove} key={id} agents={agents.data??[]} users={[...new Set([x.user_id, x.created_by, ...messages.flatMap(m => [m.author_user_id, ...m.to_user_ids])].filter((value): value is string => !!value))]} placeholder={t('conversation.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets,users)=>reply.mutateAsync({prompt,targets,users})}/>
+      <MentionComposer files={fileDraft.files} onFiles={fileDraft.addFiles} onRemoveFile={fileDraft.remove} key={`${id}:${sender}`} initialTargets={lastSent?.to_agent_ids ?? []} agents={agents.data??[]} users={[...new Set([x.user_id, x.created_by, ...messages.flatMap(m => [m.author_user_id, ...m.to_user_ids])].filter((value): value is string => !!value))]} placeholder={t('conversation.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets,users)=>reply.mutateAsync({prompt,targets,users})}/>
 
     </div>
    </div>

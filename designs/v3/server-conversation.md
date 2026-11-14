@@ -25,6 +25,8 @@ conversationService 管理 conversation、message 和共享歷史，並編排消
 
 `to_user_ids` 表示消息發給哪些用戶，不建立 message_agents 或 run。只有用戶收件人時保存發給用戶的消息；兩組都為空時保存普通對話備註。省略的數組統一保存為 `[]`，不默認調用上次 Agent，也不從正文中的 @ 名稱推斷執行目標。
 
+Web 輸入框默認沿用當前用戶在本 conversation 最後一次發送消息的 to_agent_ids，包含空選擇與多選，不等待 Agent 回覆；Agent 作者及其他用戶的消息不參與預選。手動改選或清空後，後台快照刷新不能覆蓋當前選擇。會話或代用戶身份切換時按各自記錄重新初始化，頁面刷新也由已保存消息恢復。這是 Web 的交互行為，每次發送仍明確填寫收件人，不改變 API 空數組語義。
+
 此時只分配輸入，run_id 爲空。這一事務內爲每條 message_agents 固定 agent_version_id，後續派發不追隨 latest。Server 不能根據某個 agent 仍在執行，就認定新消息一定屬於它當前的 run。
 
 ```text

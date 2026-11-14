@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowUp, AtSign, ChevronDown, Paperclip, UserRound, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -17,6 +17,17 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
   const t = useT();
   const [text, setText] = useState('');
   const [targets, setTargets] = useState<string[]>(() => [...initialTargets]);
+  const targetsEdited = useRef(false);
+  // History may arrive from a fresher snapshot after mount. Seed it until the
+  // user chooses recipients; background refreshes must preserve that choice.
+  useEffect(() => {
+    if (!targetsEdited.current) setTargets(current =>
+      current.length === initialTargets.length && current.every((id, index) => id === initialTargets[index]) ? current : [...initialTargets]);
+  }, [initialTargets]);
+  const changeTargets = (update: (current: string[]) => string[]) => {
+    targetsEdited.current = true;
+    setTargets(update);
+  };
   const [userTargets, setUserTargets] = useState<string[]>([]);
   const [userQuery, setUserQuery] = useState('');
   const [query, setQuery] = useState<string | null>(null);
@@ -39,7 +50,7 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
   const ids = [...options.map(a => a.id), ...(manual ? [manual] : [])];
   const pick = (id: string) => {
     if (targets.length >= 8 && !targets.includes(id)) { setQuery(null); return; }
-    setTargets(v => v.includes(id) ? v : [...v, id]);
+    changeTargets(v => v.includes(id) ? v : [...v, id]);
     const range = mention.current;
     if (range) setText(v => v.slice(0, range.start) + `@${id} ` + v.slice(range.end));
     mention.current = null;
@@ -68,7 +79,7 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
               const selected = targets.includes(agent.id);
               return <label key={agent.id} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-muted">
                 <input type="checkbox" checked={selected} disabled={busy || (!selected && targets.length >= 8)}
-                  onChange={() => setTargets(current => current.includes(agent.id) ? current.filter(id => id !== agent.id) : current.length < 8 ? [...current, agent.id] : current)} />
+                  onChange={() => changeTargets(current => current.includes(agent.id) ? current.filter(id => id !== agent.id) : current.length < 8 ? [...current, agent.id] : current)} />
                 <span className="min-w-0 break-words">{agent.name}<span className="ml-1 text-xs text-muted-foreground">@{agent.id}</span></span>
               </label>;
             })}
@@ -81,7 +92,7 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
     <div className="flex flex-wrap gap-1 px-2">
       {targets.map(id => <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs">
         <span className="truncate">@{id}</span>
-        <button type="button" disabled={busy} aria-label={`${t('mention.remove')} ${id}`} onClick={() => setTargets(v => v.filter(x => x !== id))}><X className="size-3" /></button>
+        <button type="button" disabled={busy} aria-label={`${t('mention.remove')} ${id}`} onClick={() => changeTargets(v => v.filter(x => x !== id))}><X className="size-3" /></button>
       </span>)}
       {userTargets.map(id => <span key={`user:${id}`} className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs">
         <UserRound className="size-3 shrink-0" /><span className="truncate">{id}</span>
