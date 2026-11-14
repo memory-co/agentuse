@@ -219,7 +219,7 @@ local_http:
   host: 127.0.0.1
   port: 7801
 session:
-  work_root: ~/.agentuse/tmp
+  work_root: ~/.agentuse/workspace
   quota:
     max_bytes: 21474836480
 ```

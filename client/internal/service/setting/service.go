@@ -38,7 +38,7 @@ func Defaults() Settings {
 	s.LocalHTTP.Host = "127.0.0.1"
 	s.LocalHTTP.Port = 7801
 	home, _ := os.UserHomeDir()
-	s.Session.WorkRoot = filepath.Join(home, ".agentuse", "tmp")
+	s.Session.WorkRoot = filepath.Join(home, ".agentuse", "workspace")
 	return s
 }
 func (s Settings) Validate() error {

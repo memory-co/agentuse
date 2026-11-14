@@ -111,7 +111,7 @@ func TestRunningClientUsesStartupConfiguration(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	path := filepath.Join(home, ".agentuse", "endpoints.yaml")
-	root := filepath.Join(home, ".agentuse", "tmp")
+	root := filepath.Join(home, ".agentuse", "workspace")
 	files, err := session.New(root)
 	if err != nil {
 		t.Fatal(err)

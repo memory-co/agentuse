@@ -2,6 +2,55 @@
 
 Client 爲每個執行環境提供 `context`。AI 用它查詢執行身份與狀態、讀取 conversation 下的全部附件，並把輸出文件交給 Server；人類用 `agentuse context` 調試同一份上下文，也可以進入綁定該 run 的 shell。
 
+## 與 harnessctl 的關係
+
+`context` 是 AgentUse Client 提供給原生模型使用的工具。Client 通過 harnessctl 啓動或恢復 Codex、Claude Code 等原生程序；執行中的 AI 再通過原生 shell 工具調用 `context`。harnessctl 的公開命令仍是 init、send、cancel、status、reply，`context` 不屬於這套命令，也不是獨立適配器包的運行依賴。
+
+| 組件 | 負責的上下文 |
+|---|---|
+| Client | 準備 endpoint、conversation、Agent、本機 session、共享 workspace 及 Server 訪問配置，提供 `context` 命令入口 |
+| harnessctl | 管理原生執行會話、run、輸入受理、插話、排隊和執行事件；通過公共 status 和事件確認執行事實 |
+| context | 讀取 Client 提供的業務綁定，需要執行身份時查詢適配器，再調用對應 Server 的附件 API |
+| Server | 校驗業務歸屬及訪問權限，保存 conversation、消息和文件 |
+
+```mermaid
+flowchart LR
+    C[Client] -->|init / send| H[harnessctl]
+    H -->|原生協議| N[Codex / Claude Code]
+    N -->|AI 通過 shell 調用| T[context]
+    T -->|需要當前 run 時查詢 status| H
+    T -->|附件 API| S[Server]
+```
+
+### 為甚麼 AI 不需要傳入各種 ID
+
+Client 為本機 session 建立 `context.json` 和 `bin/context` 命令入口，將描述文件路徑放入 `AGENTUSE_CONTEXT`，並把命令目錄加入 harness 的 `PATH`。harnessctl 啓動的原生程序及其工具子進程繼承這個環境。因此 AI 可以直接執行：
+
+```bash
+context attachment list
+context attachment download user_input/截图.png
+context attachment upload reports/result.pdf
+```
+
+Server 地址、憑據和業務 ID 由 Client 的綁定提供，AI 只需指定文件路徑。這些業務信息不屬於 harnessctl 的原生協議；單獨使用 harnessctl 時不會自動獲得 AgentUse 的 `context` 工具。
+
+`endpoint_id + conversation_id` 定位共享文件空間。同一 conversation 可以同時由多個 Agent 或不同本機 session 執行，因此描述文件還會綁定本機 session 和適配器，供需要執行身份的命令定位實際 run。這些內部定位信息不需要 AI 作為命令參數傳入，也不通過當前工作目錄猜測。
+
+### 哪些命令需要 run
+
+| 命令 | 使用範圍 |
+|---|---|
+| `attachment list/download` | 綁定的 endpoint 和整個 conversation；不要求活動 run |
+| `status` | 查詢所選 run 的身份和狀態 |
+| `attachment upload` | 文件保存到 conversation，並關聯當前活動 run；Server 校驗執行歸屬與活動狀態 |
+| `agentuse context enter` | 為人工調試打開綁定所選 run 的 shell |
+
+原生進程可能跨多個 run 複用；適配器也可能提前受理其他排隊 run。當前 run 必須由執行綁定或適配器的公共 status 確認，不能一直沿用進程啓動時的 run ID，也不能選擇最後一條 accepted 作為當前執行。人類通過 `enter` 固定的 run 則保持明確選擇，不會自動切換。
+
+消息及補充消息由 `harnessctl send` 投遞到原生模型，受理和結果覆蓋範圍由 accepted/result 確認。AI 不需要輪詢 context 讀取消息；查詢狀態、下載或上傳文件也不會開始新的 run 或結束當前執行。harnessctl 的獨立協議見 [協議規範](../../harnessctl/README.md)。
+
+## 文件交互
+
 文件交互採用兩個方向：
 
 | 方向 | 上傳 | 讀取 |
@@ -28,8 +77,6 @@ context status
 | `workspace` | conversation 共享工作目錄的絕對路徑 |
 
 `status` 只返回執行身份、狀態和工作目錄，不返回輸入正文、輸入列表或設備憑據。默認通過適配器公開的 status 確認當前 run；歷史 run 可顯式指定。
-
-消息及補充消息統一由 `harnessctl send` 投遞到原生模型。輸入受理、插話、排隊和結果覆蓋範圍以適配器的 accepted/result 事件為準，AI 無需通過 context 再次讀取消息。
 
 ## 列出文件
 
@@ -99,7 +146,7 @@ Client 爲本機 session 生成描述文件：
 <session.work_root>/<endpoint_id>/<conversation_id>/sessions/<session_id>/context.json
 ```
 
-默認工作根目錄是 `~/.agentuse/tmp`。在本機頁面找到 endpoint、conversation、session 和 run 後，可顯式查看：
+默認工作根目錄是 `~/.agentuse/workspace`。在本機頁面找到 endpoint、conversation、session 和 run 後，可顯式查看：
 
 ```bash
 agentuse context --path /絕對路徑/context.json --run RUN_UUID status
@@ -123,5 +170,3 @@ Work 的協調、跨設備派發和工作授權由 Server 負責。協調 Agent 
 遠端 conversation 管理使用 `agentuse conversation`。文件操作統一爲 `context attachment list/download/upload`；下載只按路徑選擇文件，舊的 `read FILE_ID` 入口不保留。頂層 `agentuse attachment`、舊 `context attachments` 和省略子命令的入口也已移除。
 
 命令成功時退出碼爲 `0`，執行或存儲錯誤爲 `1`，參數錯誤爲 `2`。其他管理命令見 [Client CLI](cli.md)。
-
-`attachment list/download` 只需 context 描述文件，不需要活躍 run，也不按 `--run` 過濾；`status/upload/enter` 仍綁定實際 run。

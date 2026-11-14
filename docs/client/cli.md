@@ -67,7 +67,7 @@ agentuse ui --open
 | `~/.agentuse/endpoints.yaml` | 一个或多个 Server 的注册信息 |
 | `~/.agentuse/setting.yaml` | 本机页面和执行目录设置 |
 | `~/.agentuse/harness/` | harnessctl 适配器包 |
-| `~/.agentuse/tmp/` | conversation、原生 session、执行记录和 workspace |
+| `~/.agentuse/workspace/` | conversation、原生 session、执行记录和 workspace |
 | `~/.agentuse/ui.addr` | 运行中的本机页面地址 |
 | `~/.agentuse/ui.token` | 本机页面登录令牌 |
 
@@ -94,7 +94,7 @@ local_http:
   host: 127.0.0.1
   port: 7801
 session:
-  work_root: ~/.agentuse/tmp
+  work_root: ~/.agentuse/workspace
   quota:
     max_bytes: 21474836480
 ```
@@ -198,6 +198,8 @@ context attachment download user_input/截图.png
 context attachment upload ./report.pdf
 context --help
 ```
+
+`context` 由 Client 提供给原生程序及其工具子进程使用，业务绑定随执行环境继承；harnessctl 负责原生执行和实际 run，context 在需要时通过它的公共 status 确认当前执行。context 不属于 harnessctl 的五个命令，也不接管消息投递。职责、调用链及各命令的作用范围见 [与 harnessctl 的关系](context.md#與-harnessctl-的關係)。
 
 `status` 只输出执行身份、状态和工作目录，不包含输入正文或输入列表。`attachment list` 直接查詢整個 conversation 的 Server 附件；`download` 按 `relative_path` 選擇文件，下載、校驗並保存到 workspace/<relative_path>，返回本地路徑和 MIME 類型；兩者不需要活躍 run。下載不使用附件 ID，從其他目錄調用時也保存到 context 綁定的 workspace。圖片再用原生工具讀取。`upload` 自动关联当前 conversation/run，返回附件元数据和可在回复中引用的 `download_path`，Server 用户可直接查看或下载。所有结果为 JSON。
 

@@ -2,6 +2,19 @@
 
 AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇或進入相同上下文。它提供執行身份、狀態與文件能力，遠端 conversation 管理使用 `agentuse conversation`。操作文檔見 [執行上下文手冊](../../../docs/client/context.md)。
 
+## 與 harnessctl 的邊界
+
+context 屬於 Client 的平台工具層，harnessctl 屬於獨立的原生執行適配層。Client 準備業務綁定、命令入口和繼承環境，通過 harnessctl 驅動原生程序；AI 在原生程序的 shell 工具中調用 context。context 不是 harnessctl 的子命令，獨立適配器不依賴 AgentUse，也不解釋 endpoint、conversation、附件 API 或 Work 業務。
+
+上下文由兩部分組合：
+
+- **業務綁定**由 Client 提供：endpoint、conversation、Agent、本機 session、workspace 及訪問 Server 所需的配置。context.json 固定本機綁定，憑據由 Client 私有註冊配置取得。
+- **執行事實**由 harnessctl 提供：原生上下文、實際 run、輸入歸屬、交互請求及結果。context 通過公共 status 和事件選擇、校驗 run，不讀取適配器的私有 `.d/` 狀態，也不另行分配執行身份。
+
+endpoint/conversation 足以確定文件空間，但同一空間可同時有多個 Agent、本機 session 和 run。context 仍保留 session/適配器綁定，以便狀態查詢和輸出上傳取得正確執行來源；調用 AI 無需自行提供這些 ID。list/download 只使用 conversation 範圍，upload 仍按現行規則關聯活動 run。文件操作不參與 send 的受理、插話或排隊決策。
+
+原生程序及工具子進程繼承的是 Client 準備的環境，不是僅從 cwd 獲得身份。原生進程可跨 run 復用，因此 session 的固定業務綁定與動態的當前 run 必須分開：沒有明確執行綁定時詢問公共 status，不把啓動時的 run/message 環境變量作為後續執行身份。
+
 ## 身份與選擇
 
 不引入 context ID，也不增加 Server task、租約或初始化階段。描述文件固定 endpoint、conversation、Client session 和適配器包位置；run UUID 仍只能來自公共 accepted 事件。

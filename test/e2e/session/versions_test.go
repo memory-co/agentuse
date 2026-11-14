@@ -155,7 +155,7 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 		t.Fatal("reply lost author version", last)
 	}
 	for sid, want := range map[string]string{firstSession: "Agent one", session2: "Agent two"} {
-		roots, e := filepath.Glob(filepath.Join(home, ".agentuse", "tmp", "*", id, "sessions", sid, "events.jsonl.d", "resources"))
+		roots, e := filepath.Glob(filepath.Join(home, ".agentuse", "workspace", "*", id, "sessions", sid, "events.jsonl.d", "resources"))
 		if e != nil || len(roots) != 1 {
 			t.Fatal(roots, e)
 		}
@@ -172,7 +172,7 @@ func TestAgentSkillVersionsThroughClientInit(t *testing.T) {
 			t.Fatal(string(data), e)
 		}
 	}
-	workspace, e := filepath.Glob(filepath.Join(home, ".agentuse", "tmp", "*", id, "workspace", "AGENTS.md"))
+	workspace, e := filepath.Glob(filepath.Join(home, ".agentuse", "workspace", "*", id, "workspace", "AGENTS.md"))
 	if e != nil || len(workspace) != 0 {
 		t.Fatal("resources polluted workspace", workspace, e)
 	}

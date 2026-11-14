@@ -73,7 +73,7 @@ Local 模式的 agent_version_id 是 harness、model、指令及有序 ZIP 摘�
 
 ## 生命週期和回收
 
-工作根目錄是 setting.yaml 的 session.work_root，默認 ~/.agentuse/tmp。目錄固定爲 <root>/<endpoint_id>/<conversation_id>/，實際 cwd 是其 workspace/，session 元數據在同級 sessions/。修改根目錄須停止並重啓，需要保留歷史時完整遷移目錄。
+工作根目錄是 setting.yaml 的 session.work_root，默認 ~/.agentuse/workspace。目錄固定爲 <root>/<endpoint_id>/<conversation_id>/，實際 cwd 是其 workspace/，session 元數據在同級 sessions/。修改根目錄須停止並重啓，需要保留歷史時完整遷移目錄。
 
 啓動時清理遺留前臺工作並重建 run 引用；不自動重放舊輸入。Session 生命週期狀態不承擔 server 派發或確認狀態。中心事件的 ACK 遊標和輸入/控制收據隔離在 .server/。
 

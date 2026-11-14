@@ -119,7 +119,7 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 				run = detail.Runs[0]
 				return run.ID != ""
 			})
-			workspace := filepath.Join(home, ".agentuse", "tmp", ep, conversation, "workspace")
+			workspace := filepath.Join(home, ".agentuse", "workspace", ep, conversation, "workspace")
 			if h == "fake" {
 				if _, err = os.Stat(filepath.Join(workspace, filepath.FromSlash(attachment.RelativePath))); !os.IsNotExist(err) {
 					t.Fatal("Client downloaded before context read", err)
@@ -188,7 +188,7 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 				t.Fatal("Server user could not read output", string(body), err)
 			}
 
-			path := filepath.Join(home, ".agentuse", "tmp", ep, conversation, "sessions", proof.Context.SessionID, "context.json")
+			path := filepath.Join(home, ".agentuse", "workspace", ep, conversation, "sessions", proof.Context.SessionID, "context.json")
 			inspect := exec.Command(cli, "context", "--path", path, "--run", run.ID, "status")
 			inspect.Env = e2eutil.Env(home)
 			var selected struct {

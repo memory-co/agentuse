@@ -136,7 +136,7 @@ func TestMultiAgentSession(t *testing.T) {
 	}
 	u, _ := url.Parse(srv.URL)
 	ep := "http---" + strings.ReplaceAll(u.Host, ":", "%3A")
-	if err = os.WriteFile(filepath.Join(homeA, ".agentuse", "tmp", ep, id, "workspace", "release"), []byte("go"), 0600); err != nil {
+	if err = os.WriteFile(filepath.Join(homeA, ".agentuse", "workspace", ep, id, "workspace", "release"), []byte("go"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	detail, err := c.WaitMessageRuns(ctx, user, id, second.Message.ID, 30*time.Millisecond)

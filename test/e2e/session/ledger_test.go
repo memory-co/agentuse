@@ -140,7 +140,7 @@ func TestClientMultiEndpointFilesAndUI(t *testing.T) {
 		if status := get(path+"/usage", &usage); status != 200 {
 			t.Fatal(status)
 		}
-		dir := filepath.Join(home, ".agentuse", "tmp", p.endpoint, created.Conversation.ID)
+		dir := filepath.Join(home, ".agentuse", "workspace", p.endpoint, created.Conversation.ID)
 		if st, e := os.Stat(filepath.Join(dir, "workspace")); e != nil || !st.IsDir() {
 			t.Fatal("workspace missing", e)
 		}
@@ -227,7 +227,7 @@ func TestClientNativeSessionsShareWorkspaceAndRunConcurrently(t *testing.T) {
 	})
 	u, _ := url.Parse(server.URL)
 	ep := "http---" + strings.ReplaceAll(u.Host, ":", "%3A")
-	dir := filepath.Join(home, ".agentuse", "tmp", ep, first.Conversation.ID)
+	dir := filepath.Join(home, ".agentuse", "workspace", ep, first.Conversation.ID)
 	sessions, e := filepath.Glob(filepath.Join(dir, "sessions", "*", "session.yaml"))
 	if e != nil || len(sessions) != 2 {
 		t.Fatal("missing parallel sessions", sessions, e)

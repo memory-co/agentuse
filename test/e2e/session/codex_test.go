@@ -142,7 +142,7 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 	if !acknowledged || assistantCount != 1 || !strings.Contains(output, nonce) {
 		t.Fatalf("steer not applied in original run: ack=%v assistants=%d output=%q", acknowledged, assistantCount, output)
 	}
-	files, e := filepath.Glob(filepath.Join(home, ".agentuse", "tmp", "*", id, "sessions", "*", "events.jsonl"))
+	files, e := filepath.Glob(filepath.Join(home, ".agentuse", "workspace", "*", id, "sessions", "*", "events.jsonl"))
 	if e != nil || len(files) != 1 {
 		t.Fatal("missing harnessctl session events", files, e)
 	}
