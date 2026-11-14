@@ -2,11 +2,13 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
 
 	sdk "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/service"
 )
 
 func TestAttachmentPublicationSharesConversationNamespaceAndProtectsReferences(t *testing.T) {
@@ -35,5 +37,36 @@ func TestAttachmentPublicationSharesConversationNamespaceAndProtectsReferences(t
 	stream.Close()
 	if err != nil || string(data) != "attachment" {
 		t.Fatal(string(data), err)
+	}
+}
+
+func TestConversationFileReadsEnforceBusinessAccess(t *testing.T) {
+	f := attachmentEnv(t, 4096, 16384)
+	ctx := context.Background()
+	path := "reports/result.txt"
+	owner := service.AttachmentAccess{User: f.u, Token: f.token}
+	if err := f.e.st.PutConversationFile(ctx, owner, f.conversation.ID, path, strings.NewReader("result")); err != nil {
+		t.Fatal(err)
+	}
+	stream, size, err := f.e.st.OpenConversationFile(ctx, owner, f.conversation.ID, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(stream)
+	stream.Close()
+	if err != nil || size != int64(len(data)) || string(data) != "result" {
+		t.Fatal(string(data), size, err)
+	}
+	stranger, token := f.e.user("stranger", service.RoleUser)
+	for _, access := range []service.AttachmentAccess{
+		{User: stranger, Token: token},
+		{DeviceID: f.d.ID, Token: f.key}, // No message has been delivered to this device.
+	} {
+		if stream, _, err := f.e.st.OpenConversationFile(ctx, access, f.conversation.ID, path); !errors.Is(err, service.ErrNotFound) {
+			if stream != nil {
+				stream.Close()
+			}
+			t.Fatal("conversation file bypassed business authorization", err)
+		}
 	}
 }

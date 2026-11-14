@@ -1,3 +1,4 @@
+// Conversation attachment metadata, authorization and quotas belong to the conversation business layer.
 package service
 
 import (

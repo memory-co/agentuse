@@ -151,6 +151,31 @@ func TestServerDoesNotImportHarnessExecution(t *testing.T) {
 	}
 }
 
+// File storage is a reusable byte backend; conversation and skill owners apply
+// authorization, quotas, metadata transactions and lifecycle policy above it.
+func TestServerFileStorageDoesNotImportBusinessLayers(t *testing.T) {
+	root := filepath.Join("..", "..", "server", "internal", "service", "file")
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return err
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, im := range file.Imports {
+			value, _ := strconv.Unquote(im.Path.Value)
+			if value == "database/sql" || strings.HasPrefix(value, "github.com/memory-co/agentuse/") {
+				t.Errorf("generic file storage %s imports business dependency %s", path, value)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Work is Server business policy. The Client may carry opaque instructions and
 // credentials, but must not choose work roles or implement work tool commands.
 func TestClientDoesNotInterpretWorkBusinessPolicy(t *testing.T) {

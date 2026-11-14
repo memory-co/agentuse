@@ -21,16 +21,16 @@ type Notifier interface {
 }
 
 type Service struct {
-	BrowserChanges BrowserChanges
-	Files          *fileservice.Service
-	Skills         *skillservice.Service
-	attachments    AttachmentConfig
-	attachmentMu   sync.RWMutex
-	log            *log.Logger
-	repository     *store.Store
-	db             *sql.DB
-	now            func() time.Time
-	Notifier       Notifier
+	BrowserChanges               BrowserChanges
+	Files                        *fileservice.Service
+	Skills                       *skillservice.Service
+	conversationAttachmentLimits conversationAttachmentLimits
+	conversationFilesMu          sync.RWMutex
+	log                          *log.Logger
+	repository                   *store.Store
+	db                           *sql.DB
+	now                          func() time.Time
+	Notifier                     Notifier
 }
 
 func New(st *store.Store) *Service {

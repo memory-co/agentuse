@@ -14,7 +14,6 @@ func (s *Server) handleConversationFile(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 503, "file storage unavailable")
 		return
 	}
-	key := r.PathValue("id") + "/" + r.PathValue("path")
 	switch r.Method {
 	case http.MethodPut:
 		r.Body = http.MaxBytesReader(w, r.Body, s.cfg.AttachmentMaxBytes)
@@ -24,7 +23,7 @@ func (s *Server) handleConversationFile(w http.ResponseWriter, r *http.Request) 
 		}
 		w.WriteHeader(204)
 	default:
-		stream, size, err := s.service.Files.Get(r.Context(), "conversations", key)
+		stream, size, err := s.service.OpenConversationFile(r.Context(), attachmentAccess(r), r.PathValue("id"), r.PathValue("path"))
 		if err != nil {
 			s.storeErr(w, err)
 			return

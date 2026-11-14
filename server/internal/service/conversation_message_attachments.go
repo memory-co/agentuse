@@ -1,3 +1,4 @@
+// Message attachment snapshots and output attribution belong to conversation orchestration.
 package service
 
 import (

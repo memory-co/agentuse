@@ -1,3 +1,4 @@
+// Conversation attachment publication coordinates metadata and byte storage through file.Service.
 package service
 
 import (
@@ -10,18 +11,18 @@ import (
 	"github.com/memory-co/agentuse/internal/attachment"
 )
 
-type AttachmentConfig struct{ MaxBytes, ConversationMaxBytes int64 }
+type conversationAttachmentLimits struct{ MaxBytes, ConversationMaxBytes int64 }
 
-func (s *Service) ConfigureAttachments(max, total int64, logger *log.Logger) {
-	s.attachments = AttachmentConfig{max, total}
+func (s *Service) ConfigureConversationAttachments(max, total int64, logger *log.Logger) {
+	s.conversationAttachmentLimits = conversationAttachmentLimits{max, total}
 	if logger != nil {
 		s.log = logger
 	}
 }
 
 func (s *Service) OpenAttachmentFile(ctx context.Context, conversation, id string) (io.ReadCloser, error) {
-	s.attachmentMu.RLock()
-	defer s.attachmentMu.RUnlock()
+	s.conversationFilesMu.RLock()
+	defer s.conversationFilesMu.RUnlock()
 	metadata, err := s.GetAttachment(ctx, conversation, id)
 	if err != nil {
 		return nil, err
@@ -29,7 +30,7 @@ func (s *Service) OpenAttachmentFile(ctx context.Context, conversation, id strin
 	if s.Files == nil {
 		return nil, fmt.Errorf("file storage unavailable")
 	}
-	stream, size, err := s.Files.Get(ctx, "conversations", conversation+"/"+metadata.RelativePath)
+	stream, size, err := s.Files.Get(ctx, conversationFileNamespace, conversation+"/"+metadata.RelativePath)
 	if err != nil {
 		return nil, err
 	}
@@ -41,29 +42,29 @@ func (s *Service) OpenAttachmentFile(ctx context.Context, conversation, id strin
 }
 
 func (s *Service) PublishAttachment(ctx context.Context, a AttachmentAccess, v *attachment.Attachment, temp string) error {
-	if v.SizeBytes < 0 || v.SizeBytes > s.attachments.MaxBytes {
+	if v.SizeBytes < 0 || v.SizeBytes > s.conversationAttachmentLimits.MaxBytes {
 		return ErrAttachmentQuota
 	}
 	if s.Files == nil {
 		return fmt.Errorf("file storage unavailable")
 	}
-	s.attachmentMu.Lock()
-	defer s.attachmentMu.Unlock()
+	s.conversationFilesMu.Lock()
+	defer s.conversationFilesMu.Unlock()
 	published := false
-	err := s.CommitAttachment(ctx, a, v, s.attachments.ConversationMaxBytes, func() error {
+	err := s.CommitAttachment(ctx, a, v, s.conversationAttachmentLimits.ConversationMaxBytes, func() error {
 		source, err := os.Open(temp)
 		if err != nil {
 			return err
 		}
 		defer source.Close()
-		if err = s.Files.Put(ctx, "conversations", v.ConversationID+"/"+v.RelativePath, source, true); err != nil {
+		if err = s.Files.Put(ctx, conversationFileNamespace, v.ConversationID+"/"+v.RelativePath, source, true); err != nil {
 			return err
 		}
 		published = true
 		return nil
 	})
 	if err != nil && published {
-		if cleanup := s.Files.Delete(ctx, "conversations", v.ConversationID+"/"+v.RelativePath); cleanup != nil {
+		if cleanup := s.Files.Delete(ctx, conversationFileNamespace, v.ConversationID+"/"+v.RelativePath); cleanup != nil {
 			s.log.Printf("attachment publish cleanup: %v", cleanup)
 		}
 	}
@@ -71,8 +72,8 @@ func (s *Service) PublishAttachment(ctx context.Context, a AttachmentAccess, v *
 }
 
 func (s *Service) DeleteAttachment(ctx context.Context, a AttachmentAccess, conversation, id string) error {
-	s.attachmentMu.Lock()
-	defer s.attachmentMu.Unlock()
+	s.conversationFilesMu.Lock()
+	defer s.conversationFilesMu.Unlock()
 	metadata, err := s.GetAttachment(ctx, conversation, id)
 	if err != nil {
 		return err
@@ -81,7 +82,7 @@ func (s *Service) DeleteAttachment(ctx context.Context, a AttachmentAccess, conv
 		return err
 	}
 	if s.Files != nil {
-		if err = s.Files.Delete(ctx, "conversations", conversation+"/"+metadata.RelativePath); err != nil {
+		if err = s.Files.Delete(ctx, conversationFileNamespace, conversation+"/"+metadata.RelativePath); err != nil {
 			s.log.Printf("attachment cleanup: %v", err)
 		}
 	}

@@ -1,3 +1,4 @@
+// Conversation file operations apply business policy before calling the generic file storage service.
 package service
 
 import (
@@ -9,6 +10,25 @@ import (
 
 	"github.com/memory-co/agentuse/internal/attachment"
 )
+
+const conversationFileNamespace = "conversations"
+
+// OpenConversationFile applies conversation access rules before opening bytes.
+// Storage backends only receive the namespace and relative storage key.
+func (s *Service) OpenConversationFile(ctx context.Context, access AttachmentAccess, conversation, path string) (io.ReadCloser, int64, error) {
+	if _, err := attachment.RelativePath(path); err != nil {
+		return nil, 0, err
+	}
+	s.conversationFilesMu.RLock()
+	defer s.conversationFilesMu.RUnlock()
+	if _, err := s.attachmentConversation(ctx, s.db, access, conversation, false); err != nil {
+		return nil, 0, err
+	}
+	if s.Files == nil {
+		return nil, 0, fmt.Errorf("file storage unavailable")
+	}
+	return s.Files.Get(ctx, conversationFileNamespace, conversation+"/"+path)
+}
 
 // Raw conversation files share the same backend and serialization as attachments.
 // Referenced attachments remain immutable; ordinary unreferenced raw files may
@@ -23,8 +43,8 @@ func (s *Service) PutConversationFile(ctx context.Context, access AttachmentAcce
 	if s.Files == nil {
 		return fmt.Errorf("file storage unavailable")
 	}
-	s.attachmentMu.Lock()
-	defer s.attachmentMu.Unlock()
+	s.conversationFilesMu.Lock()
+	defer s.conversationFilesMu.Unlock()
 	return s.repository.Tx(ctx, func(tx *sql.Tx) error {
 		if _, err := s.attachmentConversation(ctx, tx, access, conversation, true); err != nil {
 			return err
@@ -36,17 +56,17 @@ func (s *Service) PutConversationFile(ctx context.Context, access AttachmentAcce
 		if registered != 0 {
 			return ErrAttachmentReferenced
 		}
-		return s.Files.Put(ctx, "conversations", conversation+"/"+path, source, false)
+		return s.Files.Put(ctx, conversationFileNamespace, conversation+"/"+path, source, false)
 	})
 }
 
 // Database deletion commits first. A backend failure is logged for operational retry;
 // it must never roll back a completed database transaction or touch skill packages.
 func (s *Service) cleanupConversationFiles(ctx context.Context, id string) {
-	s.attachmentMu.Lock()
-	defer s.attachmentMu.Unlock()
+	s.conversationFilesMu.Lock()
+	defer s.conversationFilesMu.Unlock()
 	if s.Files != nil {
-		if err := s.Files.DeletePrefix(ctx, "conversations", id); err != nil {
+		if err := s.Files.DeletePrefix(ctx, conversationFileNamespace, id); err != nil {
 			s.log.Printf("conversation %s file cleanup: %v", id, err)
 		}
 	}

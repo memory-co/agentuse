@@ -51,7 +51,7 @@ func New(st *service.Service, cfg Config) *Server {
 	s := &Server{cfg: cfg, log: cfg.Logger, mux: http.NewServeMux()}
 	s.service = st
 	if st != nil {
-		s.service.ConfigureAttachments(cfg.AttachmentMaxBytes, cfg.AttachmentConversationMaxBytes, cfg.Logger)
+		s.service.ConfigureConversationAttachments(cfg.AttachmentMaxBytes, cfg.AttachmentConversationMaxBytes, cfg.Logger)
 	}
 	if s.cfg.ClientHandler == nil {
 		s.cfg.ClientHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeErr(w, 503, "device transport not configured") })

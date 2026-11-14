@@ -17,6 +17,21 @@ DeletePrefix(namespace, prefix)       清理一個業務空間
 
 fileService 不新增全局 files/attachments 元數據表。存儲後端是字節內容和存在性的事實來源。AgentUse 不用一個 conversation_id 參數硬套所有文件，更不把 skill 包僞裝爲某個 conversation 的附件。
 
+## 實現分工
+
+fileService 對應 `server/internal/service/file.Service`，本地和 S3 後端都位於 `service/file/`。Conversation 的文件及附件業務按 `conversation_*` 源碼文件歸攏，由 `service.Service` 作為業務入口編排；這些文件不另建 attachmentService，也不實現第二套存儲後端。
+
+| 源碼 | 所屬職責 |
+|---|---|
+| `service/file/service.go`、`service/file/s3.go` | 通用字節存儲、命名空間邊界及本地/S3 差異 |
+| `service/conversation_files.go` | Conversation 普通文件的授權讀取、寫入策略與整個文件空間的清理 |
+| `service/conversation_attachments.go` | 附件訪問權限、容量限制及元數據事務 |
+| `service/conversation_attachment_files.go` | 附件發佈、元數據與字節提交協調、失敗補償及刪除 |
+| `service/conversation_attachment_paths.go` | 重名分配與已登記附件路徑保護 |
+| `service/conversation_message_attachments.go` | 消息附件快照和執行產物到回覆的關聯 |
+
+HTTP 普通文件讀取通過 `OpenConversationFile`，寫入通過 `PutConversationFile`；業務入口先校驗 conversation 權限，再調用 fileService。附件額度由 `ConfigureConversationAttachments` 設置，普通文件寫入、附件發佈和清理共用 conversation 的文件協調鎖。SQL、設備/run 授權、配額及消息引用均留在 conversation 業務層，fileService 只接收命名空間、相對存儲路徑和字節流。
+
 ## 命名空間與目錄
 
 | 命名空間 | 業務擁有者 | 相對路徑 | 寫入約束 |

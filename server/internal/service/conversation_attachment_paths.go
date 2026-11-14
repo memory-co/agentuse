@@ -1,3 +1,4 @@
+// Conversation attachment naming preserves message references across uploads and raw file writes.
 package service
 
 import (
@@ -24,7 +25,7 @@ func (s *Service) assignAttachmentPath(ctx context.Context, tx *sql.Tx, file *at
 	candidate := requested
 	extension := path.Ext(requested)
 	stem := strings.TrimSuffix(path.Base(requested), extension)
-	stored, err := s.Files.List(ctx, "conversations", file.ConversationID)
+	stored, err := s.Files.List(ctx, conversationFileNamespace, file.ConversationID)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
