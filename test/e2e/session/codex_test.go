@@ -115,7 +115,7 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sent.Runs) != 0 || len(sent.Deliveries) != 1 {
+	if len(sent.Runs) != 0 || len(sent.RunInputs) != 0 {
 		t.Fatalf("not steered to same run: %+v", sent)
 	}
 	detail, err := c.WaitMessageRuns(ctx, user, id, sent.Message.ID, 100*time.Millisecond)
@@ -128,8 +128,8 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 	var acknowledged bool
 	var output string
 	var assistantCount int
-	for _, delivery := range detail.Deliveries {
-		if delivery.MessageID == sent.Deliveries[0].MessageID && delivery.AgentID == sent.Deliveries[0].AgentID && delivery.RunID == runID && delivery.InputID != "" {
+	for _, delivery := range detail.RunInputs {
+		if delivery.MessageID == sent.Message.ID && delivery.RunID == runID && delivery.InputID != "" {
 			acknowledged = true
 		}
 	}

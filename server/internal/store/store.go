@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS messages (
   content    TEXT NOT NULL,
   attachments TEXT NOT NULL DEFAULT '[]', author_user_id TEXT, author_agent_id TEXT, to_agent_ids TEXT NOT NULL DEFAULT '[]', to_user_ids TEXT NOT NULL DEFAULT '[]', reply_to_message_id TEXT, author_agent_version_id TEXT,
   author_conversation_id TEXT, author_round_seq INTEGER,
+  agent_targets TEXT NOT NULL DEFAULT '{}',
   created_at INTEGER NOT NULL,
   CHECK ((author_role='child_conversation' AND author_conversation_id IS NOT NULL AND author_round_seq IS NOT NULL AND author_round_seq>0 AND author_user_id IS NULL AND author_agent_id IS NULL AND author_agent_version_id IS NULL) OR (author_role IN ('user','agent') AND author_conversation_id IS NULL AND author_round_seq IS NULL))
 );
@@ -129,11 +130,11 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if revision != 9 && (existing > 0 || revision != 0) {
+	if revision != 10 && (existing > 0 || revision != 0) {
 		db.Close()
 		return nil, errors.New("unsupported database schema: reset the database before starting this version")
 	}
-	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=9;"); err != nil {
+	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=10;"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("store: initialize: %w", err)
 	}

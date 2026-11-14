@@ -17,7 +17,7 @@ func TestRunAPIUsesClientIdentityAndGenericReply(t *testing.T) {
 	ctx := context.Background()
 	var reply agentuse.Reply
 	response := f.e.req(f.token, "POST", "/api/conversations/"+f.conversation.ID+"/messages", map[string]any{"prompt": "input", "to_agent_ids": []string{f.agent}}, &reply)
-	if response.StatusCode != 201 || len(reply.Runs) != 0 || len(reply.Deliveries) != 1 {
+	if response.StatusCode != 201 || len(reply.Runs) != 0 || len(reply.RunInputs) != 0 {
 		t.Fatal("server predicted run membership", response.StatusCode, reply)
 	}
 	p, err := f.e.st.RunService.DispatchMessage(ctx, f.d)
@@ -35,6 +35,10 @@ func TestRunAPIUsesClientIdentityAndGenericReply(t *testing.T) {
 	var detail agentuse.ConversationDetail
 	if r := f.e.req(f.token, "GET", "/api/conversations/"+f.conversation.ID, nil, &detail); r.StatusCode != 200 || len(detail.Runs) != 1 || detail.Runs[0].ID != run {
 		t.Fatal(r.StatusCode, detail)
+	}
+	var execution agentuse.RunDetail
+	if r := f.e.req(f.token, "GET", "/api/conversations/"+f.conversation.ID+"/runs/"+run, nil, &execution); r.StatusCode != 200 || len(execution.Inputs) != 1 || execution.Inputs[0].InputID != "input" || execution.Inputs[0].MessageID != reply.Message.ID {
+		t.Fatal("Run details omitted accepted inputs", r.StatusCode, execution)
 	}
 	raw, _ := json.Marshal(detail)
 	for _, foreign := range []string{"attempt_id", "lease_until", "harness_run_ids", "agent_user_id"} {

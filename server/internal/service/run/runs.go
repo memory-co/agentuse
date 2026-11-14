@@ -3,9 +3,11 @@ package run
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
@@ -54,43 +56,69 @@ func (s *Service) RunsIn(ctx context.Context, q store.RowsQuerier, conversation 
 	return out, rows.Err()
 }
 
-const messageTargetCols = `SELECT message_id,conversation_id,agent_id,agent_version_id,device_id,harness,(SELECT content FROM messages WHERE id=message_agents.message_id),status,run_id,input_id,session_id,error FROM message_agents`
-
-func scanMessageTarget(row store.Scanner) (agentuse.Delivery, error) {
-	var d agentuse.Delivery
-	var content string
-	err := row.Scan(&d.MessageID, &d.ConversationID, &d.AgentID, &d.AgentVersionID, &d.DeviceID, &d.Harness, &content, &d.Status, &d.RunID, &d.InputID, &d.SessionID, &d.Error)
-	d.Content = content
-	if err == sql.ErrNoRows {
-		err = store.ErrNotFound
-	}
-	return d, err
+// MessageTarget contains transport metadata embedded in an existing message.
+// It has no execution state or identity; only accepted events create RunInputs.
+type MessageTarget struct {
+	MessageID      string                        `json:"-"`
+	ConversationID string                        `json:"-"`
+	AgentID        string                        `json:"-"`
+	Content        string                        `json:"-"`
+	AgentVersionID string                        `json:"agent_version_id"`
+	DeviceID       string                        `json:"device_id"`
+	Harness        string                        `json:"harness"`
+	Dispatch       *protocol.ConversationMessage `json:"dispatch,omitempty"`
+	Error          *agentuse.MessageError        `json:"error,omitempty"`
 }
-func (s *Service) DeliveriesIn(ctx context.Context, q store.RowsQuerier, where string, args ...any) ([]agentuse.Delivery, error) {
-	rows, err := q.QueryContext(ctx, messageTargetCols+` WHERE `+where+` ORDER BY (SELECT seq FROM messages WHERE id=message_agents.message_id),agent_id`, args...)
+
+const messageTargetCols = `SELECT m.id,m.conversation_id,t.key,json_extract(t.value,'$.agent_version_id'),json_extract(t.value,'$.device_id'),json_extract(t.value,'$.harness'),m.content,COALESCE(json_extract(t.value,'$.dispatch'),'null'),COALESCE(json_extract(t.value,'$.error'),'null') FROM ` + store.MessageTargetsFrom
+
+func scanMessageTarget(row store.Scanner) (MessageTarget, error) {
+	var p MessageTarget
+	var dispatch, receipt string
+	err := row.Scan(&p.MessageID, &p.ConversationID, &p.AgentID, &p.AgentVersionID, &p.DeviceID, &p.Harness, &p.Content, &dispatch, &receipt)
+	if err == sql.ErrNoRows {
+		return p, store.ErrNotFound
+	}
+	if err != nil {
+		return p, err
+	}
+	if err = json.Unmarshal([]byte(dispatch), &p.Dispatch); err != nil {
+		return p, err
+	}
+	err = json.Unmarshal([]byte(receipt), &p.Error)
+	return p, err
+}
+
+func (s *Service) DispatchedTarget(ctx context.Context, q store.Querier, device, conversation, message, agent string) (MessageTarget, error) {
+	return scanMessageTarget(q.QueryRowContext(ctx, messageTargetCols+` WHERE m.conversation_id=? AND m.id=? AND t.key=? AND json_extract(t.value,'$.device_id')=? AND `+store.MessageTargetDispatched, conversation, message, agent, device))
+}
+
+func (s *Service) RunInputsIn(ctx context.Context, q store.RowsQuerier, conversation string) ([]agentuse.RunInput, error) {
+	rows, err := q.QueryContext(ctx, `SELECT i.run_id,i.input_id,i.message_id,i.created_at FROM run_inputs i JOIN runs r ON r.id=i.run_id JOIN messages m ON m.id=i.message_id WHERE r.conversation_id=? ORDER BY m.seq,r.agent_id`, conversation)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []agentuse.Delivery{}
+	out := []agentuse.RunInput{}
 	for rows.Next() {
-		d, e := scanMessageTarget(rows)
-		if e != nil {
-			return nil, e
+		var input agentuse.RunInput
+		if err = rows.Scan(&input.RunID, &input.InputID, &input.MessageID, &input.CreatedAt); err != nil {
+			return nil, err
 		}
-		out = append(out, d)
+		out = append(out, input)
 	}
 	return out, rows.Err()
 }
-func (s *Service) Deliveries(ctx context.Context, conversation string) ([]agentuse.Delivery, error) {
-	return s.DeliveriesIn(ctx, s.DB, `conversation_id=?`, conversation)
+
+func (s *Service) RunInputs(ctx context.Context, conversation string) ([]agentuse.RunInput, error) {
+	return s.RunInputsIn(ctx, s.DB, conversation)
 }
 
 // Execution tables deliberately have no cascading database foreign keys.
 func (s *Service) DeleteConversationExecution(ctx context.Context, tx *sql.Tx, id string) error {
 	for _, query := range []string{
 		`DELETE FROM run_controls WHERE conversation_id=?`, `DELETE FROM run_requests WHERE conversation_id=?`,
-		`DELETE FROM run_events WHERE conversation_id=?`, `DELETE FROM runs WHERE conversation_id=?`, `DELETE FROM message_agents WHERE conversation_id=?`,
+		`DELETE FROM run_events WHERE conversation_id=?`, `DELETE FROM run_inputs WHERE run_id IN (SELECT id FROM runs WHERE conversation_id=?)`, `DELETE FROM runs WHERE conversation_id=?`,
 	} {
 		if _, err := tx.ExecContext(ctx, query, id); err != nil {
 			return err
@@ -113,31 +141,6 @@ func (s *Service) LinkRunReply(ctx context.Context, tx *sql.Tx, run, message str
 		return ErrRunState
 	}
 	return nil
-}
-
-// assignMessageTargets validates the execution route and fixes the Agent version
-// in the conversation's message transaction. It creates no run identity.
-func (s *Service) AssignMessageTargets(ctx context.Context, tx *sql.Tx, conversation agentuse.Conversation, message string, agentIDs []string) error {
-	for _, id := range agentIDs {
-		a, err := store.ScanAgent(tx.QueryRowContext(ctx, store.AgentCols+` WHERE id=?`, id))
-		if err != nil {
-			return err
-		}
-		if a.UserID != conversation.UserID {
-			return store.ErrNotFound
-		}
-		if err = s.DeviceService.CheckRuntime(ctx, tx, a.DeviceID, a.Harness); err != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO message_agents(conversation_id,message_id,agent_id,agent_version_id,device_id,harness,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, conversation.ID, message, a.ID, a.CurrentVersionID, a.DeviceID, a.Harness, s.Now().Unix(), s.Now().Unix()); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Service) DeliveredTarget(ctx context.Context, q store.Querier, device, conversation, message, agent string) (agentuse.Delivery, error) {
-	return scanMessageTarget(q.QueryRowContext(ctx, messageTargetCols+` WHERE conversation_id=? AND message_id=? AND agent_id=? AND device_id=? AND status IN ('sent','unknown','accepted','completed','failed','cancelled')`, conversation, message, agent, device))
 }
 
 func (s *Service) LookupRun(ctx context.Context, q store.Querier, id string) (agentuse.Run, error) {

@@ -47,7 +47,7 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 		"devices": "device", "device_harnesses": "device", "device_capabilities": "device",
 		"agents": "agent", "agent_versions": "agent", "agent_version_skills": "agent",
 		"conversations": "conversation", "conversation_rounds": "conversation", "messages": "conversation", "attachments": "conversation",
-		"message_agents": "run", "runs": "run", "run_events": "run", "run_requests": "run", "run_controls": "run",
+		"run_inputs": "run", "runs": "run", "run_events": "run", "run_requests": "run", "run_controls": "run",
 		"skills": "skill", "skill_versions": "skill",
 	}
 	writes := regexp.MustCompile(`(?i)\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+([a-z_]+)`)

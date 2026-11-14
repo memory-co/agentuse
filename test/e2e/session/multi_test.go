@@ -95,7 +95,7 @@ func TestMultiAgentSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	first, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:hold", ToAgentIDs: []string{"coder"}, AttachmentIDs: []string{sharedFile.ID}})
-	if err != nil || len(first.Runs) != 0 || len(first.Deliveries) != 1 {
+	if err != nil || len(first.Runs) != 0 || len(first.RunInputs) != 0 {
 		t.Fatal(first, err)
 	}
 	var firstRun string
@@ -112,7 +112,7 @@ func TestMultiAgentSession(t *testing.T) {
 		return false
 	})
 	second, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "multi:review", ToAgentIDs: []string{"coder", "reviewer"}})
-	if err != nil || len(second.Runs) != 0 || len(second.Deliveries) != 2 {
+	if err != nil || len(second.Runs) != 0 || len(second.RunInputs) != 0 {
 		t.Fatal(second, err)
 	}
 	e2eutil.WaitFor(t, 10*time.Second, "reviewer runs while coder is held", func() bool {
@@ -172,7 +172,7 @@ func testMultiSDKs(t *testing.T, server, token string) {
 		{"node", "node", ".mjs", fmt.Sprintf(`import {Client} from %q;
 import assert from 'node:assert/strict';const [baseUrl,token]=process.argv.slice(2);const c=new Client({baseUrl,token});
 const created=await c.createConversation('alice',{prompt:'FYI',to_user_ids:['alice']});const {conversation}=created;
-assert.deepEqual(created.message.to_agent_ids,[]);assert.deepEqual(created.message.to_user_ids,['alice']);assert.equal(conversation.status,'idle');assert.equal(created.deliveries.length,0);
+assert.deepEqual(created.message.to_agent_ids,[]);assert.deepEqual(created.message.to_user_ids,['alice']);assert.equal(conversation.status,'idle');assert.equal(created.run_inputs.length,0);
 assert.equal(conversation.mode,'single');
 const coordination=await c.createConversation('alice',{mode:'collaborative',title:'SDK collaboration'});
 assert.equal(coordination.conversation.mode,'collaborative');assert.deepEqual(await c.listChildren('alice',coordination.conversation.id),[]);
@@ -186,7 +186,7 @@ assert.equal((await c.getRun('alice',conversation.id,d.runs[0].id)).run.id,d.run
 		{"python", "python3", ".py", `import sys
 from agentuse import Client
 c=Client(sys.argv[1],sys.argv[2]);created=c.create_conversation('alice',prompt='FYI',to_user_ids=['alice']);s=created['conversation']
-assert s['status']=='idle' and created['deliveries']==[] and created['message']['to_agent_ids']==[] and created['message']['to_user_ids']==['alice']
+assert s['status']=='idle' and created['run_inputs']==[] and created['message']['to_agent_ids']==[] and created['message']['to_user_ids']==['alice']
 assert s['mode']=='single'
 coordination=c.create_conversation('alice',mode='collaborative',title='SDK collaboration')
 assert coordination['conversation']['mode']=='collaborative' and c.list_children('alice',coordination['conversation']['id'])==[]
@@ -238,7 +238,7 @@ func TestMultiNativeSteerQuestionAndNestedConversation(t *testing.T) {
 	id := created.Conversation.ID
 	e2eutil.WaitFor(t, 10*time.Second, "native started", func() bool { v, e := c.GetConversation(ctx, user, id); return e == nil && len(v.Events) > 1 })
 	extra, err := c.SendMessage(ctx, user, id, agentuse.MessageRequest{Prompt: "补一个测试", ToAgentIDs: []string{"native"}})
-	if err != nil || len(extra.Runs) != 0 || len(extra.Deliveries) != 1 {
+	if err != nil || len(extra.Runs) != 0 || len(extra.RunInputs) != 0 {
 		t.Fatal("native steer", extra, err)
 	}
 	detail, err := c.WaitMessageRuns(ctx, user, id, extra.Message.ID, 50*time.Millisecond)

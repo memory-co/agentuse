@@ -9,11 +9,12 @@ import (
 	"github.com/memory-co/agentuse/internal/attachment"
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/service/run"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // prepareMessage assembles conversation context for a fixed delivery assignment.
-func (s *Service) PrepareMessage(ctx context.Context, tx *sql.Tx, p agentuse.Delivery) (protocol.ConversationMessage, error) {
+func (s *Service) PrepareMessage(ctx context.Context, tx *sql.Tx, p run.MessageTarget) (protocol.ConversationMessage, error) {
 	ss, err := s.LookupConversation(ctx, tx, agentuse.User{Role: agentuse.RoleAdmin}, p.ConversationID)
 	if err != nil {
 		return protocol.ConversationMessage{}, err

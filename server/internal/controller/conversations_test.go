@@ -58,16 +58,23 @@ func TestConversationsReplaceServerSessionRoutesAndFields(t *testing.T) {
 	}
 
 	spec := readServerAPISpec(t, e, token)
-	for _, name := range []string{"Message", "Attachment", "Run", "Delivery", "Question", "ConversationEvent"} {
+	for _, name := range []string{"Message", "Attachment", "Run", "Question", "ConversationEvent"} {
 		properties := spec.Components.Schemas[name]["properties"].(map[string]any)
 		if properties["conversation_id"] == nil || properties["client_session_id"] != nil {
 			t.Fatal("old ownership field in schema", name, properties)
 		}
 	}
-	for _, name := range []string{"Run", "Delivery", "ConversationEvent"} {
+	for _, name := range []string{"Run", "ConversationEvent"} {
 		if spec.Components.Schemas[name]["properties"].(map[string]any)["session_id"] == nil {
 			t.Fatal("Client native session identity was lost", name)
 		}
+	}
+	input := spec.Components.Schemas["RunInput"]["properties"].(map[string]any)
+	if len(input) != 4 || input["run_id"] == nil || input["input_id"] == nil || input["message_id"] == nil || input["created_at"] == nil {
+		t.Fatal("accepted inputs must contain facts only", input)
+	}
+	if spec.Components.Schemas["Delivery"] != nil {
+		t.Fatal("removed delivery model is documented")
 	}
 	parameters := regexp.MustCompile(`\{[^}]+\}`)
 	for path, methods := range spec.Paths {

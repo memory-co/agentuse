@@ -31,7 +31,7 @@ print(detail["messages"][-1]["content"])
 
 # 接着回复；适配器 accepted 决定加入当前 run 或产生新 run
 r = agentuse.send_message(uid, s["id"], prompt="再把 CHANGELOG 也改一下", to_agent_ids=[a["id"]])
-print(r["deliveries"])  # accepted 前 runs 可以为空
+print(r["run_inputs"])  # accepted 前 runs 和 run_inputs 都为空
 ```
 
 返回值都是接口里的 JSON 对象(dict / list),字段见 [apis](../../docs/server/conversations.md)。`timeout` 是单次 HTTP 请求的超时(秒),建客户端时给。
@@ -61,7 +61,7 @@ r = c.send_message(user, s['id'], prompt='分别看看实现与风险',
 d = c.wait_message_runs(user, s['id'], r['message']['id'], interval=.5, timeout=600)
 ```
 
-支持 get_run、wait_run、cancel_run、reply_run_request。响应 deliveries 包含各目标输入分配；accepted 回报实际 run；新模式 wait_conversation 默认等全部终态，return_on_waiting=True 可在提问时返回。
+支持 get_run、wait_run、cancel_run、reply_run_request。响应 run_inputs 只包含 accepted 确认的输入，消息创建时为空；wait_message_runs 按消息目标、受理输入和 run 终态等待，明确拒绝见消息 agent_errors；新模式 wait_conversation 默认等全部终态，return_on_waiting=True 可在提问时返回。
 
 执行状态以 client 的公共事件为准：running/waiting/completed/failed/cancelled。发送消息先返回输入分配，不预创建 run；断线、取消入队不代表执行终态。harness 列表来自设备上报，仅供读取。
 

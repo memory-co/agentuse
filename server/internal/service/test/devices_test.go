@@ -183,9 +183,9 @@ func TestDeviceDeletionPreservesActualRunsAndFixedVersions(t *testing.T) {
 		t.Fatal("device deletion invented a native result", actual, err)
 	}
 	for id, want := range map[string]string{sent.ID: "unknown", pending.ID: "rejected"} {
-		targets, err := s.RunService.Deliveries(ctx, id)
-		if err != nil || len(targets) != 1 || targets[0].Status != want {
-			t.Fatal(id, targets, err)
+		detail, err := s.ConversationService.ReadConversation(ctx, u, id)
+		if err != nil || len(detail.RunInputs) != 0 || len(detail.Messages) != 1 || detail.Messages[0].AgentErrors[a.ID].Error == "" || detail.Messages[0].AgentErrors[a.ID].Uncertain != (want == "unknown") {
+			t.Fatal(id, detail, err)
 		}
 	}
 	version, err := s.AgentService.GetAgentVersion(ctx, u, a.ID, a.CurrentVersionID)

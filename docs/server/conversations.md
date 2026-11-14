@@ -31,7 +31,7 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 {"prompt":"分别看看实现和风险","to_agent_ids":["coder","reviewer"],"to_user_ids":["alice"]}
 ```
 
-前提是这些 Agent 可用于当前用户，用户收件人已拥有会话读取权限。只有 Agent 收件人触发执行，两组都为空时只保存备注。返回包含 `message`、`runs`、`deliveries`，有 Agent 收件人时额外返回 `round`；实际 run ID 在 Client 的 accepted 后才确定。命令行操作见 [Client conversation 命令](../client/cli.md#conversation远端会话)。
+前提是这些 Agent 可用于当前用户，用户收件人已拥有会话读取权限。只有 Agent 收件人触发执行，两组都为空时只保存备注。返回包含 `message`、`runs`、`run_inputs`，有 Agent 收件人时额外返回 `round`；实际 run ID 在 Client 的 accepted 后才确定。命令行操作见 [Client conversation 命令](../client/cli.md#conversation远端会话)。
 
 ## 模式与嵌套
 
@@ -63,7 +63,7 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 
 每个 conversation 有本地递增的 rounds。第一条含 Agent 收件人的输入开始一轮；尚未结束时的追加输入属于同一轮。所有 run 和投递均已收束时固定 end_message_seq/finished_at，每轮只生成一次父通知。失败、取消和已确认拒绝也会结束；离线、unknown 和原生人工等待不会。空会话、备注、仅用户收件人、文件上传、标记完成不产生轮次通知。
 
-子 Agent 缺少信息时在最终回复中说明问题并正常结束，协调者收到通知后读取该轮，再通过普通 send 指定子 Agent 发出答案，开始下一轮。整轮结束不等于任务成功，需要检查所有消息、runs 和 deliveries。
+子 Agent 缺少信息时在最终回复中说明问题并正常结束，协调者收到通知后读取该轮，再通过普通 send 指定子 Agent 发出答案，开始下一轮。整轮结束不等于任务成功，需要检查所有消息、runs、run_inputs 和消息上的 agent_errors。
 
 `GET /api/conversations/C?round=N` 只返回该轮范围内的消息、关联投递、run、事件和问题，rounds 只有该轮；不存在返回 404，非法轮次返回 400。消息范围在结束后固定，不混入下一轮。conversation 的状态和 parent_delivery 仍是当前投影。页面的轮次视图只读，可返回完整会话。
 
@@ -96,14 +96,14 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
   "conversation": { "id": "conversation-uuid", "status": "idle" },
   "messages": [],
   "runs": [],
-  "deliveries": [],
+  "run_inputs": [],
   "questions": [],
   "events": [],
   "rounds": []
 }
 ```
 
-Message、Attachment、Run、Delivery、Question 和 ConversationEvent 用 `conversation_id` 表示 Server 对话归属。`session_id` 只有一个，由 Client 生成；Run、Delivery 和 ConversationEvent 记录这个相同的值以关联本地执行，Client 上下文和 WebSocket 也使用同名字段。Server 不生成自己的 session，也不提供 `client_session_id` 别名。
+Message、Attachment、Run、Question 和 ConversationEvent 用 `conversation_id` 表示 Server 对话归属。`session_id` 只有一个，由 Client 生成；Run 和 ConversationEvent 记录这个相同的值以关联本地执行，Client 上下文和 WebSocket 也使用同名字段。Server 不生成自己的 session，也不提供 `client_session_id` 别名。
 
 Message 的 author_role 为 user/agent/child_conversation。content 是正文字符串；用户填 author_user_id，Agent 填 author_agent_id 和固定 author_agent_version_id，子会话通知填 author_conversation_id 和 author_round_seq。author_name 由用户、Agent 固定版本或子会话标题关联读取；消息不包含执行结果包装或 run_id。child_conversation 作者及轮次均由 Server 生成，发送接口不接受伪造。
 
@@ -132,8 +132,17 @@ Go 类型为 `Conversation`、`ConversationRound`、`ConversationDetail`、`Conv
 
 ## 存储与更新
 
-当前数据库 schema 9 使用 `conversations` 表；消息、附件、投递、run、事件、请求和控制记录使用 `conversation_id`。原生执行归属继续使用 `session_id`。
+当前数据库 schema 10 使用 `conversations` 表；消息、附件、投递、run、事件、请求和控制记录使用 `conversation_id`。原生执行归属继续使用 `session_id`。
 
 创建对话省略 prompt 即创建空对话。创建或发消息包含 Agent 收件人时，成功结果额外含 `round`，可保留 `round.seq` 用于固定读取/等待。mode 只接受 single/collaborative；不接受 input、defer_start 或旧消息字段；向原生 harness 投递的输入格式由 Client 负责。
 
 不迁移或读取旧数据库；更新时重建 Server 数据库，并一起更新 Client、前端和 SDK。附件总量配置使用 `--attachment-conversation-max-bytes` / `AGENTUSE_ATTACHMENT_CONVERSATION_MAX_BYTES`。设计约束见 [Server conversation 设计](../../designs/v3/server-conversation.md)。
+
+
+## 执行与受理输入
+
+消息保存后即存在；实际 run 和 run_inputs 只在 Client 上报 accepted 后产生，因此发送消息的响应中这两个数组均为空。run_inputs 每项只有 run_id、input_id、message_id、created_at，表示一条消息实际进入了哪个 run，不包含投递状态或执行终态。同一条消息可发给多个 Agent；补充消息也可以进入已有 run。
+
+网页每个 run 只有一个明确的详情入口。打开 Run 后集中查看已受理输入，展开原消息和附件；输入关联不会在每条消息下面重复显示状态标签。读取单个 run 返回 run、inputs 和 events。
+
+初始化失败或明确拒绝不会生成 run；错误位于消息的 agent_errors，以 agent_id 为键，每项包含 error 和可选的 uncertain。uncertain=true 表示受理结果尚待确认，不等于失败或完成。等待消息完成必须检查全部 Agent 目标的受理关联和对应 run 的终态，不能因为 runs 为空就提前返回。

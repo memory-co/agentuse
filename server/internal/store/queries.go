@@ -102,7 +102,14 @@ const InsertMessageInsert = `INSERT INTO messages (id,seq,conversation_id,author
 
 const ConversationCols = `SELECT id,user_id,created_by,COALESCE(parent_conversation_id,''),COALESCE(parent_agent_id,''),mode,title,status,created_at,updated_at FROM conversations`
 
-const MessageCols = `SELECT id,conversation_id,author_role,content,created_at,COALESCE(author_agent_id,''),CASE WHEN author_role='agent' THEN COALESCE((SELECT name FROM agent_versions WHERE id=messages.author_agent_version_id),'') WHEN author_role='child_conversation' THEN COALESCE((SELECT title FROM conversations WHERE id=messages.author_conversation_id),'') ELSE COALESCE((SELECT name FROM users WHERE id=messages.author_user_id),'') END,to_agent_ids,to_user_ids,COALESCE(author_user_id,''),COALESCE(reply_to_message_id,''),COALESCE(author_agent_version_id,''),seq,attachments,COALESCE(author_conversation_id,''),COALESCE(author_round_seq,0) FROM messages`
+const MessageCols = `SELECT id,conversation_id,author_role,content,created_at,COALESCE(author_agent_id,''),CASE WHEN author_role='agent' THEN COALESCE((SELECT name FROM agent_versions WHERE id=messages.author_agent_version_id),'') WHEN author_role='child_conversation' THEN COALESCE((SELECT title FROM conversations WHERE id=messages.author_conversation_id),'') ELSE COALESCE((SELECT name FROM users WHERE id=messages.author_user_id),'') END,to_agent_ids,to_user_ids,COALESCE(author_user_id,''),COALESCE(reply_to_message_id,''),COALESCE(author_agent_version_id,''),seq,attachments,COALESCE(author_conversation_id,''),COALESCE(author_round_seq,0),agent_targets FROM messages`
+
+// Message targets are metadata on the original message, not execution records.
+// The m/t aliases are shared by readers in the conversation and run services.
+const MessageTargetsFrom = `messages m JOIN json_each(m.agent_targets) t`
+const MessageTargetAccepted = `EXISTS(SELECT 1 FROM run_inputs i JOIN runs r ON r.id=i.run_id WHERE i.message_id=m.id AND r.agent_id=t.key)`
+const MessageTargetPending = `NOT ` + MessageTargetAccepted + ` AND (json_type(t.value,'$.error') IS NULL OR json_extract(t.value,'$.error.uncertain')=1)`
+const MessageTargetDispatched = `COALESCE(json_type(t.value,'$.dispatch')='object',0)`
 
 const GetConversationClause = ` WHERE id = ?`
 

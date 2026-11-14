@@ -51,19 +51,11 @@ class Run(TypedDict, total=False):
     created_at: int
     updated_at: int
 
-class Delivery(TypedDict, total=False):
-    message_id: str
-    conversation_id: str
-    agent_id: str
-    agent_version_id: str
-    device_id: str
-    harness: str
-    content: str
+class RunInput(TypedDict):
     run_id: str
     input_id: str
-    session_id: str
-    status: str
-    error: str
+    message_id: str
+    created_at: int
 
 class _RoundOptional(TypedDict, total=False):
     end_message_seq: int
@@ -81,6 +73,7 @@ class ConversationRound(_RoundOptional):
 
 
 class RunDetail(TypedDict):
+    inputs: List[RunInput]
     run: Run
     events: List[dict]
 
@@ -299,13 +292,13 @@ class Client:
         )
 
     def send_message(self, user, conversation_id, prompt=None, to_agent_ids=None, to_user_ids=None, attachment_ids=None, reply_to_message_id=None):
-        """发送共享消息；返回 message、runs 和 deliveries。"""
+        """发送共享消息；返回 message、runs 和 run_inputs。"""
         return self._request(
             "POST", f"/api/conversations/{_q(conversation_id)}/messages", user, _drop_none(prompt=prompt, to_agent_ids=to_agent_ids, to_user_ids=to_user_ids, attachment_ids=attachment_ids, reply_to_message_id=reply_to_message_id)
         )
 
     def get_conversation(self, user, conversation_id):
-        """返回 {"conversation": …, "messages": […], "runs": […], "deliveries": […], "questions": […], "events": […]}。"""
+        """返回 {"conversation": …, "messages": […], "runs": […], "run_inputs": […], "questions": […], "events": […]}。"""
         return self._request("GET", f"/api/conversations/{_q(conversation_id)}", user)
 
     def delete_conversation(self, user, conversation_id):
@@ -332,7 +325,7 @@ class Client:
         start = time.monotonic()
         while True:
             detail = self.get_run(user, conversation_id, run_id)
-            if detail["run"]["status"] in ("completed", "failed", "cancelled", "rejected") or (return_on_waiting and detail["run"]["status"] == "waiting"):
+            if detail["run"]["status"] in ("completed", "failed", "cancelled") or (return_on_waiting and detail["run"]["status"] == "waiting"):
                 return detail
             if timeout is not None and time.monotonic() - start >= timeout:
                 raise TimeoutError("agentuse: wait_run timed out")
@@ -342,7 +335,17 @@ class Client:
         start = time.monotonic()
         while True:
             detail = self.get_conversation(user, conversation_id)
-            if all(d["status"] in ("completed", "failed", "cancelled", "rejected") for d in detail.get("deliveries", []) if d["message_id"] == message_id):
+            message = next((m for m in detail["messages"] if m["id"] == message_id), None)
+            runs = {r["id"]: r for r in detail["runs"]}
+            def settled(agent):
+                error = message.get("agent_errors", {}).get(agent)
+                if error and not error.get("uncertain", False):
+                    return True
+                return any(i["message_id"] == message_id and
+                           runs[i["run_id"]]["agent_id"] == agent and
+                           runs[i["run_id"]]["status"] in ("completed", "failed", "cancelled")
+                           for i in detail["run_inputs"])
+            if message is not None and all(settled(a) for a in message["to_agent_ids"]):
                 return detail
             if timeout is not None and time.monotonic() - start >= timeout:
                 raise TimeoutError("agentuse: wait_message_runs timed out")

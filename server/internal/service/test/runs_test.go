@@ -44,12 +44,16 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reply.Runs) != 0 || len(reply.Deliveries) != 1 {
+	if len(reply.Runs) != 0 || len(reply.RunInputs) != 0 {
 		t.Fatal("server fabricated a run", reply)
 	}
 	p, err := s.RunService.DispatchMessage(ctx, d)
 	if err != nil {
 		t.Fatal(err)
+	}
+	var allocated int
+	if err := s.DB.QueryRowContext(ctx, `SELECT count(*) FROM run_inputs`).Scan(&allocated); err != nil || allocated != 0 {
+		t.Fatal("dispatch allocated an input before accepted", allocated, err)
 	}
 	id := uuid.NewString()
 	event := reportNative(t, s, d, p, "client-conversation", 1, acceptedEvent(id, "input-1", p.Content))
@@ -85,11 +89,11 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 	if len(answer.ToAgentIDs) != 0 || len(answer.ToUserIDs) != 1 || answer.ToUserIDs[0] != u.ID || answer.ReplyToMessageID != reply.Message.ID || answer.AuthorAgentID != a.ID {
 		t.Fatalf("final answer must explicitly address the first sender: %+v", answer)
 	}
-	if len(detail.Deliveries) != 2 || len(detail.Messages[0].ToAgentIDs) != 1 || detail.Messages[0].ToAgentIDs[0] != a.ID || len(detail.Messages[0].ToUserIDs) != 0 {
+	if len(detail.RunInputs) != 2 || len(detail.Messages[0].ToAgentIDs) != 1 || detail.Messages[0].ToAgentIDs[0] != a.ID || len(detail.Messages[0].ToUserIDs) != 0 {
 		t.Fatal("result changed original recipients or scheduled another agent", detail)
 	}
-	for _, prompt := range detail.Deliveries {
-		if prompt.RunID != id || prompt.Status != "completed" {
+	for _, prompt := range detail.RunInputs {
+		if prompt.RunID != id || prompt.InputID == "" {
 			t.Fatal(prompt)
 		}
 	}
@@ -164,7 +168,7 @@ func TestClientEventsCannotCrossOwnershipOrRebindInputs(t *testing.T) {
 		t.Fatal("prompt rebound to another run")
 	}
 	detail, _ := s.ConversationService.ReadConversation(ctx, u, ss.ID)
-	if len(detail.Runs) != 1 || len(detail.Events) != 1 {
+	if len(detail.Runs) != 1 || len(detail.Events) != 1 || len(detail.RunInputs) != 1 {
 		t.Fatal("invalid event partially committed", detail)
 	}
 }

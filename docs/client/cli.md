@@ -284,7 +284,7 @@ agentuse conversation send CONVERSATION_ID "保存一条备注"
 
 只有 `--agents` 中的收件人触发执行。用户收件人必须已经拥有会话读取权限；两组都为空时保存备注。正文里的 `@名称` 不会自动指定收件人。
 
-成功时输出包含 `message`、`runs`、`deliveries` 的 JSON。实际 run ID 在 Client 上报 accepted 后确定；后续消息属于当前 run 还是新 run，也由适配器确认。每次成功发送都会创建新消息。
+成功时输出包含 `message`、`runs`、`run_inputs` 的 JSON。消息创建时 runs、run_inputs 均为空；Client 上报 accepted 后才保存实际 run 和输入关联。后续消息属于当前 run 还是新 run，也由适配器确认。每次成功发送都会创建新消息。
 
 ### 读取、列 run 和等待
 

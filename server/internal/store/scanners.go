@@ -68,8 +68,8 @@ func ScanConversation(row Scanner) (agentuse.Conversation, error) {
 
 func ScanMessage(row Scanner) (agentuse.Message, error) {
 	var m agentuse.Message
-	var content, agents, users, attachments string
-	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorRole, &content, &m.CreatedAt, &m.AuthorAgentID, &m.AuthorName, &agents, &users, &m.AuthorUserID, &m.ReplyToMessageID, &m.AuthorAgentVersionID, &m.Seq, &attachments, &m.AuthorConversationID, &m.AuthorRoundSeq)
+	var content, agents, users, attachments, targets string
+	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorRole, &content, &m.CreatedAt, &m.AuthorAgentID, &m.AuthorName, &agents, &users, &m.AuthorUserID, &m.ReplyToMessageID, &m.AuthorAgentVersionID, &m.Seq, &attachments, &m.AuthorConversationID, &m.AuthorRoundSeq, &targets)
 	if errors.Is(err, sql.ErrNoRows) {
 		return agentuse.Message{}, ErrNotFound
 	}
@@ -84,6 +84,20 @@ func ScanMessage(row Scanner) (agentuse.Message, error) {
 	}
 	if err = json.Unmarshal([]byte(attachments), &m.Attachments); err != nil {
 		return agentuse.Message{}, err
+	}
+	var metadata map[string]struct {
+		Error *agentuse.MessageError `json:"error"`
+	}
+	if err = json.Unmarshal([]byte(targets), &metadata); err != nil {
+		return agentuse.Message{}, err
+	}
+	for agent, target := range metadata {
+		if target.Error != nil {
+			if m.AgentErrors == nil {
+				m.AgentErrors = map[string]agentuse.MessageError{}
+			}
+			m.AgentErrors[agent] = *target.Error
+		}
 	}
 	m.Content = content
 	return m, err

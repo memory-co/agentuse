@@ -24,7 +24,7 @@ func TestInputWakeupRunsAfterCommit(t *testing.T) {
 	calls := 0
 	s.SetNotifier(committedNotifier{kick: func() {
 		var count int
-		if err := s.DB.QueryRowContext(ctx, `SELECT count(*) FROM message_agents`).Scan(&count); err != nil || count == 0 {
+		if err := s.DB.QueryRowContext(ctx, `SELECT count(*) FROM messages WHERE json_array_length(to_agent_ids)>0`).Scan(&count); err != nil || count == 0 {
 			t.Fatalf("input not committed: %d %v", count, err)
 		}
 		calls++
@@ -86,7 +86,7 @@ func TestCompletedConversationDeletesExecutionRows(t *testing.T) {
 	if err = s.ConversationService.DeleteConversation(ctx, u, ss.ID); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"message_agents", "runs", "run_events", "run_requests", "run_controls"} {
+	for _, table := range []string{"run_inputs", "runs", "run_events", "run_requests", "run_controls"} {
 		var n int
 		if err = s.DB.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 0 {
 			t.Fatalf("orphan %s: %d %v", table, n, err)

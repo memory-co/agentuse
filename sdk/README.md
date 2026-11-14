@@ -46,9 +46,9 @@
 
 ## 多 agent 共享 conversation
 
-所有 conversation 使用同一个共享消息模型，mode 只在创建时选择单体执行或协作拆分。发送消息用 to_agent_ids 和 to_user_ids 指定 Agent 与用户收件人，返回 message、runs、deliveries；先建立输入分配，实际 run 由 client accepted 决定。只有 Agent 收件人会触发执行；用户必须已有会话读取权限。两组省略时均返回 []，只保存笔记，不默认调用上次 agent。
+所有 conversation 使用同一个共享消息模型，mode 只在创建时选择单体执行或协作拆分。发送消息用 to_agent_ids 和 to_user_ids 指定 Agent 与用户收件人，返回 message、runs、run_inputs；保存消息时不创建执行或输入，实际 run 和 run_inputs 由 client accepted 决定。只有 Agent 收件人会触发执行；用户必须已有会话读取权限。两组省略时均返回 []，只保存笔记，不默认调用上次 agent。
 
-三个 SDK 增加 get/cancel/wait run、wait message runs、reply run request 方法。等待一条消息完成要跟踪 deliveries（accepted 前 run_id 为空），不能只等最初返回的新 runs。WaitConversation 对新模式默认等全部执行结束；returnOnWaiting / return_on_waiting / Go WaitOptions 可选择在提问时返回。
+三个 SDK 增加 get/cancel/wait run、wait message runs、reply run request 方法。等待一条消息完成需要逐一检查目标 Agent 的 run_inputs 和对应 run 终态，或消息 agent_errors 中的明确拒绝；accepted 前没有 run_inputs，不能只等最初返回的新 runs 或把空数组当完成。WaitConversation 对新模式默认等全部执行结束；returnOnWaiting / return_on_waiting / Go WaitOptions 可选择在提问时返回。
 
 Agent 和共享 skill 独立版本化：创建 agent 会发布 v1，后续配置修改调用版本发布 API，旧版本不可变。先上传根目录含 SKILL.md 的 ZIP，再在 agent 配置的 skills 中固定 skill_id 与 skill_version_id；skill 发布新版本不会自动升级 agent。各 SDK 均提供版本查询、skill 上传和固定版本下载方法。完整规则见 [agentService](../designs/v3/server-agent.md) 和 [skillService](../designs/v3/server-skill.md)。
 

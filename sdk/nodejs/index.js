@@ -134,10 +134,9 @@ export class Client {
   listConversations(user) { return this._request("GET", "/api/conversations", user); }
   // 创建共享会话，可带首条消息与 to_agent_ids、to_user_ids。
   createConversation(user, req) { return this._request("POST", "/api/conversations", user, req); }
-  // 回复:{ prompt? , input? }。会话不是 idle 时抛 AgentuseError(409)。
-  // 会话 idle 时返回 message;忙时是插话，返回 steer。
+  // 保存显式收件人的共享消息；实际 run/input 关联在 Client accepted 后出现在会话详情中。
   sendMessage(user, conversationId, req) { return this._request("POST", `/api/conversations/${q(conversationId)}/messages`, user, req); }
-  // → { conversation, messages, runs, deliveries, questions, events }
+  // → { conversation, messages, runs, run_inputs, questions, events }
   getConversationRound(user, conversationId, round) { return this._request("GET", `/api/conversations/${q(conversationId)}?round=${q(round)}`, user); }
   getConversation(user, conversationId) { return this._request("GET", `/api/conversations/${q(conversationId)}`, user); }
   // 回答 harness 的提问(会话 waiting 时):answers 是 { 问题: 答案 },多选用 ", " 拼起来。已答过或过期抛 409。
@@ -151,12 +150,18 @@ export class Client {
   replyRunRequest(user, conversation, run, request, answer) { return this._request("POST", `/api/conversations/${q(conversation)}/runs/${q(run)}/requests/${q(request)}/reply`, user, {answer}); }
   async waitRun(user, conversation, run, {interval=2000, timeout, returnOnWaiting=false}={}) {
     const start=Date.now();
-    for (;;) { const d=await this.getRun(user,conversation,run); if (["completed","failed","cancelled","rejected"].includes(d.run.status) || (returnOnWaiting && d.run.status==="waiting")) return d;
+    for (;;) { const d=await this.getRun(user,conversation,run); if (["completed","failed","cancelled"].includes(d.run.status) || (returnOnWaiting && d.run.status==="waiting")) return d;
       if (timeout!=null && Date.now()-start>=timeout) throw new Error("agentuse: waitRun timed out"); await new Promise(r=>setTimeout(r,interval)); }
   }
   async waitMessageRuns(user, conversation, message, {interval=2000,timeout}={}) {
     const start=Date.now();
-    for (;;) { const d=await this.getConversation(user,conversation); if ((d.deliveries||[]).filter(x=>x.message_id===message).every(x=>["completed","failed","cancelled","rejected"].includes(x.status))) return d;
+    for (;;) { const d=await this.getConversation(user,conversation); const m=d.messages.find(x=>x.id===message);
+      const runs=new Map(d.runs.map(r=>[r.id,r]));
+      if (m && m.to_agent_ids.every(agent=>{
+        const error=m.agent_errors?.[agent];
+        if (error && !error.uncertain) return true;
+        return d.run_inputs.some(input=>input.message_id===message && runs.get(input.run_id)?.agent_id===agent && ["completed","failed","cancelled"].includes(runs.get(input.run_id).status));
+      })) return d;
       if (timeout!=null && Date.now()-start>=timeout) throw new Error("agentuse: waitMessageRuns timed out"); await new Promise(r=>setTimeout(r,interval)); }
   }
 

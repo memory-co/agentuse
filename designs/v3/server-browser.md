@@ -42,4 +42,8 @@ Service 在交易提交成功後發布通知；回滾不發布。設備的 accep
 
 ## 源碼職責
 
-server/internal/notification 的 Broker 只分發變更提示，使用明確的訂閱者 ID、管理員標記及發佈者提供的所有者範圍，不依賴 SQL、store 或 service。用戶變更由 user.Service 以僅管理員範圍發佈；其他資源由所屬服務發佈，對話包含所有者、創建者及父對話引用。設備相關對話由 run.Service 根據 message_agents 查詢，再通過 conversation.Service 發佈。HTTP/WebSocket 層消費通知，不參與業務消息或輪次生成。所有變更仍在業務事務成功提交後發佈。
+server/internal/notification 的 Broker 只分發變更提示，使用明確的訂閱者 ID、管理員標記及發佈者提供的所有者範圍，不依賴 SQL、store 或 service。用戶變更由 user.Service 以僅管理員範圍發佈；其他資源由所屬服務發佈，對話包含所有者、創建者及父對話引用。設備相關對話由 conversation.Service 根據消息的固定目標路由查詢並發佈。HTTP/WebSocket 層消費通知，不參與業務消息或輪次生成。所有變更仍在業務事務成功提交後發佈。
+
+## Run 與輸入展示
+
+對話時間線只渲染每個真實 run 的一個可點擊入口，不按消息目標重複渲染 completed 狀態標籤。Run 詳情集中顯示 run_inputs 的受理輸入列表，可展開原消息、附件與 input_id；補充輸入和子會話通知的受理關係只在此處查看。未受理的錯誤保留在來源消息，子會話通知內的錯誤隨通知折疊。

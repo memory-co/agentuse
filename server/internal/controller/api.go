@@ -348,12 +348,12 @@ func (s *Server) handleCreateConversation(w http.ResponseWriter, r *http.Request
 		s.storeErr(w, err)
 		return
 	}
-	out := agentuse.CreateConversationResponse{Conversation: v, Runs: []agentuse.Run{}, Deliveries: []agentuse.Delivery{}}
+	out := agentuse.CreateConversationResponse{Conversation: v, Runs: []agentuse.Run{}, RunInputs: []agentuse.RunInput{}}
 	if reply != nil {
 		out.Round = reply.Round
 		out.Message = reply.Message
 		out.Runs = reply.Runs
-		out.Deliveries = reply.Deliveries
+		out.RunInputs = reply.RunInputs
 	}
 	writeJSON(w, 201, out)
 }

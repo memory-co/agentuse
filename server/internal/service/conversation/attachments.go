@@ -46,7 +46,7 @@ func (s *Service) attachmentConversation(ctx context.Context, q store.Querier, a
 	}
 	if a.DeviceID != "" {
 		var allowed int
-		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM message_agents WHERE device_id=? AND conversation_id=? AND status IN ('sent','unknown','accepted','completed','failed','cancelled')`, a.DeviceID, ss.ID).Scan(&allowed); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM `+store.MessageTargetsFrom+` WHERE json_extract(t.value,'$.device_id')=? AND m.conversation_id=? AND `+store.MessageTargetDispatched, a.DeviceID, ss.ID).Scan(&allowed); err != nil {
 			return ss, err
 		}
 		// An explicit execution source narrows even a device that also executes
@@ -59,7 +59,7 @@ func (s *Service) attachmentConversation(ctx context.Context, q store.Querier, a
 				return ss, store.ErrNotFound
 			}
 			var valid int
-			err := q.QueryRowContext(ctx, `SELECT count(*) FROM conversations c JOIN message_agents p ON p.conversation_id=c.id WHERE c.id=? AND c.user_id=? AND p.device_id=? AND p.agent_id=? AND p.status IN ('sent','unknown','accepted','completed','failed','cancelled') AND ((c.mode='collaborative' AND c.parent_conversation_id IS NULL AND c.id=?) OR c.parent_conversation_id=?)`, a.SourceConversationID, ss.UserID, a.DeviceID, a.SourceAgentID, ss.ParentConversationID, ss.ID).Scan(&valid)
+			err := q.QueryRowContext(ctx, `SELECT count(*) FROM conversations c JOIN runs r ON r.conversation_id=c.id WHERE c.id=? AND c.user_id=? AND r.device_id=? AND r.agent_id=? AND ((c.mode='collaborative' AND c.parent_conversation_id IS NULL AND c.id=?) OR c.parent_conversation_id=?)`, a.SourceConversationID, ss.UserID, a.DeviceID, a.SourceAgentID, ss.ParentConversationID, ss.ID).Scan(&valid)
 			if err != nil {
 				return ss, err
 			}

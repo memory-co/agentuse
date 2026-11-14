@@ -16,7 +16,7 @@ func (s *Service) DeleteDevice(ctx context.Context, u agentuse.User, id string) 
 		return err
 	}
 	s.Notifier.Disconnect(id)
-	s.RunService.NotifyDeviceConversations(ctx, id)
+	s.ConversationService.NotifyDeviceConversations(ctx, id)
 	s.Notifier.KickUser(d.UserID)
 	s.Changes.Publish(notification.Change{Resource: "devices", ID: id}, d.UserID)
 	return nil
@@ -26,7 +26,7 @@ func (s *Service) ResetDeviceSetup(ctx context.Context, u agentuse.User, id stri
 	d, err := s.resetDeviceSetup(ctx, u, id)
 	if err == nil {
 		s.Notifier.Disconnect(d.ID)
-		s.RunService.NotifyDeviceConversations(ctx, d.ID)
+		s.ConversationService.NotifyDeviceConversations(ctx, d.ID)
 		s.Changes.Publish(notification.Change{Resource: "devices", ID: d.ID}, d.UserID)
 	}
 	return d, err

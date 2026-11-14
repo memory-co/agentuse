@@ -78,7 +78,7 @@ Server 在保存消息及目標 Agent 關係時，固定 agent_version_id 和目
 
 首次消息和中途補充使用同一格式，Server 不指定 start/steer/queue，也不預填 run_id。不要求額外的領取請求、無任務通知或消息成功 ACK；accepted 本身就是這條消息的受理回執。
 
-Server 需要持久保存每個 message/Agent 目標的固定版本、設備、投遞內容及受理關係，以便恢復。這是既有消息的目標關係與投遞元數據，不另分配 task_id 或 run_input_id。
+Server 在原消息的 agent_targets 中保存固定版本、設備、首次派發快照及否定回執，以便恢復。run_inputs 只記錄 Client accepted 確認的消息/run/input 關聯，不預建待投遞輸入，不另分配 task_id 或 Server input ID。
 
 ## 五、Client 內部完成配置獲取、skills 和 init
 
@@ -134,7 +134,7 @@ Server 校驗此消息確實投遞給該設備及 Agent 版本，在同一事務
 
 1. 保存 accepted 原始事件。
 2. 按 accepted.run_id 建立或核對 run，固定 device/session/conversation/Agent/版本歸屬。
-3. 將 `(message_id, agent_id)` 關聯到 run_id 和 input_id。
+3. 插入 run_inputs(run_id,input_id,message_id,created_at)，清除原消息該目標此前的不確定錯誤；相同受理關聯冪等，衝突拒絕。
 4. 提交後 ACK 該 event。
 
 ```json
@@ -235,7 +235,7 @@ Local 與遠端共用相同的資源校驗、session 綁定和 harnessctl 執行
 
 ## 升級與持久化
 
-只支持 schema 9：消息及消息引用直接使用 UUID，messages.seq 保存順序；message_agents 以消息/Agent 複合鍵保存投遞和受理關係。舊版資料庫、inputs 收據和控制收據不讀取、不轉換，也不保留升級兼容邏輯。升級時重建 Server 資料庫、清空 Client 本地工作目錄並重新初始化和註冊設備。
+只支持 schema 10：消息及消息引用直接使用 UUID，messages.seq 保存順序；messages 保存固定目標及傳輸元數據，run_inputs 僅由 accepted 寫入已受理關聯，不保留 message_agents。舊版資料庫、inputs 收據和控制收據不讀取、不轉換，也不保留升級兼容邏輯。升級時重建 Server 資料庫、清空 Client 本地工作目錄並重新初始化和註冊設備。
 
 公開 HTTP 入口使用 /api/conversations，設備標識使用 device_id，不保留舊入口或字段別名。WebSocket 只支持本文的 /api/client/ws 和 agentuse-client/2，兩端需一起升級。
 

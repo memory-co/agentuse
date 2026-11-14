@@ -7,7 +7,7 @@ import (
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
-// ReadConversation returns one consistent view. A completed delivery must never be
+// ReadConversation returns one consistent view. A terminal run must never be
 // paired with messages read before its result was committed.
 func (s *Service) ReadConversation(ctx context.Context, u agentuse.User, id string) (agentuse.ConversationDetail, error) {
 	return s.readConversation(ctx, u, id, 0)
@@ -34,7 +34,7 @@ func (s *Service) readConversation(ctx context.Context, u agentuse.User, id stri
 	if detail.Runs, err = s.RunService.RunsIn(ctx, tx, id); err != nil {
 		return detail, err
 	}
-	if detail.Deliveries, err = s.RunService.DeliveriesIn(ctx, tx, "conversation_id=?", id); err != nil {
+	if detail.RunInputs, err = s.RunService.RunInputsIn(ctx, tx, id); err != nil {
 		return detail, err
 	}
 	if detail.Events, err = s.RunService.EventsIn(ctx, tx, id); err != nil {
@@ -75,13 +75,13 @@ func (s *Service) readConversation(ctx context.Context, u agentuse.User, id stri
 			}
 		}
 		detail.Runs = runs
-		deliveries := []agentuse.Delivery{}
-		for _, d := range detail.Deliveries {
+		inputs := []agentuse.RunInput{}
+		for _, d := range detail.RunInputs {
 			if included[d.MessageID] {
-				deliveries = append(deliveries, d)
+				inputs = append(inputs, d)
 			}
 		}
-		detail.Deliveries = deliveries
+		detail.RunInputs = inputs
 		events := []agentuse.ConversationEvent{}
 		for _, e := range detail.Events {
 			if runIDs[e.RunID] {

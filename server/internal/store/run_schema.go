@@ -1,18 +1,6 @@
 package store
 
 const runSchema = `
--- A message target has no independent task/input identity.
-CREATE TABLE IF NOT EXISTS message_agents (
- conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
- agent_id TEXT NOT NULL, agent_version_id TEXT NOT NULL, device_id TEXT NOT NULL, harness TEXT NOT NULL,
- dispatch TEXT, status TEXT NOT NULL DEFAULT 'pending',
- run_id TEXT NOT NULL DEFAULT '', input_id TEXT NOT NULL DEFAULT '',
- session_id TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
- created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
- PRIMARY KEY(message_id,agent_id)
-);
-CREATE INDEX IF NOT EXISTS message_agents_dispatch ON message_agents(device_id,status,created_at,message_id);
-CREATE UNIQUE INDEX IF NOT EXISTS message_agents_input ON message_agents(device_id,session_id,input_id) WHERE input_id<>'';
 -- IDs and terminal facts come exclusively from authenticated client reports.
 CREATE TABLE IF NOT EXISTS runs (
  id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, first_message_id TEXT NOT NULL,
@@ -23,6 +11,13 @@ CREATE TABLE IF NOT EXISTS runs (
  result TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS runs_conversation ON runs(conversation_id,created_at,id);
+-- Accepted inputs only: never preallocated while a message is waiting for Client.
+CREATE TABLE IF NOT EXISTS run_inputs (
+ run_id TEXT NOT NULL, input_id TEXT NOT NULL, message_id TEXT NOT NULL,
+ created_at INTEGER NOT NULL,
+ PRIMARY KEY(run_id,input_id), UNIQUE(run_id,message_id)
+);
+CREATE INDEX IF NOT EXISTS run_inputs_message ON run_inputs(message_id);
 CREATE TABLE IF NOT EXISTS run_events (
  id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL,
  session_id TEXT NOT NULL, run_id TEXT NOT NULL DEFAULT '',

@@ -42,9 +42,10 @@ func New(st *store.Store) *Service {
 	s.AgentService = &agent.Service{DB: s.DB, Now: now, Changes: s.BrowserChanges}
 	s.ConversationService = &conversation.Service{DB: s.DB, Repository: st, Now: now, Log: s.Log, Changes: s.BrowserChanges}
 	s.RunService = &run.Service{DB: s.DB, Repository: st, Now: now}
-	s.DeviceService.RunService, s.DeviceService.ConversationService = s.RunService, s.ConversationService
+	s.DeviceService.ConversationService = s.ConversationService
 	s.AgentService.DeviceService, s.AgentService.ConversationService = s.DeviceService, s.ConversationService
 	s.ConversationService.RunService = s.RunService
+	s.ConversationService.DeviceService = s.DeviceService
 	s.RunService.DeviceService, s.RunService.ConversationService, s.RunService.AgentService = s.DeviceService, s.ConversationService, s.AgentService
 	s.Skills = &skill.Service{DB: s.DB, Now: now, OnChange: func(id, owner string) {
 		s.BrowserChanges.Publish(notification.Change{Resource: "skills", ID: id}, owner)

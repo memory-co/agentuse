@@ -31,7 +31,7 @@ console.log(detail.messages.at(-1).content);
 
 // 接着回复；适配器 accepted 决定加入当前 run 或产生新 run
 const r = await agentuse.sendMessage(uid, conversation.id, { prompt: "再把 CHANGELOG 也改一下", to_agent_ids: [agent.id] });
-console.log(r.deliveries); // accepted 前 runs 可以为空
+console.log(r.run_inputs); // accepted 前 runs 和 run_inputs 都为空
 ```
 
 返回值都是接口里的 JSON 对象，字段见 [apis](../../docs/server/conversations.md) 和 `index.d.ts`。需要自定义请求时可以传 `fetch`。
@@ -59,7 +59,7 @@ const reply = await c.sendMessage(user, conversation.id, {
 const detail = await c.waitMessageRuns(user, conversation.id, reply.message.id, {interval: 500, timeout: 600000});
 ```
 
-支持 getRun、waitRun、cancelRun、replyRunRequest。reply.deliveries 表示输入分配状态；accepted 决定实际 run；新模式 waitConversation 默认等待全部终态，可设置 returnOnWaiting。
+支持 getRun、waitRun、cancelRun、replyRunRequest。reply.run_inputs 表示已受理输入，消息创建时为空；waitMessageRuns 按消息目标、受理输入和 run 终态等待，明确拒绝见消息 agent_errors；新模式 waitConversation 默认等待全部终态，可设置 returnOnWaiting。
 
 执行状态以 client 的公共事件为准：running/waiting/completed/failed/cancelled。发送消息先返回输入分配，不预创建 run；断线、取消入队不代表执行终态。harness 列表来自设备上报，仅供读取。
 

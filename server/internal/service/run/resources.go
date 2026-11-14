@@ -15,7 +15,7 @@ func (s *Service) SkillForCredential(ctx context.Context, token, id, version str
 		if err != nil {
 			return agentuse.SkillVersion{}, err
 		}
-		err = s.DB.QueryRowContext(ctx, `SELECT count(*) FROM message_agents p JOIN agent_version_skills a ON a.agent_version_id=p.agent_version_id WHERE p.device_id=? AND p.status IN ('sent','unknown','rejected','accepted','completed','failed','cancelled') AND a.skill_id=? AND a.skill_version_id=?`, d.ID, id, version).Scan(&count)
+		err = s.DB.QueryRowContext(ctx, `SELECT count(*) FROM `+store.MessageTargetsFrom+` JOIN agent_version_skills a ON a.agent_version_id=json_extract(t.value,'$.agent_version_id') WHERE json_extract(t.value,'$.device_id')=? AND `+store.MessageTargetDispatched+` AND a.skill_id=? AND a.skill_version_id=?`, d.ID, id, version).Scan(&count)
 		if err != nil {
 			return agentuse.SkillVersion{}, err
 		}
@@ -36,7 +36,7 @@ func (s *Service) AgentVersionForCredential(ctx context.Context, token, id, vers
 		if err != nil {
 			return agentuse.AgentVersion{}, err
 		}
-		err = s.DB.QueryRowContext(ctx, `SELECT count(*) FROM message_agents WHERE device_id=? AND agent_id=? AND agent_version_id=? AND status IN ('sent','unknown','rejected','accepted','completed','failed','cancelled')`, d.ID, id, version).Scan(&count)
+		err = s.DB.QueryRowContext(ctx, `SELECT count(*) FROM `+store.MessageTargetsFrom+` WHERE json_extract(t.value,'$.device_id')=? AND t.key=? AND json_extract(t.value,'$.agent_version_id')=? AND `+store.MessageTargetDispatched, d.ID, id, version).Scan(&count)
 		if err != nil {
 			return agentuse.AgentVersion{}, err
 		}

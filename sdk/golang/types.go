@@ -105,22 +105,29 @@ type Conversation struct {
 }
 
 type Message struct {
-	AuthorConversationID string       `json:"author_conversation_id,omitempty"`
-	AuthorRoundSeq       int64        `json:"author_round_seq,omitempty"`
-	AuthorAgentID        string       `json:"author_agent_id,omitempty"`
-	AuthorName           string       `json:"author_name,omitempty"`
-	AuthorRole           string       `json:"author_role" enum:"user,agent,child_conversation"`
-	Attachments          []Attachment `json:"attachments" nullable:"false"`
-	AuthorUserID         string       `json:"author_user_id,omitempty"`
-	ReplyToMessageID     string       `json:"reply_to_message_id,omitempty"`
-	AuthorAgentVersionID string       `json:"author_agent_version_id,omitempty"`
-	Seq                  int64        `json:"seq"`
-	ToAgentIDs           []string     `json:"to_agent_ids" nullable:"false"`
-	ToUserIDs            []string     `json:"to_user_ids" nullable:"false"`
-	ID                   string       `json:"id"`
-	ConversationID       string       `json:"conversation_id"`
-	Content              string       `json:"content"`
-	CreatedAt            int64        `json:"created_at"`
+	AgentErrors          map[string]MessageError `json:"agent_errors,omitempty"`
+	AuthorConversationID string                  `json:"author_conversation_id,omitempty"`
+	AuthorRoundSeq       int64                   `json:"author_round_seq,omitempty"`
+	AuthorAgentID        string                  `json:"author_agent_id,omitempty"`
+	AuthorName           string                  `json:"author_name,omitempty"`
+	AuthorRole           string                  `json:"author_role" enum:"user,agent,child_conversation"`
+	Attachments          []Attachment            `json:"attachments" nullable:"false"`
+	AuthorUserID         string                  `json:"author_user_id,omitempty"`
+	ReplyToMessageID     string                  `json:"reply_to_message_id,omitempty"`
+	AuthorAgentVersionID string                  `json:"author_agent_version_id,omitempty"`
+	Seq                  int64                   `json:"seq"`
+	ToAgentIDs           []string                `json:"to_agent_ids" nullable:"false"`
+	ToUserIDs            []string                `json:"to_user_ids" nullable:"false"`
+	ID                   string                  `json:"id"`
+	ConversationID       string                  `json:"conversation_id"`
+	Content              string                  `json:"content"`
+	CreatedAt            int64                   `json:"created_at"`
+}
+
+// MessageError is a negative Client receipt before acceptance, not a run status.
+type MessageError struct {
+	Error     string `json:"error"`
+	Uncertain bool   `json:"uncertain,omitempty"`
 }
 
 type ConversationEvent struct {
@@ -158,7 +165,7 @@ type CreateConversationRequest struct {
 type CreateConversationResponse struct {
 	Round        *ConversationRound `json:"round,omitempty"`
 	Runs         []Run              `json:"runs" nullable:"false"`
-	Deliveries   []Delivery         `json:"deliveries" nullable:"false"`
+	RunInputs    []RunInput         `json:"run_inputs" nullable:"false"`
 	Conversation Conversation       `json:"conversation"`
 	Message      *Message           `json:"message,omitempty"`
 }
@@ -179,7 +186,7 @@ type ConversationRound struct {
 type ConversationDetail struct {
 	Rounds       []ConversationRound `json:"rounds" nullable:"false"`
 	Runs         []Run               `json:"runs"`
-	Deliveries   []Delivery          `json:"deliveries"`
+	RunInputs    []RunInput          `json:"run_inputs" nullable:"false"`
 	RunCounts    map[string]int      `json:"run_counts"`
 	Conversation Conversation        `json:"conversation"`
 	Messages     []Message           `json:"messages"`
@@ -200,12 +207,12 @@ type Question struct {
 	CreatedAt      int64           `json:"created_at"`
 }
 
-// Reply 包含共享消息和各目标的执行/投递。
+// Reply contains the saved message. Execution facts arrive through Client accepted events.
 type Reply struct {
-	Round      *ConversationRound `json:"round,omitempty"`
-	Runs       []Run              `json:"runs"`
-	Deliveries []Delivery         `json:"deliveries"`
-	Message    *Message           `json:"message"`
+	Round     *ConversationRound `json:"round,omitempty"`
+	Runs      []Run              `json:"runs"`
+	RunInputs []RunInput         `json:"run_inputs" nullable:"false"`
+	Message   *Message           `json:"message"`
 }
 
 // ConversationSource identifies an existing Client execution; Server verifies it.

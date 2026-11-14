@@ -48,7 +48,7 @@ func (s *Service) startRound(ctx context.Context, tx *sql.Tx, conversation strin
 	return &r, err
 }
 func (s *Service) finishRound(ctx context.Context, tx *sql.Tx, conversation string, now int64) error {
-	_, err := tx.ExecContext(ctx, `UPDATE conversation_rounds SET end_message_seq=(SELECT MAX(seq) FROM messages WHERE conversation_id=?),finished_at=? WHERE conversation_id=? AND finished_at IS NULL AND NOT EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status IN ('running','waiting')) AND NOT EXISTS(SELECT 1 FROM message_agents WHERE conversation_id=? AND status IN ('pending','sent','unknown','accepted'))`, conversation, now, conversation, conversation, conversation)
+	_, err := tx.ExecContext(ctx, `UPDATE conversation_rounds SET end_message_seq=(SELECT MAX(seq) FROM messages WHERE conversation_id=?),finished_at=? WHERE conversation_id=? AND finished_at IS NULL AND NOT EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status IN ('running','waiting')) AND NOT EXISTS(SELECT 1 FROM `+store.MessageTargetsFrom+` WHERE m.conversation_id=? AND `+store.MessageTargetPending+`)`, conversation, now, conversation, conversation, conversation)
 	return err
 }
 func (s *Service) rounds(ctx context.Context, q store.QueryReader, conversation string) ([]agentuse.ConversationRound, error) {
@@ -149,7 +149,7 @@ func (s *Service) notifyFinishedRound(ctx context.Context, childID string, seq i
 		if err != nil {
 			return err
 		}
-		if err = s.RunService.AssignMessageTargets(ctx, tx, parent, id, []string{child.ParentAgentID}); err != nil {
+		if err = s.setMessageTargets(ctx, tx, parent, id, []string{child.ParentAgentID}); err != nil {
 			return err
 		}
 		if _, err = s.startRound(ctx, tx, parent.ID, messageSeq); err != nil {

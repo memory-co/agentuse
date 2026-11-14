@@ -17,11 +17,11 @@ export interface Conversation {
   id: string; user_id: string; created_by: string; mode: 'single' | 'collaborative'; parent_conversation_id?: string; parent_agent_id?: string;
   title: string; status: ConversationStatus; created_at: number; updated_at: number;
 }
-export interface Message {author_conversation_id?:string;author_round_seq?:number;attachments:Attachment[];author_user_id?:string;reply_to_message_id?:string;author_agent_version_id?:string; seq?:number; author_agent_id?:string;author_name?:string;to_agent_ids:string[];to_user_ids:string[]; id: string; conversation_id: string; author_role: 'user' | 'agent' | 'child_conversation'; content: string; created_at: number }
+export interface Message {agent_errors?:Record<string,MessageError>;author_conversation_id?:string;author_round_seq?:number;attachments:Attachment[];author_user_id?:string;reply_to_message_id?:string;author_agent_version_id?:string; seq?:number; author_agent_id?:string;author_name?:string;to_agent_ids:string[];to_user_ids:string[]; id: string; conversation_id: string; author_role: 'user' | 'agent' | 'child_conversation'; content: string; created_at: number }
 export interface ConversationEvent { run_id?:string;session_id:string;agent_id:string;event_seq:number; id: number; conversation_id: string; device_id: string; kind: string; payload?: any; created_at: number }
 export interface Question {request_id:string;run_id:string;conversation_id:string;state:'pending'|'replied'|'expired';payload:any;answer?:unknown;answered_by?:string;created_at:number;delivery_error?:string}
 export interface ConversationRound {conversation_id:string;seq:number;start_message_seq:number;end_message_seq?:number;created_at:number;finished_at?:number;parent_delivery?:'pending'|'delivered'|'failed';parent_message_id?:string;parent_delivery_error?:string}
-export interface ConversationDetail {rounds:ConversationRound[]; runs?:Run[];deliveries?:Delivery[];run_counts?:Record<string,number>; conversation: Conversation; messages: Message[]; questions?: Question[]; events: ConversationEvent[]; device_offline?: boolean }
+export interface ConversationDetail {rounds:ConversationRound[]; runs?:Run[];run_inputs:RunInput[];run_counts?:Record<string,number>; conversation: Conversation; messages: Message[]; questions?: Question[]; events: ConversationEvent[]; device_offline?: boolean }
 
 export interface Attachment {
  relative_path:string;
@@ -31,7 +31,8 @@ export interface Attachment {
 }
 
 export interface Run {agent_version_id:string;id:string;conversation_id:string;first_message_id:string;agent_id:string;device_id:string;session_id:string;harness:string;harness_revision:string;status:'running'|'waiting'|'completed'|'failed'|'cancelled';error?:string;output?:string;result?:any;result_message_id?:string}
-export interface Delivery {agent_version_id:string;message_id:string;conversation_id:string;agent_id:string;device_id:string;run_id?:string;input_id?:string;session_id?:string;harness:string;content:string;status:'pending'|'sent'|'unknown'|'rejected'|'accepted'|'completed'|'failed'|'cancelled';error?:string}
+export interface MessageError {error:string;uncertain?:boolean}
+export interface RunInput {run_id:string;input_id:string;message_id:string;created_at:number}
 
 export interface SkillRef {skill_id:string;skill_version_id:string}
 export interface SkillVersion {id:string;skill_id:string;version:number;name:string;description:string;sha256:string;size_bytes:number;download_path:string;created_at:number}

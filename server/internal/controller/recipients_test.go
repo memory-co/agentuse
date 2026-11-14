@@ -18,11 +18,10 @@ func TestMessageRecipientsAreExplicitAndOnlyAgentsExecute(t *testing.T) {
 	cases := []struct {
 		name          string
 		agents, users []string
-		deliveries    int
 	}{
-		{"note", nil, nil, 0},
-		{"users", nil, []string{f.u.ID, admin.ID}, 0},
-		{"agents_and_users", []string{f.agent}, []string{admin.ID}, 1},
+		{"note", nil, nil},
+		{"users", nil, []string{f.u.ID, admin.ID}},
+		{"agents_and_users", []string{f.agent}, []string{admin.ID}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -36,8 +35,8 @@ func TestMessageRecipientsAreExplicitAndOnlyAgentsExecute(t *testing.T) {
 			if m == nil || m.ToAgentIDs == nil || m.ToUserIDs == nil || !reflect.DeepEqual(m.ToAgentIDs, append([]string{}, tc.agents...)) || !reflect.DeepEqual(m.ToUserIDs, append([]string{}, tc.users...)) || m.AuthorUserID != f.u.ID {
 				t.Fatalf("wrong recipients in submission response: %+v", m)
 			}
-			if len(reply.Deliveries) != tc.deliveries || len(reply.Runs) != 0 {
-				t.Fatalf("only agent recipients may create delivery relations: %+v", reply)
+			if len(reply.RunInputs) != 0 || len(reply.Runs) != 0 {
+				t.Fatalf("message creation must not fabricate accepted inputs: %+v", reply)
 			}
 			var detail agentuse.ConversationDetail
 			if code := f.e.req(adminToken, http.MethodGet, path, nil, &detail).StatusCode; code != 200 {
@@ -46,7 +45,7 @@ func TestMessageRecipientsAreExplicitAndOnlyAgentsExecute(t *testing.T) {
 			if !reflect.DeepEqual(*m, detail.Messages[len(detail.Messages)-1]) {
 				t.Fatalf("recipients differ after reading history: %+v", detail.Messages)
 			}
-			if tc.deliveries == 0 && (detail.Conversation.Status != "idle" || len(detail.Deliveries) != 0 || len(detail.Runs) != 0) {
+			if len(tc.agents) == 0 && (detail.Conversation.Status != "idle" || len(detail.RunInputs) != 0 || len(detail.Runs) != 0) {
 				t.Fatalf("note or human recipients started execution: %+v", detail)
 			}
 		})
@@ -83,7 +82,7 @@ func TestInvalidRecipientsRejectTheWholeMessage(t *testing.T) {
 				t.Fatalf("status %d, want %d", code, tc.code)
 			}
 			detail, err := f.e.st.ConversationService.ReadConversation(ctx, f.u, f.conversation.ID)
-			if err != nil || len(detail.Messages) != 0 || len(detail.Deliveries) != 0 || detail.Conversation.Status != "idle" {
+			if err != nil || len(detail.Messages) != 0 || len(detail.RunInputs) != 0 || detail.Conversation.Status != "idle" {
 				t.Fatalf("invalid recipients partially committed: %+v, %v", detail, err)
 			}
 		})
@@ -120,7 +119,7 @@ func TestCreateConversationWithHumanRecipients(t *testing.T) {
 	if code := e.req(token, http.MethodPost, "/api/conversations", body, &reply).StatusCode; code != 201 {
 		t.Fatal(code)
 	}
-	if reply.Conversation.Status != "idle" || reply.Message == nil || !reflect.DeepEqual(reply.Message.ToUserIDs, []string{u.ID}) || reply.Message.ToAgentIDs == nil || len(reply.Message.ToAgentIDs) != 0 || len(reply.Deliveries) != 0 {
+	if reply.Conversation.Status != "idle" || reply.Message == nil || !reflect.DeepEqual(reply.Message.ToUserIDs, []string{u.ID}) || reply.Message.ToAgentIDs == nil || len(reply.Message.ToAgentIDs) != 0 || len(reply.RunInputs) != 0 {
 		t.Fatalf("bad human-only conversation: %+v", reply)
 	}
 }

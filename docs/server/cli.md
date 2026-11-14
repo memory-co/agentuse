@@ -107,7 +107,7 @@ agentuse-server start \
 
 `start` 在前台运行，通过 `Ctrl+C` 或 `SIGTERM` 停止。长期部署可由 systemd、容器或其他进程管理器托管。
 
-当前 Server 使用 schema 9。若启动报 `unsupported database schema: reset the database before starting this version`，需使用新的数据库文件启动，再重新创建资源和注册设备；程序不迁移旧数据库。
+当前 Server 使用 schema 10。若启动报 `unsupported database schema: reset the database before starting this version`，需使用新的数据库文件启动，再重新创建资源和注册设备；程序不迁移旧数据库。
 
 数据库与会话文件、Skill 包需一起规划备份；文件后端位于 `--files-dir` 或配置的 S3 空间。仅备份 SQLite 不包含文件字节。
 

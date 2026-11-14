@@ -19,7 +19,7 @@ func TestWaitChildUsesFixedRoundsAndYieldsForParentInterruptions(t *testing.T) {
 			child := sdk.ConversationDetail{Conversation: sdk.Conversation{ID: "child", ParentConversationID: "parent", Mode: "single", Status: "running"}, Messages: []sdk.Message{{Seq: 1, ToAgentIDs: []string{"executor"}}}, Rounds: []sdk.ConversationRound{{ConversationID: "child", Seq: 1, StartMessageSeq: 1}}}
 			switch reason {
 			case "new_input":
-				parent.Deliveries = []sdk.Delivery{{AgentID: "planner", Status: "pending"}}
+				parent.Messages = []sdk.Message{{ID: "unconfirmed", ToAgentIDs: []string{"planner"}}}
 			case "needs_input":
 				parent.Questions = []sdk.Question{{RunID: "run", State: "pending"}}
 			case "settled":

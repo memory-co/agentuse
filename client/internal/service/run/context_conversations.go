@@ -124,9 +124,28 @@ func (c *ExecutionContext) WaitChild(ctx context.Context, client *sdk.Client, id
 				}
 			}
 		}
-		for _, d := range parent.Deliveries {
-			if d.AgentID == c.AgentID && (d.Status == "pending" || d.Status == "sent" || d.Status == "unknown") {
-				return &ConversationWait{Reason: "new_input", Detail: child}, nil
+		for _, message := range parent.Messages {
+			for _, agent := range message.ToAgentIDs {
+				if agent != c.AgentID {
+					continue
+				}
+				if receipt, ok := message.AgentErrors[agent]; ok && !receipt.Uncertain {
+					continue
+				}
+				accepted := false
+				for _, input := range parent.RunInputs {
+					if input.MessageID != message.ID {
+						continue
+					}
+					for _, run := range parent.Runs {
+						if run.ID == input.RunID && run.AgentID == agent {
+							accepted = true
+						}
+					}
+				}
+				if !accepted {
+					return &ConversationWait{Reason: "new_input", Detail: child}, nil
+				}
 			}
 		}
 		for _, q := range parent.Questions {

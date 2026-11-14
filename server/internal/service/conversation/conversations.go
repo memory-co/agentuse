@@ -183,7 +183,7 @@ func (s *Service) messages(ctx context.Context, q store.QueryReader, conversatio
 }
 
 func (s *Service) ProjectStatus(ctx context.Context, tx *sql.Tx, conversation string, now int64) error {
-	_, err := tx.ExecContext(ctx, `UPDATE conversations SET status=CASE WHEN EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status='waiting') THEN 'waiting' WHEN EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status='running') THEN 'running' WHEN EXISTS(SELECT 1 FROM message_agents WHERE conversation_id=? AND status IN ('pending','sent','unknown')) THEN 'pending' WHEN status='resolved' THEN 'resolved' ELSE 'idle' END,updated_at=? WHERE id=?`, conversation, conversation, conversation, now, conversation)
+	_, err := tx.ExecContext(ctx, `UPDATE conversations SET status=CASE WHEN EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status='waiting') THEN 'waiting' WHEN EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status='running') THEN 'running' WHEN EXISTS(SELECT 1 FROM `+store.MessageTargetsFrom+` WHERE m.conversation_id=? AND `+store.MessageTargetPending+`) THEN 'pending' WHEN status='resolved' THEN 'resolved' ELSE 'idle' END,updated_at=? WHERE id=?`, conversation, conversation, conversation, now, conversation)
 	if err != nil {
 		return err
 	}
@@ -373,7 +373,7 @@ func (s *Service) SendMessageTx(ctx context.Context, tx *sql.Tx, u sdk.User, ss 
 	}
 	m.AuthorUserID, m.ToAgentIDs, m.ToUserIDs, m.Attachments = u.ID, toAgentIDs, toUserIDs, files
 	m.AuthorName, m.ReplyToMessageID = u.Name, replyToMessageID
-	if err = s.RunService.AssignMessageTargets(ctx, tx, ss, m.ID, toAgentIDs); err != nil {
+	if err = s.setMessageTargets(ctx, tx, ss, m.ID, toAgentIDs); err != nil {
 		return sdk.Reply{}, err
 	}
 	title := []rune(strings.TrimSpace(input))
@@ -388,7 +388,7 @@ func (s *Service) SendMessageTx(ctx context.Context, tx *sql.Tx, u sdk.User, ss 
 			return sdk.Reply{}, err
 		}
 	}
-	out := sdk.Reply{Message: &m, Runs: []sdk.Run{}}
+	out := sdk.Reply{Message: &m, Runs: []sdk.Run{}, RunInputs: []sdk.RunInput{}}
 	if len(toAgentIDs) > 0 {
 		if out.Round, err = s.startRound(ctx, tx, ss.ID, m.Seq); err != nil {
 			return sdk.Reply{}, err
@@ -397,8 +397,7 @@ func (s *Service) SendMessageTx(ctx context.Context, tx *sql.Tx, u sdk.User, ss 
 	if err = s.ProjectStatus(ctx, tx, ss.ID, s.Now().Unix()); err != nil {
 		return sdk.Reply{}, err
 	}
-	out.Deliveries, err = s.RunService.DeliveriesIn(ctx, tx, `message_id=?`, m.ID)
-	return out, err
+	return out, nil
 }
 
 // recipientIDs preserves the explicit recipient order and stores omitted arrays as [].

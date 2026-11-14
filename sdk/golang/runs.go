@@ -26,23 +26,15 @@ type Run struct {
 	UpdatedAt       int64           `json:"updated_at"`
 }
 
-// Delivery is the metadata of a message/Agent target, with no independent ID.
-// RunID is empty until the adapter reports accepted.
-type Delivery struct {
-	AgentVersionID string `json:"agent_version_id"`
-	MessageID      string `json:"message_id"`
-	ConversationID string `json:"conversation_id"`
-	AgentID        string `json:"agent_id"`
-	DeviceID       string `json:"device_id"`
-	Harness        string `json:"harness"`
-	Content        string `json:"content"`
-	Status         string `json:"status"`
-	RunID          string `json:"run_id,omitempty"`
-	InputID        string `json:"input_id,omitempty"`
-	SessionID      string `json:"session_id,omitempty"`
-	Error          string `json:"error,omitempty"`
+// RunInput is an immutable Client-accepted input, not a pending delivery.
+type RunInput struct {
+	RunID     string `json:"run_id"`
+	InputID   string `json:"input_id"`
+	MessageID string `json:"message_id"`
+	CreatedAt int64  `json:"created_at"`
 }
 type RunDetail struct {
+	Inputs []RunInput          `json:"inputs" nullable:"false"`
 	Run    Run                 `json:"run"`
 	Events []ConversationEvent `json:"events"`
 }
@@ -94,13 +86,7 @@ func (c *Client) WaitMessageRuns(ctx context.Context, as, conversation string, m
 		if err != nil {
 			return out, err
 		}
-		done := true
-		for _, d := range out.Deliveries {
-			if d.MessageID == message && d.Status != "completed" && d.Status != "failed" && d.Status != "cancelled" && d.Status != "rejected" {
-				done = false
-			}
-		}
-		if done {
+		if out.MessageSettled(message) {
 			return out, nil
 		}
 		select {
@@ -109,4 +95,36 @@ func (c *Client) WaitMessageRuns(ctx context.Context, as, conversation string, m
 		case <-ticker.C:
 		}
 	}
+}
+
+// MessageSettled waits for every Agent recipient, including before the first run.
+func (d *ConversationDetail) MessageSettled(id string) bool {
+	for _, message := range d.Messages {
+		if message.ID != id {
+			continue
+		}
+		runs := make(map[string]Run, len(d.Runs))
+		for _, run := range d.Runs {
+			runs[run.ID] = run
+		}
+		for _, agent := range message.ToAgentIDs {
+			if receipt, ok := message.AgentErrors[agent]; ok && !receipt.Uncertain {
+				continue
+			}
+			settled := false
+			for _, input := range d.RunInputs {
+				if input.MessageID != id {
+					continue
+				}
+				if run, ok := runs[input.RunID]; ok && run.AgentID == agent {
+					settled = run.Status == "completed" || run.Status == "failed" || run.Status == "cancelled"
+				}
+			}
+			if !settled {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }

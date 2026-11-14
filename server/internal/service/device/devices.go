@@ -87,7 +87,7 @@ func (s *Service) resetDeviceSetup(ctx context.Context, u agentuse.User, id stri
 	} else if err != nil {
 		return agentuse.Device{}, err
 	}
-	if err = s.RunService.RetireDeviceDeliveries(ctx, tx, id, "device 已重置，请重新发送任务"); err != nil {
+	if err = s.ConversationService.RetireDeviceMessages(ctx, tx, id, "device 已重置，请重新发送任务"); err != nil {
 		return agentuse.Device{}, err
 	}
 	if _, err = tx.ExecContext(ctx, store.ResetDeviceSetupUpdate, store.RandomToken("st_"), agentuse.DevicePending, id); err != nil {
@@ -221,7 +221,7 @@ func (s *Service) deleteDevice(ctx context.Context, u agentuse.User, id string) 
 	} else if err != nil {
 		return err
 	}
-	if err := s.RunService.RetireDeviceDeliveries(ctx, tx, id, "device 已删除"); err != nil {
+	if err := s.ConversationService.RetireDeviceMessages(ctx, tx, id, "device 已删除"); err != nil {
 		return err
 	}
 

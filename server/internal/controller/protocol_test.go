@@ -138,8 +138,8 @@ func TestMessageProtocolPushAcceptanceAndReplay(t *testing.T) {
 	if len(detail.Runs) != 1 || detail.Runs[0].ID != run || len(detail.Messages) != 4 {
 		t.Fatal("replay duplicated execution or reply", detail)
 	}
-	for _, target := range detail.Deliveries {
-		if target.MessageID == third.Message.ID && target.Status != "pending" {
+	for _, target := range detail.RunInputs {
+		if target.MessageID == third.Message.ID {
 			t.Fatal("unknown input did not block later send", target)
 		}
 	}

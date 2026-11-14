@@ -20,7 +20,7 @@ func (s *Service) CompleteMessages(ctx context.Context, device, conversation, me
 		return out, err
 	}
 	defer tx.Rollback()
-	p, err := s.RunService.DeliveredTarget(ctx, tx, device, conversation, message, agent)
+	p, err := s.RunService.DispatchedTarget(ctx, tx, device, conversation, message, agent)
 	if err != nil {
 		return out, err
 	}
@@ -37,7 +37,7 @@ func (s *Service) CompleteMessages(ctx context.Context, device, conversation, me
 	if err = tx.QueryRowContext(ctx, `SELECT seq FROM messages WHERE id=? AND conversation_id=?`, message, conversation).Scan(&current); err != nil {
 		return out, err
 	}
-	err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(m.seq),0) FROM message_agents p JOIN messages m ON m.id=p.message_id WHERE p.conversation_id=? AND p.agent_id=? AND p.agent_version_id=? AND p.device_id=? AND p.session_id=? AND p.run_id<>'' AND p.input_id<>'' AND m.seq<?`, conversation, agent, p.AgentVersionID, device, localSession, current).Scan(&after)
+	err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(m.seq),0) FROM run_inputs i JOIN runs r ON r.id=i.run_id JOIN messages m ON m.id=i.message_id WHERE r.conversation_id=? AND r.agent_id=? AND r.agent_version_id=? AND r.device_id=? AND r.session_id=? AND m.seq<?`, conversation, agent, p.AgentVersionID, device, localSession, current).Scan(&after)
 	if err != nil {
 		return out, err
 	}

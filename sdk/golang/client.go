@@ -198,7 +198,7 @@ func (c *Client) CreateConversation(ctx context.Context, user string, req Create
 	return &r, c.do(ctx, user, "POST", "/api/conversations", req, &r)
 }
 
-// SendMessage atomically saves a message and routes its target deliveries.
+// SendMessage saves a message and freezes its recipient routes without allocating runs or inputs.
 func (c *Client) SendMessage(ctx context.Context, user, conversationID string, req MessageRequest) (*Reply, error) {
 	var reply Reply
 	return &reply, c.do(ctx, user, "POST", "/api/conversations/"+esc(conversationID)+"/messages", req, &reply)

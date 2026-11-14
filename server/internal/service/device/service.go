@@ -18,14 +18,10 @@ type Service struct {
 		KickUser(string)
 	}
 	ConversationService conversationService
-	RunService          runService
 }
 
 type conversationService interface {
 	DetachDeviceAttachments(ctx context.Context, tx *sql.Tx, device string) error
-}
-
-type runService interface {
 	NotifyDeviceConversations(context.Context, string)
-	RetireDeviceDeliveries(ctx context.Context, tx *sql.Tx, id, reason string) error
+	RetireDeviceMessages(ctx context.Context, tx *sql.Tx, id, reason string) error
 }

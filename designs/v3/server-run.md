@@ -1,157 +1,109 @@
-# runService：message/Agent 關係與實際執行
+# runService：實際執行與已受理輸入
 
-> 嵌套 conversation 已實作；本稿描述 runService 的職責邊界，消息回傳歸 conversationService，見 [父子 conversation 設計](server-conversation.md#父子對話)。
+> 本稿對應 schema 10。嵌套 conversation 的消息回傳歸 conversationService，見 [父子 conversation 設計](server-conversation.md#父子對話)。
 
-Server 使用 [agentuse-client/2](protocol.md)，直接投遞既有 conversation message。沒有 task、run_input、prompt ID 或預分配的 run UUID。只有 Client 上報的 accepted 才建立實際 run。
+Server 使用 [agentuse-client/2](protocol.md)，直接投遞既有 conversation message。只有 Client 上報的 accepted 才建立 runs 和 run_inputs；不預分配 run、input 或 task 身份。
 
 ## 消息到執行的關係
 
-保存一條消息時，在同一事務中寫入 messages 和每個目標 Agent 的 message_agents 關係。消息正文只保存一次；關係以 `(message_id, agent_id)` 為主鍵，固定 agent_version_id、device、harness，以及投遞和受理狀態，沒有自己的自增業務 ID。
+保存消息時只寫 messages：正文、收件人及其固定路由元數據。此時 runs、run_inputs 均不增加記錄。Client 受理後回傳 message_id、agent_id、run_id 和 input_id；Server 在同一事務內核對或建立 run，再插入已受理輸入。
 
 ```text
-M1 → coder    → accepted(R1, A1)
-M1 → reviewer → accepted(R2, A2)
-M2 → coder    → accepted(R1 或 R3, A3)
+M1 → coder    → accepted(R1, I1) → run_inputs(R1, I1, M1)
+M1 → reviewer → accepted(R2, I2) → run_inputs(R2, I2, M1)
+M2 → coder    → accepted(R1, I3) → run_inputs(R1, I3, M2)
 ```
 
-最後一行由適配器確認一個實際結果。message 和 run 的 N:M 關係直接記錄在消息/Agent 關係上。Run 的第一條 accepted 消息記為 first_message_id，後續輸入可以綁定相同 run。
+一條消息可被多個 Agent 受理；同一 run 可受理多條消息。首次輸入還記入 runs.first_message_id；完整輸入關係以 run_inputs 為準。Agent、conversation、device、session 和版本通過 runs 取得，不在 run_inputs 複製。run_inputs 沒有 status、error 或獨立的 Server ID，終態只保存於 runs。
 
 ## 派發與固定版本
 
-Server 根據 heartbeat 的空閒容量和活躍綁定主動選取 pending 消息，不等待 claim。每個綁定同時只有一條已派發但未確認受理的消息；unknown 也阻止後續消息，避免不確定輸入被跳過。
+conversationService 在消息的 agent_targets JSON 中保存每個目標的固定版本、device 和 harness。首次派發時保存不可變的 dispatch 報文快照；否定回執保存為 error。這些字段不保存 run/input ID 或執行狀態，不建立獨立的投遞表。
 
-首次派發在事務內保存 message 報文快照並標記 sent，之後重送沿用相同內容和版本。正文是原消息，context 只包含固定的業務分工和本次附件說明。共享歷史在 Client 選定實際 session 後，通過消息 context HTTP 接口按 accepted 邊界增量補齊，不存入派發快照。報文不包含模型、Agent 指令或技能包清單。Client 通過固定版本 API 按需獲取配置和資源，Server 不維護 init 階段。
+待確認目標由消息目標減去 run_inputs 的已受理關聯推導；明確拒絕的目標不再派發。Server 根據 heartbeat 的空閒容量和活躍綁定主動發送；同一綁定每次只允許一條已發出且尚未確認的消息，結果不確定時阻止後續輸入。
 
-資源讀取權限依據已派發的消息/Agent 關係，在 accepted 和 run 建立之前即可使用。新 Agent 或 Skill 版本不改已有消息的引用。
+重連重發保存的相同 dispatch 和消息身份，Client 以持久收據去重，補報原 accepted。Server 沒有 run 記錄只代表尚未確認，不證明 Client 沒有執行。初始化等確定發生於受理前的失敗，保存於原消息的 agent_errors；不虛構 failed run。不確定錯誤帶 uncertain=true，必須繼續等待證據，不能直接結束輪次或重新執行。accepted 清除該目標此前的不確定錯誤。
 
-| 關係狀態 | 含義 |
-|---|---|
-| pending | 尚未派發 |
-| sent | 已固定投遞快照，等待 accepted |
-| unknown | 可能受理，阻塞該綁定後續輸入；重連可重發相同報文補查收據，Client 不得重做不確定的 send |
-| rejected | 已證明尚未受理，不建立 run |
-| accepted | 已關聯適配器的 run_id/input_id |
-| completed / failed / cancelled | 實際 result 的查詢投影 |
+報文的 context 只包含固定業務分工和本次附件說明。共享歷史在 Client 選定實際 session 後，按 run_inputs 的 accepted 邊界增量補齊，不存入 dispatch。配置、skills 和附件的讀取權限來自已派發消息的固定路由，在 run 建立之前即可使用；Server 不維護 init 階段。
 
 ## 公共事件與控制
 
-event 信封統一承載 accepted、message、request、result、log；原始公共 JSON 保存在 run_events。穩定的外層 id 由 Client session 和完整 JSONL 行位置構成，線上不另傳 seq/ack_seq。
+event 信封統一承載 accepted、message、request、result、log；原始公共 JSON 保存在 run_events。穩定的外層 id 由 Client session 和完整 JSONL 行位置構成。
 
-Server 按認證設備、Client session 和源位置去重，並核對原始事件、消息關聯和固定路由。同一來源不能改綁 conversation、Agent、版本或消息。accepted 的 message_id/agent_id 必須與已派發關係相符；後續事件可以從 session/run 補全路由。
+Server 核對認證設備、來源消息、Agent 固定版本及 session 歸屬。同一消息/Agent 只能受理一次，不得改綁其他 run/input；同一 input 不能綁定其他消息。重複的相同來源事件冪等；新的補充輸入不能加入已終態 run。
 
-保存關鍵事件、更新 run 和消息關係、寫入最終 conversation 回覆在同一事務完成，提交後才 ACK。result.input_ids 必須準確覆蓋該 run 的已受理輸入；每個 run 只結算一次。回覆指向 first_message_id，result_message_id 防止重複新增回覆；頂層 cancelled 可以沒有最終回覆；子對話仍保存取消說明。子對話在所有輸入與執行收束後，由 conversationService 提交輪次結束並自動通知父側。普通 log 只作診斷，不要求 ACK。
+accepted、run、run_inputs 和 conversation 狀態在同一事務提交，提交後才 ACK。run_inputs 在 accepted 時寫入，不等 result。result.input_ids 必須恰好覆蓋該 run 的所有受理輸入；結果與最終回覆仍原子提交，每個 run 只結算一次。終態不修改 run_inputs，也不複製回消息元數據。
 
-answer 和 cancel 直接指定既有 run/session。控制 id 只用於傳輸去重；控制 ACK 不表示 request 已 replied 或 run 已 cancelled，實際狀態仍來自公共事件。已終態的 run 不接受新的執行事實覆蓋。
+回覆指向 first_message_id，result_message_id 防止重複回覆。頂層 cancelled 可以沒有最終回覆；子對話保存取消說明。子對話在所有目標有受理結果或明確拒絕、所有實際執行結束後，關閉本地輪次並自動通知父側。普通 log 只作診斷，不要求 ACK。
+
+answer/cancel 指定既有 run/session，控制 ACK 不等於 request 已 replied 或 run 已 cancelled；實際狀態仍由公共事件確認。run_controls 只保存控制的傳輸收據。
+
+## 讀取與展示
+
+ConversationDetail 返回 messages、runs、run_inputs、rounds、questions 和 events；新消息的響應中 runs、run_inputs 都是空數組。消息受理前的否定回執以 Message.agent_errors 返回，不再提供 deliveries。
+
+GET run 返回 run、inputs 和 events。前端對每個真實 run 只保留一個明確可點擊的入口；受理輸入列表、原消息、input_id 和診斷事件集中在 Run 詳情，原始事件默認折疊，不在每條消息下面重複顯示 completed 標籤。子會話通知維持默認折疊。
+
+SDK 等待一條消息時逐一檢查它的 Agent 目標：明確拒絕視為收束；否則必須找到 run_inputs 關聯且對應 run 終態。空 runs/run_inputs 不代表 Agent 消息已完成。等待整個 conversation 仍使用對話狀態。
 
 ## 持久化歸屬
 
-| 表 | 作用 |
+| 表 | 所屬與用途 |
 |---|---|
-| message_agents | 消息的目標 Agent、固定版本、派發快照及 run/input 關係，複合主鍵，沒有另一個輸入 ID |
-| runs | 適配器確認的實際 run 和狀態、結果投影 |
-| run_events | 公共事件及源位置，作為去重與恢復事實 |
-| run_requests | request 事件的問題查詢投影，不是新的執行對象 |
-| run_controls | answer/cancel 的傳輸收據，防止不確定控制被自動重做 |
+| messages | conversationService：正文、收件人及固定路由、派發快照、否定回執 |
+| runs | runService：Client 確認的實際執行、狀態和結果 |
+| run_inputs | runService：accepted 確認的原生輸入與消息關聯 |
+| run_events | runService：公共事件及來源位置，用於去重及恢復 |
+| run_requests | runService：request 事件的問題查詢投影 |
+| run_controls | runService：answer/cancel 的傳輸收據 |
 
-完整 SQL 見下方「表結構」；本節是五張執行表的唯一設計定義。只支持 schema 9，messages.id 及消息引用直接使用 UUID，messages.seq 保存 conversation 內順序。舊資料庫啟動時明確拒絕，必須使用新資料庫；不提供舊資料保留、遷移或 ID 轉換。
+runService 讀取消息路由，由 conversationService 在共享事務內更新消息元數據。run 事件通過 ExecutionEventConsumer 交給 conversationService 保存回覆與輪次；任何一步失敗都整體回滾。
 
-Client 只讀取新版 message/Agent 收據，不轉換舊 inputs 或控制收據。升級時清空本地工作目錄並重新註冊設備。網路協議不向舊版 hello/claim/prompt 降級，Server 與 Client 必須一起更新。
+只支持 schema 10；舊資料庫啟動時明確拒絕，不提供遷移或兼容字段。兩端與 SDK 一起更新，使用新 Server 資料庫重新註冊設備。Client session_id 是唯一的本地會話標識，Server 不生成另一個 session ID。
 
 [協議](protocol.md) · [conversationService](server-conversation.md) · [Agent 版本](server-agent.md) · [Client runService](client-run.md)
 
-## 邊界與原生會話
-
-Server 僅記錄 Client 產生的 session_id，同一值用於消息/Agent 受理關聯、run、事件、請求和控制；不存在另一個 client_session_id。conversation_id 永遠指共享對話。公共事件原樣保存，消息正文不再包裝執行結果；終態 run 拒絕新的 request/message 等執行事實，重放相同來源事件則確認已有記錄。
-
-run 投影向 executionEventConsumer 發送事實，conversation 編排器在原事務保存作者、回覆與狀態；回覆失敗則事件和結果一起回滾。父子關係不改變這個提交邊界。runService 不查詢父子對話、不向主對話生成 Work 摘要，也不維護 Work 的授權或通知表。
-
 ## 表結構
 
-以下 SQL 對應 [run_schema.go](../../server/internal/store/run_schema.go)。時間為 Unix 秒，公共事件及 answer 等 JSON 使用 TEXT。message_agents 的主鍵是消息/Agent 複合鍵，run 的身份來自 Client accepted；各表關聯由所屬 service 校驗，沒有數據庫外鍵。
+以下 SQL 對應 [run_schema.go](../../server/internal/store/run_schema.go)，是五張執行表的唯一設計定義。時間為 Unix 秒，各表關聯由 service 在事務內校驗，不聲明數據庫外鍵。
 
 ```sql
--- A message target has no independent task/input identity.
-CREATE TABLE message_agents (
-    conversation_id TEXT NOT NULL,
-    message_id TEXT NOT NULL,
-    agent_id TEXT NOT NULL,
-    agent_version_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    harness TEXT NOT NULL,
-    dispatch TEXT,
-    status TEXT NOT NULL DEFAULT 'pending',
-    run_id TEXT NOT NULL DEFAULT '',
-    input_id TEXT NOT NULL DEFAULT '',
-    session_id TEXT NOT NULL DEFAULT '',
-    error TEXT NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    PRIMARY KEY(message_id,agent_id)
-);
-CREATE INDEX message_agents_dispatch ON message_agents(device_id,status,created_at,message_id);
-CREATE UNIQUE INDEX message_agents_input ON message_agents(device_id,session_id,input_id) WHERE input_id<>'';
 -- IDs and terminal facts come exclusively from authenticated client reports.
 CREATE TABLE runs (
-    id TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL,
-    first_message_id TEXT NOT NULL,
-    agent_id TEXT NOT NULL,
-    agent_version_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    harness TEXT NOT NULL,
-    harness_revision TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'running',
-    result_message_id TEXT,
-    output TEXT NOT NULL DEFAULT '',
-    error TEXT NOT NULL DEFAULT '',
-    result TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+ id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, first_message_id TEXT NOT NULL,
+ agent_id TEXT NOT NULL, agent_version_id TEXT NOT NULL, device_id TEXT NOT NULL, session_id TEXT NOT NULL,
+ harness TEXT NOT NULL, harness_revision TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'running', result_message_id TEXT,
+ output TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
+ result TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE INDEX runs_conversation ON runs(conversation_id,created_at,id);
+-- Accepted inputs only: never preallocated while a message is waiting for Client.
+CREATE TABLE run_inputs (
+ run_id TEXT NOT NULL, input_id TEXT NOT NULL, message_id TEXT NOT NULL,
+ created_at INTEGER NOT NULL,
+ PRIMARY KEY(run_id,input_id), UNIQUE(run_id,message_id)
+);
+CREATE INDEX run_inputs_message ON run_inputs(message_id);
 CREATE TABLE run_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    conversation_id TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    run_id TEXT NOT NULL DEFAULT '',
-    agent_id TEXT NOT NULL,
-    agent_version_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    event_seq INTEGER NOT NULL,
-    message_id TEXT NOT NULL DEFAULT '',
-    kind TEXT NOT NULL,
-    payload TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    UNIQUE(device_id,session_id,event_seq)
+ id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL,
+ session_id TEXT NOT NULL, run_id TEXT NOT NULL DEFAULT '',
+ agent_id TEXT NOT NULL, agent_version_id TEXT NOT NULL, device_id TEXT NOT NULL,
+ event_seq INTEGER NOT NULL, message_id TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, payload TEXT NOT NULL,
+ created_at INTEGER NOT NULL, UNIQUE(device_id,session_id,event_seq)
 );
 CREATE TABLE run_requests (
-    request_id TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL,
-    run_id TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    payload TEXT NOT NULL,
-    state TEXT NOT NULL,
-    answer TEXT,
-    answered_by TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+ request_id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, run_id TEXT NOT NULL,
+ session_id TEXT NOT NULL, device_id TEXT NOT NULL,
+ payload TEXT NOT NULL, state TEXT NOT NULL, answer TEXT,
+ answered_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE TABLE run_controls (
-    id TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    run_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    request_id TEXT NOT NULL DEFAULT '',
-    answer TEXT,
-    state TEXT NOT NULL DEFAULT 'pending',
-    error TEXT NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+ id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, session_id TEXT NOT NULL,
+ run_id TEXT NOT NULL, device_id TEXT NOT NULL, kind TEXT NOT NULL, request_id TEXT NOT NULL DEFAULT '',
+ answer TEXT, state TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '',
+ created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 ```
 
-event_seq 保存 Client session 內完整 JSONL 行的源位置，唯一鍵為 (device_id,session_id,event_seq)。它不是 Server 另外生成的一套執行序號。run_requests 是公共 request 的查詢投影，run_controls 保存 answer/cancel 的傳輸狀態，控制送達不代表執行已進入終態。
+event_seq 保存 Client session 內完整 JSONL 行的來源位置，不是 Server 另外分配的執行序號。

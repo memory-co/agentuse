@@ -195,7 +195,7 @@ func TestFinishedRoundsSurviveNotificationFailureAndHaveFixedSnapshots(t *testin
 		t.Fatal(snapshot, err)
 	}
 	snapshot, err = s.ConversationService.ReadRound(ctx, f.u, f.child.ID, 2)
-	if err != nil || len(snapshot.Messages) != 2 || snapshot.Messages[1].Content != "Tests failed" || len(snapshot.Deliveries) != 1 || len(snapshot.Runs) != 1 || len(snapshot.Events) != 2 {
+	if err != nil || len(snapshot.Messages) != 2 || snapshot.Messages[1].Content != "Tests failed" || len(snapshot.RunInputs) != 1 || len(snapshot.Runs) != 1 || len(snapshot.Events) != 2 {
 		t.Fatal(snapshot, err)
 	}
 	if _, err = s.ConversationService.ReadRound(ctx, f.u, f.child.ID, 3); !errors.Is(err, store.ErrNotFound) {
@@ -248,7 +248,7 @@ func TestRejectedFailedAndCancelledRoundsAlwaysNotify(t *testing.T) {
 			if err != nil || detail.Rounds[0].FinishedAt == nil {
 				t.Fatal(detail, err)
 			}
-			if status == "rejected" && (len(detail.Runs) != 0 || len(detail.Messages) != 1 || detail.Deliveries[0].Error != "preparation failed") {
+			if status == "rejected" && (len(detail.Runs) != 0 || len(detail.Messages) != 1 || len(detail.RunInputs) != 0 || detail.Messages[0].AgentErrors[f.executor.ID].Error != "preparation failed") {
 				t.Fatal("invented a run or Agent reply for rejection", detail)
 			}
 		})

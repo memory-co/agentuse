@@ -68,6 +68,7 @@ export interface Conversation {
 }
 
 export interface Message {
+ agent_errors?:Record<string,MessageError>;
  author_conversation_id?:string; author_round_seq?:number;
  attachments: Attachment[];
  author_agent_version_id?:string;
@@ -92,13 +93,13 @@ export interface ConversationEvent {
 export interface Question {delivery_error?:string;request_id:string;conversation_id:string;run_id:string;state:"pending"|"replied"|"expired";payload:unknown;answer?:unknown;answered_by?:string;created_at:number}
 export interface Run {
  agent_version_id:string;id:string;conversation_id:string;first_message_id:string;agent_id:string;device_id:string;session_id:string;harness:string;harness_revision:string;status:"running"|"waiting"|"completed"|"failed"|"cancelled";result_message_id?:string;output?:string;error?:string;result?:unknown;created_at:number;updated_at:number}
-export interface Delivery {
- agent_version_id:string;message_id:string;conversation_id:string;agent_id:string;device_id:string;harness:string;content:string;run_id?:string;input_id?:string;session_id?:string;status:string;error?:string}
-export interface RunDetail { run:Run;events:ConversationEvent[] }
-export interface Reply {round?:ConversationRound; message:Message;runs:Run[];deliveries:Delivery[] }
+export interface MessageError {error:string;uncertain?:boolean}
+export interface RunInput {run_id:string;input_id:string;message_id:string;created_at:number}
+export interface RunDetail { run:Run;events:ConversationEvent[];inputs:RunInput[] }
+export interface Reply {round?:ConversationRound; message:Message;runs:Run[];run_inputs:RunInput[] }
 export interface WaitOptions { interval?:number;timeout?:number;returnOnWaiting?:boolean }
 export interface ConversationRound {conversation_id:string;seq:number;start_message_seq:number;end_message_seq?:number;created_at:number;finished_at?:number;parent_delivery?:"pending"|"delivered"|"failed";parent_message_id?:string;parent_delivery_error?:string}
-export interface ConversationDetail {rounds:ConversationRound[]; runs?:Run[];deliveries?:Delivery[];run_counts?:Record<string,number>; conversation: Conversation; messages: Message[]; questions: Question[]; events: ConversationEvent[]; }
+export interface ConversationDetail {rounds:ConversationRound[]; runs?:Run[];run_inputs:RunInput[];run_counts?:Record<string,number>; conversation: Conversation; messages: Message[]; questions: Question[]; events: ConversationEvent[]; }
 
 // 网站的 user id;null 表示 admin 本身。
 export type UserId = string | null;
@@ -167,8 +168,8 @@ export declare class Client {
   deleteDevice(user: UserId, deviceId: string): Promise<void>;
 
   listConversations(user: UserId): Promise<Conversation[]>;
-  createConversation(user: UserId, req: Omit<MessageInput,"attachment_ids"> & { title?:string; mode?:"single"|"collaborative";parent_conversation_id?:string; }): Promise<{ conversation: Conversation; message?: Message; round?:ConversationRound; runs:Run[];deliveries:Delivery[] }>;
-  /** 返回共享消息和各目标的 runs/deliveries。 */
+  createConversation(user: UserId, req: Omit<MessageInput,"attachment_ids"> & { title?:string; mode?:"single"|"collaborative";parent_conversation_id?:string; }): Promise<{ conversation: Conversation; message?: Message; round?:ConversationRound; runs:Run[];run_inputs:RunInput[] }>;
+  /** 返回共享消息和各目标的 runs/run_inputs。 */
   sendMessage(user: UserId, conversationId: string, req: MessageInput): Promise<Reply>;
   getConversation(user: UserId, conversationId: string): Promise<ConversationDetail>;
   getConversationRound(user:UserId,conversationId:string,round:number):Promise<ConversationDetail>;

@@ -65,7 +65,7 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 			return err
 		}
 		var authorized int
-		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM message_agents WHERE device_id=? AND conversation_id=? AND agent_id=? AND agent_version_id=? AND status IN ('sent','unknown','accepted','completed','failed','cancelled')`, device, envelope.ConversationID, envelope.AgentID, envelope.AgentVersionID).Scan(&authorized); err != nil {
+		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM `+store.MessageTargetsFrom+` WHERE json_extract(t.value,'$.device_id')=? AND m.conversation_id=? AND t.key=? AND json_extract(t.value,'$.agent_version_id')=? AND `+store.MessageTargetDispatched, device, envelope.ConversationID, envelope.AgentID, envelope.AgentVersionID).Scan(&authorized); err != nil {
 			return err
 		}
 		if authorized == 0 {
@@ -93,15 +93,30 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 			if envelope.MessageID == "" || event.InputID == "" {
 				return fmt.Errorf("accepted requires message and input identity")
 			}
-			prompt, err := scanMessageTarget(tx.QueryRowContext(ctx, messageTargetCols+` WHERE message_id=? AND device_id=? AND conversation_id=? AND agent_id=? AND agent_version_id=?`, envelope.MessageID, device, envelope.ConversationID, envelope.AgentID, envelope.AgentVersionID))
+			prompt, err := s.DispatchedTarget(ctx, tx, device, envelope.ConversationID, envelope.MessageID, envelope.AgentID)
 			if err != nil {
 				return err
 			}
-			if prompt.AgentVersionID != envelope.AgentVersionID || (prompt.Status != "sent" && prompt.Status != "unknown" && prompt.Status != "accepted") {
-				return fmt.Errorf("prompt is not awaiting acceptance")
+			if prompt.AgentVersionID != envelope.AgentVersionID {
+				return fmt.Errorf("accepted Agent version conflict")
 			}
-			if prompt.RunID != "" && (prompt.RunID != event.RunID || prompt.InputID != event.InputID) {
-				return fmt.Errorf("prompt already bound to another accepted input")
+			var previousRun, previousInput string
+			err = tx.QueryRowContext(ctx, `SELECT i.run_id,i.input_id FROM run_inputs i JOIN runs r ON r.id=i.run_id WHERE i.message_id=? AND r.agent_id=?`, prompt.MessageID, prompt.AgentID).Scan(&previousRun, &previousInput)
+			if err != nil && err != sql.ErrNoRows {
+				return err
+			}
+			if previousRun != "" && (previousRun != event.RunID || previousInput != event.InputID) {
+				return fmt.Errorf("message already bound to another accepted input")
+			}
+			if previousRun == "" && prompt.Error != nil && !prompt.Error.Uncertain {
+				return fmt.Errorf("message was rejected before acceptance")
+			}
+			var reused int
+			if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM run_inputs i JOIN runs r ON r.id=i.run_id WHERE r.device_id=? AND r.session_id=? AND i.input_id=? AND (i.run_id<>? OR i.message_id<>?)`, device, envelope.SessionID, event.InputID, event.RunID, prompt.MessageID).Scan(&reused); err != nil {
+				return err
+			}
+			if reused > 0 {
+				return fmt.Errorf("input identity belongs to another message")
 			}
 			if _, err = tx.ExecContext(ctx, `INSERT INTO runs(id,conversation_id,first_message_id,agent_id,agent_version_id,device_id,session_id,harness,harness_revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, event.RunID, envelope.ConversationID, prompt.MessageID, envelope.AgentID, envelope.AgentVersionID, device, envelope.SessionID, envelope.Harness, envelope.Revision, now, now); err != nil {
 				return err
@@ -110,10 +125,13 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 			if err != nil {
 				return err
 			}
-			if r.DeviceID != device || r.SessionID != envelope.SessionID || r.ConversationID != envelope.ConversationID || r.AgentID != envelope.AgentID || r.AgentVersionID != envelope.AgentVersionID || r.Status == "completed" || r.Status == "failed" || r.Status == "cancelled" {
+			if r.DeviceID != device || r.SessionID != envelope.SessionID || r.ConversationID != envelope.ConversationID || r.AgentID != envelope.AgentID || r.AgentVersionID != envelope.AgentVersionID || (previousRun == "" && (r.Status == "completed" || r.Status == "failed" || r.Status == "cancelled")) {
 				return fmt.Errorf("accepted run ownership or lifecycle conflict")
 			}
-			if _, err = tx.ExecContext(ctx, `UPDATE message_agents SET status='accepted',run_id=?,input_id=?,session_id=?,updated_at=? WHERE message_id=? AND agent_id=?`, event.RunID, event.InputID, envelope.SessionID, now, prompt.MessageID, prompt.AgentID); err != nil {
+			if _, err = tx.ExecContext(ctx, `INSERT INTO run_inputs(run_id,input_id,message_id,created_at) VALUES(?,?,?,?) ON CONFLICT(run_id,input_id) DO NOTHING`, event.RunID, event.InputID, prompt.MessageID, now); err != nil {
+				return err
+			}
+			if err = s.ConversationService.SaveMessageError(ctx, tx, prompt.MessageID, prompt.AgentID, nil); err != nil {
 				return err
 			}
 		} else if event.Type != "log" {
@@ -153,13 +171,15 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 				if len(r.Result) > 0 {
 					return fmt.Errorf("run already has a result")
 				}
-				prompts, err := s.DeliveriesIn(ctx, tx, `run_id=?`, r.ID)
+				prompts, err := s.RunInputsIn(ctx, tx, r.ConversationID)
 				if err != nil {
 					return err
 				}
 				owned := map[string]bool{}
 				for _, p := range prompts {
-					owned[p.InputID] = true
+					if p.RunID == r.ID {
+						owned[p.InputID] = true
+					}
 				}
 				if len(event.InputIDs) != len(owned) {
 					return fmt.Errorf("result must cover all accepted inputs")
@@ -176,9 +196,6 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 					errorText = *event.Error
 				}
 				if _, err = tx.ExecContext(ctx, `UPDATE runs SET status=?,output=?,error=?,result=?,updated_at=? WHERE id=?`, event.Status, event.Output, errorText, string(envelope.Event), now, r.ID); err != nil {
-					return err
-				}
-				if _, err = tx.ExecContext(ctx, `UPDATE message_agents SET status=?,error=?,updated_at=? WHERE run_id=?`, event.Status, errorText, now, r.ID); err != nil {
 					return err
 				}
 

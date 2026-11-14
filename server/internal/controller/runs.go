@@ -4,29 +4,38 @@ import (
 	"net/http"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 	if !s.conversationInScope(w, r, r.PathValue("id"), false) {
 		return
 	}
-	run, err := s.service.RunService.GetRun(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("run_id"))
+	snapshot, err := s.service.ConversationService.ReadConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	events, err := s.service.RunService.RunEvents(r.Context(), run.ConversationID)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	filtered := []agentuse.ConversationEvent{}
-	for _, e := range events {
-		if e.RunID == run.ID {
-			filtered = append(filtered, e)
+	for _, run := range snapshot.Runs {
+		if run.ID != r.PathValue("run_id") {
+			continue
 		}
+		events := []agentuse.ConversationEvent{}
+		inputs := []agentuse.RunInput{}
+		for _, event := range snapshot.Events {
+			if event.RunID == run.ID {
+				events = append(events, event)
+			}
+		}
+		for _, input := range snapshot.RunInputs {
+			if input.RunID == run.ID {
+				inputs = append(inputs, input)
+			}
+		}
+		writeJSON(w, 200, agentuse.RunDetail{Run: run, Events: events, Inputs: inputs})
+		return
 	}
-	writeJSON(w, 200, agentuse.RunDetail{Run: run, Events: filtered})
+	s.storeErr(w, store.ErrNotFound)
 }
 func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	if !s.conversationInScope(w, r, r.PathValue("id"), false) {

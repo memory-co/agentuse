@@ -32,7 +32,7 @@ fmt.Println(string(detail.Messages[len(detail.Messages)-1].Content))
 // 每条消息显式指定执行者；适配器 accepted 决定插话或新 run
 reply, err := c.SendMessage(ctx, uid, r.Conversation.ID, agentuse.MessageRequest{Prompt: "再把 CHANGELOG 也改一下", ToAgentIDs: []string{a.ID}})
 if err == nil {
-	fmt.Println(reply.Deliveries)
+	fmt.Println(reply.RunInputs)
 }
 ```
 
@@ -68,7 +68,7 @@ if err != nil { return err }
 detail, err := c.WaitMessageRuns(ctx, user, ss.Conversation.ID, reply.Message.ID, time.Second)
 ```
 
-Reply.Deliveries 是各目标消息分配，accepted 前 Reply.Runs 可以为空。实际 UUID 及插话归属由 client 决定。另有 GetRun、WaitRun、CancelRun、ReplyRunRequest。新模式 WaitConversation 默认等全部执行终态，可传 WaitOptions{ReturnOnWaiting:true}。
+Reply.RunInputs 是受理后的输入事实，消息创建时 Reply.Runs 和 Reply.RunInputs 均为空。实际 UUID 及补充输入归属由 Client accepted 确认；等待时逐一检查消息目标、输入关联和 run 终态，明确拒绝见 Message.AgentErrors。另有 GetRun、WaitRun、CancelRun、ReplyRunRequest。新模式 WaitConversation 默认等全部执行终态，可传 WaitOptions{ReturnOnWaiting:true}。
 
 消息使用 `to_agent_ids` 和 `to_user_ids`，可同时指定；返回值始终包含这两组数组。只接受新字段，不保留旧字段别名。
 
