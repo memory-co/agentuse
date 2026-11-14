@@ -1,0 +1,224 @@
+package run
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+
+	"github.com/memory-co/agentuse/internal/protocol"
+	"github.com/memory-co/agentuse/server/internal/service/internal/core"
+)
+
+// DispatchMessage selects one durable input. It does not create or predict a run.
+func (s *Service) DispatchMessage(ctx context.Context, d core.Device, capacity ...protocol.Message) (protocol.ConversationMessage, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return protocol.ConversationMessage{}, err
+	}
+	defer tx.Rollback()
+	query := messageTargetCols + ` WHERE device_id=? AND status='pending' AND EXISTS(SELECT 1 FROM device_harnesses h WHERE h.device_id=message_agents.device_id AND h.harness=message_agents.harness AND h.available=1 AND h.enabled=1) AND NOT EXISTS(SELECT 1 FROM message_agents waiting WHERE waiting.device_id=message_agents.device_id AND waiting.conversation_id=message_agents.conversation_id AND waiting.agent_id=message_agents.agent_id AND waiting.agent_version_id=message_agents.agent_version_id AND waiting.status IN ('sent','unknown'))`
+	args := []any{d.ID}
+	if len(capacity) > 0 && capacity[0].FreeSessions <= 0 {
+		if len(capacity[0].ActiveStreams) == 0 {
+			return protocol.ConversationMessage{}, core.ErrNotFound
+		}
+		query += ` AND (`
+		for i, stream := range capacity[0].ActiveStreams {
+			if i > 0 {
+				query += ` OR `
+			}
+			query += `(conversation_id=? AND agent_id=? AND agent_version_id=?)`
+			args = append(args, stream.ConversationID, stream.AgentID, stream.AgentVersionID)
+		}
+		query += `)`
+	}
+	query += ` ORDER BY created_at,(SELECT seq FROM messages WHERE id=message_agents.message_id),agent_id LIMIT 1`
+	p, err := scanMessageTarget(tx.QueryRowContext(ctx, query, args...))
+	if err != nil {
+		return protocol.ConversationMessage{}, err
+	}
+	out, err := s.ConversationService.PrepareMessage(ctx, tx, p)
+	if err != nil {
+		return out, err
+	}
+	dispatch, err := json.Marshal(out)
+	if err != nil {
+		return out, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE message_agents SET status='sent',dispatch=?,updated_at=? WHERE message_id=? AND agent_id=?`, string(dispatch), s.Unix(), p.MessageID, p.AgentID); err != nil {
+		return out, err
+	}
+	err = tx.Commit()
+	if err == nil {
+		s.NotifyConversation(ctx, out.ConversationID)
+	}
+	return out, err
+}
+
+// Sent inputs are never automatically executed again after a disconnect.
+// Reconnection re-delivers the same prompt identity; the client checks its receipt.
+func (s *Service) PendingMessages(ctx context.Context, device string) ([]protocol.ConversationMessage, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT dispatch FROM message_agents WHERE device_id=? AND status IN ('sent','unknown') ORDER BY created_at,(SELECT seq FROM messages WHERE id=message_agents.message_id),agent_id`, device)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []protocol.ConversationMessage{}
+	for rows.Next() {
+		var raw string
+		if err = rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var p protocol.ConversationMessage
+		if err = json.Unmarshal([]byte(raw), &p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (s *Service) RejectMessage(ctx context.Context, device, id, status, reason string) error {
+	message, agent, err := protocol.ParseMessageID(id)
+	if err != nil {
+		return err
+	}
+	if status != protocol.AckError && status != protocol.AckUnknown {
+		return fmt.Errorf("invalid message acknowledgement")
+	}
+	var conversation string
+	err = s.Repository.Tx(ctx, func(tx *sql.Tx) error {
+		p, err := scanMessageTarget(tx.QueryRowContext(ctx, messageTargetCols+` WHERE message_id=? AND agent_id=? AND device_id=?`, message, agent, device))
+		if err != nil {
+			return err
+		}
+		conversation = p.ConversationID
+		if p.RunID != "" {
+			return nil // A late transport error cannot override accepted facts.
+		}
+		if p.Status != "sent" && p.Status != "unknown" && p.Status != "rejected" {
+			return fmt.Errorf("message was not delivered")
+		}
+		state := "rejected"
+		if status == protocol.AckUnknown || p.Status == "unknown" {
+			state = "unknown"
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE message_agents SET status=?,error=?,updated_at=? WHERE message_id=? AND agent_id=?`, state, reason, s.Unix(), message, agent); err != nil {
+			return err
+		}
+		return s.ConversationService.ProjectStatus(ctx, tx, p.ConversationID, s.Unix())
+	})
+	if err == nil {
+		s.ConversationService.DeliveryChanged(ctx, conversation)
+	}
+	return err
+}
+func (s *Service) DeviceConversationAccess(ctx context.Context, device, conversation string) error {
+	var n int
+	err := s.DB.QueryRowContext(ctx, `SELECT count(*) FROM message_agents WHERE device_id=? AND conversation_id=? AND status IN ('sent','unknown','accepted','completed','failed','cancelled')`, device, conversation).Scan(&n)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return core.ErrNotFound
+	}
+	return nil
+}
+func (s *Service) CancelRun(ctx context.Context, u core.User, conversation, id string) (core.Run, error) {
+	r, err := s.GetRun(ctx, u, conversation, id)
+	if err != nil {
+		return r, err
+	}
+	if r.Status != "running" && r.Status != "waiting" {
+		return r, core.ErrConversationState
+	}
+	_, err = s.queueControl(ctx, r, "cancel", "", nil, u.ID)
+	return r, err
+}
+func (s *Service) queueControl(ctx context.Context, r core.Run, kind, request string, answer json.RawMessage, user string) (protocol.SessionControl, error) {
+	prefix := "c:"
+	if kind == protocol.TypeAnswer {
+		prefix = "a:"
+	}
+	out := protocol.SessionControl{ID: prefix + core.NewUUID(), ConversationID: r.ConversationID, SessionID: r.SessionID, RunID: r.ID, RequestID: request, Answer: answer}
+	res, err := s.DB.ExecContext(ctx, `INSERT INTO run_controls(id,conversation_id,session_id,run_id,device_id,kind,request_id,answer,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM run_controls WHERE run_id=? AND kind=? AND request_id=? AND state IN ('pending','unknown','delivered'))`, out.ID, r.ConversationID, r.SessionID, r.ID, r.DeviceID, kind, request, core.NullIfEmpty(string(answer)), s.Unix(), s.Unix(), r.ID, kind, request)
+	if err == nil {
+		if n, _ := res.RowsAffected(); n == 0 {
+			return out, core.ErrConversationState
+		}
+	}
+	if err == nil {
+		s.Notifier.PushRun(r.DeviceID, protocol.Message{Type: kind, ID: out.ID, Control: &out})
+		s.NotifyConversation(ctx, r.ConversationID)
+	}
+	return out, err
+}
+func (s *Service) PendingControls(ctx context.Context, device string) ([]protocol.Message, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT id,conversation_id,session_id,run_id,kind,request_id,answer FROM run_controls WHERE device_id=? AND state IN ('pending','unknown') ORDER BY created_at,id`, device)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []protocol.Message{}
+	for rows.Next() {
+		var control protocol.SessionControl
+		var kind string
+		var answer sql.NullString
+		if err = rows.Scan(&control.ID, &control.ConversationID, &control.SessionID, &control.RunID, &kind, &control.RequestID, &answer); err != nil {
+			return nil, err
+		}
+		if answer.Valid {
+			control.Answer = json.RawMessage(answer.String)
+		}
+		out = append(out, protocol.Message{Type: kind, ID: control.ID, Control: &control})
+	}
+	return out, rows.Err()
+}
+func (s *Service) ConfirmControl(ctx context.Context, device, id, status, message string) error {
+	state := "delivered"
+	if status == protocol.AckError {
+		state = "failed"
+	} else if status == protocol.AckUnknown {
+		state = "unknown"
+	} else if status != protocol.AckOK {
+		return fmt.Errorf("invalid control ACK")
+	}
+	_, err := s.DB.ExecContext(ctx, `UPDATE run_controls SET state=?,error=?,updated_at=? WHERE id=? AND device_id=? AND state IN ('pending','unknown')`, state, message, s.Unix(), id, device)
+	if err == nil {
+		var conversation string
+		if e := s.DB.QueryRowContext(ctx, `SELECT conversation_id FROM run_controls WHERE id=? AND device_id=?`, id, device).Scan(&conversation); e == nil {
+			s.NotifyConversation(ctx, conversation)
+		}
+	}
+	return err
+}
+func (s *Service) RetireDeviceDeliveries(ctx context.Context, tx *sql.Tx, id, reason string) error {
+	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT conversation_id FROM message_agents WHERE device_id=? AND status IN ('pending','sent')`, id)
+	if err != nil {
+		return err
+	}
+	var conversations []string
+	for rows.Next() {
+		var c string
+		if err = rows.Scan(&c); err != nil {
+			rows.Close()
+			return err
+		}
+		conversations = append(conversations, c)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE message_agents SET status=CASE WHEN status='pending' THEN 'rejected' ELSE 'unknown' END,error=?,updated_at=? WHERE device_id=? AND status IN ('pending','sent')`, reason, s.Unix(), id); err != nil {
+		return err
+	}
+	for _, c := range conversations {
+		if err = s.ConversationService.ProjectStatus(ctx, tx, c, s.Unix()); err != nil {
+			return err
+		}
+	}
+	return nil
+}

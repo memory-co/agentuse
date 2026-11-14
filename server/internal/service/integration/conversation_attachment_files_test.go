@@ -1,0 +1,29 @@
+package integration
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/memory-co/agentuse/internal/attachment"
+	"github.com/memory-co/agentuse/server/internal/service"
+)
+
+func TestPublishAttachmentSingleFileLimit(t *testing.T) {
+	s := newStore(t)
+	dir := t.TempDir()
+	s.ConfigureConversationAttachments(3, 100, nil)
+	temp := filepath.Join(dir, "incoming")
+	if err := os.WriteFile(temp, []byte("four"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	err := s.PublishAttachment(context.Background(), service.AttachmentAccess{}, &attachment.Attachment{SizeBytes: 4}, temp)
+	if !errors.Is(err, service.ErrAttachmentQuota) {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(temp); err != nil {
+		t.Fatal("rejected publication moved the source", err)
+	}
+}

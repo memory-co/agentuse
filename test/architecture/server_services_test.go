@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -42,20 +43,29 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 		}
 	}
 	owners := map[string]string{
-		"users":   "UserService",
-		"devices": "DeviceService", "device_harnesses": "DeviceService", "device_capabilities": "DeviceService",
-		"agents": "AgentService", "agent_versions": "AgentService", "agent_version_skills": "AgentService",
-		"conversations": "ConversationService", "messages": "ConversationService", "attachments": "ConversationService",
-		"message_agents": "RunService", "runs": "RunService", "run_events": "RunService", "run_requests": "RunService", "run_controls": "RunService",
-		"works": "WorkService", "work_run_tokens": "WorkService", "run_notifications": "WorkService",
-		"skills": "skill.Service", "skill_versions": "skill.Service",
+		"users":   "user",
+		"devices": "device", "device_harnesses": "device", "device_capabilities": "device",
+		"agents": "agent", "agent_versions": "agent", "agent_version_skills": "agent",
+		"conversations": "conversation", "messages": "conversation", "attachments": "conversation",
+		"message_agents": "run", "runs": "run", "run_events": "run", "run_requests": "run", "run_controls": "run",
+		"works": "work", "work_run_tokens": "work", "run_notifications": "work",
+		"skills": "skill", "skill_versions": "skill",
 	}
 	writes := regexp.MustCompile(`(?i)\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+([a-z_]+)`)
-	paths, err := filepath.Glob(filepath.Join(root, "service", "*.go"))
+	serviceRoot := filepath.Join(root, "service")
+	paths := []string{}
+	err = filepath.WalkDir(serviceRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".go") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	paths = append(paths, filepath.Join(root, "service", "skill", "service.go"))
 	for _, path := range paths {
 		if strings.HasSuffix(path, "_test.go") {
 			continue
@@ -69,20 +79,8 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 			if !ok || fn.Body == nil {
 				continue
 			}
-			receiver := ""
-			if fn.Recv != nil {
-				typ := fn.Recv.List[0].Type
-				if pointer, ok := typ.(*ast.StarExpr); ok {
-					typ = pointer.X
-				}
-				receiver = typ.(*ast.Ident).Name
-			}
-			if receiver == "conversationEvents" {
-				receiver = "ConversationService"
-			}
-			if f.Name.Name == "skill" {
-				receiver = "skill." + receiver
-			}
+			rel, _ := filepath.Rel(serviceRoot, path)
+			owner := strings.Split(filepath.ToSlash(rel), "/")[0]
 			ast.Inspect(fn.Body, func(node ast.Node) bool {
 				var sql string
 				switch n := node.(type) {
@@ -97,8 +95,8 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 				}
 				for _, match := range writes.FindAllStringSubmatch(sql, -1) {
 					table := strings.ToLower(match[1])
-					if owner, ok := owners[table]; ok && owner != receiver {
-						t.Errorf("%s: %s.%s writes %s; delegate to %s with the same transaction", path, receiver, fn.Name, table, owner)
+					if domain, ok := owners[table]; ok && owner != domain {
+						t.Errorf("%s: %s.%s writes %s; delegate to %s with the same transaction", path, owner, fn.Name, table, domain)
 					}
 				}
 				return true
@@ -107,42 +105,67 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 	}
 }
 
-// Domain services must declare their peers. A shared runtime or back-reference
-// to the root would restore access to every business operation through embedding.
-func TestServerServiceRuntimeHasNoBusinessBackReferences(t *testing.T) {
-	paths, err := filepath.Glob(filepath.Join("..", "..", "server", "internal", "service", "*.go"))
+// Domain packages depend on contracts and leaf services, never the root or an
+// orchestration peer. Tests exercise the full composition from integration/.
+func TestServerServicePackageDependencies(t *testing.T) {
+	root := filepath.Join("..", "..", "server", "internal", "service")
+	const prefix = "github.com/memory-co/agentuse/server/internal/service"
+	allowed := map[string]map[string]bool{
+		"user": {}, "device": {}, "agent": {"skill": true},
+		"conversation": {"run": true, "file": true}, "run": {"skill": true},
+		"work": {}, "skill": {"file": true}, "file": {}, "internal": {},
+	}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		if len(parts) == 1 {
+			if d.Name() != "services.go" && !strings.HasSuffix(d.Name(), "_test.go") {
+				t.Errorf("%s adds business implementation to the composition root", rel)
+			}
+			return nil
+		}
+		domain := parts[0]
+		if domain == "integration" {
+			if !strings.HasSuffix(d.Name(), "_test.go") {
+				t.Errorf("%s adds runtime implementation to integration tests", rel)
+			}
+			return nil
+		}
+		peers, ok := allowed[domain]
+		if !ok {
+			t.Errorf("unexpected Server service package %s", domain)
+			return nil
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, im := range f.Imports {
+			value, _ := strconv.Unquote(im.Path.Value)
+			if value == prefix {
+				t.Errorf("%s imports the composition root", rel)
+			}
+			if !strings.HasPrefix(value, prefix+"/") {
+				continue
+			}
+			target := strings.TrimPrefix(value, prefix+"/")
+			if target == "internal/core" {
+				continue
+			}
+			peer := strings.Split(target, "/")[0]
+			if peer != domain && !peers[peer] {
+				t.Errorf("%s imports %s outside its allowed dependencies; use a narrow peer contract", rel, peer)
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, path := range paths {
-		if strings.HasSuffix(path, "_test.go") {
-			continue
-		}
-		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		ast.Inspect(f, func(node ast.Node) bool {
-			ts, ok := node.(*ast.TypeSpec)
-			if !ok || ts.Name.Name == "Service" {
-				return true
-			}
-			st, ok := ts.Type.(*ast.StructType)
-			if !ok {
-				return true
-			}
-			ast.Inspect(st.Fields, func(field ast.Node) bool {
-				if _, qualified := field.(*ast.SelectorExpr); qualified {
-					return false // file.Service and skill.Service are leaf peers.
-				}
-				if id, ok := field.(*ast.Ident); ok {
-					if id.Name == "Service" || (ts.Name.Name == "serviceRuntime" && strings.HasSuffix(id.Name, "Service")) {
-						t.Errorf("%s: %s carries business back-reference %s", path, ts.Name, id.Name)
-					}
-				}
-				return true
-			})
-			return false
-		})
 	}
 }
