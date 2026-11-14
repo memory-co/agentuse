@@ -154,7 +154,7 @@ sequenceDiagram
 | `skill.Service` | 獨立的 `skill/` 包；版本校驗、發佈、元數據和包讀取 |
 | `file.Service` | 獨立的 `file/` 包；通用字節後端 |
 
-每個業務目錄都是獨立 Go package，service 頂層的生產代碼只保留 `services.go` 組裝入口與公共類型別名。各包通過所需方法的接口協作，根入口統一連接依賴。共用設施放在 `internal/core/`，包括數據庫、時鐘、日誌、通知、查詢接口與共用類型；此內部支撐包不引用業務 service。跨業務回歸測試放在 `integration/`。Conversation 的文件鎖和附件限制由 `conversation.Service` 自己持有。
+每個業務目錄都是獨立 Go package，service 頂層的生產代碼只保留 `services.go` 組裝入口與公共類型別名。各包通過所需方法的接口協作，根入口統一連接依賴。共用設施放在 `internal/core/`，包括數據庫、時鐘、日誌、通知、查詢接口與共用類型；此內部支撐包不引用業務 service。業務服務層測試集中放在 `test/`，包含真實數據庫及跨 service 協作的回歸測試。Conversation 的文件鎖和附件限制由 `conversation.Service` 自己持有。
 
 跨業務寫入通過接收同一 `*sql.Tx` 的所屬 service 方法完成：設備刪除由 runService 處理投遞狀態，由 conversationService 清空附件的設備歸屬。文件清理和瀏覽器通知在提交後執行。架構測試遞歸檢查各包的依賴與 SQL 寫入歸屬，並禁止向組裝目錄新增業務實現；回滾測試覆蓋跨業務清理失敗。
 

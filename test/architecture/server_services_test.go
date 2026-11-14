@@ -105,7 +105,7 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 }
 
 // Domain packages depend on contracts and leaf services, never the root or an
-// orchestration peer. Tests exercise the full composition from integration/.
+// orchestration peer. Tests exercise the full composition from service/test/.
 func TestServerServicePackageDependencies(t *testing.T) {
 	root := filepath.Join("..", "..", "server", "internal", "service")
 	const prefix = "github.com/memory-co/agentuse/server/internal/service"
@@ -130,9 +130,9 @@ func TestServerServicePackageDependencies(t *testing.T) {
 			return nil
 		}
 		domain := parts[0]
-		if domain == "integration" {
+		if domain == "test" {
 			if !strings.HasSuffix(d.Name(), "_test.go") {
-				t.Errorf("%s adds runtime implementation to integration tests", rel)
+				t.Errorf("%s adds runtime implementation to the service test directory", rel)
 			}
 			return nil
 		}

@@ -1,4 +1,4 @@
-package integration
+package test
 
 import (
 	"github.com/memory-co/agentuse/server/internal/service/internal/core"
