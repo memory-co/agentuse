@@ -1,6 +1,6 @@
 # 瀏覽器通知與 Markdown 顯示
 
-> 本稿的通知傳輸機制已實現。下面按新的父子 conversation 目標模型調整資源字段；目前代碼仍有獨立 Work 通知，需隨 [Work 重構](server-work.md) 一併替換。
+> 本稿的通知傳輸機制已實現。下面按新的父子 conversation 目標模型調整資源字段；目前代碼仍有獨立 Work 通知，需隨 [父子 conversation 設計](server-conversation.md#父子對話) 一併替換。
 
 Server 網頁透過 `GET /api/browser/ws` 建立一條 WebSocket，僅接收資料變更通知。發消息、回覆問題、上傳文件及讀取具體內容仍走既有 HTTP API；此入口與設備領任務的 WebSocket 分開。
 

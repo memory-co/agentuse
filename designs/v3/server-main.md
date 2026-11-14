@@ -4,7 +4,7 @@ Server/client WebSocket 報文、字段和恢復規則見 [protocol.md](protocol
 
 Server HTTP API 通過 Huma 註冊，從共用的請求和響應 Go 類型自動生成 OpenAPI。用戶登錄後可打開 `/api/docs` 交互文檔，或讀取 `/api/openapi.json`、`/api/openapi.yaml` 和 `/api/schemas/{schema}.json`。文檔入口沿用用戶 cookie / Bearer 鑒權；每個操作分別標明用戶與設備身份的適用範圍。文件接口使用 multipart 或二進制格式，WebSocket 入口僅描述 HTTP 握手。
 
-> 本文定義 Server 的業務劃分。Work 的父子 conversation 模型為本次目標設計，尚未實作，見 [Work 設計](server-work.md)；其他已實現鏈路仍按各自說明。controller 處理傳輸和身份，service 按下表組織業務與事務，store 保存 schema、查詢與行解碼。Client 職責見 [client-main.md](client-main.md)。
+> 本文定義 Server 的業務劃分。Work 的父子 conversation 模型為本次目標設計，尚未實作，見 [conversation 設計](server-conversation.md#父子對話)；其他已實現鏈路仍按各自說明。controller 處理傳輸和身份，service 按下表組織業務與事務，store 保存 schema、查詢與行解碼。Client 職責見 [client-main.md](client-main.md)。
 
 Conversation 表示共享對話，由 conversationService 管理；原 session 業務整體改用此名稱，session 專指 client 對應 Codex/Claude Code 的原生執行會話，見 [client-session.md](client-session.md)；server 不增加 sessionService 或 sessions 表。
 
@@ -109,7 +109,7 @@ Server 只認識設備上報的 harness 標識、版本和能力，不設 harnes
 
 fileService 統一按命名空間存儲字節，不綁定 conversation。conversations 空間保存共享對話文件；skills 空間保存獨立的 skill 版本 ZIP。conversationService 和 skillService 分別校驗業務權限與清理時機。fileService 不寫文件數據庫記錄；conversation-files.md 定義的附件業務元數據歸 conversationService 管理，文件字節仍走同一命名空間；skill 包摘要和路徑屬於 skillService 的版本元數據。
 
-Work 是一個 conversation 管理多個子 conversation 的視圖。主、子對話均支持多 Agent，收件人由每條消息明確指定。conversationService 用 parent_conversation_id 保存父子關係，復用普通創建、列表、讀取、發送及文件接口；無獨立 Work ID、固定協調 Agent 或工作授權層。具體操作及舊結構的刪除清單見 [Work 設計](server-work.md)。
+Work 是一個 conversation 管理多個子 conversation 的視圖。主、子對話均支持多 Agent，收件人由每條消息明確指定。conversationService 用 parent_conversation_id 保存父子關係，復用普通創建、列表、讀取、發送及文件接口；無獨立 Work ID、固定協調 Agent 或工作授權層。具體操作及舊結構的刪除清單見 [conversation 設計](server-conversation.md#父子對話)。
 
 ## 三、每次消息進入 Server
 
@@ -140,7 +140,7 @@ sequenceDiagram
 
 ## 四、當前源碼組織
 
-本節描述目前代碼的職責拆分。上文及 [Work 設計](server-work.md) 定義父子對話的目標模型；當前仍運行 schema 7 的舊 Work 行爲，該部分將隨新模型實作移除。
+本節描述目前代碼的職責拆分。上文及 [conversation 設計](server-conversation.md#父子對話) 定義父子對話的目標模型；當前仍運行 schema 7 的舊 Work 行爲，該部分將隨新模型實作移除。
 
 `server/internal/service/service.go` 中的 `Service` 是組裝入口，負責創建業務對象、連接依賴和配置存儲與通知。HTTP controller、WebSocket hub 及啓動流程顯式調用對應對象，例如 `ConversationService.SendMessage`、`RunService.DispatchMessage`。
 

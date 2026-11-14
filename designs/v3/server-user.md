@@ -1,6 +1,6 @@
 # userService：用戶與訪問身份
 
-> 用戶身份與令牌模型已落實到 schema 7。Work 改用父子 conversation 的部分仍為待實作目標，見 [Work 設計](server-work.md)。時間為 Unix 秒，關聯由所屬 service 校驗與清理，不聲明數據庫外鍵。
+> 用戶身份與令牌模型已落實到 schema 7。Work 改用父子 conversation 的部分仍為待實作目標，見 [父子 conversation 設計](server-conversation.md#父子對話)。時間為 Unix 秒，關聯由所屬 service 校驗與清理，不聲明數據庫外鍵。
 
 ## 職責
 

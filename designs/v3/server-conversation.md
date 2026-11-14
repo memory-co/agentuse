@@ -2,7 +2,7 @@
 
 > 執行鏈路使用 [agentuse-client/2](protocol.md)：直接投遞 message，消息/Agent 關係見 [server-run.md](server-run.md)，不再有 task 或獨立輸入 ID。
 
-> 單 conversation 的消息及執行鏈路已實現；本次新增的父子 conversation 關係仍為待實作的目標設計，見 [Work](server-work.md)。下列 conversations SQL 表示調整後的目標，並不表示 schema 7 已有父對話字段。關聯不聲明數據庫外鍵，由 service 校驗與清理。
+> 單 conversation 的消息及執行鏈路已實現；本次新增的父子 conversation 關係仍為待實作的目標設計，規範集中在本文「父子對話」及表結構。下列 conversations SQL 表示調整後的目標，並不表示 schema 7 已有父對話字段。關聯不聲明數據庫外鍵，由 service 校驗與清理。
 
 ## 職責
 
@@ -47,7 +47,74 @@ message、request、log 是執行記錄，不能都變成普通聊天消息。ca
 
 Conversation 狀態是實際 run 與未完成輸入的聚合投影，優先 waiting、running、pending，再到 idle；resolved 是用戶的完成標記。投影由 conversationService 通過 runService 查詢當前狀態後更新，run 狀態變化和最終結果事件都觸發重算；重算讀取當前實際 run 和未完成輸入集合，不用舊事件直接覆蓋投影。idle 不表示歷史任務全部成功。
 
-有活躍 run 或待領取/待受理輸入時拒絕刪除，檢查與刪除共用事務；回覆消費前也要重新檢查對話是否存在，已刪除的對話不恢復創建。刪除對話由 conversationService 協調相關 service，在同一事務內清理消息、run、message_agents、事件、問題及輔助記錄；本地目錄或 S3 對象前綴由 fileService 清理。父子關係由本 service 管理：默認拒絕刪除仍有子對話的節點；顯式 recursive=true 才在同一事務檢查並刪除整個子樹。任一節點忙碌則整體拒絕，見 [Work](server-work.md)。
+有活躍 run 或待領取/待受理輸入時拒絕刪除，檢查與刪除共用事務；回覆消費前也要重新檢查對話是否存在，已刪除的對話不恢復創建。刪除對話由 conversationService 協調相關 service，在同一事務內清理消息、run、message_agents、事件、問題及輔助記錄；本地目錄或 S3 對象前綴由 fileService 清理。父子節點的刪除規則統一見下文「父子對話」。
+
+## 父子對話
+
+父子 conversation 是對話自身的組織能力。每個節點都是普通 conversation，均支持多 Agent 消息；頂層對話也可以沒有子對話。界面中曾稱為 Work 的協作方式直接使用這個能力，不增加獨立業務身份、表、service 或執行生命週期。本節與下面的表結構是父子模型的唯一規範；[協作場景](server-work.md)僅提供使用示例。
+
+### 關係與歸屬
+
+parent_conversation_id 為空表示頂層對話，非空時指向已存在的父對話。每個對話最多有一個父對話，僅在創建時指定；首版不提供掛接、移動或重新指定父對話，因而不會生成自引用或環。子對話可用相同接口繼續創建下一級對話。
+
+子對話繼承父對話的 user_id，created_by 按普通創建規則記錄。HTTP 入口復用通用身份校驗，本 service 校驗父對話的訪問與創建權限；讀取、發消息及文件操作仍按目標 conversation 校驗。通用 Agent 工具的身份接入由 HTTP/conversation 邊界處理，不為組織視圖增加憑據交換流程。
+
+主、子對話各自保留消息歷史、文件樹和狀態。各節點的消息仍以 to_agent_ids / to_user_ids 明確選擇收件人，不繼承父對話上一次的收件人，也不綁定固定協調 Agent。工作目標及約束由消息表達，名稱和所有者使用 conversation 的既有字段。
+
+### API
+
+創建、讀取和發送都沿用 /api/conversations。界面與 Server 提供的工具直接調用這些接口。
+
+| 方法 | 接口 | 行為 |
+|---|---|---|
+| POST | /api/conversations | 創建對話；可選 parent_conversation_id 表示父對話 |
+| GET | /api/conversations | 列出當前身份可見的頂層對話 |
+| GET | /api/conversations?parent_conversation_id=P | 列出 P 的直接子對話，包含空對話 |
+| GET | /api/conversations/{id} | 讀取普通對話快照，含 parent_conversation_id |
+| POST | /api/conversations/{id}/messages | 明確選擇收件人及附件，發送普通消息 |
+| POST | /api/conversations/{id}/resolve、reopen | 操作該對話自身的完成標記 |
+| DELETE | /api/conversations/{id} | 刪除無子對話且可刪除的對話 |
+| DELETE | /api/conversations/{id}?recursive=true | 顯式刪除該對話及整個子樹 |
+
+創建主對話：
+
+```json
+{"title":"改進搜索體驗","prompt":"請一起規劃並分工","to_agent_ids":["planner","reviewer"]}
+```
+
+在該主對話下創建子對話：
+
+```json
+{"parent_conversation_id":"parent-conversation-uuid","title":"搜索接口","prompt":"實現接口並驗證邊界條件","to_agent_ids":["coder","tester"]}
+```
+
+省略 prompt 和收件人即可先創建空子對話。之後上傳文件、發消息，使用同一套 conversation API。返回值仍為 conversation、message、runs、deliveries，不新增 Work 響應包裝。
+
+創建子對話及其首條消息共用普通創建事務，任一收件人或內容校驗失敗時整體回滾。指定父對話的創建或列表請求先校驗父對話存在且可訪問，否則返回 404；不將不存在或無權訪問的父對話當作空列表。
+
+### 消息、反饋與生命週期
+
+創建子對話時，調用方在首條消息中提供子問題及必要背景，不隱式複製父對話的全部歷史、初始化指令或附件。reply_to_message_id 仍只引用同一 conversation 的既有消息。
+
+子對話的回覆保存到子對話自己的 messages 中。使用者或 Agent 可讀取子對話，再在父對話發普通消息；需要同一輪等待時，調用方復用 conversation 的等待／讀取能力。父對話的一次執行結束不影響父子關係及後續訪問。
+
+父子關係不自動轉發消息或喚醒任何 Agent。若需要自動回傳，應另行定義 conversation 之間的消息轉發規則，明確來源、目標及收件人；不依據 run 終態合成 Work 摘要或建立獨立結算流程。
+
+pending/running/waiting/idle 與 resolved 都只描述所選對話。界面可組合展示子對話的既有狀態，不另存組織視圖的總狀態。普通刪除遇到子對話時返回 409；只有顯式 recursive=true 才在同一事務確定子樹、校驗全部節點的權限與可刪除狀態並執行清理，任一節點忙碌則整體拒絕。文件前綴在數據庫提交後按既有方式清理。刪除一個子對話不影響父對話及兄弟對話。
+
+### 待替換的舊 Work 結構
+
+| 現有結構 | 目標 |
+|---|---|
+| works 及獨立工作 UUID | 移除，直接使用主 conversation 的身份和元數據 |
+| conversations.work_id、coordinator_id、work_role | 用 parent_conversation_id 表達對話關係 |
+| coordinator_agent_id | 移除，每條消息明確指定零個、一個或多個 Agent |
+| work_run_tokens、工作授權兌換接口 | 移除；Work 不擁有憑據或身份校驗邏輯 |
+| run_notifications、Work 結算與補償掃描 | 移除；不再基於執行終態生成協調消息 |
+| /api/works 及獨立 threads API | 移除，使用本節的 conversation 創建、查詢和消息接口 |
+| Work 專用工具及返回包裝 | 收斂為 conversation API 的調用入口，不另行管理角色或執行身份 |
+
+本次只改設計稿。當前運行代碼及使用文檔仍描述舊實作；後續整體實作時同步修改 schema、controller、SDK、Server 工具、界面及使用文檔，不做新舊模型混用。
 
 ## 標識和消息順序
 

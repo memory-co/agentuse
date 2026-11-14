@@ -91,7 +91,7 @@ runService 在首次 init 的指令快照中追加工具說明，保留 Agent �
 
 裸命令不提供選擇其他 Server、path、session 或 run 的參數。需要切換時，人類重新通過 `agentuse context` 選擇。描述文件只是本機執行元數據，不是新的授權憑據。
 
-歷史 run 在本機文件仍保留時可讀。附件下載憑據由私有註冊配置取得。Work 的父子對話組織屬於 Server。Client 與 context 不判斷主子角色，也不提供 Work 子命令。主、子對話使用相同的執行上下文；Server 提供的對話工具調用普通 conversation API，其通用身份接入不屬於 context 或 Work 的業務模型。新目標設計見 [Work](server-work.md)。
+歷史 run 在本機文件仍保留時可讀。附件下載憑據由私有註冊配置取得。Work 的父子對話組織屬於 Server。Client 與 context 不判斷主子角色，也不提供 Work 子命令。主、子對話使用相同的執行上下文；Server 提供的對話工具調用普通 conversation API，其通用身份接入不屬於 context 或 Work 的業務模型。新目標設計見 [父子 conversation 設計](server-conversation.md#父子對話)。
 
 context.json、命令入口和附件緩存隨既有 conversation quota 一起回收，不增加全局索引、全局 run 掃描或新的常駐服務。實現在 runService 和 CLI 入口；維持既有五個 service。
 
