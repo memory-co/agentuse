@@ -207,12 +207,19 @@ function MessageView({ m, onOpenFile }: { m: Message; onOpenFile: (file: Attachm
    {m.author_role==='user' && !m.to_agent_ids.length && !m.to_user_ids.length && <span>{t('mention.noteOnly')}</span>}
  </div>;
  if(m.author_role==='child_conversation') {
-  return <div className="grid gap-3 rounded-lg border bg-muted/20 p-4" data-child-notification={m.id}>
-   <a className="flex items-start gap-2 text-sm font-medium hover:underline" href={`#/conversations/${m.author_conversation_id}?round=${m.author_round_seq}`}><MessagesSquare className="mt-0.5 size-4 shrink-0"/><span className="break-words">{t('nest.childAuthor')} · {m.author_name || t('nest.deletedChild')}</span></a>
-   <p className="text-sm text-muted-foreground">{t('nest.roundNotice',{n:m.author_round_seq ?? 0})}</p>
-   <a className="w-fit text-xs underline" href={`#/conversations/${m.author_conversation_id}?round=${m.author_round_seq}`}>{t('nest.readRound')}</a>
-   {targetLabel}
-  </div>;
+  return <details className="group min-w-0 rounded-lg border bg-muted/20" data-child-notification={m.id}>
+   <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+    <ChevronRight className="size-3.5 shrink-0 transition-transform group-open:rotate-90" />
+    <MessagesSquare className="size-3.5 shrink-0" />
+    <span className="min-w-0 flex-1 truncate" title={m.author_name || t('nest.deletedChild')}>{t('nest.childAuthor')} · {m.author_name || t('nest.deletedChild')}</span>
+    <span className="shrink-0">{t('nest.round',{n:m.author_round_seq ?? 0})} · {t('nest.roundEnded')}</span>
+   </summary>
+   <div className="grid gap-3 border-t px-3 py-3">
+    <p className="text-sm text-muted-foreground">{t('nest.roundNotice',{n:m.author_round_seq ?? 0})}</p>
+    <a className="w-fit text-xs underline" href={`#/conversations/${m.author_conversation_id}?round=${m.author_round_seq}`}>{t('nest.readRound')}</a>
+    {targetLabel}
+   </div>
+  </details>;
  }
  if(m.author_role==='user') {
   return <div className="ml-auto grid min-w-0 max-w-[85%] gap-1.5 rounded-2xl bg-muted px-4 py-2.5 text-sm" title={fmtTime(m.created_at)} data-message-id={m.id}>

@@ -49,7 +49,7 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 }
 ```
 
-这条消息的作者是子会话，author_agent_id、author_agent_version_id 和 author_user_id 为空。它走普通消息分配，固定唤起创建子会话的 parent_agent_id，不依赖创建时的父 run 存活。前端显示子会话来源和轮次，点击查看该轮；子会话保留各 Agent 的原始回复。没有 Client 主动向父发消息的命令或 API。
+这条消息的作者是子会话，author_agent_id、author_agent_version_id 和 author_user_id 为空。它走普通消息分配，固定唤起创建子会话的 parent_agent_id，不依赖创建时的父 run 存活。前端默认折叠通知，只显示子会话来源、轮次和结束状态；展开后可查看详情、收件人及本轮结果链接，减少与协调者回复的重复。子会话保留各 Agent 的原始回复。没有 Client 主动向父发消息的命令或 API。
 
 每个 conversation 有本地递增的 rounds。第一条含 Agent 收件人的输入开始一轮；尚未结束时的追加输入属于同一轮。所有 run 和投递均已收束时固定 end_message_seq/finished_at，每轮只生成一次父通知。失败、取消和已确认拒绝也会结束；离线、unknown 和原生人工等待不会。空会话、备注、仅用户收件人、文件上传、标记完成不产生轮次通知。
 
