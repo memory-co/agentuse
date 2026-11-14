@@ -64,7 +64,7 @@ Server 分爲三層：
 
 所有表不聲明數據庫外鍵，只保存關聯 ID。創建/修改時由 service 檢查目標存在、歸屬和狀態；刪除時協調相關 service 顯式清理或清空關聯字段，並在同一事務提交。數據庫保留主鍵、唯一索引和必要的 CHECK 約束，不依賴自動級聯。
 
-conversationService 負責發送消息的業務編排，調用 runService 建立任務分配。runService 透過 executionEventConsumer 發出執行事實，由 conversation 編排器在同一事務保存回覆及對話狀態；run 投影不直接寫 messages。回覆保存到來源 conversation；嵌套對話視圖讀取主、子對話的既有消息與狀態，不建立執行結算或自動彙總鏈路。
+conversationService 負責發送消息的業務編排，調用 runService 建立任務分配。runService 透過 executionEventConsumer 發出執行事實，由 conversation 編排器在同一事務保存回覆及對話狀態；run 投影不直接寫 messages。回覆保存到來源 conversation。需要回父對話的源消息先提交，再由 conversationService 按明確收件人回傳為普通父消息並去重；界面只讀取消息和狀態，不建立 Work 執行結算。
 
 ### 2.1 userService、deviceService、agentService
 
@@ -118,7 +118,7 @@ fileService 統一按命名空間存儲字節，不綁定 conversation。convers
 3. 提交後 Server 依 heartbeat 容量直接發送 message 和目標 Agent/版本；Client 缺少配置或技能時自己讀固定版本 API，準備資源並 init。
 4. client 通過 harnessctl send 執行。accepted 決定實際 run UUID，可能與上次相同，也可能不同。
 5. Server 驗證並保存五類公共事件，提交後確認源位置；只從這些事件投影執行狀態。
-6. result 與來源 conversation 的最終回覆一起提交；嵌套對話視圖按需讀取子對話，不因某次 run 結束自動向另一個對話派發消息。
+6. result 與來源 conversation 的最終回覆一起提交；子對話的最終消息及顯式反饋按回信地址送入父對話，使用普通消息投遞喚起指定收件人。補送基於消息引用，不建立 run 彙總狀態。
 
 原生執行及原生工具的權限交互在 Client；Server 的 HTTP 身份及業務訪問權限由 controller 和所屬 service 校驗。HTTP 取消或回答只入傳輸隊列，斷線不製造執行結果。完整規則以 server-run.md 爲準。
 

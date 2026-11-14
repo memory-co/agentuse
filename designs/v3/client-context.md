@@ -37,11 +37,18 @@ endpoint/conversation 足以確定文件空間，但同一空間可同時有多�
 - `context attachment list`：直接查詢 Server 的 conversation 附件列表，不按 run 篩選，不下載文件。
 - `context attachment download PATH`：以 conversation 相對路徑精確選擇文件，不接受文件 ID；查詢 Server 元資料，下載並校驗，保存到 `workspace/<relative_path>`，返回本地絕對路徑及 MIME 類型。
 - `context attachment upload FILE`：上傳本次 run 的輸出，自動關聯 conversation/run，返回可引用的下載路徑。
+- `context conversation …`：待新增的對話協作命令組，支持查詢可選 Agent、創建／列出子對話、讀取／發送／等待，以及 send --parent 回傳；完整命令與閉環見 [嵌套對話設計](server-conversation-nest.md)。
 - `context --help`：當前可用能力，不列出註冊、啓停等管理命令。
 
 輸入由 harnessctl 統一定義：send 負責投遞，accepted 確認 input/run 歸屬，result 明確覆蓋的 input_ids。Client 保存 Server message 與 accepted 的業務關聯，不向 AI 提供第二份輸入模型，也不要求 AI 輪詢補充消息。
 
 status 僅根據公共事件確認所選 run 的歸屬和 request/result 狀態，不讀取或等待 Client 消息收據，不返回設備密鑰及註冊配置位置。Server API 統一使用 `/api/conversations`。
+
+## 嵌套對話工具的執行環境
+
+conversation 命令組由同一 context 入口提供。Client 每次準備 session 執行環境時綁定當前 endpoint、conversation 和 Agent，並將入口加入 PATH；通用工具說明必須教會 Agent 創建子對話及回傳父對話。設備憑據從既有私有配置取得，不輸出給 AI。Server 須同時補齊通用來源校驗、Agent 清單及父子範圍訪問，不能只提供命令名。
+
+create 自動以當前 conversation 為父；send --parent 由 Server 按真實父子關係定位直接父對話。普通 send 明確選擇子 Agent，回信默認路由則由創建時保存的地址決定。命令不根據舊的 run/message 環境變量推斷協調角色，也不另建 Work 授權層。上述新增能力尚未實作。
 
 ## 文件範圍與圖片
 
