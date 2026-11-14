@@ -14,12 +14,10 @@ export interface Device {
 
 export type ConversationStatus = 'idle' | 'pending' | 'running' | 'waiting' | 'resolved';
 export interface Conversation {
-  id: string; user_id: string; created_by: string; work_id?: string; work_role?: 'coordinator' | 'thread';
+  id: string; user_id: string; created_by: string; mode: 'single' | 'collaborative'; parent_conversation_id?: string; parent_agent_id?: string;
   title: string; status: ConversationStatus; created_at: number; updated_at: number;
 }
-// 工作：协调者 + 线程 + 共用说明(docs/server/work.md)
-export interface Work { coordinator_agent_id?: string; id: string; user_id: string; name: string; instructions: string; coordinator_id: string; thread_count: number; created_at: number; updated_at: number }
-export interface Message {attachments:Attachment[];author_user_id?:string;reply_to_message_id?:string;author_agent_version_id?:string; seq?:number; author_agent_id?:string;author_name?:string;to_agent_ids:string[];to_user_ids:string[]; id: string; conversation_id: string; author_role: 'user' | 'agent'; content: string; created_at: number }
+export interface Message {parent_delivery_requested?:boolean;parent_delivery?:'pending'|'delivered'|'failed';parent_message_id?:string;parent_delivery_error?:string;source_conversation_id?:string;source_message_id?:string;attachments:Attachment[];author_user_id?:string;reply_to_message_id?:string;author_agent_version_id?:string; seq?:number; author_agent_id?:string;author_name?:string;to_agent_ids:string[];to_user_ids:string[]; id: string; conversation_id: string; author_role: 'user' | 'agent'; content: string; created_at: number }
 export interface ConversationEvent { run_id?:string;session_id:string;agent_id:string;event_seq:number; id: number; conversation_id: string; device_id: string; kind: string; payload?: any; created_at: number }
 export interface Question {request_id:string;run_id:string;conversation_id:string;state:'pending'|'replied'|'expired';payload:any;answer?:unknown;answered_by?:string;created_at:number;delivery_error?:string}
 export interface ConversationDetail { runs?:Run[];deliveries?:Delivery[];run_counts?:Record<string,number>; conversation: Conversation; messages: Message[]; questions?: Question[]; events: ConversationEvent[]; device_offline?: boolean }
@@ -28,7 +26,7 @@ export interface Attachment {
  relative_path:string;
  created_by_run_id?: string;created_by_agent_id?:string;
  id: string; conversation_id: string; filename: string; content_type: string; size_bytes: number; sha256: string;
- created_by: string; source: 'user' | 'device' | 'work'; device_id?: string; created_at: number; download_path: string;
+ created_by: string; source: 'user' | 'device'; device_id?: string; created_at: number; download_path: string;
 }
 
 export interface Run {agent_version_id:string;id:string;conversation_id:string;first_message_id:string;agent_id:string;device_id:string;session_id:string;harness:string;harness_revision:string;status:'running'|'waiting'|'completed'|'failed'|'cancelled';error?:string;output?:string;result?:any;result_message_id?:string}

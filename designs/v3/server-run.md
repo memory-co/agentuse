@@ -1,6 +1,6 @@
 # runService：message/Agent 關係與實際執行
 
-> 嵌套 conversation 模型是待實作的新設計；本稿按新的職責邊界描述 runService，舊 Work 授權及結算表的刪除見 [父子 conversation 設計](server-conversation.md#父子對話)。
+> 嵌套 conversation 已實作；本稿描述 runService 的職責邊界，消息回傳歸 conversationService，見 [父子 conversation 設計](server-conversation.md#父子對話)。
 
 Server 使用 [agentuse-client/2](protocol.md)，直接投遞既有 conversation message。沒有 task、run_input、prompt ID 或預分配的 run UUID。只有 Client 上報的 accepted 才建立實際 run。
 
@@ -53,7 +53,7 @@ answer 和 cancel 直接指定既有 run/session。控制 id 只用於傳輸去�
 | run_requests | request 事件的問題查詢投影，不是新的執行對象 |
 | run_controls | answer/cancel 的傳輸收據，防止不確定控制被自動重做 |
 
-只支持 schema 7，messages.id 及消息引用直接使用 UUID，messages.seq 保存 conversation 內順序。舊資料庫啟動時明確拒絕，必須使用新資料庫；不提供舊資料保留、遷移或 ID 轉換。
+只支持 schema 8，messages.id 及消息引用直接使用 UUID，messages.seq 保存 conversation 內順序。舊資料庫啟動時明確拒絕，必須使用新資料庫；不提供舊資料保留、遷移或 ID 轉換。
 
 Client 只讀取新版 message/Agent 收據，不轉換舊 inputs 或控制收據。升級時清空本地工作目錄並重新註冊設備。網路協議不向舊版 hello/claim/prompt 降級，Server 與 Client 必須一起更新。
 

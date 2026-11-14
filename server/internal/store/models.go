@@ -8,9 +8,10 @@ type Agent = agentuse.Agent
 
 // AttachmentAccess is revalidated inside the upload transaction, including credentials.
 type AttachmentAccess struct {
-	User                    User
-	DeviceID, WorkID, Token string
-	RunID                   string
+	User                                User
+	DeviceID, Token                     string
+	SourceConversationID, SourceAgentID string
+	RunID                               string
 }
 
 const (
@@ -51,10 +52,6 @@ const (
 	// ConversationResolved:已完成，见 designs/v3/server-conversation.md。再发消息就重新打开。
 	ConversationResolved = "resolved"
 
-	// 当前旧 Work 实现中的角色，见 docs/server/work.md
-	WorkCoordinator = "coordinator"
-	WorkThread      = "thread"
-
 	RoleUserMsg  = "user"
 	RoleAgentMsg = "agent"
 )
@@ -72,6 +69,13 @@ const (
 
 type User = agentuse.User
 
-type Work = agentuse.Work
-
-type WorkPatch = agentuse.WorkPatch
+// AgentSource is populated from an authenticated Client's actual execution facts.
+type AgentSource struct {
+	User           User
+	DeviceID       string
+	ConversationID string
+	AgentID        string
+	AgentVersionID string
+	SessionID      string
+	RunID          string
+}

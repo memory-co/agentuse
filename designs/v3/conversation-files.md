@@ -29,7 +29,7 @@ Server 首次投递该消息时直接使用已保存快照。随后上传到文�
 
 ## 存储与版本
 
-schema 7 使用 conversations 表和 conversation_id；attachments 保存 relative_path，messages 保存 attachments JSON 快照。附件 API 和内容地址均位于 /api/conversations 下。无旧数据迁移、旧字段别名或旧路由回退。
+schema 8 使用 conversations 表和 conversation_id；attachments 保存 relative_path，messages 保存 attachments JSON 快照。附件 API 和内容地址均位于 /api/conversations 下。无旧数据迁移、旧字段别名或旧路由回退。
 
 ## TODO
 

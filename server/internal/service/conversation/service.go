@@ -15,7 +15,6 @@ import (
 type Service struct {
 	*core.Runtime
 	RunService                   runService
-	WorkService                  workService
 	Files                        *fileservice.Service
 	conversationAttachmentLimits conversationAttachmentLimits
 	conversationFilesMu          sync.RWMutex
@@ -31,11 +30,4 @@ type runService interface {
 	LinkRunReply(ctx context.Context, tx *sql.Tx, run, message string) error
 	QuestionsIn(ctx context.Context, q core.RowsQuerier, where string, args ...any) ([]core.Question, error)
 	RunsIn(ctx context.Context, q core.RowsQuerier, conversation string) ([]core.Run, error)
-}
-
-type workService interface {
-	ConversationInstructions(ctx context.Context, tx *sql.Tx, conversation core.Conversation, agent string) (string, error)
-	DeleteWorkConversationReferences(ctx context.Context, tx *sql.Tx, id string) error
-	LookupWork(ctx context.Context, q core.Querier, u core.User, id string) (core.Work, error)
-	ReconcileWorkConversation(ctx context.Context, conversation string) error
 }

@@ -39,7 +39,7 @@ func reportNative(t *testing.T, s *service.Service, d service.Device, p protocol
 func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, reply, err := s.CreateConversation(ctx, u, "", "", "first", []string{a.ID}, nil)
+	ss, reply, err := s.CreateConversation(ctx, u, "", "", "first", []string{a.ID}, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 func TestClientRequestReplyCancelAndDisconnectAreAuthoritative(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, _, err := s.CreateConversation(ctx, u, "", "", "question", []string{a.ID}, nil)
+	ss, _, err := s.CreateConversation(ctx, u, "", "", "question", []string{a.ID}, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestClientRequestReplyCancelAndDisconnectAreAuthoritative(t *testing.T) {
 func TestClientEventsCannotCrossOwnershipOrRebindInputs(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, _, _ := s.CreateConversation(ctx, u, "", "", "first", []string{a.ID}, nil)
+	ss, _, _ := s.CreateConversation(ctx, u, "", "", "first", []string{a.ID}, nil, "", nil)
 	p, _ := s.DispatchMessage(ctx, d)
 	id := uuid.NewString()
 	e := reportNative(t, s, d, p, "client-conversation", 1, acceptedEvent(id, "input", p.Content))

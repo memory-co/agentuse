@@ -42,9 +42,6 @@ func (s *Service) SetDeviceHarnessEnabled(ctx context.Context, u core.User, id, 
 	s.NotifyResource("devices", id, d.UserID)
 	if enabled {
 		s.Notifier.KickUser(d.UserID)
-		if failure := s.WorkService.ReconcileWorkNotifications(ctx); failure != nil {
-			s.Log.Printf("work summary pending: %v", failure)
-		}
 	}
 	return nil
 }

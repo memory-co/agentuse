@@ -235,13 +235,13 @@ Local 與遠端共用相同的資源校驗、session 綁定和 harnessctl 執行
 
 ## 升級與持久化
 
-只支持 schema 7：消息及消息引用直接使用 UUID，messages.seq 保存順序；message_agents 以消息/Agent 複合鍵保存投遞和受理關係。舊版資料庫、inputs 收據和控制收據不讀取、不轉換，也不保留升級兼容邏輯。升級時重建 Server 資料庫、清空 Client 本地工作目錄並重新初始化和註冊設備。
+只支持 schema 8：消息及消息引用直接使用 UUID，messages.seq 保存順序；message_agents 以消息/Agent 複合鍵保存投遞和受理關係。舊版資料庫、inputs 收據和控制收據不讀取、不轉換，也不保留升級兼容邏輯。升級時重建 Server 資料庫、清空 Client 本地工作目錄並重新初始化和註冊設備。
 
 公開 HTTP 入口使用 /api/conversations，設備標識使用 device_id，不保留舊入口或字段別名。WebSocket 只支持本文的 /api/client/ws 和 agentuse-client/2，兩端需一起升級。
 
 ## 嵌套 conversation 的業務邊界
 
-嵌套對話的目標是 conversation 的父子組織，關係仍待 Server 實作。主、子對話都可以有多個 Agent，均通過相同 message、accepted 和事件鏈路執行；message 的 conversation_id 始終是本次目標對話。父對話引用由 Server 管理，Client 可經普通 HTTP 元數據讀取，無需新增 WebSocket 字段。Server 每次 message.context 都附頂層協調或內層直接執行的提示詞；Client 按 Server 關係限制工具能力，不推斷業務角色或提供 Work 子命令；Server 工具復用 conversation HTTP API，不增加 Work 握手、憑據交換或執行身份。詳見 [父子 conversation 設計](server-conversation.md#父子對話)。
+嵌套對話使用 conversation 的父子組織，Server 已實作。主、子對話都可以有多個 Agent，均通過相同 message、accepted 和事件鏈路執行；message 的 conversation_id 始終是本次目標對話。父對話引用由 Server 管理，Client 可經普通 HTTP 元數據讀取，無需新增 WebSocket 字段。Server 每次 message.context 都附mode 對應的協調或直接執行提示詞；Client 按 Server 關係限制工具能力，不推斷業務角色或提供 Work 子命令；Server 工具復用 conversation HTTP API，不增加 Work 握手、憑據交換或執行身份。詳見 [父子 conversation 設計](server-conversation.md#父子對話)。
 
 ## 當前執行的文件交互
 

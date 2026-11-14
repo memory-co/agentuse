@@ -138,6 +138,14 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 }
 
 func (s *Server) storeErr(w http.ResponseWriter, err error) {
+	if errors.Is(err, service.ErrConversationScope) {
+		writeErr(w, 403, err.Error())
+		return
+	}
+	if errors.Is(err, service.ErrConversationChildren) {
+		writeErr(w, 409, err.Error())
+		return
+	}
 	if errors.Is(err, service.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 		writeErr(w, http.StatusNotFound, "不存在")
 		return

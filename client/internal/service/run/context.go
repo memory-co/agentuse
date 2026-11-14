@@ -14,6 +14,7 @@ import (
 	"github.com/memory-co/agentuse/client/internal/fileutil"
 	"github.com/memory-co/agentuse/client/internal/service/harness"
 	"github.com/memory-co/agentuse/client/internal/service/session"
+	sdk "github.com/memory-co/agentuse/sdk/golang"
 )
 
 const ContextInstructions = `# Execution context tools
@@ -24,6 +25,9 @@ Call context directly; no Server, conversation or session ID is needed:
 - context attachment download PATH: download a file by its conversation-relative path, for example user_input/screenshot.png. Use relative_path from the attachment list or message; no file ID is needed. The file is verified and saved at <workspace>/<relative_path>. Reuse that path in later turns. The command returns the local absolute path, name and MIME type; use your native image or file tools to read it.
 - Create output files inside the workspace, for example reports/report.txt. user_input/ is reserved for user uploads. context attachment upload FILE publishes a file to the conversation at the same workspace-relative path and associates it with this run. If Server assigns a different path to avoid a conflict, use the returned relative_path and local_path.
 - Before telling the user that an output file is available, upload it and cite the returned download_path. A local workspace path is not a browser download link. Uploading does not send a reply or finish execution.
+- In collaborative mode, use context conversation agents, create --agents IDS MESSAGE, list, read CHILD_ID, send CHILD_ID --agents IDS MESSAGE, and wait CHILD_ID [--timeout 5m] to coordinate direct children. create accepts --mode single; child conversations always execute directly. wait returns early on feedback or new input so you can answer questions through the native input channel.
+- In a child conversation, context conversation send --parent MESSAGE asks the creating Agent for help. Final replies are forwarded automatically; do not duplicate them with send --parent. Single root conversations cannot delegate.
+- context attachment list/download may use --conversation CHILD_ID or --conversation parent for an explicitly authorized related conversation. Files stay in separate trees; cross-conversation downloads go under .context/conversations/ID/ in this workspace.
 - context --help: show available commands.
 `
 
@@ -46,6 +50,7 @@ type ExecutionContext struct {
 	Status         string `json:"status"`
 	Workspace      string `json:"workspace"`
 	path           string
+	fileSource     *sdk.ConversationSource
 	manifest       contextManifest
 }
 

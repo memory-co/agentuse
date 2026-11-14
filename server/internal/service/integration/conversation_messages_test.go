@@ -14,7 +14,7 @@ import (
 func TestMessagesKeepTextAuthorsAndConversationReplies(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	conversation, _, err := s.CreateConversation(ctx, u, "", "", "", nil, nil)
+	conversation, _, err := s.CreateConversation(ctx, u, "", "", "", nil, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestMessagesKeepTextAuthorsAndConversationReplies(t *testing.T) {
 	if err != nil || second.Message.ReplyToMessageID != first.Message.ID {
 		t.Fatal(second, err)
 	}
-	other, _, err := s.CreateConversation(ctx, u, "", "", "", nil, nil)
+	other, _, err := s.CreateConversation(ctx, u, "", "", "", nil, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

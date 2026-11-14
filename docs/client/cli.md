@@ -225,7 +225,7 @@ context status
 
 文件位于 `<session.work_root>/<endpoint_id>/<conversation_id>/sessions/<session_id>/context.json`。`enter` 将工作目录切换到该 conversation 的 workspace，并为 shell 固定所选 run；退出 shell 即退出上下文。记录尚未回收且文件完整时，停止 Client 后也可以显式读取历史 run。
 
-裸 `context` 使用已经绑定的上下文，不接受 `--path`、`--run`、`--server`、`--token` 或管理命令。Work 编排和协调工具由 Server 提供，见 [Server Work 手册](../server/work.md)。
+裸 `context` 使用已经绑定的上下文，不接受 `--path`、`--run`、`--server`、`--token` 或管理命令。对话拆分与回传使用下文的 [context conversation](#对话协作)，能力由 Server 保存的 mode 和父子关系决定。
 
 本地调试同样支持执行状态查询。完整的输出字段和图片读取示例见 [执行上下文手册](context.md)。旧 `agentuse session` 命令已移除；远端管理使用下面的 `agentuse conversation`。
 
@@ -314,6 +314,42 @@ agentuse conversation cancel CONVERSATION_ID RUN_ID
 适配器实际执行的是对应本地 session 的取消操作，作用于该 session 当前及排队工作。需要回答执行中的问题时，使用 Server 页面或对应 API。
 
 `conversation` 各子命令都接受前述远端公共参数。`conversation` 允许参数出现在位置参数前后；使用 `--` 可终止参数解析，例如发送以 `-` 开头的正文。
+
+## 对话协作
+
+Server 创建 conversation 时指定 `mode=single`（默认）或 `collaborative`。单体模式自己执行，协作模式负责拆分子会话、协调和汇总；子会话固定 single，最多两层。Agent 无需 Server 地址、令牌或父会话 ID，直接使用执行环境中的 `context`：
+
+```bash
+context conversation agents
+context conversation create --mode single --title "搜索接口" --agents coder "实现并测试接口"
+context conversation list
+context conversation read CHILD_ID
+context conversation send CHILD_ID --agents coder "使用游标分页"
+context conversation wait CHILD_ID --timeout 5m
+```
+
+上述能力仅 collaborative 顶层可用。子 Agent 遇到问题时调用：
+
+```bash
+context conversation send --parent "需要确认鉴权方案"
+```
+
+最终结果正常回复即可自动回传，不再手发重复结果。`parent_agent_id` 固定记录实际创建者，不依赖消息收件人或某个父 run 是否存活。`send --parent` 返回源消息和回传状态：pending 为已保存待补送，delivered 为父消息已保存，failed 包含原因；都不代表父 Agent 已处理完。
+
+`wait` 输出 `{reason, detail}`；settled 表示对话空闲或标记完成，需要检查实际结果。收到子反馈、新输入、原生提问、run 结束或超时时会以 parent_feedback/new_input/needs_input/run_ended/timeout 返回，让父 Agent 及时回答。父侧消息正文仍走原生输入通道。
+
+各 conversation 拥有独立文件树，附件不隐式复制。协调 Agent 读取子产物或子 Agent 读取父输入时显式指定来源：
+
+```bash
+context attachment list --conversation CHILD_ID
+context attachment download reports/result.txt --conversation CHILD_ID
+context attachment list --conversation parent
+context attachment download user_input/design.png --conversation parent
+```
+
+跨对话下载保存到当前 `workspace/.context/conversations/ID/`；只能访问直接相关的父/子文件树，不能跨分支，也不能跨对话上传。未指定 `--conversation` 时仍按原规则使用本对话路径。
+
+人类可通过 `agentuse context --path CONTEXT_JSON [--run RUN_UUID] conversation …` 进入同一命令组；它与执行环境共用来源约束。`context conversation help` 按当前模式显示可用能力。本地 local 调试没有 Server 协作功能。
 
 ## 执行环境变量
 

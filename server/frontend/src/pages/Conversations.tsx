@@ -22,13 +22,11 @@ import { t, useT } from '@/lib/i18n';
 
 export const STATUS_TONE: Record<ConversationStatus, 'ok' | 'warn' | 'run' | 'muted'> = { idle: 'ok', pending: 'warn', running: 'run', waiting: 'warn', resolved: 'muted' };
 export const statusLabel = (s: ConversationStatus) => t(`conversation.status.${s}`);
-/** 侧栏「会话」tab:不在工作里的会话。 */
 export const useConversations = () => useQuery({ queryKey: ['conversations'], queryFn: () => api<Conversation[]>('/api/conversations') });
-/** 某个工作的线程(不含协调者)。 */
-export const useWorkConversations = (workId: string, enabled = true) => useQuery({
-  queryKey: ['conversations', 'work', workId], queryFn: () => api<Conversation[]>(`/api/conversations?work_id=${encodeURIComponent(workId)}`), enabled,
+export const useChildren = (parent: string, enabled=true) => useQuery({
+  queryKey: ['conversations', 'children', parent], queryFn: () => api<Conversation[]>(`/api/conversations?parent_conversation_id=${encodeURIComponent(parent)}`), enabled,
 });
-const refresh = () => Promise.all([queryClient.invalidateQueries({ queryKey: ['conversations'] }), queryClient.invalidateQueries({ queryKey: ['works'] })]);
+const refresh = () => queryClient.invalidateQueries({ queryKey: ['conversations'] });
 // progress 回报只有 {text} 时直接显示文字，否则显示 JSON。
 const evText = (p: any) => (p && typeof p === 'object' && Object.keys(p).length === 1 && 'text' in p ? String(p.text) : JSON.stringify(p ?? ''));
 
@@ -39,13 +37,14 @@ export function NewConversation({ onCreated }: { onCreated: (id: string) => void
   const actAs = useActAs();
   const sender = actAs || queryClient.getQueryData<User>(['me'])?.id;
 
+  const [mode,setMode]=useState<Conversation['mode']>('single');
   const fileDraft = useMessageFiles();
   const draft = useRef<string | null>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
   const add = useMutation({
     mutationFn: async ({prompt, targets, users}: {prompt:string;targets:string[];users:string[]}) => {
       if (!draft.current) {
-        const r = await api<{conversation: Conversation}>('/api/conversations', {method: 'POST', body: {}});
+        const r = await api<{conversation: Conversation}>('/api/conversations', {method: 'POST', body: {mode}});
         draft.current = r.conversation.id; setDraftId(r.conversation.id); void refresh();
       }
       const id = draft.current;
@@ -61,6 +60,10 @@ export function NewConversation({ onCreated }: { onCreated: (id: string) => void
       <h1 className="text-2xl font-semibold">{t('conversation.ask')}</h1>
       <p className="text-sm text-muted-foreground">{t('mention.shared')}</p>
     </div>
+    <fieldset className="grid gap-2 rounded-xl border p-3" disabled={add.isPending||!!draftId}>
+      <legend className="px-1 text-xs text-muted-foreground">{t('nest.mode')}</legend>
+      {(['single','collaborative'] as const).map(value=><label key={value} className="flex cursor-pointer items-start gap-3 rounded-md p-2 hover:bg-muted/60"><input className="mt-1" type="radio" name="conversation-mode" value={value} checked={mode===value} onChange={()=>setMode(value)}/><span className="grid gap-1"><span className="text-sm font-medium">{t(`nest.${value}`)}</span><span className="text-xs text-muted-foreground">{t(`nest.${value}Hint`)}</span></span></label>)}
+    </fieldset>
     <MentionComposer showAgentPicker agents={agents.data??[]} users={sender ? [sender] : []} files={fileDraft.files} onFiles={fileDraft.addFiles} onRemoveFile={fileDraft.remove} placeholder={t('conversation.taskPlaceholder')} busy={add.isPending} onSend={(prompt,targets,users)=>add.mutateAsync({prompt,targets,users})} />
     {draftId && <div className="grid gap-1 text-center text-xs"><p>{t('attachment.created')}</p><a className="underline" href={`#/conversations/${draftId}`}>{t('attachment.open')}</a></div>}
     {add.isError && <div className="text-center"><ErrorState error={add.error} /></div>}
@@ -68,8 +71,8 @@ export function NewConversation({ onCreated }: { onCreated: (id: string) => void
   </div>;
 }
 
-/** 会话页：上面是消息流，下面是回复框。工作页里协调者的对话也用它(placeholder 换掉，不能删、不能标记完成)。 */
-export function ConversationView({ id, onDeleted, placeholder,defaultAgent }: { id: string; onDeleted: () => void; placeholder?: string; defaultAgent?:string }) {
+/** Conversation messages, nested conversations and files. */
+export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () => void }) {
   const t = useT();
  const agents=useAgents();
  const fileDraft=useMessageFiles();
@@ -83,38 +86,42 @@ export function ConversationView({ id, onDeleted, placeholder,defaultAgent }: { 
 
 
   const q = useQuery({ queryKey: ['conversations', id], queryFn: () => api<Detail>(`/api/conversations/${id}`) });
+  const children=useChildren(id,q.data?.conversation.mode==='collaborative');
   const reply = useMutation({
     mutationFn: async ({prompt,targets,users}: {prompt:string;targets:string[];users:string[]}) => {const attachment_ids=await fileDraft.upload(id);const body={prompt,to_agent_ids:targets,to_user_ids:users,attachment_ids};return api(`/api/conversations/${id}/messages`, { method:'POST', body });},
     onSuccess: () => { fileDraft.clear(); void refresh(); },
   });
-  const del = useMutation({ mutationFn: () => api(`/api/conversations/${id}`, { method: 'DELETE' }), onSuccess: () => { void refresh(); onDeleted(); } });
+  const del = useMutation({ mutationFn: () => api(`/api/conversations/${id}${q.data?.conversation.mode==='collaborative'?'?recursive=true':''}`, { method: 'DELETE' }), onSuccess: () => { void refresh(); onDeleted(); } });
   const resolve = useMutation({ mutationFn: (done: boolean) => api(`/api/conversations/${id}/${done ? 'resolve' : 'reopen'}`, { method: 'POST' }), onSuccess: () => { void refresh(); } });
   const bottom = useRef<HTMLDivElement>(null);
   const count = (q.data?.messages.length ?? 0) + (q.data?.events.length ?? 0);
-  useEffect(() => { bottom.current?.scrollIntoView({ block: 'end' }); }, [count]);
+  const sourceMessage=new URLSearchParams(location.hash.split('?')[1]??'').get('message');
+  useEffect(()=>{if(sourceMessage&&q.data){const node=document.querySelector(`[data-message-id="${CSS.escape(sourceMessage)}"]`);node?.scrollIntoView({block:'center'});node?.classList.add('ring-2','ring-primary','rounded-lg');return()=>node?.classList.remove('ring-2','ring-primary','rounded-lg')}},[sourceMessage,q.data?.messages.length]);
+  useEffect(() => { if(!sourceMessage)bottom.current?.scrollIntoView({ block: 'end' }); }, [count,sourceMessage]);
   if (q.isPending) return <div className="px-6"><Loading /></div>;
   if (q.isError) return <div className="px-6 py-6"><ErrorState error={q.error} /></div>;
   const { conversation: x, messages, events } = q.data;
   const questions = q.data.questions ?? [];
-  const initialTargets = defaultAgent ? [defaultAgent] : [];
-  const meta = t("mention.shared");
-  const coordinator = x.work_role === 'coordinator';
+  const meta = t(`nest.${x.mode}`);
   const settled = x.status === 'idle' || x.status === 'resolved';
   return <div className="flex min-h-0 flex-1 overflow-hidden">
    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto grid min-w-0 w-full max-w-3xl grid-cols-1 gap-6 px-4 py-6">
+        {x.parent_conversation_id && <a className="text-xs text-muted-foreground hover:underline" href={`#/conversations/${x.parent_conversation_id}`}>{t('nest.parent')} · @{x.parent_agent_id}</a>}
         <div className="flex items-start gap-2 border-b pb-3">
           <p className="min-w-0 flex-1 break-all font-mono text-xs text-muted-foreground">{meta}</p>
           <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" aria-label={t('attachment.files')} onClick={()=>wide?setFilesOpen(value=>!value):setDrawerOpen(true)}><FolderOpen />{t('attachment.files')}</Button>
-          {!coordinator && settled && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" disabled={resolve.isPending} onClick={() => resolve.mutate(x.status === 'idle')}>
+          {settled && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" disabled={resolve.isPending} onClick={() => resolve.mutate(x.status === 'idle')}>
             {x.status === 'idle' ? <><CircleCheck />{t('conversation.resolve')}</> : <><RotateCcw />{t('conversation.reopen')}</>}
           </Button>}
-          {!coordinator && settled && <Confirm title={t('conversation.deleteTitle')} description={t('conversation.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
+          {settled && <Confirm title={t('conversation.deleteTitle')} description={t(x.mode==='collaborative'?'nest.deleteTree':'conversation.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
             <Button variant="ghost" size="icon" className="size-7 text-destructive" aria-label={t('conversation.delete')}><Trash2 /></Button>
           </Confirm>}
         </div>
 
+        {(del.isError||resolve.isError) && <ErrorState error={del.error||resolve.error}/>}
+        {x.mode==='collaborative' && <section aria-label={t('nest.children')} className="grid gap-2 rounded-lg border p-3"><h2 className="text-xs font-medium">{t('nest.children')}</h2>{children.isPending ? <Loading/> : children.isError ? <ErrorState error={children.error}/> : children.data?.length ? children.data.map(child=><a key={child.id} className="flex min-w-0 items-center justify-between gap-2 rounded-md p-2 text-sm hover:bg-muted" href={`#/conversations/${child.id}`}><span className="truncate">{child.title||child.id}</span><StatusBadge tone={STATUS_TONE[child.status]}>{statusLabel(child.status)}</StatusBadge></a>) : <p className="text-xs text-muted-foreground">{t('nest.noChildren')}</p>}</section>}
         {messages.map(m=><div key={m.id} className="grid min-w-0 grid-cols-1 gap-2"><MessageView m={m} onOpenFile={openFile}/>
         {m.author_role==='user'&&<div className="flex flex-wrap gap-2">{(q.data.deliveries??[]).filter(d=>d.message_id===m.id && !(q.data.runs??[]).some(run=>run.id===d.run_id && run.first_message_id===m.id)).map(d=><span key={`${d.message_id}:${d.agent_id}`} className="rounded-md border px-2 py-1 text-xs" title={d.error}>@{d.agent_id} · {d.status}</span>)}</div>}
         {(q.data.runs??[]).filter(r=>r.first_message_id===m.id).map(run=><RunView key={run.id} run={run} events={events} questions={questions} messages={messages} deliveries={q.data.deliveries ?? []} conversationId={id}/>)}
@@ -124,7 +131,7 @@ export function ConversationView({ id, onDeleted, placeholder,defaultAgent }: { 
     </div>
     <div className="mx-auto w-full max-w-3xl px-4 pb-4">
       {reply.isError && <div className="pb-2"><ErrorState error={reply.error} /></div>}
-      <MentionComposer files={fileDraft.files} onFiles={fileDraft.addFiles} onRemoveFile={fileDraft.remove} key={id} agents={agents.data??[]} users={[...new Set([x.user_id, x.created_by, ...messages.flatMap(m => [m.author_user_id, ...m.to_user_ids])].filter((value): value is string => !!value))]} initialTargets={initialTargets} placeholder={placeholder??t('conversation.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets,users)=>reply.mutateAsync({prompt,targets,users})}/>
+      <MentionComposer files={fileDraft.files} onFiles={fileDraft.addFiles} onRemoveFile={fileDraft.remove} key={id} agents={agents.data??[]} users={[...new Set([x.user_id, x.created_by, ...messages.flatMap(m => [m.author_user_id, ...m.to_user_ids])].filter((value): value is string => !!value))]} placeholder={t('conversation.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets,users)=>reply.mutateAsync({prompt,targets,users})}/>
 
     </div>
    </div>
@@ -137,7 +144,7 @@ function MessageView({ m, onOpenFile }: { m: Message; onOpenFile: (file: Attachm
  const targetLabel = <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" data-message-targets={m.id}>
    {m.to_agent_ids.map(agent => <span key={`agent:${agent}`} className="break-all font-medium">@{agent}</span>)}
    {m.to_user_ids.map(user => <span key={`user:${user}`} className="inline-flex items-center gap-1 break-all font-medium"><UserRound className="size-3 shrink-0" />{user}</span>)}
-   {!m.to_agent_ids.length && !m.to_user_ids.length && <span>{t('mention.noteOnly')}</span>}
+   {!m.to_agent_ids.length && !m.to_user_ids.length && <span>{t(m.parent_delivery_requested?'nest.parentTarget':'mention.noteOnly')}</span>}
  </div>;
  if(m.author_role==='user') {
   return <div className="ml-auto grid min-w-0 max-w-[85%] gap-1.5 rounded-2xl bg-muted px-4 py-2.5 text-sm" title={fmtTime(m.created_at)} data-message-id={m.id}>
@@ -148,6 +155,8 @@ function MessageView({ m, onOpenFile }: { m: Message; onOpenFile: (file: Attachm
  return <div className="grid min-w-0 grid-cols-1 gap-1.5" title={fmtTime(m.created_at)} data-message-id={m.id}>
   {targetLabel}
   {m.author_agent_id && <div className="text-xs font-medium text-muted-foreground">@{m.author_agent_id}{m.author_name && ` · ${m.author_name}`}</div>}
+  {m.source_conversation_id && <a className="text-xs text-muted-foreground underline" href={`#/conversations/${m.source_conversation_id}?message=${m.source_message_id}`}>{t('nest.source')}</a>}
+  {m.parent_delivery && <span className={cn('text-xs text-muted-foreground',m.parent_delivery==='failed'&&'text-destructive')} title={m.parent_delivery_error}>{t(`nest.delivery.${m.parent_delivery}`)}{m.parent_delivery_error&&` · ${m.parent_delivery_error}`}</span>}
   <Markdown>{m.content}</Markdown><MessageFiles files={m.attachments} onOpen={onOpenFile}/>
  </div>;
 }

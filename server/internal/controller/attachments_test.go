@@ -152,7 +152,7 @@ func TestAttachmentsLifecycle(t *testing.T) {
 	if e.req(admin, "GET", first.DownloadPath, nil, nil, actAsHeader, bobUser.ID).StatusCode != 404 {
 		t.Fatal("act as scope")
 	}
-	ss, _, _ := e.st.CreateConversation(context.Background(), f.u, "", "other", "", nil, nil)
+	ss, _, _ := e.st.CreateConversation(context.Background(), f.u, "", "other", "", nil, nil, "", nil)
 	if e.code(f.token, "GET", attachment.Path(ss.ID)+"/"+first.ID+"/content", nil) != 404 {
 		t.Fatal("cross-conversation")
 	}

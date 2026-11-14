@@ -21,6 +21,7 @@ const UserHeader = "X-Agentuse-User"
 // 除了用户管理，每个方法 ctx 之后的参数 user 是网站的 user id,请求带 X-Agentuse-User
 // 按那个用户的身份执行;传 "" 就是 admin 本身。
 type Client struct {
+	Source     *ConversationSource
 	RunID      string
 	BaseURL    string
 	Token      string
@@ -223,38 +224,19 @@ func (c *Client) ReopenConversation(ctx context.Context, user, conversationID st
 	return &s, c.do(ctx, user, "POST", "/api/conversations/"+esc(conversationID)+"/reopen", nil, &s)
 }
 
-// ---- works ----
-
-func (c *Client) ListWorks(ctx context.Context, user string) ([]Work, error) {
-	var ws []Work
-	return ws, c.do(ctx, user, "GET", "/api/works", nil, &ws)
+// ListChildren reads the direct children of an existing parent conversation.
+func (c *Client) ListChildren(ctx context.Context, user, parent string) ([]Conversation, error) {
+	out := []Conversation{}
+	err := c.do(ctx, user, "GET", "/api/conversations?parent_conversation_id="+url.QueryEscape(parent), nil, &out)
+	return out, err
 }
-
-// CreateWork 建工作，同时建出协调者会话(idle)。给协调者发消息用 SendMessage(CoordinatorID)。
-func (c *Client) CreateWork(ctx context.Context, user string, req CreateWorkRequest) (*CreateWorkResponse, error) {
-	var r CreateWorkResponse
-	return &r, c.do(ctx, user, "POST", "/api/works", req, &r)
+func (c *Client) SendParentMessage(ctx context.Context, user, conversation string, req ParentMessageRequest) (*ParentMessageResponse, error) {
+	var out ParentMessageResponse
+	err := c.do(ctx, user, "POST", "/api/conversations/"+esc(conversation)+"/parent/messages", req, &out)
+	return &out, err
 }
-
-func (c *Client) GetWork(ctx context.Context, user, workID string) (*Work, error) {
-	var w Work
-	return &w, c.do(ctx, user, "GET", "/api/works/"+esc(workID), nil, &w)
-}
-
-func (c *Client) UpdateWork(ctx context.Context, user, workID string, patch WorkPatch) (*Work, error) {
-	var w Work
-	return &w, c.do(ctx, user, "PATCH", "/api/works/"+esc(workID), patch, &w)
-}
-
-// DeleteWork 连协调者和所有线程一起删。
-func (c *Client) DeleteWork(ctx context.Context, user, workID string) error {
-	return c.do(ctx, user, "DELETE", "/api/works/"+esc(workID), nil, nil)
-}
-
-// ListWorkConversations 列工作的线程(不含协调者)。
-func (c *Client) ListWorkConversations(ctx context.Context, user, workID string) ([]Conversation, error) {
-	var ss []Conversation
-	return ss, c.do(ctx, user, "GET", "/api/conversations?work_id="+url.QueryEscape(workID), nil, &ss)
+func (c *Client) DeleteConversationTree(ctx context.Context, user, conversation string) error {
+	return c.do(ctx, user, "DELETE", "/api/conversations/"+esc(conversation)+"?recursive=true", nil, nil)
 }
 
 func (c *Client) WaitConversation(ctx context.Context, user, conversationID string, interval time.Duration, opts ...WaitOptions) (*ConversationDetail, error) {
@@ -284,7 +266,13 @@ func (c *Client) Request(ctx context.Context, user, method, path string, body, o
 	return c.do(ctx, user, method, path, body, out)
 }
 func (c *Client) runHeaders(r *http.Request) {
-	if c.RunID != "" {
+	if c.Source != nil {
+		r.Header.Set("X-Agentuse-Conversation", c.Source.ConversationID)
+		r.Header.Set("X-Agentuse-Agent", c.Source.AgentID)
+		r.Header.Set("X-Agentuse-Session", c.Source.SessionID)
+		r.Header.Set("X-Agentuse-Run", c.Source.RunID)
+	}
+	if c.RunID != "" && (c.Source == nil || c.Source.RunID == "") {
 		r.Header.Set("X-Agentuse-Run", c.RunID)
 	}
 }

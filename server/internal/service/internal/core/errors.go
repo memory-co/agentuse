@@ -14,5 +14,7 @@ var ErrAttachmentReferenced = errors.New("附件已被消息引用，请保留�
 var ErrConversationBusy = errors.New("会话还在等 harness 回复")
 var ErrRuntimeUnavailable = errors.New("harness 不可用")
 var ErrConversationState = errors.New("会话状态不对")
-var ErrCoordinator = errors.New("这是工作的协调者，不能单独操作，请操作整个工作")
 var ErrQuestionClosed = errors.New("request is no longer awaiting a reply")
+
+var ErrConversationScope = errors.New("conversation operation is outside the verified execution scope")
+var ErrConversationChildren = errors.New("conversation has children; use recursive deletion")

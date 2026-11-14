@@ -268,13 +268,12 @@ func (s *Service) DeleteAgent(ctx context.Context, u core.User, id string) error
 	if _, err = tx.ExecContext(ctx, `UPDATE agents SET deleted_at=?,updated_at=? WHERE id=?`, s.Unix(), s.Unix(), id); err != nil {
 		return err
 	}
-	if err = s.WorkService.DetachCoordinatorAgent(ctx, tx, id); err != nil {
-		return err
-	}
 	err = tx.Commit()
 	if err == nil {
 		s.NotifyResource("agents", id, a.UserID)
-		s.NotifyResource("works", "", a.UserID)
+		if s.ConversationService != nil {
+			s.ConversationService.ParentAgentDeleted(ctx, id)
+		}
 	}
 	return err
 }

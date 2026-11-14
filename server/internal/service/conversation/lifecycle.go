@@ -28,9 +28,6 @@ func (s *Service) setResolved(ctx context.Context, u core.User, id, from, to str
 	if err != nil {
 		return core.Conversation{}, err
 	}
-	if ss.WorkRole == core.WorkCoordinator {
-		return core.Conversation{}, core.ErrCoordinator
-	}
 	if ss.Status == to {
 		return ss, nil
 	}

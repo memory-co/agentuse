@@ -1,6 +1,6 @@
 # userService：用戶與訪問身份
 
-> 用戶身份與令牌模型已落實到 schema 7。嵌套 conversation 的組織能力仍為待實作目標，見 [父子 conversation 設計](server-conversation.md#父子對話)。時間為 Unix 秒，關聯由所屬 service 校驗與清理，不聲明數據庫外鍵。
+> 用戶身份與令牌模型已落實到 schema 8。嵌套 conversation 的組織能力已實作，見 [父子 conversation 設計](server-conversation.md#父子對話)。時間為 Unix 秒，關聯由所屬 service 校驗與清理，不聲明數據庫外鍵。
 
 ## 職責
 
@@ -8,7 +8,7 @@ userService 管理用戶身份、角色和訪問令牌。它回答“當前請�
 
 - 創建用戶，維護 admin/user 角色。
 - 簽發、重置和校驗用戶令牌，只存哈希，明文只在簽發時返回。
-- 支持管理員明確代用戶操作；設備憑據交給 deviceService 校驗；conversationService 校驗對話及父子關係的業務訪問權限，Work 入口復用這些結果。
+- 支持管理員明確代用戶操作；設備憑據交給 deviceService 校驗；conversationService 校驗對話及父子關係的業務訪問權限，嵌套協作入口復用這些結果。
 
 ## 操作與協作
 

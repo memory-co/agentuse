@@ -93,7 +93,7 @@ func TestContextOutputAttributionFilteringAndUploadLifetime(t *testing.T) {
 	if outputs, err = device.AllRunAttachments(ctx, "", f.conversation.ID, one); err != nil || len(outputs) != 2 {
 		t.Fatal("historical outputs unreadable", outputs, err)
 	}
-	foreign, _, err := f.e.st.CreateConversation(ctx, f.u, "", "elsewhere", "", nil, nil)
+	foreign, _, err := f.e.st.CreateConversation(ctx, f.u, "", "elsewhere", "", nil, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

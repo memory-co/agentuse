@@ -84,33 +84,45 @@ type DeviceHarness struct {
 	UpdatedAt       int64    `json:"updated_at"`
 }
 
+const (
+	ConversationModeSingle        = "single"
+	ConversationModeCollaborative = "collaborative"
+)
+
 type Conversation struct {
-	ID        string `json:"id"`
-	UserID    string `json:"user_id"`             // 会话创建者
-	CreatedBy string `json:"created_by"`          // 发起人
-	WorkID    string `json:"work_id,omitempty"`   // 所属工作，建的时候定，之后不变
-	WorkRole  string `json:"work_role,omitempty"` // coordinator / thread,不在工作里时为空
-	Title     string `json:"title"`
-	Status    string `json:"status"` // idle / pending / running / waiting(在等用户回答提问) / resolved(已完成)
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	Mode                 string `json:"mode" enum:"single,collaborative"`
+	ID                   string `json:"id"`
+	UserID               string `json:"user_id"`    // 会话创建者
+	CreatedBy            string `json:"created_by"` // 发起人
+	ParentConversationID string `json:"parent_conversation_id,omitempty"`
+	ParentAgentID        string `json:"parent_agent_id,omitempty"`
+	Title                string `json:"title"`
+	Status               string `json:"status"` // idle / pending / running / waiting(在等用户回答提问) / resolved(已完成)
+	CreatedAt            int64  `json:"created_at"`
+	UpdatedAt            int64  `json:"updated_at"`
 }
 
 type Message struct {
-	AuthorAgentID        string       `json:"author_agent_id,omitempty"`
-	AuthorName           string       `json:"author_name,omitempty"`
-	AuthorRole           string       `json:"author_role"`
-	Attachments          []Attachment `json:"attachments" nullable:"false"`
-	AuthorUserID         string       `json:"author_user_id,omitempty"`
-	ReplyToMessageID     string       `json:"reply_to_message_id,omitempty"`
-	AuthorAgentVersionID string       `json:"author_agent_version_id,omitempty"`
-	Seq                  int64        `json:"seq"`
-	ToAgentIDs           []string     `json:"to_agent_ids" nullable:"false"`
-	ToUserIDs            []string     `json:"to_user_ids" nullable:"false"`
-	ID                   string       `json:"id"`
-	ConversationID       string       `json:"conversation_id"`
-	Content              string       `json:"content"`
-	CreatedAt            int64        `json:"created_at"`
+	ParentDeliveryRequested bool         `json:"parent_delivery_requested,omitempty"`
+	SourceConversationID    string       `json:"source_conversation_id,omitempty"`
+	SourceMessageID         string       `json:"source_message_id,omitempty"`
+	ParentDelivery          string       `json:"parent_delivery,omitempty"`
+	ParentMessageID         string       `json:"parent_message_id,omitempty"`
+	ParentDeliveryError     string       `json:"parent_delivery_error,omitempty"`
+	AuthorAgentID           string       `json:"author_agent_id,omitempty"`
+	AuthorName              string       `json:"author_name,omitempty"`
+	AuthorRole              string       `json:"author_role"`
+	Attachments             []Attachment `json:"attachments" nullable:"false"`
+	AuthorUserID            string       `json:"author_user_id,omitempty"`
+	ReplyToMessageID        string       `json:"reply_to_message_id,omitempty"`
+	AuthorAgentVersionID    string       `json:"author_agent_version_id,omitempty"`
+	Seq                     int64        `json:"seq"`
+	ToAgentIDs              []string     `json:"to_agent_ids" nullable:"false"`
+	ToUserIDs               []string     `json:"to_user_ids" nullable:"false"`
+	ID                      string       `json:"id"`
+	ConversationID          string       `json:"conversation_id"`
+	Content                 string       `json:"content"`
+	CreatedAt               int64        `json:"created_at"`
 }
 
 type ConversationEvent struct {
@@ -137,15 +149,17 @@ type MessageRequest struct {
 }
 
 type CreateConversationRequest struct {
-	Title      string   `json:"title,omitempty"`
-	ToAgentIDs []string `json:"to_agent_ids,omitempty"`
-	ToUserIDs  []string `json:"to_user_ids,omitempty"`
-	Prompt     string   `json:"prompt,omitempty"`
+	Mode                 string   `json:"mode,omitempty" enum:"single,collaborative"`
+	ParentConversationID string   `json:"parent_conversation_id,omitempty"`
+	Title                string   `json:"title,omitempty"`
+	ToAgentIDs           []string `json:"to_agent_ids,omitempty"`
+	ToUserIDs            []string `json:"to_user_ids,omitempty"`
+	Prompt               string   `json:"prompt,omitempty"`
 }
 
 type CreateConversationResponse struct {
-	Runs         []Run        `json:"runs,omitempty"`
-	Deliveries   []Delivery   `json:"deliveries,omitempty"`
+	Runs         []Run        `json:"runs" nullable:"false"`
+	Deliveries   []Delivery   `json:"deliveries" nullable:"false"`
 	Conversation Conversation `json:"conversation"`
 	Message      *Message     `json:"message,omitempty"`
 }
@@ -180,35 +194,25 @@ type Reply struct {
 	Message    *Message   `json:"message"`
 }
 
-// Work 是工作：协调者会话 + 若干线程会话 + 一份共用说明，见 docs/server/work.md。
-type Work struct {
-	CoordinatorAgentID string `json:"coordinator_agent_id,omitempty"`
-	ID                 string `json:"id"`
-	UserID             string `json:"user_id"`
-	Name               string `json:"name"`
-	Instructions       string `json:"instructions"`
-	CoordinatorID      string `json:"coordinator_id"`
-	ThreadCount        int    `json:"thread_count"`
-	CreatedAt          int64  `json:"created_at"`
-	UpdatedAt          int64  `json:"updated_at"`
+// ConversationSource identifies an existing Client execution; Server verifies it.
+// It is not a credential and never creates a second run or session identity.
+type ConversationSource struct {
+	ConversationID string `json:"conversation_id"`
+	AgentID        string `json:"agent_id"`
+	SessionID      string `json:"session_id"`
+	RunID          string `json:"run_id"`
 }
 
-type CreateWorkRequest struct {
-	Name         string `json:"name"`
-	AgentID      string `json:"agent_id"` // 协调者用的 agent
-	Instructions string `json:"instructions,omitempty"`
+type ParentMessageRequest struct {
+	Prompt        string   `json:"prompt"`
+	AttachmentIDs []string `json:"attachment_ids,omitempty"`
 }
-
-type CreateWorkResponse struct {
-	Work        Work         `json:"work"`
-	Coordinator Conversation `json:"coordinator"`
-}
-
-// WorkPatch 只改非 nil 的字段。
-type WorkPatch struct {
-	CoordinatorAgentID *string `json:"coordinator_agent_id,omitempty"`
-	Name               *string `json:"name,omitempty"`
-	Instructions       *string `json:"instructions,omitempty"`
+type ParentMessageResponse struct {
+	Message              Message `json:"message"`
+	ParentConversationID string  `json:"parent_conversation_id"`
+	ParentMessageID      string  `json:"parent_message_id,omitempty"`
+	Delivery             string  `json:"delivery"`
+	Error                string  `json:"error,omitempty"`
 }
 
 func (u User) IsAdmin() bool { return u.Role == "admin" }

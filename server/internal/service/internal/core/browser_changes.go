@@ -9,11 +9,11 @@ import (
 
 // BrowserChange is an invalidation hint, never conversation content or a task.
 type BrowserChange struct {
-	Resource  string `json:"resource"`
-	ID        string `json:"id,omitempty"`
-	WorkID    string `json:"work_id,omitempty"`
-	owners    []string
-	adminOnly bool
+	Resource             string `json:"resource"`
+	ID                   string `json:"id,omitempty"`
+	ParentConversationID string `json:"parent_conversation_id,omitempty"`
+	owners               []string
+	adminOnly            bool
 }
 
 type BrowserSubscription struct {
@@ -82,7 +82,7 @@ func (s *Runtime) NotifyResource(resource, id, owner string) {
 	s.BrowserChanges.publish(BrowserChange{Resource: resource, ID: id, owners: []string{owner}, adminOnly: resource == "users"})
 }
 func (s *Runtime) PublishConversationChange(ss Conversation, resource string) {
-	s.BrowserChanges.publish(BrowserChange{Resource: resource, ID: ss.ID, WorkID: ss.WorkID, owners: []string{ss.UserID, ss.CreatedBy}})
+	s.BrowserChanges.publish(BrowserChange{Resource: resource, ID: ss.ID, ParentConversationID: ss.ParentConversationID, owners: []string{ss.UserID, ss.CreatedBy}})
 }
 func (s *Runtime) NotifyConversation(ctx context.Context, id string) {
 	s.BrowserChanges.mu.Lock()
@@ -93,13 +93,6 @@ func (s *Runtime) NotifyConversation(ctx context.Context, id string) {
 	}
 	if ss, err := store.ScanConversation(s.DB.QueryRowContext(ctx, ConversationCols+` WHERE id=?`, id)); err == nil {
 		s.PublishConversationChange(ss, "conversations")
-	}
-}
-func (s *Runtime) NotifyCoordinator(ctx context.Context, id string) {
-	if ss, err := store.ScanConversation(s.DB.QueryRowContext(ctx, ConversationCols+` WHERE id=?`, id)); err == nil && ss.WorkID != "" {
-		if w, e := ScanWork(s.DB.QueryRowContext(ctx, WorkCols+` WHERE w.id=?`, ss.WorkID)); e == nil && w.CoordinatorID != id {
-			s.NotifyConversation(ctx, w.CoordinatorID)
-		}
 	}
 }
 
@@ -118,6 +111,5 @@ func (s *Runtime) NotifyDeviceConversations(ctx context.Context, id string) {
 	rows.Close()
 	for _, conversation := range ids {
 		s.NotifyConversation(ctx, conversation)
-		s.NotifyCoordinator(ctx, conversation)
 	}
 }

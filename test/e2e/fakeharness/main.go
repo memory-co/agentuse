@@ -120,27 +120,17 @@ func claudeTurns(args []string, resume string, stdin *bufio.Reader) int {
 				return 2
 			}
 		}
-		if instructionText != in.Message.Content {
+		if instructionText != in.Message.Content && prompt != "context-image" {
 			first, _, _ := strings.Cut(instructionText, "\n")
 			if first != "" {
 				out += " claude.md=" + first
 			}
 		}
 		if f := strings.SplitN(prompt, " ", 3); len(f) == 3 && f[0] == "spawn" {
-			b, err := serverWorkSpawn(f[1], f[2])
+			b, err := contextConversationSpawn(f[1], f[2])
 			out += " spawned=" + strings.TrimSpace(string(b))
 			if err != nil {
 				out += " err=" + err.Error()
-			}
-		}
-		if strings.HasPrefix(prompt, "[Thread ") {
-			thread, _, ok := strings.Cut(strings.TrimPrefix(prompt, "[Thread "), " (")
-			if ok {
-				b, err := serverWorkTool("resolve", thread)
-				if err != nil {
-					fmt.Fprintln(os.Stderr, string(b), err)
-					return 2
-				}
 			}
 		}
 
@@ -261,6 +251,31 @@ func custom() int {
 			return 2
 		}
 		emit(map[string]any{"type": "result", "ok": true, "output": out})
+		return 0
+	}
+	if in.Input.Prompt == "nest-execute" {
+		if b, err := contextCommand("conversation", "help"); err != nil || strings.Contains(string(b), "create") {
+			fmt.Fprintln(os.Stderr, "leaf help exposes create", err, string(b))
+			return 2
+		}
+		if _, err := contextCommand("conversation", "create", "forbidden"); err == nil {
+			fmt.Fprintln(os.Stderr, "leaf created another conversation")
+			return 2
+		}
+
+		if err := os.WriteFile("result.txt", []byte("child artifact"), 0600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
+		}
+		if b, err := contextCommand("attachment", "upload", "result.txt"); err != nil {
+			fmt.Fprintln(os.Stderr, string(b), err)
+			return 2
+		}
+		if b, err := contextCommand("conversation", "send", "--parent", "Execution started."); err != nil {
+			fmt.Fprintln(os.Stderr, string(b), err)
+			return 2
+		}
+		emit(map[string]any{"type": "result", "ok": true, "output": "Child execution complete.", "session_id": "native-" + in.RunID})
 		return 0
 	}
 	if strings.HasPrefix(in.Input.Prompt, "multi:") {

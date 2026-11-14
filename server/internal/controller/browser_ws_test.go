@@ -82,11 +82,11 @@ func TestBrowserNotificationsScopeCoalescingAndReconnect(t *testing.T) {
 	b := dial(bobToken, "")
 	admin := dial(adminToken, "")
 	acting := dial(adminToken, alice.ID)
-	bConversation, _, err := e.st.CreateConversation(ctx, bob, "", "Bob private", "", nil, nil)
+	bConversation, _, err := e.st.CreateConversation(ctx, bob, "", "Bob private", "", nil, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	aConversation, _, err := e.st.CreateConversation(ctx, alice, "", "Alice private", "", nil, nil)
+	aConversation, _, err := e.st.CreateConversation(ctx, alice, "", "Alice private", "", nil, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,19 +169,20 @@ func TestBrowserNotificationsIncludeCommittedClientResults(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err = wsjson.Read(ctx, c, &n); err != nil {
-		t.Fatal(err)
-	}
 	seen := map[string]bool{}
-	for _, change := range n.Changes {
-		if change.ID != f.conversation.ID {
-			t.Fatal(change)
+	// Accepted and final-result invalidations may be sent in separate frames.
+	for !seen["conversations"] || !seen["attachments"] {
+		if err = wsjson.Read(ctx, c, &n); err != nil {
+			t.Fatal(err)
 		}
-		seen[change.Resource] = true
+		for _, change := range n.Changes {
+			if change.ID != f.conversation.ID {
+				t.Fatal(change)
+			}
+			seen[change.Resource] = true
+		}
 	}
-	if !seen["conversations"] || !seen["attachments"] {
-		t.Fatal(n)
-	}
+
 	var detail service.ConversationDetail
 	if r := f.e.req(f.token, "GET", "/api/conversations/"+f.conversation.ID, nil, &detail); r.StatusCode != 200 || len(detail.Runs) != 1 || detail.Runs[0].Status != "completed" || detail.Runs[0].Output != "# Done\n\n**Result**" {
 		t.Fatal("committed result missing", r.StatusCode, detail)

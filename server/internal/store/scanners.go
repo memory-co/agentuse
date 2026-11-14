@@ -60,19 +60,17 @@ func ScanRun(row scanner) (Run, error) {
 
 func ScanConversation(row scanner) (Conversation, error) {
 	var ss Conversation
-	var work sql.NullString
-	err := row.Scan(&ss.ID, &ss.UserID, &ss.CreatedBy, &work, &ss.WorkRole, &ss.Title, &ss.Status, &ss.CreatedAt, &ss.UpdatedAt)
+	err := row.Scan(&ss.ID, &ss.UserID, &ss.CreatedBy, &ss.ParentConversationID, &ss.ParentAgentID, &ss.Mode, &ss.Title, &ss.Status, &ss.CreatedAt, &ss.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Conversation{}, ErrNotFound
 	}
-	ss.WorkID = work.String
 	return ss, err
 }
 
 func ScanMessage(row scanner) (Message, error) {
 	var m Message
 	var content, agents, users, attachments string
-	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorRole, &content, &m.CreatedAt, &m.AuthorAgentID, &m.AuthorName, &agents, &users, &m.AuthorUserID, &m.ReplyToMessageID, &m.AuthorAgentVersionID, &m.Seq, &attachments)
+	err := row.Scan(&m.ID, &m.ConversationID, &m.AuthorRole, &content, &m.CreatedAt, &m.AuthorAgentID, &m.AuthorName, &agents, &users, &m.AuthorUserID, &m.ReplyToMessageID, &m.AuthorAgentVersionID, &m.Seq, &attachments, &m.ParentDeliveryRequested, &m.SourceConversationID, &m.SourceMessageID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Message{}, ErrNotFound
 	}
@@ -99,13 +97,4 @@ func ScanUser(row scanner) (User, error) {
 		return User{}, ErrNotFound
 	}
 	return u, err
-}
-
-func ScanWork(row scanner) (Work, error) {
-	var w Work
-	err := row.Scan(&w.ID, &w.UserID, &w.Name, &w.Instructions, &w.CoordinatorID, &w.ThreadCount, &w.CreatedAt, &w.UpdatedAt, &w.CoordinatorAgentID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Work{}, ErrNotFound
-	}
-	return w, err
 }

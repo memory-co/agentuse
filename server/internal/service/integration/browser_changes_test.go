@@ -11,7 +11,7 @@ func TestBrowserChangesCommitFailureDeletionAndBoundedQueue(t *testing.T) {
 	sub, unsubscribe := s.BrowserChanges.Subscribe(u)
 	defer unsubscribe()
 	ctx := context.Background()
-	ss, _, err := s.CreateConversation(ctx, u, "", "notice", "", nil, nil)
+	ss, _, err := s.CreateConversation(ctx, u, "", "notice", "", nil, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

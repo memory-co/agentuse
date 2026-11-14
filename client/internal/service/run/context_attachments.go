@@ -29,6 +29,7 @@ func (c *ExecutionContext) client() (*sdk.Client, error) {
 	}
 	client := sdk.New(ep.ServerURL, ep.DeviceKey)
 	client.RunID = c.RunID
+	client.Source = c.fileSource
 	client.HTTPClient = &http.Client{Timeout: time.Minute, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 	return client, nil
 }

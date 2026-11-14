@@ -58,7 +58,6 @@ func (s *Server) registerAPI() {
 	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
 		"cookieAuth": {Type: "apiKey", In: "cookie", Name: cookieName, Description: "POST /api/login 或登录链接设置的 HttpOnly cookie"},
 		"bearerAuth": {Type: "http", Scheme: "bearer", Description: "用户令牌 ut_…"},
-		"workToken":  {Type: "http", Scheme: "bearer", Description: "协调者执行期间有效的 wt_…，权限限于对应工作"},
 		"deviceKey":  {Type: "http", Scheme: "bearer", Description: "注册设备返回的 dk_…，只能访问授权的会话及固定资源版本"},
 	}
 	config.Security = []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}}
@@ -74,11 +73,10 @@ func (s *Server) registerAPI() {
 	public := apiAccess{security: []map[string][]string{}}
 	user := apiAccess{wrap: s.auth, security: config.Security}
 	admin := apiAccess{wrap: s.admin, security: config.Security, description: "仅管理员可调用。"}
-	work := apiAccess{wrap: s.workAuth, security: []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}, {"workToken": {}}}, description: "也接受工作令牌，访问范围限于对应工作。"}
-	resource := apiAccess{wrap: s.resourceAuth, security: []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}, {"workToken": {}}, {"deviceKey": {}}}, description: "设备和工作令牌只能读取分配给自己的固定资源版本。"}
-	conversation := apiAccess{wrap: s.conversationReadAuth, security: resource.security, description: "工作令牌限于对应工作；设备密钥限于已投递给该设备的会话。"}
-	attachment := apiAccess{wrap: s.attachmentAuth, security: resource.security, description: "工作令牌限于对应工作；设备密钥只能访问已投递给本设备的会话。设备上传必须通过 X-Agentuse-Run 指定本设备在该会话的活动 run。"}
-	attachmentDelete := apiAccess{wrap: s.attachmentAuth, security: work.security, description: "仅用户或工作令牌可删除附件，设备密钥不能删除。"}
+	resource := apiAccess{wrap: s.resourceAuth, security: []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}, {"deviceKey": {}}}, description: "设备只能读取分配给自己的固定资源版本。"}
+	conversation := apiAccess{wrap: s.conversationAuth, security: resource.security, description: "设备协作请求须携带已验证执行来源，仅顶层可创建直接子对话；parent_agent_id 由来源确定。"}
+	attachment := apiAccess{wrap: s.attachmentAuth, security: resource.security, description: "设备密钥只能访问已授权的会话文件。设备上传必须通过 X-Agentuse-Run 指定本设备在该会话的活动 run。"}
+	attachmentDelete := apiAccess{wrap: s.attachmentAuth, security: user.security, description: "仅用户可删除附件，设备密钥不能删除。"}
 	device := apiAccess{security: []map[string][]string{{"deviceKey": {}}}}
 
 	bind := func(method, path, id, summary, tag string, access apiAccess, input, output any, status int, handler http.HandlerFunc, params ...*huma.Param) *huma.Operation {
@@ -89,8 +87,25 @@ func (s *Server) registerAPI() {
 			}
 		}
 		for _, credentials := range access.security {
+			if _, ok := credentials["deviceKey"]; ok {
+				for _, header := range []string{"X-Agentuse-Conversation", "X-Agentuse-Agent", "X-Agentuse-Session", "X-Agentuse-Run"} {
+					exists := false
+					for _, p := range op.Parameters {
+						if p.In == "header" && p.Name == header {
+							exists = true
+						}
+					}
+					if exists {
+						continue
+					}
+					op.Parameters = append(op.Parameters, &huma.Param{Name: header, In: "header", Description: "设备对话协作的实际执行来源；资源准备及本会话文件读取可省略", Schema: &huma.Schema{Type: "string"}})
+				}
+				break
+			}
+		}
+		for _, credentials := range access.security {
 			if _, ok := credentials["bearerAuth"]; ok {
-				op.Parameters = append(op.Parameters, &huma.Param{Name: actAsHeader, In: "header", Description: "仅管理员用户令牌可代为此用户执行；用户不存在时自动创建。设备或工作令牌不支持代为用户。", Schema: &huma.Schema{Type: "string"}})
+				op.Parameters = append(op.Parameters, &huma.Param{Name: actAsHeader, In: "header", Description: "仅管理员用户令牌可代为此用户执行；用户不存在时自动创建。设备不支持代为用户。", Schema: &huma.Schema{Type: "string"}})
 				break
 			}
 		}
@@ -136,7 +151,7 @@ func (s *Server) registerAPI() {
 	bind("POST", "/api/users", "create-user", "创建用户并返回登录令牌", "user", admin, agentuse.CreateUserRequest{}, agentuse.UserToken{}, 201, s.handleCreateUser)
 	bind("POST", "/api/users/{id}/token", "reset-user-token", "重置用户登录令牌", "user", admin, nil, agentuse.UserToken{}, 200, s.handleResetUserToken)
 	bind("GET", "/api/harnesses", "list-harnesses", "列出设备上报的 harness", "harness", user, nil, []agentuse.Harness{}, 200, s.handleListHarnesses)
-	bind("GET", "/api/agents", "list-agents", "列出可见的 Agent", "agent", work, nil, []agentuse.Agent{}, 200, s.handleListAgents)
+	bind("GET", "/api/agents", "list-agents", "列出可见的 Agent", "agent", conversation, nil, []agentuse.Agent{}, 200, s.handleListAgents)
 	bind("POST", "/api/agents", "create-agent", "创建 Agent 及其首个配置版本", "agent", user, agentuse.CreateAgentRequest{}, agentuse.Agent{}, 201, s.handleCreateAgent)
 	bind("GET", "/api/agents/{id}", "get-agent", "读取 Agent 当前版本", "agent", user, nil, agentuse.Agent{}, 200, s.handleGetAgent)
 	publish := bind("POST", "/api/agents/{id}/versions", "publish-agent-version", "发布固定 Agent 配置版本", "agent", user, agentuse.PublishAgentVersionRequest{}, agentuse.AgentVersion{}, 201, s.handlePublishAgentVersion)
@@ -174,34 +189,19 @@ func (s *Server) registerAPI() {
 	bind("DELETE", "/api/devices/{id}", "delete-device", "删除设备并断开连接", "device", user, nil, nil, 204, s.handleDeleteDevice)
 	bind("POST", "/api/devices/{id}/reset", "reset-device-setup", "重置设备安装令牌", "device", user, nil, deviceView{}, 200, s.handleResetDevice)
 	bind("PUT", "/api/devices/{id}/harnesses/{harness}", "toggle-device-harness", "启用或禁用设备的 harness", "device", user, toggleHarnessBody{}, deviceView{}, 200, s.handleToggleHarness)
-	bind("GET", "/api/works", "list-works", "列出工作", "work", user, nil, []agentuse.Work{}, 200, s.handleListWorks)
-	bind("POST", "/api/works", "create-work", "创建工作及协调者会话", "work", user, agentuse.CreateWorkRequest{}, agentuse.CreateWorkResponse{}, 201, s.handleCreateWork)
-	bind("GET", "/api/works/{id}", "get-work", "读取工作", "work", user, nil, agentuse.Work{}, 200, s.handleGetWork)
-	bind("PATCH", "/api/works/{id}", "update-work", "更新工作说明及协调者", "work", user, agentuse.WorkPatch{}, agentuse.Work{}, 200, s.handleUpdateWork)
-	bind("DELETE", "/api/works/{id}", "delete-work", "删除工作及所属会话", "work", user, nil, nil, 204, s.handleDeleteWork)
-	management := apiAccess{wrap: s.workManagementAuth, security: config.Security, description: "仅工作所有者或管理员可操作，工作范围由路径固定。"}
-	bind("GET", "/api/works/{work_id}/threads", "list-work-threads", "列出工作线程", "work", management, nil, []agentuse.Conversation{}, 200, s.handleListConversations)
-	bind("POST", "/api/works/{work_id}/threads", "create-work-thread", "在指定工作中创建线程", "work", management, createConversationBody{}, agentuse.CreateConversationResponse{}, 201, s.handleCreateConversation)
-	bind("GET", "/api/works/{work_id}/threads/{id}", "get-work-thread", "读取工作线程", "work", management, nil, agentuse.ConversationDetail{}, 200, s.handleGetConversation)
-	bind("POST", "/api/works/{work_id}/threads/{id}/messages", "send-work-thread-message", "向工作线程发消息", "work", management, messageBody{}, agentuse.Reply{}, 201, s.handleAddMessage)
-	bind("POST", "/api/works/{work_id}/threads/{id}/resolve", "resolve-work-thread", "标记工作线程完成", "work", management, nil, agentuse.Conversation{}, 200, s.handleResolveConversation)
-	tool := bind("GET", "/api/agent-tools/work.py", "download-work-tool", "下载 Server 提供的 Work 工具", "work", public, nil, nil, 200, s.handleWorkTool)
-	binaryResponse(tool, "text/x-python")
-	authorization := bind("POST", "/api/agent-tools/work/authorize", "authorize-work-tool", "校验来源并为协调输入签发工作授权", "work", device, workToolAuthorization{}, workToolCredential{}, 200, s.handleAuthorizeWorkTool)
-	authorization.Description = "Server 根据设备、conversation、message、agent 和实际 run 确认协调权限；受理前沿用已投递消息授权，受理后校验 run_id。令牌在对应输入结束或被拒绝后失效。Client 不判断业务角色。"
-
-	bind("GET", "/api/conversations", "list-conversations", "列出会话；work_id 指定工作的线程", "conversation", work, nil, []agentuse.Conversation{}, 200, s.handleListConversations, query("work_id", "工作 ID；省略时列普通会话，工作令牌默认列本工作线程"))
-	bind("POST", "/api/conversations", "create-conversation", "创建会话，可同时发送首条消息", "conversation", work, createConversationBody{}, agentuse.CreateConversationResponse{}, 201, s.handleCreateConversation)
+	bind("GET", "/api/conversations", "list-conversations", "列出顶层对话或指定父对话的直接子对话", "conversation", conversation, nil, []agentuse.Conversation{}, 200, s.handleListConversations, query("parent_conversation_id", "父对话 ID；由 Agent 创建子对话，返回的 parent_agent_id 固定记录发起者"))
+	bind("POST", "/api/conversations", "create-conversation", "创建会话，可同时发送首条消息", "conversation", conversation, createConversationBody{}, agentuse.CreateConversationResponse{}, 201, s.handleCreateConversation)
+	bind("POST", "/api/conversations/{id}/parent/messages", "send-parent-message", "从当前执行子对话回传给其创建 Agent", "conversation", conversation, agentuse.ParentMessageRequest{}, agentuse.ParentMessageResponse{}, 201, s.handleParentMessage)
 	contextRoute := bind("GET", "/api/conversations/{id}/messages/{message_id}/agents/{agent_id}/context", "get-message-context", "为本地 session 补齐尚未提供的共享消息", "conversation", apiAccess{security: []map[string][]string{{"deviceKey": {}}}}, nil, agentuse.MessageContext{}, 200, s.handleMessageContext)
 	contextRoute.Parameters = append(contextRoute.Parameters, query("session_id", "Client 实际选择的本地 session ID"))
 	bind("GET", "/api/conversations/{id}", "get-conversation", "读取消息、执行、投递、事件和问题的统一快照", "conversation", conversation, nil, agentuse.ConversationDetail{}, 200, s.handleGetConversation)
-	bind("DELETE", "/api/conversations/{id}", "delete-conversation", "删除无活跃执行的会话", "conversation", user, nil, nil, 204, s.handleDeleteConversation)
-	bind("POST", "/api/conversations/{id}/messages", "send-message", "发送消息，明确指定 Agent 和用户收件人", "conversation", work, messageBody{}, agentuse.Reply{}, 201, s.handleAddMessage)
-	bind("POST", "/api/conversations/{id}/resolve", "resolve-conversation", "标记会话已完成", "conversation", work, nil, agentuse.Conversation{}, 200, s.handleResolveConversation)
+	bind("DELETE", "/api/conversations/{id}", "delete-conversation", "删除无活跃执行的会话", "conversation", user, nil, nil, 204, s.handleDeleteConversation, query("recursive", "true 时同时删除直接子对话；所有节点须无活跃执行及对外待回传消息"))
+	bind("POST", "/api/conversations/{id}/messages", "send-message", "发送消息，明确指定 Agent 和用户收件人", "conversation", conversation, messageBody{}, agentuse.Reply{}, 201, s.handleAddMessage)
+	bind("POST", "/api/conversations/{id}/resolve", "resolve-conversation", "标记会话已完成", "conversation", user, nil, agentuse.Conversation{}, 200, s.handleResolveConversation)
 	bind("POST", "/api/conversations/{id}/reopen", "reopen-conversation", "重新打开会话", "conversation", user, nil, agentuse.Conversation{}, 200, s.handleReopenConversation)
-	bind("GET", "/api/conversations/{id}/runs/{run_id}", "get-run", "读取 Client 上报的 run 及事件", "run", work, nil, agentuse.RunDetail{}, 200, s.handleGetRun)
-	bind("POST", "/api/conversations/{id}/runs/{run_id}/cancel", "cancel-run", "发送取消请求，等待 Client 上报结果", "run", work, nil, agentuse.Run{}, 200, s.handleCancelRun)
-	bind("POST", "/api/conversations/{id}/runs/{run_id}/requests/{request_id}/reply", "answer-run-request", "回答执行中的交互请求", "run", work, answerRunBody{}, answerRunResponse{}, 202, s.handleAnswerRun)
+	bind("GET", "/api/conversations/{id}/runs/{run_id}", "get-run", "读取 Client 上报的 run 及事件", "run", conversation, nil, agentuse.RunDetail{}, 200, s.handleGetRun)
+	bind("POST", "/api/conversations/{id}/runs/{run_id}/cancel", "cancel-run", "发送取消请求，等待 Client 上报结果", "run", user, nil, agentuse.Run{}, 200, s.handleCancelRun)
+	bind("POST", "/api/conversations/{id}/runs/{run_id}/requests/{request_id}/reply", "answer-run-request", "回答执行中的交互请求", "run", user, answerRunBody{}, answerRunResponse{}, 202, s.handleAnswerRun)
 
 	runHeader := &huma.Param{Name: "X-Agentuse-Run", In: "header", Description: "设备上传必填，Server 校验本会话活动 run 的归属", Schema: &huma.Schema{Type: "string"}}
 	upload := bind("POST", "/api/conversations/{id}/attachments", "upload-attachment", "上传会话附件", "attachment", attachment, nil, agentuse.Attachment{}, 201, s.handleUploadAttachment, runHeader)

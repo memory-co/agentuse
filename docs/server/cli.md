@@ -1,6 +1,6 @@
 # Server CLI：agentuse-server
 
-`agentuse-server start` 启动中心服务，提供管理页面、HTTP API 和 Client WebSocket 入口。`login`、`user`、`work` 命令通过 HTTP 管理运行中的服务，可以在能访问 Server 的其他机器上执行。
+`agentuse-server start` 启动中心服务，提供管理页面、HTTP API 和 Client WebSocket 入口。`login`、`user` 命令通过 HTTP 管理运行中的服务，可以在能访问 Server 的其他机器上执行。
 
 ## 快速开始
 
@@ -42,7 +42,6 @@ agentuse-server start \
 | `agentuse-server user create USERNAME` | 创建用户 |
 | `agentuse-server user list` | 列出用户 |
 | `agentuse-server user token USER_ID` | 重置用户登录令牌 |
-| `agentuse-server work …` | 通过 Server API 管理工作线程，可跨 Client 执行 |
 | `agentuse-server help` | 查看命令一览 |
 | `agentuse-server version` | 显示版本 |
 
@@ -108,7 +107,7 @@ agentuse-server start \
 
 `start` 在前台运行，通过 `Ctrl+C` 或 `SIGTERM` 停止。长期部署可由 systemd、容器或其他进程管理器托管。
 
-当前 Server 使用 schema 7。若启动报 `unsupported database schema: reset the database before starting this version`，需使用新的数据库文件启动，再重新创建资源和注册设备；程序不迁移旧数据库。
+当前 Server 使用 schema 8。若启动报 `unsupported database schema: reset the database before starting this version`，需使用新的数据库文件启动，再重新创建资源和注册设备；程序不迁移旧数据库。
 
 ## 管理命令的地址与凭据
 
@@ -232,32 +231,10 @@ agentuse-server version
 | `/api/openapi.yaml` | OpenAPI YAML |
 | `/api/schemas/{schema}.json` | JSON Schema |
 
-文档入口接受用户 cookie 或用户 Bearer token。各业务接口可用的工作令牌、设备密钥及权限范围在生成文档中分别列出。
+文档入口接受用户 cookie 或用户 Bearer token。各业务接口可用的用户令牌、设备密钥及权限范围在生成文档中分别列出。
 
-## work：工作与线程
+## 对话协作
 
-Work 属于 Server，可以关联多个 Client 上的 Agent。人类通过 `agentuse-server work` 管理工作线程，所有操作均调用 Server API。
+在页面创建 conversation，选择单体模式或协作模式。协作 Agent 通过执行环境中的 `context conversation` 拆分任务，子 Agent 的反馈和结果自动回到创建者；无需额外的 Server 管理命令。
 
-```bash
-agentuse-server work agents
-agentuse-server work threads --work WORK_ID
-agentuse-server work new --work WORK_ID --agents coder "实现这个功能"
-agentuse-server work new --work WORK_ID --defer-start
-agentuse-server work send --work WORK_ID --agents reviewer THREAD_ID "评审结果"
-agentuse-server work read --work WORK_ID THREAD_ID
-agentuse-server work resolve --work WORK_ID THREAD_ID
-```
-
-| 参数 | 说明 |
-|---|---|
-| `--work` | 必填的 Server Work ID；`agents` 不需要 |
-| `--agents` | `new/send` 的 Agent 收件人，逗号分隔 |
-| `--users` | `new/send` 的用户收件人，须已有读取权限 |
-| `--defer-start` | `new` 仅创建空线程；不能同时给消息或收件人 |
-| `--server`、`--token`、`--config` | 沿用管理命令的地址、令牌和配置优先级 |
-
-参数放在消息或线程 ID 之前。所有结果为 JSON；`new` 的线程 ID 位于 `conversation.id`。先创建空线程时，在 Server 页面或通过 HTTP API/SDK 上传输入文件，再 `send` 给目标 Agent。
-
-用户只能访问有权限的工作，管理员可管理其他用户的工作；创建的线程仍归属工作所有者。工作范围由 Server 路径校验，不能通过更换线程 ID 访问另一个工作。创建 Work、修改协调者与工作说明使用管理页面或 `/api/works` API。`login` 仍要求管理员；普通用户可通过 `--token` 或 `AGENTUSE_TOKEN` 调用有权使用的 Work 命令。
-
-运行在 Client 上的协调 Agent 使用 Server 提供的独立工具，无需安装或启动 `agentuse-server`。详见 [Work 手册](work.md)。
+接口、来源权限和 SDK 用法见 [Conversation](conversations.md)，AI 命令见 [Client CLI](../client/cli.md#对话协作)。

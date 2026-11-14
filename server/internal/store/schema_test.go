@@ -9,7 +9,7 @@ import (
 )
 
 func TestOpenRejectsOtherDatabaseSchemas(t *testing.T) {
-	for _, revision := range []int{0, 1, 2, 3, 4, 5, 6, 8} {
+	for _, revision := range []int{0, 1, 2, 3, 4, 5, 6, 7, 9} {
 		for _, table := range []string{"sessions", "conversations"} {
 			t.Run(fmt.Sprintf("%d/%s", revision, table), func(t *testing.T) {
 				path := filepath.Join(t.TempDir(), "unsupported.db")
@@ -43,10 +43,10 @@ func TestConversationSchemaSeparatesConversationsAndNativeSessions(t *testing.T)
 	}
 	defer st.Close()
 	var revision, oldTables int
-	if err := st.db.QueryRow("PRAGMA user_version").Scan(&revision); err != nil || revision != 7 {
+	if err := st.db.QueryRow("PRAGMA user_version").Scan(&revision); err != nil || revision != 8 {
 		t.Fatal(revision, err)
 	}
-	if err := st.db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='sessions'").Scan(&oldTables); err != nil || oldTables != 0 {
+	if err := st.db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('sessions','works','work_run_tokens','run_notifications')").Scan(&oldTables); err != nil || oldTables != 0 {
 		t.Fatal("old Server table exists", oldTables, err)
 	}
 	for _, table := range []string{"messages", "attachments", "message_agents", "runs", "run_events", "run_requests", "run_controls"} {

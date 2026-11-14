@@ -70,7 +70,7 @@ func TestSkillAPIAndAssignedDeviceDownload(t *testing.T) {
 	if _, err = device.GetSkillVersion(ctx, "", skill.ID, skill.CurrentVersionID); !agentuse.IsStatus(err, 404) {
 		t.Fatal("device read unassigned skill metadata", err)
 	}
-	_, _, err = e.st.CreateConversation(ctx, u, "", "", "test", []string{a.ID}, nil)
+	_, _, err = e.st.CreateConversation(ctx, u, "", "", "test", []string{a.ID}, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestConversationFilesUseOwnNamespaceAndCleanup(t *testing.T) {
 	ctx := context.Background()
 	u, token := e.user("files", service.RoleUser)
 	_, other := e.user("other", service.RoleUser)
-	ss, _, err := e.st.CreateConversation(ctx, u, "", "files", "", nil, nil)
+	ss, _, err := e.st.CreateConversation(ctx, u, "", "files", "", nil, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -58,8 +58,9 @@ export interface Conversation {
   id: string;
   user_id: string;
   created_by: string;
-  work_id?: string;
-  work_role?: "coordinator" | "thread";
+  mode: "single" | "collaborative";
+  parent_conversation_id?: string;
+  parent_agent_id?: string;
   title: string;
   status: "idle" | "pending" | "running" | "waiting" | "resolved";
   created_at: number;
@@ -67,6 +68,8 @@ export interface Conversation {
 }
 
 export interface Message {
+ parent_delivery_requested?: boolean; parent_delivery?: "pending"|"delivered"|"failed"; parent_message_id?:string;parent_delivery_error?:string;
+ source_conversation_id?:string; source_message_id?:string;
  attachments: Attachment[];
  author_agent_version_id?:string;
  seq?:number;author_agent_id?:string;author_name?:string;author_user_id?:string;reply_to_message_id?:string;to_agent_ids:string[];to_user_ids:string[];
@@ -75,18 +78,6 @@ export interface Message {
   author_role: "user" | "agent";
   content: string;
   created_at: number;
-}
-
-export interface Work {
- coordinator_agent_id?:string;
-  id: string;
-  user_id: string;
-  name: string;
-  instructions: string;
-  coordinator_id: string;
-  thread_count: number;
-  created_at: number;
-  updated_at: number;
 }
 
 export interface ConversationEvent {
@@ -114,7 +105,10 @@ export type UserId = string | null;
 
 export interface MessageInput { reply_to_message_id?:string; attachment_ids?:string[]; prompt?: string; to_agent_ids?:string[]; to_user_ids?:string[]; }
 
+export interface ConversationSource {conversation_id:string;agent_id:string;session_id:string;run_id:string}
+export interface ParentMessageResponse {message:Message;parent_conversation_id:string;parent_message_id?:string;delivery:"pending"|"delivered"|"failed";error?:string}
 export interface ClientOptions {
+ source?: ConversationSource;
   baseUrl: string;
   token: string;
   fetch?: typeof fetch;
@@ -123,7 +117,7 @@ export interface ClientOptions {
 export interface Attachment { relative_path:string;
  created_by_run_id?:string;created_by_agent_id?:string;
  id: string; conversation_id: string; filename: string; content_type: string; size_bytes: number; sha256: string;
- created_by: string; source: 'user' | 'device' | 'work'; device_id?: string; created_at: number; download_path: string;
+ created_by: string; source: 'user' | 'device'; device_id?: string; created_at: number; download_path: string;
 }
 export interface AttachmentPage { attachments: Attachment[]; next_cursor: string | null }
 export declare class Client {
@@ -141,6 +135,7 @@ export declare class Client {
 
   baseUrl: string;
   token: string;
+  source?: ConversationSource;
   constructor(opts: ClientOptions);
 
   // 除了用户管理，第一个参数都是网站的 user id;传 null 就是 admin 本身。
@@ -173,7 +168,7 @@ export declare class Client {
   deleteDevice(user: UserId, deviceId: string): Promise<void>;
 
   listConversations(user: UserId): Promise<Conversation[]>;
-  createConversation(user: UserId, req: Omit<MessageInput,"attachment_ids"> & { title?:string; }): Promise<{ conversation: Conversation; message?: Message; runs?:Run[];deliveries?:Delivery[] }>;
+  createConversation(user: UserId, req: Omit<MessageInput,"attachment_ids"> & { title?:string; mode?:"single"|"collaborative";parent_conversation_id?:string; }): Promise<{ conversation: Conversation; message?: Message; runs:Run[];deliveries:Delivery[] }>;
   /** 返回共享消息和各目标的 runs/deliveries。 */
   sendMessage(user: UserId, conversationId: string, req: MessageInput): Promise<Reply>;
   getConversation(user: UserId, conversationId: string): Promise<ConversationDetail>;
@@ -181,12 +176,9 @@ export declare class Client {
   deleteConversation(user: UserId, conversationId: string): Promise<void>;
   resolveConversation(user: UserId, conversationId: string): Promise<Conversation>;
   reopenConversation(user: UserId, conversationId: string): Promise<Conversation>;
-  listWorks(user: UserId): Promise<Work[]>;
-  createWork(user: UserId, req: { name: string; agent_id: string; instructions?: string; }): Promise<{ work: Work; coordinator: Conversation }>;
-  getWork(user: UserId, workId: string): Promise<Work>;
-  updateWork(user: UserId, workId: string, patch: { name?: string; instructions?: string;coordinator_agent_id?:string }): Promise<Work>;
-  deleteWork(user: UserId, workId: string): Promise<void>;
-  listWorkConversations(user: UserId, workId: string): Promise<Conversation[]>;
+  listChildren(user:UserId,parentId:string):Promise<Conversation[]>;
+  sendParentMessage(user:UserId,conversationId:string,req:{prompt?:string;attachment_ids?:string[]}):Promise<ParentMessageResponse>;
+  deleteConversationTree(user:UserId,conversationId:string):Promise<void>;
   waitConversation(user: UserId, conversationId: string, opts?: WaitOptions): Promise<ConversationDetail>;
 }
 

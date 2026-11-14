@@ -19,16 +19,16 @@ func (s *Service) PrepareMessage(ctx context.Context, tx *sql.Tx, p core.Deliver
 		return protocol.ConversationMessage{}, err
 	}
 	out := protocol.ConversationMessage{ConversationID: p.ConversationID, MessageID: p.MessageID, AgentID: p.AgentID, AgentVersionID: p.AgentVersionID, Content: p.Content, Attachments: []attachment.Attachment{}}
-	instructions := ""
-	if ss.WorkID != "" {
-		instructions, err = s.WorkService.ConversationInstructions(ctx, tx, ss, p.AgentID)
-		if err != nil {
-			return out, err
-		}
-	}
+	instructions := executionPolicy(ss)
 	source, err := store.ScanMessage(tx.QueryRowContext(ctx, core.MessageCols+` WHERE id=? AND conversation_id=?`, p.MessageID, p.ConversationID))
 	if err != nil {
 		return out, err
+	}
+	if source.SourceConversationID != "" {
+		instructions += fmt.Sprintf("\n# Child feedback provenance\nSource conversation: %s\nSource message: %s\nThis is a returned child message. Files remain in the child file tree. Use context attachment list --conversation %s and context attachment download PATH --conversation %s to inspect them.\n", source.SourceConversationID, source.SourceMessageID, source.SourceConversationID, source.SourceConversationID)
+	}
+	if ss.ParentConversationID != "" {
+		instructions += fmt.Sprintf("\n# Parent conversation\nParent: %s\nTo inspect input files retained there, use context attachment list --conversation parent and context attachment download PATH --conversation parent.\n", ss.ParentConversationID)
 	}
 	for _, file := range source.Attachments {
 		out.Attachments = append(out.Attachments, file)
@@ -48,12 +48,47 @@ func (s *Service) PrepareMessage(ctx context.Context, tx *sql.Tx, p core.Deliver
 	return out, nil
 }
 
-// deliveryChanged runs after a delivery status transaction commits. Work summary
-// failures are retryable and do not undo acknowledged execution or transport facts.
+// DeliveryChanged handles acknowledged transport facts after commit.
 func (s *Service) DeliveryChanged(ctx context.Context, conversation string) {
 	s.NotifyConversation(ctx, conversation)
-	if err := s.WorkService.ReconcileWorkConversation(ctx, conversation); err != nil {
-		s.Log.Printf("work summary pending: %v", err)
+	if err := s.recordRejectedFeedback(ctx, conversation); err != nil {
+		s.Log.Printf("rejected feedback: %v", err)
 	}
-	s.NotifyCoordinator(ctx, conversation)
+	if err := s.ReconcileParentMessages(ctx); err != nil {
+		s.Log.Printf("parent delivery: %v", err)
+	}
+}
+
+const coordinatorPolicy = `# Conversation execution policy: coordinator
+You coordinate this top-level conversation. Do not implement, research, or execute
+the delegated work yourself, even for a small task. Analyze the request, use
+context conversation agents to select executors, and context conversation create
+to delegate execution into child conversations. Keep each child ID. Answer child
+questions with context conversation send CHILD_ID --agents IDS MESSAGE, review
+results, and consolidate the response. Only you may create execution children.
+Do not wait indefinitely while a child needs your decision. No Server identity or
+credentials need to be supplied to the context commands.
+`
+const singlePolicy = `# Conversation execution policy: single
+Execute the request yourself using the tools available here. This conversation is
+in single mode. Do not create or delegate to other conversations.
+`
+
+const executorPolicy = `# Conversation execution policy: executor
+You execute a task in a child conversation. Do the assigned work yourself with the
+tools available here. Do not create another conversation or delegate the work into
+another conversation. Use context conversation send --parent MESSAGE to ask for
+clarification, report an obstacle, or request a changed assignment. Continue here
+when the parent replies. Give the final result normally; Server forwards the final
+message to the recorded parent Agent. Do not send a duplicate final report.
+`
+
+func executionPolicy(v core.Conversation) string {
+	if v.Mode == "collaborative" {
+		return coordinatorPolicy
+	}
+	if v.ParentConversationID != "" {
+		return executorPolicy
+	}
+	return singlePolicy
 }

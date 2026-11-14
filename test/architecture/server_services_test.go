@@ -48,7 +48,6 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 		"agents": "agent", "agent_versions": "agent", "agent_version_skills": "agent",
 		"conversations": "conversation", "messages": "conversation", "attachments": "conversation",
 		"message_agents": "run", "runs": "run", "run_events": "run", "run_requests": "run", "run_controls": "run",
-		"works": "work", "work_run_tokens": "work", "run_notifications": "work",
 		"skills": "skill", "skill_versions": "skill",
 	}
 	writes := regexp.MustCompile(`(?i)\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+([a-z_]+)`)
@@ -113,7 +112,7 @@ func TestServerServicePackageDependencies(t *testing.T) {
 	allowed := map[string]map[string]bool{
 		"user": {}, "device": {}, "agent": {"skill": true},
 		"conversation": {"run": true, "file": true}, "run": {"skill": true},
-		"work": {}, "skill": {"file": true}, "file": {}, "internal": {},
+		"skill": {"file": true}, "file": {}, "internal": {},
 	}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

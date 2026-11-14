@@ -21,7 +21,7 @@
 | 开关某台电脑上的 harness | `set_device_harness` / `setDeviceHarness` / `SetDeviceHarness` |
 | 建一个 agent(起名字，绑定运行时：某台电脑上的某个 harness,以后可以切换) | `create_agent` / `createAgent` / `CreateAgent`;修改配置用 `publish_agent_version` / `publishAgentVersion` / `PublishAgentVersion`，提交完整配置与 `base_version_id` |
 | 用某个 agent 发起一次任务 | `create_conversation` / `createConversation` / `CreateConversation` |
-| 接着回复 | `send_message` / `sendMessage` / `SendMessage`(harness 还没回时 409) |
+| 接着回复 | `send_message` / `sendMessage` / `SendMessage`；由原生适配器决定插话或排队 |
 | 看进度和结果 | `get_conversation` / `getConversation` / `GetConversation`,或 `wait_conversation` 轮询到 `idle` |
 
 另外还有 `me`、`list_agents`、`get_agent`、`delete_agent`、`list_conversations`、`delete_conversation`、`list_harnesses`、`reset_device`、`delete_device`,以及 admin 用的 `list_users`、`create_user`、`reset_user_token`,和接口一一对应。
@@ -42,14 +42,16 @@
 
 以上方法均显式传 conversation_id；get/download/delete 再传 attachment_id。列表返回 `{attachments, next_cursor}`，upload/get 返回 Attachment，delete 不返回内容。Go upload 接收 `io.Reader` 和 filename、download 返回 `io.ReadCloser`（另带响应头）；Python 接收二进制文件对象、返回可关闭的二进制响应；Node 接收文件流、返回含 headers 的流响应，调用方负责消费或关闭。传输取消与错误处理沿用各 SDK 约定。upload 必须流式生成 multipart，不能先缓冲整个文件或转 base64；download 不自动落盘。
 
-创建请求省略 prompt 即创建空 conversation，返回中的 message 可缺省；调用者先上传输入附件，再发送消息选择 attachment_ids。不再提供 mode、defer_start 或原生 input 包装字段。
+创建请求省略 prompt 即创建空 conversation，返回中的 message 可缺省；调用者先上传输入附件，再发送消息选择 attachment_ids。创建时 mode 为 single（默认）或 collaborative；不提供 defer_start 或原生 input 包装字段。
 
 ## 多 agent 共享 conversation
 
-所有 conversation 使用同一个共享消息模型，不传 mode。发送消息用 to_agent_ids 和 to_user_ids 指定 Agent 与用户收件人，返回 message、runs、deliveries；先建立输入分配，实际 run 由 client accepted 决定。只有 Agent 收件人会触发执行；用户必须已有会话读取权限。两组省略时均返回 []，只保存笔记，不默认调用上次 agent。
+所有 conversation 使用同一个共享消息模型，mode 只在创建时选择单体执行或协作拆分。发送消息用 to_agent_ids 和 to_user_ids 指定 Agent 与用户收件人，返回 message、runs、deliveries；先建立输入分配，实际 run 由 client accepted 决定。只有 Agent 收件人会触发执行；用户必须已有会话读取权限。两组省略时均返回 []，只保存笔记，不默认调用上次 agent。
 
 三个 SDK 增加 get/cancel/wait run、wait message runs、reply run request 方法。等待一条消息完成要跟踪 deliveries（accepted 前 run_id 为空），不能只等最初返回的新 runs。WaitConversation 对新模式默认等全部执行结束；returnOnWaiting / return_on_waiting / Go WaitOptions 可选择在提问时返回。
 
 Agent 和共享 skill 独立版本化：创建 agent 会发布 v1，后续配置修改调用版本发布 API，旧版本不可变。先上传根目录含 SKILL.md 的 ZIP，再在 agent 配置的 skills 中固定 skill_id 与 skill_version_id；skill 发布新版本不会自动升级 agent。各 SDK 均提供版本查询、skill 上传和固定版本下载方法。完整规则见 [agentService](../designs/v3/server-agent.md) 和 [skillService](../designs/v3/server-skill.md)。
 
 Message 使用 author_role=user/agent、author_user_id / author_agent_id 和纯字符串 content。reply_to_message_id 引用同一 conversation 的消息，执行结果在 Run 中。session_id 只由 Client 生成，Server 记录同一个值；不存在 client_session_id。
+
+协作根 Agent 使用 context conversation 创建 single 子对话，子对话的问题和最终结果固定回传创建者 parent_agent_id。SDK 提供 ListChildren/listChildren/list_children、SendParentMessage/sendParentMessage/send_parent_message 和显式删除子树方法；设备工具通过实际执行 Source/source 传递来源，不增加工作令牌。详见 [Conversation](../docs/server/conversations.md#模式与嵌套)。

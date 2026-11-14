@@ -6,7 +6,6 @@ import (
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/service/internal/core"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 func (s *Service) SkillForCredential(ctx context.Context, token, id, version string) (agentuse.SkillVersion, error) {
@@ -21,10 +20,7 @@ func (s *Service) SkillForCredential(ctx context.Context, token, id, version str
 			return agentuse.SkillVersion{}, err
 		}
 	} else {
-		err := s.DB.QueryRowContext(ctx, `SELECT count(*)`+store.ActiveWorkTokenFrom+` JOIN agent_version_skills a ON a.agent_version_id=p.agent_version_id WHERE t.token_hash=? AND p.status IN ('sent','accepted') AND a.skill_id=? AND a.skill_version_id=?`, core.HashSecret(token), id, version).Scan(&count)
-		if err != nil {
-			return agentuse.SkillVersion{}, err
-		}
+		return agentuse.SkillVersion{}, core.ErrNotFound
 	}
 	if count == 0 {
 		return agentuse.SkillVersion{}, core.ErrNotFound
@@ -45,10 +41,7 @@ func (s *Service) AgentVersionForCredential(ctx context.Context, token, id, vers
 			return agentuse.AgentVersion{}, err
 		}
 	} else {
-		err := s.DB.QueryRowContext(ctx, `SELECT count(*)`+store.ActiveWorkTokenFrom+` WHERE t.token_hash=? AND p.agent_id=? AND p.agent_version_id=? AND p.status IN ('sent','accepted')`, core.HashSecret(token), id, version).Scan(&count)
-		if err != nil {
-			return agentuse.AgentVersion{}, err
-		}
+		return agentuse.AgentVersion{}, core.ErrNotFound
 	}
 	if count == 0 {
 		return agentuse.AgentVersion{}, core.ErrNotFound

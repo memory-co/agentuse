@@ -152,7 +152,7 @@ func TestDeviceReportsKeepUserEnablementAndCapabilities(t *testing.T) {
 func TestDeviceDeletionPreservesActualRunsAndFixedVersions(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	live, _, err := s.CreateConversation(ctx, u, "", "", "live", []string{a.ID}, nil)
+	live, _, err := s.CreateConversation(ctx, u, "", "", "live", []string{a.ID}, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,14 +162,14 @@ func TestDeviceDeletionPreservesActualRunsAndFixedVersions(t *testing.T) {
 	}
 	run := uuid.NewString()
 	reportNative(t, s, d, delivery, "native", 1, acceptedEvent(run, "one", "live"))
-	sent, _, err := s.CreateConversation(ctx, u, "", "", "uncertain", []string{a.ID}, nil)
+	sent, _, err := s.CreateConversation(ctx, u, "", "", "uncertain", []string{a.ID}, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.DispatchMessage(ctx, d); err != nil {
 		t.Fatal(err)
 	}
-	pending, _, err := s.CreateConversation(ctx, u, "", "", "pending", []string{a.ID}, nil)
+	pending, _, err := s.CreateConversation(ctx, u, "", "", "pending", []string{a.ID}, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

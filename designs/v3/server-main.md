@@ -4,7 +4,7 @@ Server/client WebSocket 報文、字段和恢復規則見 [protocol.md](protocol
 
 Server HTTP API 通過 Huma 註冊，從共用的請求和響應 Go 類型自動生成 OpenAPI。用戶登錄後可打開 `/api/docs` 交互文檔，或讀取 `/api/openapi.json`、`/api/openapi.yaml` 和 `/api/schemas/{schema}.json`。文檔入口沿用用戶 cookie / Bearer 鑒權；每個操作分別標明用戶與設備身份的適用範圍。文件接口使用 multipart 或二進制格式，WebSocket 入口僅描述 HTTP 握手。
 
-> 本文定義 Server 的業務劃分。嵌套 conversation 模型為本次目標設計，尚未實作，見 [conversation 設計](server-conversation.md#父子對話)；其他已實現鏈路仍按各自說明。controller 處理傳輸和身份，service 按下表組織業務與事務，store 保存 schema、查詢與行解碼。Client 職責見 [client-main.md](client-main.md)。
+> 本文定義 Server 的業務劃分。嵌套 conversation 模型已實作，見 [conversation 設計](server-conversation.md#父子對話)；其他已實現鏈路仍按各自說明。controller 處理傳輸和身份，service 按下表組織業務與事務，store 保存 schema、查詢與行解碼。Client 職責見 [client-main.md](client-main.md)。
 
 Conversation 表示共享對話，由 conversationService 管理；原 session 業務整體改用此名稱，session 專指 client 對應 Codex/Claude Code 的原生執行會話，見 [client-session.md](client-session.md)；server 不增加 sessionService 或 sessions 表。
 
@@ -14,9 +14,9 @@ Server 保存對話、組織任務並跟蹤執行。用戶的一臺執行設備�
 
 ## 實現約束
 
-執行協議已採用 agentuse-client/2：server 不預創建 run，只有 client 的 accepted 創建實際 UUID；五種公共事件原樣入庫，沒有 attempt、租約、原生能力分支或 server harnessService。詳細協議、實際 SQL、重連規則及 schema 7 升級約束見 [server-run.md](server-run.md)。
+執行協議已採用 agentuse-client/2：server 不預創建 run，只有 client 的 accepted 創建實際 UUID；五種公共事件原樣入庫，沒有 attempt、租約、原生能力分支或 server harnessService。詳細協議、實際 SQL、重連規則及 schema 8 升級約束見 [server-run.md](server-run.md)。
 
-Server 的對話 HTTP 入口、SDK 模型、響應字段和存儲均使用 conversation：`/api/conversations`、`conversation`、`conversations` 表及 `conversation_id`。Client 生成唯一的 `session_id`，Server 只記錄這個值以關聯原生執行，不生成另一套會話 ID，也不提供 `client_session_id` 別名。設備管理入口為 `/api/devices`，Client 註冊與身份查詢為 `/api/client/register`、`/api/client/me`。消息 UUID、兩組收件人和消息附件快照均在 schema 7 實現。附件存儲提供按 conversation 隔離的文件樹，見 [conversation-files.md](conversation-files.md)；通用 fileService 的本地/S3 後端仍獨立處理其他資源文件。
+Server 的對話 HTTP 入口、SDK 模型、響應字段和存儲均使用 conversation：`/api/conversations`、`conversation`、`conversations` 表及 `conversation_id`。Client 生成唯一的 `session_id`，Server 只記錄這個值以關聯原生執行，不生成另一套會話 ID，也不提供 `client_session_id` 別名。設備管理入口為 `/api/devices`，Client 註冊與身份查詢為 `/api/client/register`、`/api/client/me`。消息 UUID、兩組收件人和消息附件快照均在 schema 8 實現。附件存儲提供按 conversation 隔離的文件樹，見 [conversation-files.md](conversation-files.md)；通用 fileService 的本地/S3 後端仍獨立處理其他資源文件。
 
 Agent/Skill 版本化已實現，分別見 [agentService](server-agent.md) 與 [skillService](server-skill.md)：有效配置變更發佈不可變版本；輸入入隊時固定版本，client 首次使用該版本時創建新的 session/init 綁定。共享 ZIP 經 fileService 的 skills 命名空間保存，通過 HTTP 下載，不在 WebSocket 發送文件或原生命令。
 
@@ -140,7 +140,7 @@ sequenceDiagram
 
 ## 四、當前源碼組織
 
-本節描述目前代碼的職責拆分。上文及 [conversation 設計](server-conversation.md#父子對話) 定義父子對話的目標模型；當前仍運行 schema 7 的舊 Work 行爲，該部分將隨新模型實作移除。
+本節描述目前代碼的職責拆分。當前 schema 8 已實作嵌套對話並移除 Work。
 
 `server/internal/service/services.go` 中的 `Service` 是組裝入口，負責創建業務對象、連接依賴和配置存儲與通知。HTTP controller、WebSocket hub 及啓動流程顯式調用對應對象，例如 `ConversationService.SendMessage`、`RunService.DispatchMessage`。
 
@@ -153,10 +153,9 @@ sequenceDiagram
 | `run.Service` | `run/`；投遞、事件路由、問題、控制與已分配資源的憑據授權 |
 | `skill.Service` | 獨立的 `skill/` 包；版本校驗、發佈、元數據和包讀取 |
 | `file.Service` | 獨立的 `file/` 包；通用字節後端 |
-| `work.Service`（過渡實作） | `work/`；隔離舊的協調授權、指令和自動彙總，待父子對話模型落地時移除 |
 
 每個業務目錄都是獨立 Go package，service 頂層的生產代碼只保留 `services.go` 組裝入口與公共類型別名。各包通過所需方法的接口協作，根入口統一連接依賴。共用設施放在 `internal/core/`，包括數據庫、時鐘、日誌、通知、查詢接口與共用類型；此內部支撐包不引用業務 service。跨業務回歸測試放在 `integration/`。Conversation 的文件鎖和附件限制由 `conversation.Service` 自己持有。
 
-跨業務寫入通過接收同一 `*sql.Tx` 的所屬 service 方法完成：設備刪除由 runService 處理投遞狀態，由 conversationService 清空附件的設備歸屬；目前舊 Work 的刪除和協調授權撤銷同樣遵守此邊界。文件清理和瀏覽器通知在提交後執行。架構測試遞歸檢查各包的依賴與 SQL 寫入歸屬，並禁止向組裝目錄新增業務實現；回滾測試覆蓋跨業務清理失敗。
+跨業務寫入通過接收同一 `*sql.Tx` 的所屬 service 方法完成：設備刪除由 runService 處理投遞狀態，由 conversationService 清空附件的設備歸屬。文件清理和瀏覽器通知在提交後執行。架構測試遞歸檢查各包的依賴與 SQL 寫入歸屬，並禁止向組裝目錄新增業務實現；回滾測試覆蓋跨業務清理失敗。
 
-沒有 `service/v3` 運行時服務或版本分支。原 `v3_test.go` 的回歸測試現已按 conversation、device、work 分拆，Agent/Skill 版本測試也按業務命名；`v3` 表示本組設計文檔的版本。
+沒有 `service/v3` 運行時服務或版本分支。原 `v3_test.go` 的回歸測試現已按 conversation、device、run 分拆，Agent/Skill 版本測試也按業務命名；`v3` 表示本組設計文檔的版本。

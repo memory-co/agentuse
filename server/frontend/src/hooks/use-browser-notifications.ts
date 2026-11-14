@@ -3,23 +3,18 @@ import { queryClient } from '@/lib/query';
 import { useActAs } from '@/lib/actas';
 import { api, ApiError } from '@/lib/api';
 
-type Change = { resource: string; id?: string; work_id?: string };
+type Change = { resource: string; id?: string; parent_conversation_id?: string };
 
 function refresh(changes: Change[], stillCurrent: () => boolean) {
   const keys = new Map<string, readonly unknown[]>();
   const add = (key: readonly unknown[]) => { keys.set(JSON.stringify(key), key); };
   const reset = changes.some(change => change.resource === 'reset');
-  const workChanged = changes.some(change => change.resource === 'works');
   for (const change of changes) {
     switch (change.resource) {
       case 'conversations':
         add(['conversations']);
         if (change.id) add(['conversations', change.id]);
-        if (change.work_id) {
-          add(['conversations', 'work', change.work_id]);
-          add(['works']);
-          add(['works', change.work_id]);
-        }
+        if (change.parent_conversation_id) add(['conversations', 'children', change.parent_conversation_id]);
         break;
       case 'attachments': if (change.id) add(['attachments', change.id]); break;
       case 'agents':
@@ -35,7 +30,6 @@ function refresh(changes: Change[], stillCurrent: () => boolean) {
     }
   }
   const predicate = (query: { queryKey: readonly unknown[] }) => reset
-    || (workChanged && ['works', 'conversations'].includes(String(query.queryKey[0])))
     || keys.has(JSON.stringify(query.queryKey));
   // Cancel an older in-flight snapshot, including a query with no cached data,
   // so its completion cannot hide a notification that arrived during that GET.

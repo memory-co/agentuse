@@ -73,3 +73,15 @@ agentuse.send_message(uid, s["id"], prompt="请查看结果", to_user_ids=[uid])
 ```
 
 逐条消息通过 `attachment_ids` 选择本次文件；未提供则没有附件。Message 返回 `attachments` 元数据快照，Attachment 的 `relative_path` 是当前 conversation 内的路径，用户上传归入 `user_input/`。文件树与接口见 [对话文件](../../docs/server/conversation-files.md)。
+
+## 模式与子对话
+
+创建时 mode 为 single（默认）或 collaborative，创建后不可改。两种模式均支持多个 Agent。子对话由协作 Agent 通过 context conversation create 创建，固定 single；parent_agent_id 由实际来源决定，人类请求不能代填父对话创建。
+
+```python
+r = c.create_conversation(uid, mode="collaborative", prompt="拆分任务并汇总", to_agent_ids=["planner"])
+children = c.list_children(uid, r["conversation"]["id"])
+c.delete_conversation_tree(uid, r["conversation"]["id"])
+```
+
+设备工具使用 Source/source 携带实际 conversation_id、agent_id、session_id、run_id，由 Server 验证；不另申请工作令牌。向父反馈和最终回复的回传规则见 [Conversation 文档](../../docs/server/conversations.md#模式与嵌套)。

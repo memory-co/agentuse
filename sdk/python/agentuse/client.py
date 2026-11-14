@@ -23,7 +23,7 @@ class Attachment(_AttachmentOptional):
     size_bytes: int
     sha256: str
     created_by: str
-    source: Literal["user", "device", "work"]
+    source: Literal["user", "device"]
     created_at: int
     download_path: str
 
@@ -90,13 +90,19 @@ class Client:
     按那个用户的身份执行;传 None 就是 admin 本身。
     """
 
-    def __init__(self, base_url, token, timeout=30):
+    def __init__(self, base_url, token, timeout=30, source=None):
         self.base_url = base_url.rstrip("/")
+        self.source = source
         self.token = token
         self.timeout = timeout
 
+    def _source_headers(self):
+        if self.source is None:
+            return {}
+        return {"X-Agentuse-Conversation": self.source["conversation_id"], "X-Agentuse-Agent": self.source["agent_id"], "X-Agentuse-Session": self.source["session_id"], "X-Agentuse-Run": self.source["run_id"]}
+
     def _request(self, method, path, user=None, body=None, extra_headers=None):
-        headers = {**(extra_headers or {}), "Authorization": f"Bearer {self.token}", "Accept": "application/json"}
+        headers = {**self._source_headers(), **(extra_headers or {}), "Authorization": f"Bearer {self.token}", "Accept": "application/json"}
         if user:
             headers[USER_HEADER] = user
         data = None
@@ -191,7 +197,7 @@ class Client:
         self._request("DELETE", f"/api/devices/{_q(device_id)}", user)
 
     def _attachment_request(self, method, path, user, body=None, content_type=None):
-        headers = {"Authorization": f"Bearer {self.token}"}
+        headers = {**self._source_headers(), "Authorization": f"Bearer {self.token}"}
         if user:
             headers[USER_HEADER] = user
         if content_type:
@@ -271,10 +277,10 @@ class Client:
     def list_conversations(self, user):
         return self._request("GET", "/api/conversations", user)
 
-    def create_conversation(self, user, prompt=None, title=None, to_agent_ids=None, to_user_ids=None):
+    def create_conversation(self, user, prompt=None, title=None, to_agent_ids=None, to_user_ids=None, mode=None, parent_conversation_id=None):
         """创建共享会话；首条消息可指定 Agent 和用户收件人。"""
         return self._request(
-            "POST", "/api/conversations", user, _drop_none(prompt=prompt, title=title, to_agent_ids=to_agent_ids, to_user_ids=to_user_ids)
+            "POST", "/api/conversations", user, _drop_none(prompt=prompt, title=title, to_agent_ids=to_agent_ids, to_user_ids=to_user_ids, mode=mode, parent_conversation_id=parent_conversation_id)
         )
 
     def send_message(self, user, conversation_id, prompt=None, to_agent_ids=None, to_user_ids=None, attachment_ids=None, reply_to_message_id=None):
@@ -327,28 +333,14 @@ class Client:
                 raise TimeoutError("agentuse: wait_message_runs timed out")
             time.sleep(interval)
 
-    # works:协调者 + 线程 + 共用说明
+    def list_children(self, user, parent_id):
+        return self._request("GET", f"/api/conversations?parent_conversation_id={_q(parent_id)}", user)
 
-    def list_works(self, user):
-        return self._request("GET", "/api/works", user)
+    def send_parent_message(self, user, conversation_id, prompt=None, attachment_ids=None):
+        return self._request("POST", f"/api/conversations/{_q(conversation_id)}/parent/messages", user, _drop_none(prompt=prompt, attachment_ids=attachment_ids))
 
-    def create_work(self, user, name, agent_id, instructions=None):
-        """建工作，同时建出协调者会话，返回 {"work": …, "coordinator": …}。给协调者发消息用 send_message。"""
-        return self._request("POST", "/api/works", user, _drop_none(name=name, agent_id=agent_id, instructions=instructions))
-
-    def get_work(self, user, work_id):
-        return self._request("GET", f"/api/works/{_q(work_id)}", user)
-
-    def update_work(self, user, work_id, name=None, instructions=None, coordinator_agent_id=None):
-        return self._request("PATCH", f"/api/works/{_q(work_id)}", user, _drop_none(name=name, instructions=instructions, coordinator_agent_id=coordinator_agent_id))
-
-    def delete_work(self, user, work_id):
-        """连协调者和所有线程一起删。"""
-        self._request("DELETE", f"/api/works/{_q(work_id)}", user)
-
-    def list_work_conversations(self, user, work_id):
-        """列工作的线程(不含协调者)。"""
-        return self._request("GET", f"/api/conversations?work_id={_q(work_id)}", user)
+    def delete_conversation_tree(self, user, conversation_id):
+        self._request("DELETE", f"/api/conversations/{_q(conversation_id)}?recursive=true", user)
 
     def wait_conversation(self, user, conversation_id, interval=2, timeout=None, return_on_waiting=False):
         """轮询直到会话回到 idle(或已完成)或在等回答提问(waiting),返回最后一次 get_conversation 的结果。超时抛 TimeoutError。"""

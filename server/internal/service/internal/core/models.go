@@ -43,8 +43,6 @@ const ConversationPending = store.ConversationPending
 const ConversationRunning = store.ConversationRunning
 const ConversationWaiting = store.ConversationWaiting
 const ConversationResolved = store.ConversationResolved
-const WorkCoordinator = store.WorkCoordinator
-const WorkThread = store.WorkThread
 const RoleUserMsg = store.RoleUserMsg
 const RoleAgentMsg = store.RoleAgentMsg
 
@@ -61,12 +59,7 @@ const RoleAdmin = store.RoleAdmin
 const RoleUser = store.RoleUser
 
 type User = store.User
-type Work = store.Work
-type WorkPatch = store.WorkPatch
 
-const WorkCols = store.WorkCols
-
-var ScanWork = store.ScanWork
 var ErrNotFound = store.ErrNotFound
 var HashSecret = store.HashSecret
 var RandomToken = store.RandomToken
@@ -80,3 +73,5 @@ func NullInt(v sql.NullInt64) *int64 {
 	return &v.Int64
 }
 func NullStr(v sql.NullString) string { return v.String }
+
+type AgentSource = store.AgentSource

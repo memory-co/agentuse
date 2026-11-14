@@ -13,13 +13,14 @@ import (
 	"github.com/memory-co/agentuse/internal/command"
 )
 
-const contextUsage = `context —— 执行身份、状态与 conversation 文件
+const contextUsage = `context —— 执行身份、状态、文件与对话协作
 
 用法:
   context status                    查询执行身份和状态
-  context attachment list           列出整个 conversation 的附件
+  context attachment list [--conversation ID|parent] 列出附件
   context attachment download PATH  下载到 workspace 内的对应相对路径
   context attachment upload FILE    上传输出文件，自动关联当前 conversation/run
+  context conversation help         查看当前对话可用的协作命令
   context --help                    查看可用能力
 `
 const humanContextUsage = `agentuse context —— 访问或进入本机执行上下文
@@ -29,6 +30,7 @@ const humanContextUsage = `agentuse context —— 访问或进入本机执行�
   agentuse context [--path CONTEXT_JSON] attachment list
   agentuse context [--path CONTEXT_JSON] attachment download PATH
   agentuse context [--path CONTEXT_JSON] [--run RUN_UUID] attachment upload FILE
+  agentuse context [--path CONTEXT_JSON] [--run RUN_UUID] conversation COMMAND
   agentuse context [--path CONTEXT_JSON] [--run RUN_UUID] enter
 
 --path 默认读取 AGENTUSE_CONTEXT。attachment list/download 不需要活跃 run。
@@ -58,6 +60,10 @@ func contextCommand(args []string, bound bool) error {
 	flags, rest := []string{}, []string{}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
+		if arg == "conversation" || arg == "attachment" {
+			rest = append(rest, args[i:]...)
+			break
+		}
 		if arg == "--" {
 			rest = append(rest, args[i+1:]...)
 			break
@@ -87,9 +93,39 @@ func contextCommand(args []string, bound bool) error {
 			run = os.Getenv("AGENTUSE_RUN")
 		}
 	}
+	if len(rest) > 0 && rest[0] == "conversation" {
+		ctx, stop := command.SignalContext()
+		defer stop()
+		return runContextConversation(ctx, path, run, rest[1:])
+	}
 	if len(rest) == 0 || rest[0] == "help" {
 		showHelp(os.Stdout)
 		return nil
+	}
+	attachmentConversation := ""
+	if rest[0] == "attachment" {
+		kept := []string{rest[0]}
+		for i := 1; i < len(rest); i++ {
+			arg := rest[i]
+			if arg == "--" {
+				kept = append(kept, rest[i+1:]...)
+				break
+			}
+			if arg == "--conversation" {
+				i++
+				if i == len(rest) {
+					return command.UsageErr("--conversation 缺少值")
+				}
+				attachmentConversation = rest[i]
+			} else if strings.HasPrefix(arg, "--conversation=") {
+				attachmentConversation = strings.TrimPrefix(arg, "--conversation=")
+			} else if strings.HasPrefix(arg, "-") {
+				return command.UsageErr("未知 attachment 参数 %s", arg)
+			} else {
+				kept = append(kept, arg)
+			}
+		}
+		rest = kept
 	}
 	switch rest[0] {
 	case "status":
@@ -106,6 +142,9 @@ func contextCommand(args []string, bound bool) error {
 				return command.UsageErr("context attachment list 不接受额外参数")
 			}
 		case "download", "upload":
+			if rest[1] == "upload" && attachmentConversation != "" {
+				return command.UsageErr("只能上传到当前 conversation")
+			}
 			if len(rest) != 3 {
 				return command.UsageErr("context attachment %s 需要一个文件路径", rest[1])
 			}
@@ -123,13 +162,19 @@ func contextCommand(args []string, bound bool) error {
 	defer stop()
 	var selected *runservice.ExecutionContext
 	var err error
-	if rest[0] == "attachment" && (rest[1] == "list" || rest[1] == "download") {
+	if rest[0] == "attachment" && (rest[1] == "list" || rest[1] == "download") && attachmentConversation == "" {
 		selected, err = runservice.OpenConversationContext(ctx, path)
 	} else {
 		selected, err = runservice.OpenExecutionContext(ctx, path, run)
 	}
 	if err != nil {
 		return err
+	}
+	if attachmentConversation != "" {
+		selected, err = selected.RelatedFiles(ctx, attachmentConversation)
+		if err != nil {
+			return err
+		}
 	}
 	switch rest[0] {
 	case "status":

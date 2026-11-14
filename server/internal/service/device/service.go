@@ -12,7 +12,6 @@ type Service struct {
 	*core.Runtime
 	ConversationService conversationService
 	RunService          runService
-	WorkService         workService
 }
 
 type conversationService interface {
@@ -21,8 +20,4 @@ type conversationService interface {
 
 type runService interface {
 	RetireDeviceDeliveries(ctx context.Context, tx *sql.Tx, id, reason string) error
-}
-
-type workService interface {
-	ReconcileWorkNotifications(ctx context.Context) error
 }

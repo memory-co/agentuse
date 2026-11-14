@@ -2,7 +2,7 @@
 
 > 執行鏈路使用 [agentuse-client/2](protocol.md)：直接投遞 message，消息/Agent 關係見 [server-run.md](server-run.md)，不再有 task 或獨立輸入 ID。
 
-> 單 conversation 的消息及執行鏈路已實現；本次新增的父子關係、發起 Agent 及消息回傳仍為待實作的目標設計，規範集中在本文「父子對話」及表結構。下列 SQL 表示調整後的目標，並不表示 schema 7 已有父對話或消息回傳字段。關聯不聲明數據庫外鍵，由 service 校驗與清理。
+> 本稿對應 schema 8 的嵌套 conversation 實作。關聯不聲明數據庫外鍵，由 service 校驗與清理；不讀取或遷移舊數據庫。
 
 ## 職責
 
@@ -15,7 +15,7 @@ conversationService 管理 conversation、message 和共享歷史，並編排消
 - 消費執行結果事件，把最終回覆寫爲 agent message，並記錄作者和被回覆的 message。
 - 讀取對話時組合對話、run、message_agents、事件和問題的統一快照。
 
-對話業務由獨立包 `service/conversation.Service` 實現，狀態變更和投遞上下文亦歸此對象；父子關係仍待按本稿目標實作。附件元數據、發佈與刪除編排、重名策略和消息附件快照都屬於 conversationService，源碼統一歸入 `service/conversation/`；消息上下文屬於本 service 的 `context.go`。文件字節通過獨立的 `service/file/` 本地/S3 後端存取；完整的源碼分工見 [fileService 實現分工](server-file.md#實現分工) 與 [Server 當前源碼組織](server-main.md#四當前源碼組織)。
+對話業務由獨立包 `service/conversation.Service` 實現，狀態變更和投遞上下文亦歸此對象，包含父子關係及可靠回傳。附件元數據、發佈與刪除編排、重名策略和消息附件快照都屬於 conversationService，源碼統一歸入 `service/conversation/`；消息上下文屬於本 service 的 `context.go`。文件字節通過獨立的 `service/file/` 本地/S3 後端存取；完整的源碼分工見 [fileService 實現分工](server-file.md#實現分工) 與 [Server 當前源碼組織](server-main.md#四當前源碼組織)。
 
 ![Conversation、消息、投遞與執行的關係](../images/conversation-run.svg)
 
@@ -55,9 +55,11 @@ Conversation 狀態是實際 run 與未完成輸入的聚合投影，優先 wait
 
 ### 關係與歸屬
 
-parent_conversation_id 為空表示頂層協調對話；非空時表示直接執行任務的內層對話，其父節點必須是頂層。整體只允許兩層，內層不能繼續創建 conversation。每個對話最多有一個父對話，僅在創建時指定；不提供掛接、移動或重新指定父對話，因而不會生成自引用或環。Server 在創建事務中校驗來源分工及父節點為頂層，違反層級限制返回 403，對所有入口及管理員均一致。
+創建時接受 mode=single（默認）或 collaborative，創建後不可更改。single 自己執行，不能創建其他 conversation；collaborative 負責分析、拆分、協調及匯總，不自己執行業務任務。頂層可選兩種模式；只有 collaborative 頂層允許創建子對話。子對話必須 mode=single，不能繼續拆分。所有模式均支持每條消息指定多個 Agent；single 不表示只能有一個 Agent。
 
-子對話繼承父對話的 user_id，created_by 按普通創建規則記錄。HTTP 入口復用通用身份校驗，本 service 校驗父對話的訪問與創建權限；讀取、發消息及文件操作仍按目標 conversation 校驗。Client 使用當前 endpoint 的設備身份及 execution context；設備請求必須有可核對的來源，缺失時直接拒絕，不降級成整個設備所有者的權限。Server 用已派發的消息/Agent 關係核對來源，再按真實父子關係限定允許的操作。Agent 清單也僅返回該來源可用的角色。頂層只能操作自己的直接子對話；內層僅執行自身任務及向直接父對話反饋，不能利用普通創建 API、省略父 ID 或代填頂層 ID 繞過禁止再委派的限制。這些操作均須由通用接口支持，不把憑據交換或協調角色判定加入組織視圖。
+parent_conversation_id 為空表示頂層對話；非空時表示直接執行任務的內層對話，其父節點必須是 collaborative 頂層。整體只允許兩層，內層不能繼續創建 conversation。每個對話最多有一個父對話，僅在創建時指定；不提供掛接、移動或重新指定父對話，因而不會生成自引用或環。Server 在創建事務中校驗來源分工及父節點為頂層，違反層級限制返回 403，對所有入口及管理員均一致。
+
+子對話繼承父對話的 user_id，created_by 按普通創建規則記錄。HTTP 入口復用通用身份校驗，本 service 校驗父對話的訪問與創建權限；讀取、發消息及文件操作仍按目標 conversation 校驗。Client 使用當前 endpoint 的設備身份及 execution context；設備請求必須有可核對的來源，缺失時直接拒絕，不降級成整個設備所有者的權限。Server 用已上報的實際 run/session、設備及 Agent 關係核對來源，再按真實父子關係限定允許的操作。Agent 清單也僅返回該來源可用的角色。協作模式頂層只能操作自己的直接子對話；內層僅執行自身任務及向直接父對話反饋，不能利用普通創建 API、省略父 ID 或代填頂層 ID 繞過禁止再委派的限制。這些操作均須由通用接口支持，不把憑據交換或協調角色判定加入組織視圖。
 
 主、子對話各自保留消息歷史、文件樹和狀態。各節點的消息仍以 to_agent_ids / to_user_ids 明確選擇收件人，不繼承父對話上一次的收件人，也不綁定固定協調 Agent。工作目標及約束由消息表達，名稱和所有者使用 conversation 的既有字段。子對話用 parent_conversation_id 和 parent_agent_id 記錄「由哪個父對話中的哪個 Agent 創建」。Server 從已校驗的 context conversation create 來源寫入這對標識，調用方不能任意指定或覆蓋 parent_agent_id。它是創建關係，不依賴某條消息的收件人、message_id、run_id 或原生 session。頂層兩個字段均為空，內層均非空；父對話可以有多個 Agent，每個子對話各自記錄實際發起者。
 
@@ -67,7 +69,7 @@ parent_conversation_id 為空表示頂層協調對話；非空時表示直接執
 
 | 方法 | 接口 | 行為 |
 |---|---|---|
-| POST | /api/conversations | 創建對話；可選 parent_conversation_id 表示父對話 |
+| POST | /api/conversations | 創建對話；mode 為 single/collaborative，可選 parent_conversation_id 表示父對話 |
 | GET | /api/conversations | 列出當前身份可見的頂層對話 |
 | GET | /api/conversations?parent_conversation_id=P | 列出 P 的直接子對話，包含空對話 |
 | POST | /api/conversations/{id}/parent/messages | 在來源子對話保存反饋，固定回傳給 parent_conversation_id 中的 parent_agent_id，不接受回信收件人參數 |
@@ -80,16 +82,16 @@ parent_conversation_id 為空表示頂層協調對話；非空時表示直接執
 創建主對話：
 
 ```json
-{"title":"改進搜索體驗","prompt":"請一起規劃並分工","to_agent_ids":["planner","reviewer"]}
+{"mode":"collaborative","title":"改進搜索體驗","prompt":"請一起規劃並分工","to_agent_ids":["planner","reviewer"]}
 ```
 
 在該主對話下創建子對話：
 
 ```json
-{"parent_conversation_id":"parent-conversation-uuid","title":"搜索接口","prompt":"實現接口並驗證邊界條件","to_agent_ids":["coder","tester"]}
+{"mode":"single","parent_conversation_id":"parent-conversation-uuid","title":"搜索接口","prompt":"實現接口並驗證邊界條件","to_agent_ids":["coder","tester"]}
 ```
 
-省略 prompt 和收件人即可先創建空子對話。之後上傳文件、發消息，使用同一套 conversation API。返回值仍為 conversation、message、runs、deliveries，不新增 Work 響應包裝。
+省略 prompt 和收件人即可先創建空子對話。之後發消息，使用同一套 conversation API。AI 只上傳自己的輸出；父側輸入文件由子 Agent 顯式讀取父文件樹，不跨對話復用附件 ID。返回值仍為 conversation、message、runs、deliveries，不新增 Work 響應包裝。
 
 子對話必須由已校驗的 Agent context 創建；人類或管理員可創建頂層對話，再向頂層 Agent 提出委派要求，不能在普通用戶請求中代填 parent_agent_id 建立子對話。創建子對話及其首條消息共用普通創建事務，任一收件人或內容校驗失敗時整體回滾。指定父對話的創建或列表請求先校驗父對話存在且可訪問，否則返回 404；不將不存在或無權訪問的父對話當作空列表。
 
@@ -127,9 +129,9 @@ pending/running/waiting/idle 與 resolved 都只描述所選對話。界面可�
 | /api/works 及獨立 threads API | 移除，使用本節的 conversation 創建、查詢和消息接口 |
 | Work 專用工具及返回包裝 | 收斂為 conversation API 的調用入口，不另行管理角色或執行身份 |
 
-本次只改設計稿。當前運行代碼及使用文檔仍描述舊實作；後續整體實作時同步修改 schema、controller、SDK、Server 工具、界面及使用文檔，不做新舊模型混用。
+schema 8 已移除 Work 表、工作令牌、通知結算、專用 API/腳本/CLI/SDK 及前端頁面。更新時重建數據庫，同步更新 Client、Server 和 SDK，不保留舊入口。
 
-對話分工的提示詞由 Server 根據真實 parent_conversation_id 生成，透過每次派發的 message.context 明確要求頂層協調、內層直接執行。完整模板及 CLI 能力表見 [嵌套對話設計](server-conversation-nest.md#兩層分工與提示詞)。該約束不改變 Agent 版本或原生執行身份。
+對話分工的提示詞由 Server 根據 mode 及真實 parent_conversation_id 生成，透過每次派發的 message.context 明確要求 collaborative 頂層協調、single 頂層直接執行、內層直接執行。完整模板及 CLI 能力表見 [嵌套對話設計](server-conversation-nest.md#兩層分工與提示詞)。該約束不改變 Agent 版本或原生執行身份。
 
 ## 標識和消息順序
 
@@ -145,13 +147,13 @@ Client 選定實際本地 session 後，向 Server 讀取 `complete_messages`：
 
 ## 已實現的消息模型與本次組織調整
 
-本文下列 SQL 定義元數據的目標命名和字段。物理對話表為 conversations，HTTP 入口為 /api/conversations，SDK 和響應字段亦使用 conversation；消息、附件和執行記錄使用 conversation_id。session_id 唯一表示 Client 上報的本地執行會話，不提供 client_session_id 別名。當前 schema 7 的 conversation/message ID 均為 UUID，messages.seq 是對話內順序；to_agent_ids 和 to_user_ids 已在存儲、發送 API、SDK、CLI 和前端統一實現。發送接口接受 prompt，以及獨立的收件人和 attachment_ids；messages.attachments 已保存所選附件的元數據快照。author_role 使用 user/agent，content 是未包裝的原始正文字符串；不再提供 role、agent_key、agent_name、消息 run_id、mode、input 或 defer_start 別名。作者名稱透過 users 或固定 Agent 版本讀取。通用 fileService 的目錄/S3 後端已實現，conversation 附件元數據歸本 service 管理，字節統一保存在 fileService 的 conversations 命名空間。執行關係見 [server-run.md](server-run.md)。當前消息鏈路使用 schema 7；父子組織的後續實作將用 parent_conversation_id 替換 work_id，刪除獨立 Work 結構。本次不修改代碼或宣告新 schema 已實現，也不為後續調整保留字段別名或數據遷移。
+本文 SQL 對應當前 schema 8。共享對話使用 conversation_id，原生執行會話使用 Client 產生的 session_id；兩者保持獨立。消息正文仍為原始字符串，收件人、作者、附件及執行關係沿用既有模型。mode 是 conversation 創建參數，不是舊的消息執行包裝；不接受 input/defer_start 或其他舊別名。父子協作不增加執行身份、表或 service。
 
 ## 表結構
 
 ### conversations
 
-共享對話主表。`user_id` 是資源所有者，`created_by` 是創建者。parent_conversation_id 只可指向同一所有者的頂層對話，僅在創建時指定；所有 conversation 都支持多 Agent，不綁定固定協調 Agent，也不設 mode 字段。嵌套對話視圖直接使用主對話 ID。狀態只投影本對話的消息與執行，不聚合子樹。parent_agent_id 是在父對話中發起創建的 Agent；它與 parent_conversation_id 一起在創建時由 Server 固定。兩者不表示消息收件人配置，也不隨消息、執行狀態或後續 Agent 版本變動。
+共享對話主表。`user_id` 是資源所有者，`created_by` 是創建者。parent_conversation_id 只可指向同一所有者的頂層對話，僅在創建時指定；所有 conversation 都支持多 Agent，不綁定固定協調 Agent，用 mode 選擇單體執行或協作拆分。嵌套對話視圖直接使用主對話 ID。狀態只投影本對話的消息與執行，不聚合子樹。parent_agent_id 是在父對話中發起創建的 Agent；它與 parent_conversation_id 一起在創建時由 Server 固定。兩者不表示消息收件人配置，也不隨消息、執行狀態或後續 Agent 版本變動。
 
 ```sql
 CREATE TABLE conversations (
@@ -160,10 +162,12 @@ CREATE TABLE conversations (
     created_by TEXT NOT NULL,
     parent_conversation_id TEXT,
     parent_agent_id TEXT,
+    mode TEXT NOT NULL DEFAULT 'single' CHECK(mode IN ('single','collaborative')),
     title TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'idle',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
+    CHECK (parent_conversation_id IS NULL OR mode='single'),
     CHECK ((parent_conversation_id IS NULL AND parent_agent_id IS NULL)
         OR (parent_conversation_id IS NOT NULL AND parent_agent_id IS NOT NULL))
 );
@@ -232,7 +236,9 @@ CREATE TABLE messages (
     parent_delivery_requested INTEGER NOT NULL DEFAULT 0 CHECK(parent_delivery_requested IN (0,1)),
     source_conversation_id TEXT,
     source_message_id TEXT,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    CHECK ((source_conversation_id IS NULL AND source_message_id IS NULL)
+        OR (source_conversation_id IS NOT NULL AND source_message_id IS NOT NULL))
 );
 CREATE UNIQUE INDEX messages_conversation_seq ON messages(conversation_id,seq);
 CREATE INDEX messages_replies ON messages(conversation_id,reply_to_message_id,seq);

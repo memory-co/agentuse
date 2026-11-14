@@ -42,6 +42,7 @@ func codexAppServer() int {
 				out, err := contextProof(false)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, err)
+					emit(map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": thread, "turn": map[string]any{"id": turn, "status": "failed", "error": map[string]string{"message": err.Error()}}}})
 					return 2
 				}
 				emit(map[string]any{"method": "item/completed", "params": map[string]any{"threadId": thread, "turnId": turn, "item": map[string]string{"type": "agentMessage", "text": out}}})

@@ -13,7 +13,6 @@ import (
 	"github.com/memory-co/agentuse/server/internal/service/run"
 	"github.com/memory-co/agentuse/server/internal/service/skill"
 	"github.com/memory-co/agentuse/server/internal/service/user"
-	"github.com/memory-co/agentuse/server/internal/service/work"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
@@ -22,7 +21,6 @@ type DeviceService = device.Service
 type AgentService = agent.Service
 type ConversationService = conversation.Service
 type RunService = run.Service
-type WorkService = work.Service
 
 // Service composes independent packages; business operations live in their owner.
 type Service struct {
@@ -32,7 +30,6 @@ type Service struct {
 	*AgentService
 	*ConversationService
 	*RunService
-	*WorkService
 	Files  *file.Service
 	Skills *skill.Service
 }
@@ -46,13 +43,12 @@ func New(st *store.Store) *Service {
 		AgentService:        &agent.Service{Runtime: runtime},
 		ConversationService: &conversation.Service{Runtime: runtime},
 		RunService:          &run.Service{Runtime: runtime},
-		WorkService:         &work.Service{Runtime: runtime},
 	}
-	s.DeviceService.RunService, s.DeviceService.WorkService, s.DeviceService.ConversationService = s.RunService, s.WorkService, s.ConversationService
-	s.AgentService.DeviceService, s.AgentService.WorkService = s.DeviceService, s.WorkService
-	s.ConversationService.RunService, s.ConversationService.WorkService = s.RunService, s.WorkService
+	s.DeviceService.RunService, s.DeviceService.ConversationService = s.RunService, s.ConversationService
+	s.AgentService.DeviceService = s.DeviceService
+	s.AgentService.ConversationService = s.ConversationService
+	s.ConversationService.RunService = s.RunService
 	s.RunService.DeviceService, s.RunService.ConversationService, s.RunService.AgentService = s.DeviceService, s.ConversationService, s.AgentService
-	s.WorkService.UserService, s.WorkService.DeviceService, s.WorkService.ConversationService, s.WorkService.RunService = s.UserService, s.DeviceService, s.ConversationService, s.RunService
 	s.Skills = &skill.Service{OnChange: func(id, owner string) { runtime.NotifyResource("skills", id, owner) }, DB: runtime.DB, Now: func() time.Time { return runtime.Now() }}
 	s.AgentService.Skills, s.RunService.Skills = s.Skills, s.Skills
 	return s
@@ -79,8 +75,8 @@ func (s *Service) ConfigureFiles(files *file.Service) {
 }
 
 func (s *Service) Run(ctx context.Context) {
-	if err := s.WorkService.ReconcileWorkNotifications(ctx); err != nil {
-		s.Log.Printf("work reconciliation: %v", err)
+	if err := s.ConversationService.ReconcileParentMessages(ctx); err != nil {
+		s.Log.Printf("parent message reconciliation: %v", err)
 	}
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
@@ -89,6 +85,9 @@ func (s *Service) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
+			if err := s.ConversationService.ReconcileParentMessages(ctx); err != nil {
+				s.Log.Printf("parent message reconciliation: %v", err)
+			}
 			s.Notifier.KickAll()
 		}
 	}
@@ -127,7 +126,6 @@ var ErrAttachmentRun = core.ErrAttachmentRun
 var ErrAttachmentUnauthorized = core.ErrAttachmentUnauthorized
 var ErrConversationBusy = core.ErrConversationBusy
 var ErrConversationState = core.ErrConversationState
-var ErrCoordinator = core.ErrCoordinator
 var ErrNotFound = core.ErrNotFound
 var ErrQuestionClosed = core.ErrQuestionClosed
 var ErrRuntimeUnavailable = core.ErrRuntimeUnavailable
@@ -155,10 +153,8 @@ type Run = core.Run
 const RunCapability = core.RunCapability
 
 type User = core.User
-type Work = core.Work
 
-const WorkCoordinator = core.WorkCoordinator
+type AgentSource = core.AgentSource
 
-type WorkPatch = core.WorkPatch
-
-const WorkThread = core.WorkThread
+var ErrConversationScope = core.ErrConversationScope
+var ErrConversationChildren = core.ErrConversationChildren

@@ -25,18 +25,7 @@ func (s *Service) attachmentConversation(ctx context.Context, q core.Querier, a 
 		}
 		u = core.User{Role: core.RoleAdmin}
 	}
-	if a.WorkID != "" {
-		var n int
-		err := q.QueryRowContext(ctx, store.AttachmentConversationSelect2, a.WorkID, core.HashSecret(a.Token)).Scan(&n)
-		if err != nil {
-			return core.Conversation{}, err
-		}
-		if n == 0 {
-			return core.Conversation{}, core.ErrAttachmentUnauthorized
-		}
-
-	}
-	if a.DeviceID == "" && a.WorkID == "" {
+	if a.DeviceID == "" {
 		var authID, role string
 		if err := q.QueryRowContext(ctx, store.AttachmentConversationSelect3, core.HashSecret(a.Token)).Scan(&authID, &role); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -55,16 +44,28 @@ func (s *Service) attachmentConversation(ctx context.Context, q core.Querier, a 
 	if err != nil {
 		return ss, err
 	}
-	if a.WorkID != "" && ss.WorkID != a.WorkID {
-		return ss, core.ErrNotFound
-	}
 	if a.DeviceID != "" {
 		var allowed int
 		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM message_agents WHERE device_id=? AND conversation_id=? AND status IN ('sent','unknown','accepted','completed','failed','cancelled')`, a.DeviceID, ss.ID).Scan(&allowed); err != nil {
 			return ss, err
 		}
+		// An explicit execution source narrows even a device that also executes
+		// other branches. Device grants alone must not bypass the relation check.
+		if a.SourceConversationID != "" && a.SourceConversationID != ss.ID {
+			allowed = 0
+		}
 		if allowed == 0 {
-			return ss, core.ErrNotFound
+			if upload || a.SourceConversationID == "" {
+				return ss, core.ErrNotFound
+			}
+			var valid int
+			err := q.QueryRowContext(ctx, `SELECT count(*) FROM conversations c JOIN message_agents p ON p.conversation_id=c.id WHERE c.id=? AND c.user_id=? AND p.device_id=? AND p.agent_id=? AND p.status IN ('sent','unknown','accepted','completed','failed','cancelled') AND ((c.mode='collaborative' AND c.parent_conversation_id IS NULL AND c.id=?) OR c.parent_conversation_id=?)`, a.SourceConversationID, ss.UserID, a.DeviceID, a.SourceAgentID, ss.ParentConversationID, ss.ID).Scan(&valid)
+			if err != nil {
+				return ss, err
+			}
+			if valid == 0 {
+				return ss, core.ErrNotFound
+			}
 		}
 		if upload {
 			if err := s.attachmentRun(ctx, q, a, ss.ID, a.RunID, true); err != nil {

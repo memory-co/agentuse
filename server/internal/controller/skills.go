@@ -103,9 +103,9 @@ func (s *Server) handleSkillPackage(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(w, stream)
 	}
 	token := requestToken(r)
-	if strings.HasPrefix(token, "dk_") || strings.HasPrefix(token, "wt_") {
+	if strings.HasPrefix(token, "dk_") {
 		if r.Header.Get(actAsHeader) != "" {
-			writeErr(w, 403, "device/work tokens cannot impersonate users")
+			writeErr(w, 403, "device credentials cannot impersonate users")
 			return
 		}
 		v, err := s.service.RunService.SkillForCredential(r.Context(), token, r.PathValue("id"), r.PathValue("version_id"))

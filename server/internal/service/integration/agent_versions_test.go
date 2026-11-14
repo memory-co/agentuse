@@ -36,7 +36,7 @@ func TestVersionsPinQueuedInputAndPreserveHistoricalResources(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	ss, _, e := s.CreateConversation(ctx, u, "", "", "first", []string{a.ID}, nil)
+	ss, _, e := s.CreateConversation(ctx, u, "", "", "first", []string{a.ID}, nil, "", nil)
 	if e != nil {
 		t.Fatal(e)
 	}

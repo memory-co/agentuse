@@ -6,8 +6,8 @@ import (
 	"github.com/memory-co/agentuse/server/internal/service/internal/core"
 )
 
-func (s *Service) CreateConversation(ctx context.Context, u core.User, work, title string, input string, toAgentIDs, toUserIDs []string) (core.Conversation, *core.Reply, error) {
-	ss, reply, err := s.createConversation(ctx, u, work, title, input, toAgentIDs, toUserIDs)
+func (s *Service) CreateConversation(ctx context.Context, u core.User, parent, title string, input string, toAgentIDs, toUserIDs []string, mode string, source *core.AgentSource) (core.Conversation, *core.Reply, error) {
+	ss, reply, err := s.createConversation(ctx, u, parent, title, input, toAgentIDs, toUserIDs, mode, source)
 	if err == nil {
 		s.Notifier.KickAll()
 		s.NotifyConversation(ctx, ss.ID)

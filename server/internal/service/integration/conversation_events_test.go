@@ -11,7 +11,7 @@ import (
 func TestResultAndReplyRollbackTogether(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	conversation, _, err := s.CreateConversation(ctx, u, "", "", "work", []string{a.ID}, nil)
+	conversation, _, err := s.CreateConversation(ctx, u, "", "", "work", []string{a.ID}, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,6 @@
 # 嵌套 conversation：派發、協作與回傳
 
-> 本文描述待實作的端到端協作能力。數據結構和 Server API 的唯一規範在 [conversation 設計](server-conversation.md#父子對話)，此處不重複建表 SQL。當前 Client 尚無本文新增的 conversation 命令組，Server 也仍有舊 Work 實作；以下是整體實作目標。
+> 本文描述已實作的端到端協作。數據結構及 API 的唯一規範見 [conversation 設計](server-conversation.md#父子對話)，此處不重複建表 SQL。Work 已整體移除。
 
 ## 要完成的閉環
 
@@ -27,9 +27,11 @@ sequenceDiagram
 
 ## 兩層分工與提示詞
 
-本版只允許「頂層協調對話 → 執行子對話」兩層。Server 管理的 conversation 以 parent_conversation_id 判定分工：為空時負責協調，非空時負責直接執行。不增加 mode 或獨立角色身份；同一個 Agent 在不同 conversation 中可以承擔不同分工。
+創建頂層 conversation 時指定 mode：single（默認）自己執行，collaborative 協調並拆分子對話。mode 創建後不可修改，兩種模式都允許多個 Agent。
 
-頂層的 Agent 負責理解需求、拆解子問題、選擇執行者、創建子對話、回答澄清問題、驗收及匯總。實際編碼、調研或其他業務執行交給子對話，不因任務簡單就改為在頂層直接完成。
+協作最多兩層：「collaborative 頂層 → single 子對話」。子對話只能 single；single 頂層不能拆分，也沒有父側回傳命令。同一 Agent 在不同 conversation 可因 mode 和父子關係承擔不同分工，無需變更 Agent 版本。
+
+協作模式頂層的 Agent 負責理解需求、拆解子問題、選擇執行者、創建子對話、回答澄清問題、驗收及匯總。實際編碼、調研或其他業務執行交給子對話，不因任務簡單就改為在頂層直接完成。
 
 內層的 Agent 必須在當前對話中直接完成分配的任務，不得再創建 conversation 或把任務繼續向下委派。遇到歧義、缺少資源、需要更換或增加執行者時，使用 send --parent 說明問題，交給頂層決定如何處理。子對話仍可包含多個 Agent，各自執行本次分配的工作。
 
@@ -64,14 +66,15 @@ recorded parent agent. Do not send the same final result a second time.
 
 ### 提示詞與工具必須同步生效
 
-分工提示詞由 Server 根據已保存的對話關係產生，作為每次 message.context 的平台執行約束，並隨投遞快照固定。Client 將其與本次輸入一起交給原生執行鏈路；不能只在建會話的界面、第一條消息或 CLI help 中說一次。
+分工提示詞由 Server 根據已保存的 mode 及對話關係產生，作為每次 message.context 的平台執行約束，並隨投遞快照固定。Client 將其與本次輸入一起交給原生執行鏈路；不能只在建會話的界面、第一條消息或 CLI help 中說一次。
 
 Agent 的版本固定指令仍作為 init 資源；對話分工不寫回 Agent 配置、不生成新 Agent 版本，也不改寫已有 session 的初始化快照。Client 按 Server 的關係元數據準備本地工具入口，不從 Agent 名稱、技能或舊 run 推斷角色。
 
 | 所在對話 | CLI 暴露的協作能力 | Server 約束 |
 |---|---|---|
-| 頂層 | agents、create、list、read、send、wait | 只可在當前頂層下創建執行子對話；沒有父側回傳入口 |
-| 內層 | send --parent；保留 status 和 attachment 等執行工具 | 禁止再創建 conversation、訪問其他執行分支或繞回頂層代建 |
+| collaborative 頂層 | agents、create、list、read、send、wait | 只可在當前頂層下創建執行子對話；沒有父側回傳入口 |
+| single 頂層 | 僅 status/attachment 等執行工具 | 自己完成任務，禁止創建其他對話 |
+| single 內層 | send --parent；保留 status 和 attachment 等執行工具 | 禁止再創建 conversation、訪問其他執行分支或繞回頂層代建 |
 
 內層執行 create 時，CLI 立即返回明確錯誤並指向 send --parent。即使直接調用 HTTP、僅篡改本地 parent_conversation_id 或省略創建請求的父 ID，Server 仍用真實來源及父子關係拒絕這次創建；直接要求在內層之下創建第三層也返回 403。這個限制對手工 API 和管理員同樣適用，不依賴提示詞自律。
 
@@ -84,7 +87,7 @@ Agent 統一使用既有的 context 工具入口。Client 在執行環境準備�
 | 命令 | 行為 |
 |---|---|
 | `context conversation agents` | 查詢本次來源對話可選的 Agent，取得實際 ID、名稱和說明 |
-| `context conversation create [--title TITLE] [--agents IDS] [--users IDS] [MESSAGE]` | 僅頂層可用：在當前對話下創建執行子對話，可同時發出首條消息 |
+| `context conversation create [--title TITLE] [--mode single] [--agents IDS] [--users IDS] [MESSAGE]` | 僅 collaborative 頂層可用：在當前對話下創建執行子對話，可同時發出首條消息 |
 | `context conversation list` | 列出當前對話的直接子對話及其既有狀態 |
 | `context conversation read CHILD_ID` | 頂層讀取自己直接子對話的消息和狀態 |
 | `context conversation send CHILD_ID [--agents IDS] [--users IDS] MESSAGE` | 向子對話發普通消息；接收者明確指定 |
@@ -149,9 +152,13 @@ wait 必須可中斷：子對話提問回父側、父 Agent 收到新輸入或�
 3. 子 Agent 的澄清問題可回到父對話，父 Agent 的答覆可再次進入原子對話。
 4. 子對話的最終回覆可自動回傳；父 run 已結束或父設備短暫離線不丟消息。
 5. 重啟及重放不重複生成父消息，跨層轉發不形成消息回聲。
-6. 頂層每次輸入均帶協調提示詞；所有內層輸入均帶直接執行及禁止再拆分的提示詞，包含同一 session 的後續消息。
+6. collaborative 頂層每次輸入均帶協調提示詞；single 頂層帶直接執行提示詞；所有內層輸入均帶直接執行及禁止再拆分的提示詞，包含同一 session 的後續消息。
 7. 內層在 CLI 中看不到 create；直接調用、替換父 ID、缺失可核對來源或管理員手工建立第三層均會被 Server 拒絕。
 8. 主 Agent 正在 wait 時，子側提問能使等待返回，父 Agent 可回應後繼續等待，不形成互相等待。
 9. 多 endpoint、無父對話、來源無權訪問和投遞失敗均有明確結果。
 
-本次仍是設計修改。實作時需一起補齊 Client 命令、工具說明、Server 通用來源校驗、消息回傳及界面來源展示；當前已有的 agentuse conversation 尚缺創建和列舉能力，不能作為本稿已完成的依據。
+實作位置：Client 的 context_conversation CLI 與 run/context_conversations.go；Server 的 conversation/parent.go、conversation/delivery.go 和 controller/conversation_auth.go。前端只保留 conversation，以子樹、父鏈接、來源消息和回傳狀態展示協作。
+
+來源驗證使用當前 endpoint 的設備密鑰，以及 X-Agentuse-Conversation/Agent/Session/Run 四個通用執行來源 header；Server 核對已上報的實際執行事實，parent_agent_id 仍只記錄穩定 Agent ID。CLI 只為讀取來源校驗短暫等待 accepted 上報，不盲目重試寫操作。
+
+文件不隱式複製。根協調 Agent 可用 context attachment list/download --conversation CHILD_ID 讀取直接子對話文件；子 Agent 可用 --conversation parent 讀取父輸入。跨對話下載位於當前 workspace/.context/conversations/ID/ 下，避免與本對話路徑衝突；不允許跨分支或跨對話上傳。

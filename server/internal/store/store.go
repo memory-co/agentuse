@@ -58,28 +58,20 @@ CREATE TABLE IF NOT EXISTS conversations (
   id                 TEXT PRIMARY KEY,
   user_id            TEXT NOT NULL,
   created_by         TEXT NOT NULL,
-  work_id            TEXT,
+  parent_conversation_id TEXT,
+  parent_agent_id TEXT,
+  mode TEXT NOT NULL DEFAULT 'single' CHECK(mode IN ('single','collaborative')),
   title              TEXT NOT NULL DEFAULT '',
   status             TEXT NOT NULL DEFAULT 'idle',
   created_at         INTEGER NOT NULL,
-  updated_at         INTEGER NOT NULL
+  updated_at         INTEGER NOT NULL,
+  CHECK (parent_conversation_id IS NULL OR mode='single'),
+  CHECK ((parent_conversation_id IS NULL AND parent_agent_id IS NULL) OR (parent_conversation_id IS NOT NULL AND parent_agent_id IS NOT NULL))
 );
-CREATE INDEX IF NOT EXISTS conversations_work ON conversations(work_id,updated_at);
+CREATE INDEX IF NOT EXISTS conversations_parent ON conversations(parent_conversation_id,updated_at,id);
 CREATE INDEX IF NOT EXISTS conversations_status ON conversations(status, updated_at);
 CREATE INDEX IF NOT EXISTS conversations_user ON conversations(user_id, updated_at);
 CREATE INDEX IF NOT EXISTS conversations_created_by ON conversations(created_by, updated_at);
-
-CREATE TABLE IF NOT EXISTS works (
-  id             TEXT PRIMARY KEY,
-  user_id        TEXT NOT NULL,
-  name           TEXT NOT NULL,
-  instructions   TEXT NOT NULL DEFAULT '',
-  coordinator_id TEXT NOT NULL UNIQUE,
-  coordinator_agent_id TEXT,
-  created_at     INTEGER NOT NULL,
-  updated_at     INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS works_user ON works(user_id, updated_at);
 
 CREATE TABLE IF NOT EXISTS messages (
   id         TEXT PRIMARY KEY,
@@ -88,10 +80,14 @@ CREATE TABLE IF NOT EXISTS messages (
   author_role TEXT NOT NULL CHECK(author_role IN ('user','agent')),
   content    TEXT NOT NULL,
   attachments TEXT NOT NULL DEFAULT '[]', author_user_id TEXT, author_agent_id TEXT, to_agent_ids TEXT NOT NULL DEFAULT '[]', to_user_ids TEXT NOT NULL DEFAULT '[]', reply_to_message_id TEXT, author_agent_version_id TEXT,
-  created_at INTEGER NOT NULL
+  parent_delivery_requested INTEGER NOT NULL DEFAULT 0 CHECK(parent_delivery_requested IN (0,1)),
+  source_conversation_id TEXT, source_message_id TEXT,
+  created_at INTEGER NOT NULL,
+  CHECK ((source_conversation_id IS NULL AND source_message_id IS NULL) OR (source_conversation_id IS NOT NULL AND source_message_id IS NOT NULL))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id, seq);
 CREATE INDEX IF NOT EXISTS messages_replies ON messages(conversation_id,reply_to_message_id,seq);
+CREATE UNIQUE INDEX IF NOT EXISTS messages_source ON messages(conversation_id,source_message_id) WHERE source_message_id IS NOT NULL;
 
 `
 
@@ -122,11 +118,11 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if revision != 7 && (existing > 0 || revision != 0) {
+	if revision != 8 && (existing > 0 || revision != 0) {
 		db.Close()
 		return nil, errors.New("unsupported database schema: reset the database before starting this version")
 	}
-	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=7;"); err != nil {
+	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=8;"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("store: initialize: %w", err)
 	}

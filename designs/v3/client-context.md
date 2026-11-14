@@ -37,7 +37,7 @@ endpoint/conversation 足以確定文件空間，但同一空間可同時有多�
 - `context attachment list`：直接查詢 Server 的 conversation 附件列表，不按 run 篩選，不下載文件。
 - `context attachment download PATH`：以 conversation 相對路徑精確選擇文件，不接受文件 ID；查詢 Server 元資料，下載並校驗，保存到 `workspace/<relative_path>`，返回本地絕對路徑及 MIME 類型。
 - `context attachment upload FILE`：上傳本次 run 的輸出，自動關聯 conversation/run，返回可引用的下載路徑。
-- `context conversation …`：待新增的對話協作命令組，支持查詢可選 Agent、創建／列出子對話、讀取／發送／等待，以及 send --parent 回傳；完整命令與閉環見 [嵌套對話設計](server-conversation-nest.md)。
+- `context conversation …`：對話協作命令組，支持查詢可選 Agent、創建／列出子對話、讀取／發送／等待，以及 send --parent 回傳；完整命令與閉環見 [嵌套對話設計](server-conversation-nest.md)。
 - `context --help`：當前可用能力，不列出註冊、啓停等管理命令。
 
 輸入由 harnessctl 統一定義：send 負責投遞，accepted 確認 input/run 歸屬，result 明確覆蓋的 input_ids。Client 保存 Server message 與 accepted 的業務關聯，不向 AI 提供第二份輸入模型，也不要求 AI 輪詢補充消息。
@@ -48,7 +48,7 @@ status 僅根據公共事件確認所選 run 的歸屬和 request/result 狀態�
 
 conversation 命令組由同一 context 入口提供。Client 每次準備 session 執行環境時綁定當前 endpoint、conversation、Agent 及 Server 提供的 parent_conversation_id，並將入口加入 PATH。頂層的 help 和工具說明提供拆解與創建子對話命令；內層僅提供向父回饋等執行所需能力，create 即使被直接輸入也明確報錯。Server 的分工提示詞仍隨每次消息下發。設備憑據從既有私有配置取得，不輸出給 AI。Server 須同時補齊通用來源校驗、Agent 清單及父子範圍訪問，不能只提供命令名。
 
-create 只在頂層可用，並自動綁定當前 conversation 和 agent_id 為父對話及發起者；send --parent 由 Server 按真實父子關係定位直接父對話。普通 send 明確選擇子 Agent，回傳則固定交給該子對話記錄的 parent_agent_id。命令不根據舊的 run/message 環境變量推斷協調角色，也不另建 Work 授權層。上述新增能力尚未實作。
+create 只在 collaborative 頂層可用，並自動綁定當前 conversation 和 agent_id 為父對話及發起者；send --parent 由 Server 按真實父子關係定位直接父對話。普通 send 明確選擇子 Agent，回傳則固定交給該子對話記錄的 parent_agent_id。命令不根據舊的 run/message 環境變量推斷協調角色，也不另建 Work 授權層。上述能力已由 Client context 命令和普通 conversation API 實作。
 
 ## 文件範圍與圖片
 
@@ -98,10 +98,12 @@ runService 在首次 init 的指令快照中追加工具說明，保留 Agent �
 
 裸命令不提供選擇其他 Server、path、session 或 run 的參數。需要切換時，人類重新通過 `agentuse context` 選擇。描述文件只是本機執行元數據，不是新的授權憑據。
 
-歷史 run 在本機文件仍保留時可讀。附件下載憑據由私有註冊配置取得。嵌套 conversation 的組織屬於 Server。Client 與 context 按 Server 提供的關係限制命令能力，不自行推斷協調角色，也不提供 Work 子命令。主、子對話使用相同的執行上下文；Server 提供的對話工具調用普通 conversation API，其通用身份接入不屬於 context 或 Work 的業務模型。新目標設計見 [父子 conversation 設計](server-conversation.md#父子對話)。
+歷史 run 在本機文件仍保留時可讀。附件下載憑據由私有註冊配置取得。嵌套 conversation 的組織屬於 Server。Client 與 context 按 Server 提供的關係限制命令能力，不自行推斷協調角色，也不提供 Work 子命令。主、子對話使用相同的執行上下文；Client context 的對話工具調用普通 conversation API，其通用身份接入不屬於 context 或 Work 的業務模型。完整設計見 [父子 conversation 設計](server-conversation.md#父子對話)。
 
 context.json、命令入口和附件緩存隨既有 conversation quota 一起回收，不增加全局索引、全局 run 掃描或新的常駐服務。實現在 runService 和 CLI 入口；維持既有五個 service。
 
 不保留 `agentuse session`、`--session` 或將 conversation 寫入 `AGENTUSE_SESSION` 的舊入口，也不轉換舊本機上下文。
 
 移除頂層 `agentuse attachment`、舊 `context attachments` 和省略子命令的附件入口，不保留別名。
+
+跨對話文件讀取必須顯式 --conversation CHILD_ID 或 --conversation parent，並使用可校驗的當前執行來源；跨對話下載保存到 workspace/.context/conversations/ID/，不改寫本會話同名文件。上傳只允許當前 conversation。

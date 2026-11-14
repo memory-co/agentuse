@@ -104,7 +104,7 @@ func TestServerOpenAPIRoutesSchemasAndCredentials(t *testing.T) {
 	if !strings.HasPrefix(spec.OpenAPI, "3.1.") || len(spec.Paths) < 35 {
 		t.Fatal("incomplete OpenAPI document", spec.OpenAPI, len(spec.Paths))
 	}
-	if len(spec.Security) != 2 || spec.Components.SecuritySchemes["cookieAuth"].Name != cookieName || spec.Components.SecuritySchemes["bearerAuth"].Scheme != "bearer" || spec.Components.SecuritySchemes["workToken"].Scheme != "bearer" || spec.Components.SecuritySchemes["deviceKey"].Scheme != "bearer" {
+	if len(spec.Security) != 2 || spec.Components.SecuritySchemes["cookieAuth"].Name != cookieName || spec.Components.SecuritySchemes["bearerAuth"].Scheme != "bearer" || len(spec.Components.SecuritySchemes) != 3 || spec.Components.SecuritySchemes["deviceKey"].Scheme != "bearer" {
 		t.Fatal("incorrect authentication schemes")
 	}
 	ids := map[string]bool{}
@@ -153,7 +153,7 @@ func TestServerOpenAPIRoutesSchemasAndCredentials(t *testing.T) {
 			t.Fatal("device endpoint allows the wrong credentials", path)
 		}
 	}
-	if len(spec.Paths["/api/conversations/{id}"]["get"].Security) != 4 || len(spec.Paths["/api/conversations/{id}/attachments/{attachment_id}"]["delete"].Security) != 3 {
+	if len(spec.Paths["/api/conversations/{id}"]["get"].Security) != 3 || len(spec.Paths["/api/conversations/{id}/attachments/{attachment_id}"]["delete"].Security) != 2 {
 		t.Fatal("incorrect conversation or attachment credential scope")
 	}
 	for path, status := range map[string]string{"/api/conversations": "201", "/api/agents": "201", "/api/conversations/{id}/messages": "201", "/api/conversations/{id}/runs/{run_id}/requests/{request_id}/reply": "202"} {
@@ -177,7 +177,7 @@ func TestServerOpenAPIRoutesSchemasAndCredentials(t *testing.T) {
 		if properties["to_agent_ids"] == nil || properties["to_user_ids"] == nil || properties["target_agent_ids"] != nil || properties["agent_id"] != nil {
 			t.Fatal("incorrect message recipient schema", path, properties)
 		}
-		if properties["input"] != nil || properties["mode"] != nil || properties["defer_start"] != nil {
+		if properties["input"] != nil || properties["defer_start"] != nil {
 			t.Fatal("obsolete execution wrapper in conversation API", properties)
 		}
 	}

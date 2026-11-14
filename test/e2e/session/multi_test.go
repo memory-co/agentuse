@@ -173,6 +173,10 @@ func testMultiSDKs(t *testing.T, server, token string) {
 import assert from 'node:assert/strict';const [baseUrl,token]=process.argv.slice(2);const c=new Client({baseUrl,token});
 const created=await c.createConversation('alice',{prompt:'FYI',to_user_ids:['alice']});const {conversation}=created;
 assert.deepEqual(created.message.to_agent_ids,[]);assert.deepEqual(created.message.to_user_ids,['alice']);assert.equal(conversation.status,'idle');assert.equal(created.deliveries.length,0);
+assert.equal(conversation.mode,'single');
+const coordination=await c.createConversation('alice',{mode:'collaborative',title:'SDK collaboration'});
+assert.equal(coordination.conversation.mode,'collaborative');assert.deepEqual(await c.listChildren('alice',coordination.conversation.id),[]);
+await c.deleteConversationTree('alice',coordination.conversation.id);
 const req={prompt:'multi:sdk',to_agent_ids:['coder','reviewer'],to_user_ids:['alice']};const first=await c.sendMessage('alice',conversation.id,req);
 assert.deepEqual(first.message.to_agent_ids,req.to_agent_ids);assert.deepEqual(first.message.to_user_ids,req.to_user_ids);
 const d=await c.waitMessageRuns('alice',conversation.id,first.message.id,{interval:30,timeout:10000});assert.equal(d.runs.length,2);assert.ok(d.runs.every(r=>r.status==='completed'));
@@ -183,6 +187,10 @@ assert.equal((await c.getRun('alice',conversation.id,d.runs[0].id)).run.id,d.run
 from agentuse import Client
 c=Client(sys.argv[1],sys.argv[2]);created=c.create_conversation('alice',prompt='FYI',to_user_ids=['alice']);s=created['conversation']
 assert s['status']=='idle' and created['deliveries']==[] and created['message']['to_agent_ids']==[] and created['message']['to_user_ids']==['alice']
+assert s['mode']=='single'
+coordination=c.create_conversation('alice',mode='collaborative',title='SDK collaboration')
+assert coordination['conversation']['mode']=='collaborative' and c.list_children('alice',coordination['conversation']['id'])==[]
+c.delete_conversation_tree('alice',coordination['conversation']['id'])
 r=c.send_message('alice',s['id'],prompt='multi:sdk',to_agent_ids=['coder','reviewer'],to_user_ids=['alice'])
 assert r['message']['to_agent_ids']==['coder','reviewer'] and r['message']['to_user_ids']==['alice']
 d=c.wait_message_runs('alice',s['id'],r['message']['id'],interval=.03,timeout=10)
@@ -207,7 +215,7 @@ assert c.get_run('alice',s['id'],d['runs'][0]['id'])['run']['id']==d['runs'][0][
 	}
 }
 
-func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
+func TestMultiNativeSteerQuestionAndNestedConversation(t *testing.T) {
 	e2eutil.Skip(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
@@ -279,38 +287,49 @@ func TestMultiNativeSteerQuestionAndWork(t *testing.T) {
 	if r := lastResult(t, detail); !r.OK || !strings.Contains(r.Output, "answer=Go") {
 		t.Fatal("answer", r)
 	}
-	work, err := c.CreateWork(ctx, user, agentuse.CreateWorkRequest{Name: "Multi work", AgentID: "native", Instructions: "Use shared session"})
+	parent, err := c.CreateConversation(ctx, user, agentuse.CreateConversationRequest{Title: "Collaborative", Mode: "collaborative", Prompt: "spawn worker nest-execute", ToAgentIDs: []string{"native"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = c.SendMessage(ctx, user, work.Coordinator.ID, agentuse.MessageRequest{Prompt: "spawn worker multi:child", ToAgentIDs: []string{"native"}}); err != nil {
-		t.Fatal(err)
-	}
-	e2eutil.WaitFor(t, 15*time.Second, "work aggregation", func() bool {
-		v, e := c.GetConversation(ctx, user, work.Coordinator.ID)
-		return e == nil && v.Conversation.Status == "idle" && len(v.Messages) == 4
+	var childID string
+	e2eutil.WaitFor(t, 20*time.Second, "nested conversation results", func() bool {
+		children, e := c.ListChildren(ctx, user, parent.Conversation.ID)
+		if e != nil || len(children) != 1 {
+			return false
+		}
+		childID = children[0].ID
+		detail, e := c.GetConversation(ctx, user, parent.Conversation.ID)
+		if e != nil || detail.Conversation.Status != "idle" {
+			return false
+		}
+		feedback := 0
+		final := false
+		for _, m := range detail.Messages {
+			if m.SourceConversationID == childID {
+				feedback++
+				if m.Content == "Child execution complete." {
+					final = true
+				}
+			}
+		}
+		return final && feedback == 2
 	})
-	coor, err := c.GetConversation(ctx, user, work.Coordinator.ID)
-	if err != nil {
+	children, err := c.ListChildren(ctx, user, parent.Conversation.ID)
+	if err != nil || len(children) != 1 || children[0].ParentAgentID != "native" || children[0].Mode != "single" {
+		t.Fatal(children, err)
+	}
+	child, err := c.GetConversation(ctx, user, childID)
+	if err != nil || len(child.Runs) != 1 || child.Runs[0].AgentID != "worker" || child.Runs[0].DeviceID != workerDevice.ID || child.Runs[0].Status != "completed" {
+		t.Fatal(child, err)
+	}
+	files, err := c.AllAttachments(ctx, user, childID)
+	if err != nil || len(files) != 1 || files[0].RelativePath != "result.txt" {
+		t.Fatal(files, err)
+	}
+	if err = c.DeleteConversationTree(ctx, user, parent.Conversation.ID); err != nil {
 		t.Fatal(err)
 	}
-	if len(coor.Runs) != 2 {
-		t.Fatal("coordinator runs", coor.Runs)
+	if _, err = c.GetConversation(ctx, user, childID); !agentuse.IsStatus(err, 404) {
+		t.Fatal("recursive delete retained child", err)
 	}
-	threads, err := c.ListWorkConversations(ctx, user, work.Work.ID)
-	if err != nil || len(threads) != 1 {
-		t.Fatal("work thread", threads, err)
-	}
-	child, err := c.GetConversation(ctx, user, threads[0].ID)
-	if err != nil || len(child.Runs) != 1 || child.Runs[0].AgentID != "worker" || child.Runs[0].DeviceID != workerDevice.ID || child.Runs[0].Status != "completed" {
-		t.Fatal("child", child, err)
-	}
-	if child.Conversation.Status != "resolved" {
-		t.Fatal("coordinator did not resolve the remote thread", child.Conversation.Status)
-	}
-	files, err := c.AllAttachments(ctx, user, child.Conversation.ID)
-	if err != nil || len(files) != 1 {
-		t.Fatal("Server tool upload missing", files, err)
-	}
-
 }

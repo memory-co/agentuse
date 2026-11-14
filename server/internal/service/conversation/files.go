@@ -38,7 +38,7 @@ func (s *Service) PutConversationFile(ctx context.Context, access core.Attachmen
 	if _, err := attachment.RelativePath(path); err != nil {
 		return err
 	}
-	if (access.DeviceID != "" || access.WorkID != "") && (path == "user_input" || strings.HasPrefix(path, "user_input/")) {
+	if access.DeviceID != "" && (path == "user_input" || strings.HasPrefix(path, "user_input/")) {
 		return fmt.Errorf("user_input/ is reserved for user uploads")
 	}
 	if s.Files == nil {

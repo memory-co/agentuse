@@ -119,7 +119,7 @@ Server 和 Client 都使用 [Huma](https://github.com/danielgtaylor/huma) 自动
 |---|---|
 | [Server 文档](docs/server/README.md) · [CLI](docs/server/cli.md) | 启动服务、存储设置、管理员登录、用户和工作线程管理 |
 | [Client 文档](docs/client/README.md) · [CLI](docs/client/cli.md) | 注册、启动、本机调试、远端会话和附件 |
-| [Server Work](docs/server/work.md) | 跨 Client 编排、协调工具和工作授权 |
+| [Conversation 协作](docs/server/conversations.md#模式与嵌套) | 单体/协作模式、跨 Client 子会话和消息回传 |
 | [执行上下文](docs/client/context.md) | AI 使用 context 查询执行状态、读写文件；人类选择或进入 run |
 | 运行中的 `/api/docs` | 两端分别提供的 Huma API 交互文档 |
 | [SDK](sdk/README.md) | Go、Node.js 和 Python 接入示例 |
@@ -201,7 +201,7 @@ context attachment upload ./report.pdf
 {"prompt":"分别看看实现和风险","to_agent_ids":["coder","reviewer"],"to_user_ids":["alice"]}
 ```
 
-返回 `{message, runs, deliveries}`。也支持 `agentuse conversation send CONVERSATION_ID --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有 conversation 统一使用共享消息模型，不再提供 mode/input/defer_start 包装。消息以 author_role 区分 user/agent，content 是原始正文，执行事实单独保存在 run 中。Server 与 Client 使用 `agentuse-client/2` 通信。[设计](designs/v3/server-conversation.md) · [API](docs/server/conversations.md)。
+返回 `{message, runs, deliveries}`。也支持 `agentuse conversation send CONVERSATION_ID --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有 conversation 统一使用共享消息模型，创建时可选 single/collaborative 模式，不提供 input/defer_start 包装。消息以 author_role 区分 user/agent，content 是原始正文，执行事实单独保存在 run 中。Server 与 Client 使用 `agentuse-client/2` 通信。[设计](designs/v3/server-conversation.md) · [API](docs/server/conversations.md)。
 
 ### Client 本机页面与文件配置
 
@@ -255,4 +255,4 @@ Agent 指令与 skills 由 Client 按固定版本 API 获取，通过 init 保�
 
 消息使用 `to_agent_ids` 和 `to_user_ids` 指定收件人：只有 Agent 收件人触发执行，用户收件人必须已有会话读取权限，两组省略时均为 `[]`。CLI 通过 `--agents`、`--users` 分别指定；不保留旧字段别名。
 
-Server/client 使用 `agentuse-client/2`：Server 直接投递 conversation message 和目标 Agent，Client 按需获取固定版本配置与 skills 并在本地 init，适配器通过 accepted 返回真实 run UUID。只支持数据库 schema 7 和新版消息收据，不保留旧数据迁移或兼容逻辑。升级需重建 Server 数据库、清空 Client 本地工作目录并重新初始化、注册设备；两端必须一起更新。详见 [协议](designs/v3/protocol.md) 和 [server-run 设计](designs/v3/server-run.md)。
+Server/client 使用 `agentuse-client/2`：Server 直接投递 conversation message 和目标 Agent，Client 按需获取固定版本配置与 skills 并在本地 init，适配器通过 accepted 返回真实 run UUID。只支持数据库 schema 8 和新版消息收据，不保留旧数据迁移或兼容逻辑。升级需重建 Server 数据库、清空 Client 本地工作目录并重新初始化、注册设备；两端必须一起更新。详见 [协议](designs/v3/protocol.md) 和 [server-run 设计](designs/v3/server-run.md)。

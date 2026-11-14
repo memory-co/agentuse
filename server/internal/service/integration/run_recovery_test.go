@@ -28,16 +28,16 @@ func TestInputWakeupRunsAfterCommit(t *testing.T) {
 		}
 		calls++
 	}})
-	_, _, err := s.CreateConversation(ctx, u, "", "task", "hello", []string{a.ID}, nil)
+	_, _, err := s.CreateConversation(ctx, u, "", "task", "hello", []string{a.ID}, nil, "", nil)
 	if err != nil || calls != 1 {
 		t.Fatal(calls, err)
 	}
 }
 
-func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
+func TestReconnectKeepsPreparedConversationPolicy(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	work, coordinator, err := s.CreateWork(ctx, u, "work", a.ID, "shared work instructions")
+	coordinator, _, err := s.CreateConversation(ctx, u, "", "coordination", "", nil, nil, "collaborative", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,8 +48,8 @@ func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(original.Context, "shared work instructions") {
-		t.Fatal("server omitted work context")
+	if !strings.Contains(original.Context, "Conversation execution policy: coordinator") {
+		t.Fatal("server omitted coordinator policy")
 	}
 	if _, err = s.SendMessage(ctx, u, coordinator.ID, "later", []string{a.ID}, nil, nil, ""); err != nil {
 		t.Fatal(err)
@@ -58,32 +58,20 @@ func TestReconnectKeepsPreparedBusinessPromptAndCapability(t *testing.T) {
 	if err != nil || len(recovered) != 1 || !reflect.DeepEqual(original, recovered[0]) {
 		t.Fatalf("reconnect changed prompt: %v %v", recovered, err)
 	}
-	var tokens int
-	s.DB.QueryRowContext(ctx, `SELECT count(*) FROM work_run_tokens`).Scan(&tokens)
-	if tokens != 0 {
-		t.Fatal("dispatch minted business credentials", tokens)
+	var tables int
+	if err := s.DB.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('works','work_run_tokens','run_notifications')`).Scan(&tables); err != nil || tables != 0 {
+		t.Fatal(tables, err)
 	}
-	token, err := s.AuthorizeWorkTool(ctx, d.ID, original.ConversationID, original.MessageID, original.AgentID, "550e8400-e29b-41d4-a716-446655440000")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, _, err := s.WorkByToken(ctx, token)
-	if err != nil || got.ID != work.ID {
-		t.Fatal(got, err)
-	}
-
 	if err = s.RejectMessage(ctx, d.ID, original.Key(), protocol.AckError, "adapter unavailable"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = s.WorkByToken(ctx, token); err == nil {
-		t.Fatal("rejected input retained capability")
-	}
+
 }
 
 func TestCompletedConversationDeletesExecutionRows(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, _, err := s.CreateConversation(ctx, u, "", "task", "hello", []string{a.ID}, nil)
+	ss, _, err := s.CreateConversation(ctx, u, "", "task", "hello", []string{a.ID}, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +85,7 @@ func TestCompletedConversationDeletesExecutionRows(t *testing.T) {
 	if err = s.DeleteConversation(ctx, u, ss.ID); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"message_agents", "runs", "run_events", "run_requests", "run_controls", "run_notifications", "work_run_tokens"} {
+	for _, table := range []string{"message_agents", "runs", "run_events", "run_requests", "run_controls"} {
 		var n int
 		if err = s.DB.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 0 {
 			t.Fatalf("orphan %s: %d %v", table, n, err)
@@ -108,7 +96,7 @@ func TestCompletedConversationDeletesExecutionRows(t *testing.T) {
 func TestRejectedReplyCanRetryWithoutInventingRequestState(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, _, err := s.CreateConversation(ctx, u, "", "task", "hello", []string{a.ID}, nil)
+	ss, _, err := s.CreateConversation(ctx, u, "", "task", "hello", []string{a.ID}, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

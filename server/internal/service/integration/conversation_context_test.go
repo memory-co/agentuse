@@ -16,7 +16,7 @@ import (
 func TestCompleteMessagesUsesActualSessionAndAcceptedBoundary(t *testing.T) {
 	s, u, d, a := runStore(t)
 	ctx := context.Background()
-	ss, _, err := s.CreateConversation(ctx, u, "", "", "", nil, nil)
+	ss, _, err := s.CreateConversation(ctx, u, "", "", "", nil, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

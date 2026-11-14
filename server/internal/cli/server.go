@@ -30,7 +30,6 @@ const serverUsage = `agentuse-server —— agentuse 服务端
   agentuse-server user create 用户名 [-id 用户id] [-role user|admin]
   agentuse-server user list [-json]
   agentuse-server user token 用户id
-  agentuse-server work …                       # 跨 Client 工作与线程，见 work help
   agentuse-server version
 
 start 是服务进程，只有它读写数据库。其余命令带用户令牌调 HTTP API，用户管理需要管理员权限,
@@ -43,7 +42,6 @@ func Main(args []string) int {
 		{Name: "start", Run: runStart},
 		{Name: "login", Run: runLogin},
 		{Name: "user", Run: runUser},
-		{Name: "work", Run: runWork},
 	})
 }
 

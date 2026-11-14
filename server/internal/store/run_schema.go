@@ -43,8 +43,4 @@ CREATE TABLE IF NOT EXISTS run_controls (
  answer TEXT, state TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '',
  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS work_run_tokens (
- token_hash TEXT PRIMARY KEY, work_id TEXT NOT NULL, message_id TEXT NOT NULL, agent_id TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS run_notifications (message_id TEXT PRIMARY KEY);
 `

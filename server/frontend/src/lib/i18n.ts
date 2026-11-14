@@ -6,6 +6,21 @@ export type Locale = 'zh' | 'en';
 export const locales: { value: Locale; label: string }[] = [{ value: 'zh', label: '中文' }, { value: 'en', label: 'English' }];
 
 const zh = {
+  'nest.parentTarget': '回传父会话',
+  'nest.mode': '会话模式',
+  'nest.single': '单体模式',
+  'nest.collaborative': '协作模式',
+  'nest.singleHint': 'Agent 在当前会话中直接完成任务。',
+  'nest.collaborativeHint': 'Agent 将任务拆成子会话，协调执行并汇总结果。',
+  'nest.children': '子会话',
+  'nest.noChildren': '协调者尚未创建子会话。',
+  'nest.parent': '返回父会话',
+  'nest.source': '查看源消息与文件',
+  'nest.deleteTree': '删除此会话及其全部子会话？',
+  'nest.delivery.pending': '等待回传父会话',
+  'nest.delivery.delivered': '已送达父会话',
+  'nest.delivery.failed': '回传父会话失败',
+
   'common.loading': '加载中…', 'common.cancel': '取消', 'common.ok': '确定', 'common.delete': '删除', 'common.copy': '复制', 'common.copyFailed': '复制失败，请手动选中', 'common.close': '关闭',
   'common.name': '名字', 'common.description': '说明', 'common.user': '用户', 'common.admin': '管理员', 'common.normalUser': '普通用户', 'common.create': '创建', 'common.new': '新建',
   'nav.new': '新会话', 'nav.agents': 'Agent', 'nav.skills': 'Skills', 'nav.devices': '连接设备', 'nav.harnesses': '执行器', 'nav.users': '用户',
@@ -15,13 +30,13 @@ const zh = {
   'actAs.label': '身份', 'actAs.self': '{name}(管理员，看全部)', 'actAs.acting': '代为 {id}', 'actAs.switch': '切换身份', 'actAs.search': '搜索用户…', 'actAs.empty': '没有匹配的用户',
   'login.title': '登录 agentuse', 'login.text': '输入登录令牌(ut_ 开头)。管理员令牌在服务第一次启动时打印在日志里；其他用户的令牌由管理员创建。', 'login.token': '登录令牌', 'login.invalidLink': '登录链接无效', 'login.submit': '登录',
   'conversation.status.idle': '已回复', 'conversation.status.pending': '排队中', 'conversation.status.running': '运行中', 'conversation.status.waiting': '等你回答', 'conversation.status.resolved': '已完成',
-  'conversation.resolve': '标记完成', 'conversation.reopen': '取消完成', 'conversation.resolved': '已完成 ({n})', 'conversation.threadReplied': '线程 {title} 回复了',
-  'nav.tabConversations': '会话', 'nav.tabWorks': '工作', 'nav.newWork': '新建工作', 'nav.noWorks': '让协调者帮你拆活、开线程', 'nav.worksFailed': '工作加载失败', 'nav.noThreads': '还没有线程',
-  'work.newTitle': '新建工作', 'work.newText': '工作里你只跟协调者说话，它会开线程去干具体的活，线程做完结果回到它这里。说明会带给协调者和每个线程。',
-  'work.namePlaceholder': '名字，如 重构 device', 'work.agentLabel': '协调者用哪个 agent', 'work.pickAgent': '选一个 agent', 'work.noAgents': '还没有自己的 agent:先去左边「Agent」建一个。', 'work.instructions': '说明', 'work.instructionsPlaceholder': '背景、约定、要注意的事(可空)',
-  'work.instructionsHint': '这个工作里的协调者和每个线程都会带上，改了下一条消息就生效。', 'work.save': '保存', 'work.saved': '已保存',
-  'work.threads': '线程 {n}',
-  'work.deleteTitle': '删除工作 {name}?', 'work.deleteText': '协调者和所有线程会一起删掉。', 'work.delete': '删除工作', 'work.coordinatorPlaceholder': '跟协调者说要做什么，回车发送',
+  'conversation.resolve': '标记完成', 'conversation.reopen': '取消完成', 'conversation.resolved': '已完成 ({n})',
+  'nav.tabConversations': '会话',
+
+
+
+
+
   'mention.users': '用户收件人', 'mention.userId': '输入用户 ID', 'mention.addUser': '添加', 'mention.removeUser': '移除用户', 'mention.userHint': '用户必须已有会话读取权限。只选用户不会启动 Agent。', 'mention.recipients': '{agents} 个 Agent · {users} 位用户',
   'mention.multi': '执行 agent（可多选）', 'mention.multiHint': '勾选本条消息的执行者，最多 8 个；未选择 Agent 时不会启动执行。', 'mention.choose': '选择 agent', 'mention.search': '搜索名字或输入 agent id', 'mention.remove': '移除目标', 'mention.noMatch': '没有匹配项', 'mention.targets': '发送给 {n} 个 agent', 'mention.note': '未选择收件人，仅记入会话', 'mention.noteOnly': '仅记录 · 无收件人',
   'mention.steerMessages': '插话消息', 'mention.details': '执行详情', 'mention.detailsFor': '查看 @{agent} 的执行详情', 'mention.cancel': '取消执行', 'mention.shared': '共享对话：@ 选择本次执行者', 'mention.pending': '排队', 'mention.running': '执行中', 'mention.waiting': '等回答', 'mention.succeeded': '已完成', 'mention.failed': '失败', 'mention.cancelled': '已取消', 'mention.delivered': '已送达', 'mention.steer': '插话',
@@ -70,6 +85,21 @@ const zh = {
 type Key = keyof typeof zh;
 
 const en: Record<Key, string> = {
+  'nest.parentTarget': 'Return to parent',
+  'nest.mode': 'Conversation mode',
+  'nest.single': 'Single',
+  'nest.collaborative': 'Collaborative',
+  'nest.singleHint': 'Agents execute the request in this conversation.',
+  'nest.collaborativeHint': 'Agents split the request into child conversations and coordinate the results.',
+  'nest.children': 'Child conversations',
+  'nest.noChildren': 'The coordinator has not created any child conversations yet.',
+  'nest.parent': 'Parent conversation',
+  'nest.source': 'View source message and files',
+  'nest.deleteTree': 'Delete this conversation and all of its child conversations?',
+  'nest.delivery.pending': 'Return to parent pending',
+  'nest.delivery.delivered': 'Delivered to parent',
+  'nest.delivery.failed': 'Return to parent failed',
+
   'common.loading': 'Loading…', 'common.cancel': 'Cancel', 'common.ok': 'OK', 'common.delete': 'Delete', 'common.copy': 'Copy', 'common.copyFailed': 'Copy failed, please select it manually', 'common.close': 'Close',
   'common.name': 'Name', 'common.description': 'Description', 'common.user': 'User', 'common.admin': 'Admin', 'common.normalUser': 'User', 'common.create': 'Create', 'common.new': 'Create',
   'nav.new': 'New conversation', 'nav.agents': 'Agents', 'nav.skills': 'Skills', 'nav.devices': 'Devices', 'nav.harnesses': 'Harnesses', 'nav.users': 'Users',
@@ -79,13 +109,13 @@ const en: Record<Key, string> = {
   'actAs.label': 'Acting as', 'actAs.self': '{name} (admin, see everything)', 'actAs.acting': 'Acting as {id}', 'actAs.switch': 'Switch identity', 'actAs.search': 'Search users…', 'actAs.empty': 'No matching users',
   'login.title': 'Sign in to agentuse', 'login.text': 'Enter your login token (starts with ut_). The admin token is printed in the log when the server first starts; other users get theirs from the admin.', 'login.token': 'Login token', 'login.invalidLink': 'Invalid login link', 'login.submit': 'Sign in',
   'conversation.status.idle': 'Replied', 'conversation.status.pending': 'Queued', 'conversation.status.running': 'Running', 'conversation.status.waiting': 'Needs your answer', 'conversation.status.resolved': 'Done',
-  'conversation.resolve': 'Mark done', 'conversation.reopen': 'Reopen', 'conversation.resolved': 'Done ({n})', 'conversation.threadReplied': 'Thread {title} replied',
-  'nav.tabConversations': 'Conversations', 'nav.tabWorks': 'Works', 'nav.newWork': 'New work', 'nav.noWorks': 'Let a coordinator split the job into threads', 'nav.worksFailed': 'Failed to load works', 'nav.noThreads': 'No threads yet',
-  'work.newTitle': 'New work', 'work.newText': 'In a work you only talk to the coordinator; it starts threads for the actual tasks, and their results come back to it. The instructions go to the coordinator and every thread.',
-  'work.namePlaceholder': 'Name, e.g. Refactor device', 'work.agentLabel': 'Agent for the coordinator', 'work.pickAgent': 'Pick an agent', 'work.noAgents': 'You have no agents yet. Create one under “Agents” on the left first.', 'work.instructions': 'Instructions', 'work.instructionsPlaceholder': 'Background, conventions, things to watch out for (optional)',
-  'work.instructionsHint': 'The coordinator and every thread in this work get these; changes apply from the next message.', 'work.save': 'Save', 'work.saved': 'Saved',
-  'work.threads': '{n} threads',
-  'work.deleteTitle': 'Delete work {name}?', 'work.deleteText': 'The coordinator and all threads are deleted with it.', 'work.delete': 'Delete work', 'work.coordinatorPlaceholder': 'Tell the coordinator what to do, Enter to send',
+  'conversation.resolve': 'Mark done', 'conversation.reopen': 'Reopen', 'conversation.resolved': 'Done ({n})',
+  'nav.tabConversations': 'Conversations',
+
+
+
+
+
   'mention.users': 'User recipients', 'mention.userId': 'Enter user ID', 'mention.addUser': 'Add', 'mention.removeUser': 'Remove user', 'mention.userHint': 'Users must already have access to this conversation. User recipients do not start agents.', 'mention.recipients': '{agents} agents · {users} users',
   'mention.multi': 'Agents (select multiple)', 'mention.multiHint': 'Choose up to 8 agents for this message. Without agents, no execution starts.', 'mention.choose': 'Choose agents', 'mention.search': 'Search name or agent id', 'mention.remove': 'Remove target', 'mention.noMatch': 'No matches', 'mention.targets': 'Send to {n} agents', 'mention.note': 'No recipients; save as a note', 'mention.noteOnly': 'Note · No recipients',
   'mention.steerMessages': 'Follow-up messages', 'mention.details': 'Run details', 'mention.detailsFor': 'View run details for @{agent}', 'mention.cancel': 'Cancel run', 'mention.shared': 'Shared conversation: @ agents for this message', 'mention.pending': 'Queued', 'mention.running': 'Running', 'mention.waiting': 'Waiting for answer', 'mention.succeeded': 'Completed', 'mention.failed': 'Failed', 'mention.cancelled': 'Cancelled', 'mention.delivered': 'Delivered', 'mention.steer': 'Follow-up',

@@ -18,7 +18,7 @@ func (s *Service) ReadConversation(ctx context.Context, u core.User, id string) 
 	if detail.Conversation, err = s.LookupConversation(ctx, tx, u, id); err != nil {
 		return detail, err
 	}
-	if detail.Messages, err = messages(ctx, tx, id); err != nil {
+	if detail.Messages, err = s.messages(ctx, tx, id); err != nil {
 		return detail, err
 	}
 	if detail.Runs, err = s.RunService.RunsIn(ctx, tx, id); err != nil {

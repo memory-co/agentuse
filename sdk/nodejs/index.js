@@ -18,15 +18,21 @@ const q = encodeURIComponent;
 // 除了用户管理，每个方法第一个参数是网站的 user id,请求带 X-Agentuse-User
 // 按那个用户的身份执行;传 null 就是 admin 本身。
 export class Client {
-  constructor({ baseUrl, token, fetch: fetchImpl } = {}) {
+  constructor({ baseUrl, token, source, fetch: fetchImpl } = {}) {
     if (!baseUrl) throw new Error("agentuse: baseUrl is required");
     this.baseUrl = baseUrl.replace(/\/+$/, "");
     this.token = token;
+    this.source = source;
     this._fetch = fetchImpl || globalThis.fetch;
   }
 
+  _sourceHeaders() {
+    if (!this.source) return {};
+    return {"X-Agentuse-Conversation": this.source.conversation_id, "X-Agentuse-Agent": this.source.agent_id, "X-Agentuse-Session": this.source.session_id, "X-Agentuse-Run": this.source.run_id};
+  }
+
   async _request(method, path, user, body, extraHeaders = {}) {
-    const headers = { ...extraHeaders, Authorization: `Bearer ${this.token}`, Accept: "application/json" };
+    const headers = { ...this._sourceHeaders(), ...extraHeaders, Authorization: `Bearer ${this.token}`, Accept: "application/json" };
     if (user) headers[USER_HEADER] = user;
     const init = { method, headers };
     if (body !== undefined) {
@@ -79,7 +85,7 @@ export class Client {
   async deleteDevice(user, deviceId) { await this._request("DELETE", `/api/devices/${q(deviceId)}`, user); }
 
   async _attachmentRequest(method, path, user, body, contentType) {
-    const headers = { Authorization: `Bearer ${this.token}` };
+    const headers = { ...this._sourceHeaders(), Authorization: `Bearer ${this.token}` };
     if (user) headers[USER_HEADER] = user;
     if (contentType) headers["Content-Type"] = contentType;
     const res = await this._fetch(this.baseUrl + path, { method, headers, ...(body ? {body, duplex: "half"} : {}) });
@@ -153,18 +159,10 @@ export class Client {
       if (timeout!=null && Date.now()-start>=timeout) throw new Error("agentuse: waitMessageRuns timed out"); await new Promise(r=>setTimeout(r,interval)); }
   }
 
-  // works:协调者 + 线程 + 共用说明
-  listWorks(user) { return this._request("GET", "/api/works", user); }
-  // { name, agent_id, instructions? } → { work, coordinator }。给协调者发消息用 sendMessage。
-  createWork(user, req) { return this._request("POST", "/api/works", user, req); }
-  getWork(user, workId) { return this._request("GET", `/api/works/${q(workId)}`, user); }
-  updateWork(user, workId, patch) { return this._request("PATCH", `/api/works/${q(workId)}`, user, patch); }
-  // 连协调者和所有线程一起删。
-  async deleteWork(user, workId) { await this._request("DELETE", `/api/works/${q(workId)}`, user); }
-  // 工作的线程(不含协调者)
-  listWorkConversations(user, workId) { return this._request("GET", `/api/conversations?work_id=${q(workId)}`, user); }
+  listChildren(user, parentId) { return this._request("GET", `/api/conversations?parent_conversation_id=${q(parentId)}`, user); }
+  sendParentMessage(user, conversationId, req) { return this._request("POST", `/api/conversations/${q(conversationId)}/parent/messages`, user, req); }
+  async deleteConversationTree(user, conversationId) { await this._request("DELETE", `/api/conversations/${q(conversationId)}?recursive=true`, user); }
 
-  // 轮询直到会话回到 idle(或已完成)或在等回答提问(waiting),返回最后一次 getConversation 的结果。超时抛错。
   async waitConversation(user, conversationId, { interval = 2000, timeout, returnOnWaiting = false } = {}) {
     const deadline = timeout === undefined ? Infinity : Date.now() + timeout;
     for (;;) {

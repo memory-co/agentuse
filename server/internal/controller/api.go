@@ -19,16 +19,7 @@ const actAsHeader = "X-Agentuse-User"
 
 type userKey struct{}
 
-// workKey holds the Server-authorized Work scope, from a tool credential or management route.
-type workKey struct{}
-
 func currentUser(r *http.Request) service.User { return r.Context().Value(userKey{}).(service.User) }
-
-// workScope is derived by the Server; ordinary conversation requests have no Work scope.
-func workScope(r *http.Request) *service.Work {
-	w, _ := r.Context().Value(workKey{}).(*service.Work)
-	return w
-}
 
 func requestToken(r *http.Request) string {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
@@ -40,46 +31,27 @@ func requestToken(r *http.Request) string {
 	return ""
 }
 
-// auth 要求登录：网页用 cookie,脚本用 Authorization: Bearer <用户令牌>。admin 可以再带 X-Agentuse-User 代为某个用户。
-func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc { return s.authWith(h, false) }
-
-// workAuth 同 auth,另外收工作令牌(wt_):协调者跑的时候用它开线程、看线程(docs/server/work.md)。
-// 用工作令牌时身份是工作的主人，handler 里再用 workScope 限定只能动这个工作的线程。
-func (s *Server) workAuth(h http.HandlerFunc) http.HandlerFunc { return s.authWith(h, true) }
-
-func (s *Server) authWith(h http.HandlerFunc, allowWork bool) http.HandlerFunc {
+// auth accepts a human user cookie/token; device execution has its own verifier.
+func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tok := requestToken(r)
-		if tok == "" {
-			writeErr(w, http.StatusUnauthorized, "未登录")
+		token := requestToken(r)
+		if token == "" {
+			writeErr(w, 401, "未登录")
 			return
 		}
-		if strings.HasPrefix(tok, "wt_") {
-			if !allowWork {
-				writeErr(w, http.StatusForbidden, "工作令牌不能调这个接口")
-				return
-			}
-			wk, u, err := s.service.WorkService.WorkByToken(r.Context(), tok)
-			if err != nil {
-				writeErr(w, http.StatusUnauthorized, "工作令牌无效或已过期(只在协调者这条消息还在跑时有效)")
-				return
-			}
-			ctx := context.WithValue(r.Context(), userKey{}, u)
-			h(w, r.WithContext(context.WithValue(ctx, workKey{}, &wk)))
-			return
-		}
-		u, err := s.service.UserService.UserByToken(r.Context(), tok)
+		u, err := s.service.UserService.UserByToken(r.Context(), token)
 		if err != nil {
-			writeErr(w, http.StatusUnauthorized, "令牌无效")
+			writeErr(w, 401, "令牌无效")
 			return
 		}
 		if as := strings.TrimSpace(r.Header.Get(actAsHeader)); as != "" && as != u.ID {
 			if !u.IsAdmin() {
-				writeErr(w, http.StatusForbidden, "只有管理员令牌能带 "+actAsHeader)
+				writeErr(w, 403, "只有管理员可代为用户")
 				return
 			}
-			if u, err = s.actAs(r.Context(), as); err != nil {
-				writeErr(w, http.StatusBadRequest, err.Error())
+			u, err = s.actAs(r.Context(), as)
+			if err != nil {
+				s.storeErr(w, err)
 				return
 			}
 		}
@@ -198,6 +170,17 @@ func (s *Server) handleListHarnesses(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
+	if source := currentSource(r); source != nil {
+		v, err := s.service.ConversationService.GetConversation(r.Context(), source.User, source.ConversationID)
+		if err != nil {
+			s.storeErr(w, err)
+			return
+		}
+		if v.ParentConversationID != "" || v.Mode != agentuse.ConversationModeCollaborative {
+			writeErr(w, 403, "agent selection is only available to the top-level coordinator")
+			return
+		}
+	}
 	agents, err := s.service.AgentService.ListAgents(r.Context(), currentUser(r))
 	if err != nil {
 		s.storeErr(w, err)
@@ -322,174 +305,147 @@ func (s *Server) handleToggleHarness(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.view(r, d))
 }
 
-// handleListConversations:不带 work_id 列普通会话，带了列那个工作的线程。工作令牌只能列自己工作的(不带就是它)。
 func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request) {
-	workID := r.URL.Query().Get("work_id")
-	if sc := workScope(r); sc != nil {
-		if workID == "" {
-			workID = sc.ID
-		}
-		if workID != sc.ID {
-			writeErr(w, http.StatusForbidden, "工作令牌只能看自己工作的线程")
+	for key := range r.URL.Query() {
+		if key != "parent_conversation_id" {
+			writeErr(w, 400, "unknown query parameter: "+key)
 			return
 		}
 	}
-	var conversations []service.Conversation
+	parent := r.URL.Query().Get("parent_conversation_id")
+	if source := currentSource(r); source != nil {
+		own, err := s.service.ConversationService.GetConversation(r.Context(), source.User, source.ConversationID)
+		if err != nil {
+			s.storeErr(w, err)
+			return
+		}
+		if own.ParentConversationID != "" || own.Mode != agentuse.ConversationModeCollaborative || parent != own.ID {
+			writeErr(w, 403, "only a top-level execution may list its direct children")
+			return
+		}
+	}
+	var out []service.Conversation
 	var err error
-	if workID != "" {
-		conversations, err = s.service.ConversationService.ListWorkConversations(r.Context(), currentUser(r), workID, 100)
+	if parent != "" {
+		out, err = s.service.ConversationService.ListChildren(r.Context(), currentUser(r), parent, 100)
 	} else {
-		conversations, err = s.service.ConversationService.ListConversations(r.Context(), currentUser(r), 100)
+		out, err = s.service.ConversationService.ListConversations(r.Context(), currentUser(r), 100)
 	}
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, conversations)
+	writeJSON(w, 200, out)
 }
-
-// handleCreateConversation 建会话并发出第一条消息。
 func (s *Server) handleCreateConversation(w http.ResponseWriter, r *http.Request) {
 	var req createConversationBody
 	if err := readMessageJSON(r, &req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, 400, err.Error())
 		return
 	}
-	s.createConversation(w, r, req.WorkID, req.Title, req.Prompt, req.ToAgentIDs, req.ToUserIDs)
+	v, reply, err := s.service.ConversationService.CreateConversation(r.Context(), currentUser(r), req.ParentConversationID, req.Title, req.Prompt, req.ToAgentIDs, req.ToUserIDs, req.Mode, currentSource(r))
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	out := agentuse.CreateConversationResponse{Conversation: v, Runs: []agentuse.Run{}, Deliveries: []agentuse.Delivery{}}
+	if reply != nil {
+		out.Message = reply.Message
+		out.Runs = reply.Runs
+		out.Deliveries = reply.Deliveries
+	}
+	writeJSON(w, 201, out)
 }
-
 func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 	var req messageBody
 	if err := readMessageJSON(r, &req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, 400, err.Error())
 		return
 	}
-	u, id := currentUser(r), r.PathValue("id")
-	if !s.threadInScope(w, r, id) {
-		return
+	var reply service.Reply
+	var err error
+	if source := currentSource(r); source != nil {
+		reply, err = s.service.ConversationService.SendAgentMessage(r.Context(), *source, r.PathValue("id"), req.Prompt, req.ToAgentIDs, req.ToUserIDs, req.AttachmentIDs, req.ReplyToMessageID)
+	} else {
+		reply, err = s.service.ConversationService.SendMessage(r.Context(), currentUser(r), r.PathValue("id"), req.Prompt, req.ToAgentIDs, req.ToUserIDs, req.AttachmentIDs, req.ReplyToMessageID)
 	}
-	reply, err := s.service.ConversationService.SendMessage(r.Context(), u, id, req.Prompt, req.ToAgentIDs, req.ToUserIDs, req.AttachmentIDs, req.ReplyToMessageID)
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
 	writeJSON(w, 201, reply)
 }
-
 func (s *Server) handleGetConversation(w http.ResponseWriter, r *http.Request) {
-	if !s.threadInScope(w, r, r.PathValue("id")) {
+	if !s.conversationInScope(w, r, r.PathValue("id"), false) {
 		return
 	}
-	ss, err := s.service.ConversationService.GetConversation(r.Context(), currentUser(r), r.PathValue("id"))
+	v, err := s.service.ConversationService.ReadConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	s.getConversation(w, r, ss)
+	writeJSON(w, 200, v)
 }
-
-func (s *Server) threadInScope(w http.ResponseWriter, r *http.Request, id string) bool {
-	sc := workScope(r)
-	if sc == nil {
-		return true
-	}
-	ss, err := s.service.ConversationService.GetConversation(r.Context(), currentUser(r), id)
-	if err != nil {
-		s.storeErr(w, err)
-		return false
-	}
-	if ss.WorkID != sc.ID || ss.WorkRole != service.WorkThread {
-		writeErr(w, http.StatusForbidden, "只能操作当前工作内的线程")
-		return false
+func (s *Server) conversationInScope(w http.ResponseWriter, r *http.Request, id string, write bool) bool {
+	if source := currentSource(r); source != nil {
+		if err := s.service.ConversationService.CheckAgentAccess(r.Context(), *source, id, write); err != nil {
+			s.storeErr(w, err)
+			return false
+		}
 	}
 	return true
 }
-
-// handleResolveConversation 标记已完成;handleReopenConversation 取消已完成。
+func (s *Server) handleParentMessage(w http.ResponseWriter, r *http.Request) {
+	source := currentSource(r)
+	if source == nil || source.ConversationID != r.PathValue("id") {
+		writeErr(w, 403, "parent feedback requires the source execution context")
+		return
+	}
+	var req agentuse.ParentMessageRequest
+	if err := readMessageJSON(r, &req); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	out, err := s.service.ConversationService.SendParentMessage(r.Context(), *source, req.Prompt, req.AttachmentIDs)
+	if err != nil {
+		s.storeErr(w, err)
+		return
+	}
+	writeJSON(w, 201, out)
+}
 func (s *Server) handleResolveConversation(w http.ResponseWriter, r *http.Request) {
-	if !s.threadInScope(w, r, r.PathValue("id")) {
-		return
-	}
-	ss, err := s.service.ConversationService.ResolveConversation(r.Context(), currentUser(r), r.PathValue("id"))
+	v, err := s.service.ConversationService.ResolveConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, ss)
+	writeJSON(w, 200, v)
 }
-
 func (s *Server) handleReopenConversation(w http.ResponseWriter, r *http.Request) {
-	ss, err := s.service.ConversationService.ReopenConversation(r.Context(), currentUser(r), r.PathValue("id"))
+	v, err := s.service.ConversationService.ReopenConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, ss)
+	writeJSON(w, 200, v)
 }
-
-func (s *Server) handleListWorks(w http.ResponseWriter, r *http.Request) {
-	works, err := s.service.WorkService.ListWorks(r.Context(), currentUser(r))
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, works)
-}
-
-// handleCreateWork 建工作，同时建出协调者会话。
-func (s *Server) handleCreateWork(w http.ResponseWriter, r *http.Request) {
-	var req agentuse.CreateWorkRequest
-	if err := readJSON(r, &req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	create := s.service.CreateWork
-	wk, coord, err := create(r.Context(), currentUser(r), req.Name, req.AgentID, req.Instructions)
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, agentuse.CreateWorkResponse{Work: wk, Coordinator: coord})
-}
-
-func (s *Server) handleGetWork(w http.ResponseWriter, r *http.Request) {
-	wk, err := s.service.WorkService.GetWork(r.Context(), currentUser(r), r.PathValue("id"))
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, wk)
-}
-
-func (s *Server) handleUpdateWork(w http.ResponseWriter, r *http.Request) {
-	var req agentuse.WorkPatch
-	if err := readJSON(r, &req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	wk, err := s.service.WorkService.UpdateWork(r.Context(), currentUser(r), r.PathValue("id"), service.WorkPatch{Name: req.Name, Instructions: req.Instructions, CoordinatorAgentID: req.CoordinatorAgentID})
-	if err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, wk)
-}
-
-func (s *Server) handleDeleteWork(w http.ResponseWriter, r *http.Request) {
-	if err := s.service.WorkService.DeleteWork(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
-		s.storeErr(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 func (s *Server) handleDeleteConversation(w http.ResponseWriter, r *http.Request) {
-	if err := s.service.ConversationService.DeleteConversation(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
+	recursive := r.URL.Query().Get("recursive")
+	if recursive != "" && recursive != "true" && recursive != "false" {
+		writeErr(w, 400, "recursive must be true or false")
+		return
+	}
+	var err error
+	if recursive == "true" {
+		err = s.service.ConversationService.DeleteTree(r.Context(), currentUser(r), r.PathValue("id"))
+	} else {
+		err = s.service.ConversationService.DeleteConversation(r.Context(), currentUser(r), r.PathValue("id"))
+	}
+	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	w.WriteHeader(204)
 }
 
 func firstRunes(s string, n int) string {

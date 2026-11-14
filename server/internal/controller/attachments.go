@@ -28,16 +28,10 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 		token := requestToken(r)
 		finish := func(w http.ResponseWriter, r *http.Request) {
 			a := service.AttachmentAccess{User: currentUser(r), Token: token}
-			if wk := workScope(r); wk != nil {
-				a.WorkID = wk.ID
-				if run, e := s.service.WorkService.WorkRunByToken(r.Context(), token); e == nil {
-					a.RunID = run.ID
-				}
-			}
 			h(w, r.WithContext(context.WithValue(r.Context(), attachmentKey{}, a)))
 		}
 		if !strings.HasPrefix(token, "dk_") {
-			s.workAuth(finish)(w, r)
+			s.auth(finish)(w, r)
 			return
 		}
 		d, err := s.service.DeviceService.DeviceByKey(r.Context(), token)
@@ -59,6 +53,15 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		a := service.AttachmentAccess{User: u, DeviceID: d.ID, Token: token, RunID: r.Header.Get("X-Agentuse-Run")}
+		if r.Header.Get("X-Agentuse-Conversation") != "" {
+			source, err := s.deviceSource(r)
+			if err != nil {
+				writeErr(w, 403, "invalid execution source")
+				return
+			}
+			a.SourceConversationID = source.ConversationID
+			a.SourceAgentID = source.AgentID
+		}
 		h(w, r.WithContext(context.WithValue(r.Context(), attachmentKey{}, a)))
 	}
 }
@@ -84,17 +87,6 @@ func (s *Server) attachmentConversation(w http.ResponseWriter, r *http.Request, 
 		return false
 	}
 	a := attachmentAccess(r)
-	if a.WorkID != "" {
-		ss, err := s.service.ConversationService.GetConversation(r.Context(), a.User, id)
-		if err != nil {
-			s.attachmentErr(w, err)
-			return false
-		}
-		if ss.WorkID != a.WorkID {
-			writeErr(w, 403, "工作令牌只能访问本工作的附件")
-			return false
-		}
-	}
 	if _, err := s.service.ConversationService.AttachmentConversation(r.Context(), a, id, upload); err != nil {
 		s.attachmentErr(w, err)
 		return false
@@ -236,7 +228,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 400, err.Error())
 		return
 	}
-	if a.DeviceID == "" && a.WorkID == "" {
+	if a.DeviceID == "" {
 		if !strings.HasPrefix(requestedPath, "user_input/") {
 			requestedPath = "user_input/" + requestedPath
 		}
@@ -263,20 +255,10 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		v.Source = "device"
 		v.DeviceID = a.DeviceID
 		v.CreatedByRunID = a.RunID
-	} else if a.WorkID != "" {
-		v.Source = "work"
 	}
 	if a.RunID != "" {
 		v.CreatedByRunID = a.RunID
-		if run, e := s.service.RunService.GetRun(r.Context(), service.User{Role: service.RoleAdmin}, func() string {
-			if a.WorkID != "" {
-				wk := workScope(r)
-				if wk != nil {
-					return wk.CoordinatorID
-				}
-			}
-			return v.ConversationID
-		}(), a.RunID); e == nil {
+		if run, e := s.service.RunService.GetRun(r.Context(), service.User{Role: service.RoleAdmin}, v.ConversationID, a.RunID); e == nil {
 			v.CreatedByAgentID = run.AgentID
 		}
 	}

@@ -1,6 +1,6 @@
 # 執行上下文：context
 
-Client 爲每個執行環境提供 `context`。AI 用它查詢執行身份與狀態、讀取 conversation 下的全部附件，並把輸出文件交給 Server；人類用 `agentuse context` 調試同一份上下文，也可以進入綁定該 run 的 shell。
+Client 爲每個執行環境提供 `context`。AI 用它查詢執行身份與狀態、讀取 conversation 下的全部附件，並把輸出文件交給 Server，也提供對話協作命令；人類用 `agentuse context` 調試同一份上下文，也可以進入綁定該 run 的 shell。
 
 ## 與 harnessctl 的關係
 
@@ -10,7 +10,7 @@ Client 爲每個執行環境提供 `context`。AI 用它查詢執行身份與狀
 |---|---|
 | Client | 準備 endpoint、conversation、Agent、本機 session、共享 workspace 及 Server 訪問配置，提供 `context` 命令入口 |
 | harnessctl | 管理原生執行會話、run、輸入受理、插話、排隊和執行事件；通過公共 status 和事件確認執行事實 |
-| context | 讀取 Client 提供的業務綁定，需要執行身份時查詢適配器，再調用對應 Server 的附件 API |
+| context | 讀取 Client 提供的業務綁定，需要執行身份時查詢適配器，再調用對應 Server 的附件及 conversation API |
 | Server | 校驗業務歸屬及訪問權限，保存 conversation、消息和文件 |
 
 ```mermaid
@@ -19,7 +19,7 @@ flowchart LR
     H -->|原生協議| N[Codex / Claude Code]
     N -->|AI 通過 shell 調用| T[context]
     T -->|需要當前 run 時查詢 status| H
-    T -->|附件 API| S[Server]
+    T -->|附件 / conversation API| S[Server]
 ```
 
 ### 為甚麼 AI 不需要傳入各種 ID
@@ -42,6 +42,8 @@ Server 地址、憑據和業務 ID 由 Client 的綁定提供，AI 只需指定�
 |---|---|
 | `attachment list/download` | 綁定的 endpoint 和整個 conversation；不要求活動 run |
 | `status` | 查詢所選 run 的身份和狀態 |
+| `conversation …` | 來源必須有可核對的實際 run；按 Server 的 mode 和父子關係限定操作 |
+| `attachment list/download --conversation ID 或 parent` | 同樣校驗實際來源，只讀取直接相關的父/子文件樹 |
 | `attachment upload` | 文件保存到 conversation，並關聯當前活動 run；Server 校驗執行歸屬與活動狀態 |
 | `agentuse context enter` | 為人工調試打開綁定所選 run 的 shell |
 
@@ -163,10 +165,23 @@ exit
 
 文件保留期間可以顯式查詢歷史 run 的狀態；附件查詢及下載需要 Server 可用。歷史 run 的上傳會被拒絕。上下文文件和緩存隨 conversation quota 回收。本地調試支持執行狀態查詢，沒有 Server 上傳目標。
 
-## Server 業務工具
+## 對話協作
 
-Work 的協調、跨設備派發和工作授權由 Server 負責。協調 Agent 按 Server 隨消息提供的說明獲取獨立工具；Client 和 context 不判斷 Work 角色。操作其他線程的業務行爲見 [Server Work 手冊](../server/work.md)。
+創建 conversation 時 mode 為 single（默認）或 collaborative；前者直接執行，後者負責拆分、協調、匯總。協作根對話可使用：
 
-遠端 conversation 管理使用 `agentuse conversation`。文件操作統一爲 `context attachment list/download/upload`；下載只按路徑選擇文件，舊的 `read FILE_ID` 入口不保留。頂層 `agentuse attachment`、舊 `context attachments` 和省略子命令的入口也已移除。
+```bash
+context conversation agents
+context conversation create --mode single --title "API" --agents coder "Implement the API"
+context conversation list
+context conversation read CHILD_ID
+context conversation send CHILD_ID --agents coder "Use cursor pagination"
+context conversation wait CHILD_ID --timeout 5m
+```
 
-命令成功時退出碼爲 `0`，執行或存儲錯誤爲 `1`，參數錯誤爲 `2`。其他管理命令見 [Client CLI](cli.md)。
+子對話固定 single，不能再拆分。需要澄清或報告障礙時，用 `context conversation send --parent MESSAGE`；最終回覆正常輸出即可，Server 自動回傳，無需重複發送。單體根對話沒有這些協作命令。`context conversation help` 按當前對話能力顯示幫助。
+
+wait 在完成、子側反饋、新輸入、需要人類回覆或超時時返回 `{reason, detail}`；不要求子任務一直等到結束，避免問題互相等待。源反饋先提交，父側短暫不可用時保留 pending 並補發；delivered 只表示父消息已保存。父側收件人由創建關係中的 parent_agent_id 決定。
+
+各對話文件樹獨立。協調者用 `context attachment list/download --conversation CHILD_ID` 讀子產物，子 Agent 用 `--conversation parent` 讀父輸入。跨對話文件下載到 `workspace/.context/conversations/ID/`；上傳仍僅限當前對話，不支持跨分支讀取。
+
+人類可用 `agentuse context --path CONTEXT_JSON --run RUN_UUID conversation …` 調試同一命令組。Server 地址和執行來源由綁定取得；沒有獨立工具下載或工作授權流程。詳細接口見 [Conversation](../server/conversations.md#模式与嵌套)。
