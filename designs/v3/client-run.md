@@ -29,7 +29,7 @@ sessions/<session_id>/
 run 引用僅定位實際的適配器 UUID：
 
 ```json
-{"type":"reference","at":1793443200000,"run_id":"550e8400-e29b-41d4-a716-446655440000","endpoint_id":"local","conversation_id":"conversation-1","session_id":"session-1","agent_id":"local-codex","harness":"codex","harness_revision":"revision"}
+{"type":"reference","at":1793443200000,"run_id":"550e8400-e29b-41d4-a716-446655440000","endpoint_id":"local","conversation_id":"conversation-1","session_id":"session-1","agent_id":"local-codex","agent_version_id":"fixed-agent-version-uuid","harness":"codex","harness_revision":"revision"}
 ```
 
 正文、結果、完整輸入、請求、用量、費用和執行日誌不復制到引用中。runService 按同一個 UUID 從 events.jsonl 讀取五種公共事件，返回 completed/failed/cancelled 結果；未結束時爲 running，仍有 pending request 時爲 waiting。計量按一個真實 result 計數，不把輸入數當作執行次數，也不累計原生 session 的累計計量。
@@ -88,4 +88,4 @@ Client 選定新建或續用的本地 session 後，才向 Server 讀取 `comple
 
 完整邊界、目錄與回收規則見 [執行上下文設計](client-context.md)；操作方法見 [使用手冊](../../docs/client/context.md)。
 
-送入模型的 `complete_messages` 使用可讀的對話文字，按順序標示作者、@收件人、引用的消息正文及附件名稱／ID／路徑；不把 API JSON、消息 UUID、序號、雜湊或執行資料直接拼入提示詞。API 維持結構化資料，Client 只負責排版。程式產生的標題、工具說明與提示詞統一使用英文，使用者和 Agent 的原始正文保留原文；既有 native session 的初始化快照不改寫。
+送入模型的 `complete_messages` 使用可讀的對話文字，按順序標示作者、@收件人、引用的消息正文及附件名稱／ID／路徑；不把 API JSON、消息 UUID、序號、雜湊或執行資料直接拼入提示詞。子會話通知另外提供 context conversation read CHILD_ID --round N，保留可操作的來源及輪次。API 維持結構化資料，Client 只負責排版。程式產生的標題、工具說明與提示詞統一使用英文，使用者和 Agent 的原始正文保留原文；既有 native session 的初始化快照不改寫。

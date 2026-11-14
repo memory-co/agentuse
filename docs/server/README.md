@@ -16,7 +16,7 @@
 
 [对话文件与消息附件](conversation-files.md) 说明文件管理器弹层、user_input/ 路径和逐条消息的附件选择；协作模式右侧显示子会话列表。
 
-共享對話採用增量補齊：Client 選定實際本地 session 後，Server 用 `complete_messages` 提供上次已受理輸入之後、本次之前的消息，排除該 session 已產生的回覆；新 session 才補回先前歷史。本次正文不在補充列表重複出現。設備可通過 `GET /api/conversations/{id}/messages/{message_id}/agents/{agent_id}/context?session_id=...` 讀取此補充，權限限於已投遞給本設備的消息與 Agent。
+共享对话按 Client 实际 session 增量补齐历史。接口使用场景、accepted 边界与多 Agent 示例见 [Client 共享历史补齐](conversations.md#client-共享历史补齐)。
 
 網頁使用 `/api/browser/ws` 接收資源變更通知，並透過 HTTP 取得具體內容，不再固定輪詢。登入與 Acting as 沿用既有權限，斷線重連會補讀目前頁面。Agent 回覆與 Run details 的輸出支援 Markdown；使用者消息保留原文。
 

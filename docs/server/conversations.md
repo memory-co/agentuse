@@ -63,6 +63,20 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 
 设备协作请求使用设备密钥，并携带 `X-Agentuse-Conversation`、`X-Agentuse-Agent`、`X-Agentuse-Session`、`X-Agentuse-Run`。Server 校验已上报的真实执行来源；协作根 Agent 只可管理自己的直接子对话，子 Agent 只能读自身，不得主动给父会话发消息。文件读取额外允许显式访问直接相关的父/子文件树。命令自动绑定这些来源，AI 不需手填身份或凭据。
 
+## Client 共享历史补齐
+
+`GET /api/conversations/{id}/messages/{message_id}/agents/{agent_id}/context?session_id=LOCAL_SESSION_ID` 用在 Client 选定实际本地 session、准备向 harnessctl send 本次输入之前。该接口使用设备密钥，目标消息/Agent 必须已经投递给本设备；请求携带 Client 的本地 session_id，不能借用其他会话或 Agent 版本的 session。
+
+返回 `{"complete_messages": [...]}`，作为本次输入的历史背景：
+
+- 已有 session：从该设备、Agent 固定版本、session 最后一条已受理输入之后，补到本次消息之前。
+- 新 session：补齐本次消息之前的共享历史。
+- 排除本次消息，以及由同一设备/session 生成的最终回复；其他 Agent 的消息仍可补入。
+
+例如：A 已收到 M1，B 随后回复 M2，再给 A 发 M3。Client 处理 M3 前查询此接口，把 A 尚未看过的 M2 排成可读背景，与本次 M3 一起送入模型。它直接使用既有 accepted 关联确定边界，查询本身不推进边界、不创建 run；无需 AI 轮询消息，也不增加历史游标或 WebSocket 消息类型。
+
+响应保留作者、正文、收件人和附件路径等结构化信息，Client 负责排版。`child_conversation` 历史通知保留来源与轮次，供协调者执行 `context conversation read CHILD_ID --round N`；这里不复制子会话的完整结果或文件内容。
+
 ## 字段
 
 创建结果使用 `conversation`，读取详情同样使用 `conversation`：

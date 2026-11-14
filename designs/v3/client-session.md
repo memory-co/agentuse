@@ -25,6 +25,7 @@ id: 7877d33b-788f-4f6c-9ff0-987c2128064e
 endpoint_id: local
 conversation_id: 550e8400-e29b-41d4-a716-446655440000
 agent_id: local-codex
+agent_version_id: fixed-agent-version-uuid
 harness: codex
 harness_revision: package-revision
 status: idle
@@ -33,7 +34,7 @@ last_used_at: 1793443205100
 updated_at: 1793443205100
 ```
 
-id 只是目錄定位用的 client UUID，不傳給原生 CLI 充當其 session ID。路徑來自啓動配置和 endpoint/conversation，不冗餘保存 work_root、目錄映射、原生 ID 或 server 歷史遊標。時間爲 Unix 毫秒。
+id 是 Client 的本機 session UUID，同時用於目錄定位、Server 執行記錄關聯及 complete_messages 的補齊邊界；不傳給原生 CLI 充當其 thread/session ID。路徑來自啓動配置和 endpoint/conversation，不冗餘保存 work_root、目錄映射、原生 ID 或 server 歷史遊標。時間爲 Unix 毫秒。
 
 ## 選擇、佔用與控制
 
@@ -65,7 +66,7 @@ sessions/<session_id>/
   runs/<native_run_id>.jsonl
 ```
 
-Client 下載並校驗指定 ZIP，解包到技能根目錄，然後把指令文件、模型和技能根目錄交給 harnessctl init；空指令/空 skills/默認模型分別省略對應參數。init 成功後立即刪除 init-resources，後續 send 和原生進程恢復依賴適配器快照，不重新讀取 server 的 latest。初始化失敗不發送正文，不假造 run。
+Client 下載並校驗指定 ZIP，解包到技能根目錄，然後把指令文件、模型和技能根目錄交給 harnessctl init；未指定模型時省略 --model，沒有 skills 時省略 --skills-dir。Agent 指令會合併 Client 的 context 工具說明，通過 --agents-md 固定到資源快照，即使使用者未提供指令也會保留平台工具說明。init 成功後立即刪除 init-resources，後續 send 和原生進程恢復依賴適配器快照，不重新讀取 server 的 latest。初始化失敗不發送正文，不假造 run。
 
 已存在的 session 只能複用同一 agent_version_id。重啓後通過公開 status/init 確認綁定；若需要重新準備資源，只從原輸入固定的版本恢復，不能換成當前 head。歷史包不可讀或校驗失敗時明確失敗。
 

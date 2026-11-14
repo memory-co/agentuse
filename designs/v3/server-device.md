@@ -21,9 +21,9 @@ device 是一臺用戶的執行設備，client 是設備上運行的程序。dev
 | 開關 harness | 修改 enabled；重新開啓後通知派活 |
 | 刪除/重置 | pending 輸入標記 rejected，sent 輸入標記 unknown，撤銷憑據並關閉連接；不改 accepted run 的實際終態 |
 
-agentService 發佈版本時檢查設備歸屬和運行能力，runService 根據輸入固定的 agent 版本選擇可領取任務。設備刪除只改變可用性，不 UPDATE 歷史 agent_versions.device_id；用戶選擇新設備時需發佈新 agent 版本。探測由 client 本地 harnessService 讀取 YAML 完成；deviceService 保存上報的 harness 標識、接入包版本、程序版本及業務能力。Server 不保存全局 harnesses 定義或 YAML，也不向設備發送探測命令。
+agentService 發佈版本時檢查設備歸屬和運行能力，runService 根據輸入固定的 agent 版本選擇可領取任務。設備刪除只改變可用性，不 UPDATE 歷史 agent_versions.device_id；用戶選擇新設備時需發佈新 agent 版本。探測由 Client 本地 harnessService 校驗 manifest.json、適配器入口、平臺及原生程序依賴完成；deviceService 保存上報的 harness 標識、接入包版本、程序版本及業務能力。Server 不保存全局 harnesses 定義或 YAML，也不向設備發送探測命令。
 
-狀態爲 pending（未註冊）、offline、online。在線狀態表示連接狀態，不代表設備當前空閒；是否可以領取由 client 的 ready 和 runService 的領取規則共同決定。
+狀態爲 pending（未註冊）、offline、online。在線狀態表示連接狀態，不代表設備當前空閒；是否可以領取由 Client heartbeat 的 free_sessions/active 快照與 runService 的派發規則共同決定。
 
 執行協議僅聲明 agentuse-client/2。Server 接受 client 上報的自定義 harness 標籤，不要求先註冊全局目錄，不按 codex/claudecode 分支。harness 列表接口是設備上報結果的只讀視圖，沒有創建或編輯 YAML 的 API。
 
@@ -59,7 +59,7 @@ CREATE TABLE device_harnesses (
     device_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     harness TEXT NOT NULL,
-    harness_revision TEXT NOT NULL,
+    harness_revision TEXT NOT NULL DEFAULT '',
     capabilities TEXT NOT NULL DEFAULT '[]',
     version TEXT,
     available INTEGER NOT NULL DEFAULT 0,

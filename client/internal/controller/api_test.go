@@ -108,6 +108,38 @@ func TestAPIDocumentationAuthenticationAndContract(t *testing.T) {
 	if len(doc.Components.Schemas["Run"]) == 0 || len(doc.Components.Schemas["Session"]) == 0 {
 		t.Fatal("missing service response schemas")
 	}
+	var controlResponse struct {
+		Content map[string]struct {
+			Schema struct {
+				OneOf []struct {
+					Ref string `json:"$ref"`
+				} `json:"oneOf"`
+			} `json:"schema"`
+		} `json:"content"`
+	}
+	control := doc.Paths["/api/local/conversations/{conversation}/sessions/{session}/{action}"]["post"]
+	if err := json.Unmarshal(control.Responses["200"], &controlResponse); err != nil {
+		t.Fatal(err)
+	}
+	variants := controlResponse.Content["application/json"].Schema.OneOf
+	if len(variants) != 2 {
+		t.Fatal("control response must document Run for send and acknowledgement for reply/cancel", controlResponse)
+	}
+	var runResponse, acknowledgement bool
+	for _, variant := range variants {
+		name := strings.TrimPrefix(variant.Ref, "#/components/schemas/")
+		var model struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		if err := json.Unmarshal(doc.Components.Schemas[name], &model); err != nil {
+			t.Fatal("unresolved control response schema", variant.Ref, err)
+		}
+		runResponse = runResponse || name == "Run"
+		acknowledgement = acknowledgement || len(model.Properties["ok"]) > 0
+	}
+	if !runResponse || !acknowledgement {
+		t.Fatal("control response omitted an action's result", variants)
+	}
 	cookies := spec.Result().Cookies()
 	if len(cookies) == 0 {
 		t.Fatal("no login cookie")

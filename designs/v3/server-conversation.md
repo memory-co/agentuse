@@ -17,7 +17,16 @@ conversationService 管理 conversation、message 和共享歷史，並編排消
 
 對話業務由獨立包 `service/conversation.Service` 實現，狀態變更和投遞上下文亦歸此對象，包含父子關係及可靠回傳。附件元數據、發佈與刪除編排、重名策略和消息附件快照都屬於 conversationService，源碼統一歸入 `service/conversation/`；消息上下文屬於本 service 的 `context.go`。文件字節通過獨立的 `service/file/` 本地/S3 後端存取；完整的源碼分工見 [fileService 實現分工](server-file.md#實現分工) 與 [Server 當前源碼組織](server-main.md#四當前源碼組織)。
 
-![Conversation、消息、投遞與執行的關係](../images/conversation-run.svg)
+```mermaid
+flowchart LR
+    C["Conversation：共享歷史"] --> M["Message：UUID、正文與明確收件人"]
+    M -->|"每個目標 Agent 一行"| D["message_agents：固定版本與投遞狀態"]
+    D -->|"accepted 關聯 run_id / input_id"| R["Run：Client 確認的實際執行"]
+    R -->|"result；每個 run 最多一條最終回覆"| A["Agent reply message"]
+    A -->|"保存在來源對話"| C
+```
+
+一條消息可有多個 Agent 目標；同一 Agent 的多條輸入可以被受理到同一個 run。message_agents 使用消息/Agent 複合主鍵，不建立 run_inputs 或另一個輸入業務 ID。
 
 ## 發送和回覆
 
@@ -175,7 +184,7 @@ Client 選定實際本地 session 後，向 Server 讀取 `complete_messages`：
 
 ```sql
 CREATE TABLE conversations (
-    id TEXT NOT NULL PRIMARY KEY,
+    id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     created_by TEXT NOT NULL,
     parent_conversation_id TEXT,
@@ -239,7 +248,7 @@ M1：@coder @reviewer 修復並評審
 
 ```sql
 CREATE TABLE messages (
-    id TEXT NOT NULL PRIMARY KEY,
+    id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     seq INTEGER NOT NULL,
     author_role TEXT NOT NULL CHECK(author_role IN ('user','agent','child_conversation')),
@@ -307,4 +316,4 @@ CREATE UNIQUE INDEX conversation_rounds_active ON conversation_rounds(conversati
 
 消息附件採用顯式 attachment_ids 選擇，messages.attachments 保存元數據快照；省略時為空，不繼承會話文件。每個 conversation 的文件樹與目錄操作 TODO 見 [conversation-files.md](conversation-files.md)。
 
-送入模型的 `complete_messages` 使用可讀的對話文字，按順序標示作者、@收件人、引用的消息正文及附件名稱／ID／路徑；不把 API JSON、消息 UUID、序號、雜湊或執行資料直接拼入提示詞。子對話通知保留可操作的 context conversation read CHILD_ID --round N 指令，作為來源導航。API 維持結構化資料，Client 只負責排版。程式產生的標題、工具說明與提示詞統一使用英文，使用者和 Agent 的原始正文保留原文；既有 native session 的初始化快照不改寫。
+送入模型的 `complete_messages` 使用可讀的對話文字，按順序標示作者、@收件人、引用的消息正文及附件路徑；不把 API JSON、消息 UUID、序號、雜湊或執行資料直接拼入提示詞。子對話通知保留可操作的 context conversation read CHILD_ID --round N 指令，作為來源導航。API 維持結構化資料，Client 只負責排版。程式產生的標題、工具說明與提示詞統一使用英文，使用者和 Agent 的原始正文保留原文；既有 native session 的初始化快照不改寫。

@@ -55,7 +55,7 @@ quota 回收由 sessionService 負責；中心未確認事件是否保護目錄�
 
 - endpoint 標識來源；local 永遠存在，不需要註冊配置。
 - conversation 是目錄及共同 workspace 的歸屬，可以包含多個本機 session。
-- session 是一個固定 events.jsonl 地址及其原生上下文，client 的 session UUID 僅用於目錄定位。
+- session 是一個固定 events.jsonl 地址及其原生上下文，client 的 session UUID 用於本機定位、Server 傳輸歸屬及共享歷史補齊，不是原生 CLI 的 thread/session ID。
 - run 是 events.jsonl 中一個適配器分配的 UUID。一次輸入得到哪個 run，由 accepted 決定。
 - input_id、request_id 同樣由適配器公佈。client 不用預先生成的標識替代它們。
 
@@ -71,17 +71,20 @@ local 和遠端採用同一個 harnessService、公共事件格式、run 引用�
   endpoints.yaml
   harness/<name>/<revision>/...
   ui.token
-  tmp/<endpoint_id>/<conversation_id>/
-    conversation.yaml                 # local 標題等命名信息
-    workspace/                        # 此 conversation 所有 harness 的共同 cwd
-    sessions/<session_id>/
-      session.yaml
-      context.json                    # 固定來源與 session 的工具描述
-      bin/context                     # 指向 agentuse 的裸命令入口
-      events.jsonl                    # 執行事實的唯一來源
-      events.jsonl.d/                 # 適配器私有目錄，保持不變
-      runs/<adapter_run_uuid>.jsonl    # client 的引用，不復制執行正文
-      resources/<content>.history.json  # 僅實際需要的非空輸入資源
+  ui.addr
+  workspace/<endpoint_id>/
+    .server/messages/<key-hash>.json   # 不隨 quota 回收的精簡提交收據
+    <conversation_id>/
+      conversation.yaml                 # local 標題等命名信息
+      .server/                          # 完整消息收據與固定版本資源緩存
+      workspace/                        # 此 conversation 所有 harness 的共同 cwd
+      sessions/<session_id>/
+        session.yaml
+        context.json                    # 固定來源與 session 的工具描述
+        bin/context                     # 指向 agentuse 的裸命令入口
+        events.jsonl                    # 執行事實的唯一來源
+        events.jsonl.d/                 # 適配器私有目錄，保持不變
+        runs/<adapter_run_uuid>.jsonl    # client 的引用，不復制執行正文
 ```
 
 不使用 client SQLite，也沒有全局 run 掃描接口。列表限定在指定 endpoint/conversation/session。配置及適配器包不屬於 quota 回收對象；quota 回收完整的空閒 conversation 目錄。
@@ -124,13 +127,13 @@ runs 文件名必須來自 accepted.run_id。文件內 reference 記錄 session�
 | POST | /api/local/conversations/{conversation}/runs | 輸入 harness、prompt 或 input；等待 accepted，返回真實 run |
 | POST | /api/local/conversations/{conversation}/sessions/{session}/{action} | action 爲 send、reply、cancel |
 
-send body 爲 prompt，返回此次 accepted 對應的 run，可能與先前相同；reply body 爲 request_id、answer，answer 使用原生公共協議的字符串或 JSON 對象；cancel body 爲 {}，確認 session 前臺工作停止後返回。空閒 session 可以再次 send。失敗發生在 accepted 之前時直接返回錯誤，不僞造 run。
+`send` body 爲 `prompt`，返回此次 accepted 對應的 Run（HTTP 200），可能與先前相同；`reply` body 爲 `request_id`、`answer`，answer 使用原生公共協議的字符串或 JSON 對象，返回 `{"ok":true}`；`cancel` body 爲 `{}`，確認 session 前臺工作停止後返回 `{"ok":true}`。空閒 session 可以再次 send。失敗發生在 accepted 之前時直接返回錯誤，不僞造 run。
 
 ## Server 事件傳輸
 
 Server 與 client 使用 agentuse-client/2。Server 直接下發 message 和目標 Agent，client 用同一 harnessctl 執行路徑處理；accepted 回報實際 run UUID，五種公共事件原樣上傳。Server 準備來源 conversation 的消息上下文，Client 對主、子對話使用同一執行鏈路，不推斷 Work 角色。
 
-輸入收據、源 ACK 遊標和控制收據位於 session/.server/；執行事實仍只在 events.jsonl，不再有舊版 run/attempt、租約或結果彙總層。詳見 client-run.md。
+完整消息收據及版本資源緩存在 conversation/.server/，源 ACK 遊標和控制收據在 sessions/<session_id>/.server/；endpoint/.server/messages 保留不隨 quota 回收的精簡提交收據。執行事實仍只在 events.jsonl，不再有舊版 run/attempt、租約或結果彙總層。詳見 client-run.md。
 
 配置修改一律重啓生效。運行中任務輸入、答案、取消和來源重連屬於正常運行行爲，不是配置熱更新。
 

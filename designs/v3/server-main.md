@@ -8,7 +8,7 @@ Server HTTP API 通過 Huma 註冊，從共用的請求和響應 Go 類型自動
 
 Conversation 表示共享對話，由 conversationService 管理；原 session 業務整體改用此名稱，session 專指 client 對應 Codex/Claude Code 的原生執行會話，見 [client-session.md](client-session.md)；server 不增加 sessionService 或 sessions 表。
 
-Server 保存對話、組織任務並跟蹤執行。用戶的一臺執行設備稱爲 **device**，設備上運行的程序稱爲 **client**。Client 從 server 領取輸入分配，由本地 harnessService 解析 YAML、準備資源、執行 harness 並處理交互。Server 保存輸入分配與 client 上報的 run 事實，不理解原生 harness 協議。
+Server 保存對話、組織任務並跟蹤執行。用戶的一臺執行設備稱爲 **device**，設備上運行的程序稱爲 **client**。Client 主動建立連接，Server 按 heartbeat 容量派發消息；Client runService 準備固定版本資源，harnessService 安裝並校驗 manifest 適配器、調用 harnessctl，原生進程與交互由獨立適配器處理。Server 保存輸入分配與 client 上報的 run 事實，不理解原生 harness 協議。
 
 一臺 client 可以向多個獨立 server 註冊，由本地 [endpointService](client-endpoint.md) 保存註冊信息，[client runService](client-run.md) 負責連接、接收 message 和執行；每個 server 只看到本中心註冊的 device，不共享其他中心的任務或憑據。
 
@@ -54,7 +54,7 @@ Server 分爲三層：
 | [deviceService](server-device.md) | 執行設備的登記、憑據、在線狀態、可用 harness 和執行能力 | `devices`、`device_harnesses`、`device_capabilities` |
 | [agentService](server-agent.md) | Agent 身份、不可變配置版本，以及具體 Skill 版本的固定關聯 | `agents`、`agent_versions`、`agent_version_skills` |
 | [skillService](server-skill.md) | 共享 Skill 身份、ZIP 版本發佈與校驗、權限和下載；複用 fileService | `skills`、`skill_versions` |
-| [conversationService](server-conversation.md) | 創建父子對話、保存消息和共享歷史；調用 runService 分配消息，消費執行事實保存回覆；支撐 嵌套對話視圖 | `conversations`、`messages`，以及逐消息附件引用的業務元數據 |
+| [conversationService](server-conversation.md) | 創建父子對話、保存消息和共享歷史；調用 runService 分配消息，消費執行事實保存回覆；支撐 嵌套對話視圖 | `conversations`、`messages`、`conversation_rounds`、`attachments` |
 | [runService](server-run.md) | 分配消息輸入、接收實際 run、原樣保存公共事件、轉發回答和取消 | `message_agents`、`runs`、`run_events`、問題及控制投影 |
 | [fileService](server-file.md) | 按業務命名空間封裝本地/S3；conversation 文件與 agent skill 包分目錄 | 本地目錄或 S3 對象前綴，無數據庫表 |
 
@@ -83,14 +83,14 @@ agentService 管角色配置和 agent_version_skills，skillService 管共享技
 
 ### 2.2 Client 的 harnessService
 
-harnessService 放在 client，不屬於 server service。YAML、hook、skill、指令資源和原生交互都由 client 本地管理，詳情見 [Client harness 設計](client-harness.md)。
+harnessService 放在 client，不屬於 server service。Client 準備固定版本的模型、指令和技能，harnessService 安裝並校驗 manifest.json 適配器包、調用 harnessctl；原生 RPC、hook 和進程生命週期由獨立 harnessctl 適配器管理，詳情見 [Client harness 設計](client-harness.md)。
 
-| Server 負責 | Client 的 harnessService 負責 |
+| Server 負責 | Client 與 harnessctl 負責 |
 |---|---|
-| 保存消息、建立輸入分配並接收實際 run | 讀取本地 YAML、hook、skill 與指令資源 |
-| 按 device 和上報能力分配任務 | 本地探測 harness，報告可用性和業務能力 |
-| 下發輸入、答案、取消 | 啓動進程，進行原生 RPC、hook 與工具交互 |
-| 接收 accepted/message/request/result/log 公共事件 | 本地解釋原始輸出，轉換爲標準業務事件 |
+| 保存消息、建立輸入分配並接收實際 run | Client 取得固定版本配置、準備模型、指令與技能資源 |
+| 按 device 和 heartbeat 容量派發消息 | harnessService 校驗適配器 manifest 與依賴，固定可用性快照 |
+| 下發輸入、答案、取消 | harnessctl 啓動/恢復原生程序，處理原生 RPC、hook 與工具交互 |
+| 接收 accepted/message/request/result/log 公共事件 | harnessctl 產生公共事件，Client 讀取並可靠上報 |
 
 WebSocket 只傳 run 業務協議，不傳 shell 命令、argv/env、YAML、執行腳本、原生 RPC 幀或 hook 請求。原生交互在設備上閉環，減少代理/WAF 對執行類消息的誤判；這不保證任意業務正文都不會觸發 WAF。
 

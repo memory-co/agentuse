@@ -6,7 +6,7 @@
 
 ### 接入 Server
 
-先在执行设备上安装并登录需要使用的 Codex 或 Claude Code；内置适配器还需要 Python 3.9+。Server 管理页面中新建设备后，复制生成的安装命令执行，它会完成 Client 安装、设备注册和后台服务配置。
+使用当前内置适配器时，在 Linux 执行设备上安装并登录需要使用的 Codex 或 Claude Code，同时准备 Python 3.9+。其他平台需使用其 manifest 明确支持的平台适配器。Server 管理页面中新建设备后，复制生成的安装命令执行，它会完成 Client 安装、设备注册和后台服务配置。
 
 已经安装二进制时，可以手动注册并在前台启动：
 
@@ -290,7 +290,7 @@ agentuse conversation runs CONVERSATION_ID [--json]
 agentuse conversation wait CONVERSATION_ID [--timeout 10m]
 ```
 
-`read` 默认按顺序显示共享消息。`runs` 默认每行显示 run ID、Agent ID 和状态。`read/runs --json` 以及 `wait` 输出包含 `conversation`、`messages`、`runs`、`rounds` 的 JSON 对象。
+`read` 默认按顺序显示共享消息。`runs` 默认每行显示 run ID、Agent ID 和状态。`read/runs --json` 以及 `wait` 输出包含 `conversation`、`messages`、`runs` 的 JSON 对象。这个管理命令只输出上述三部分；执行环境中的 `context conversation read/wait` 返回完整详情，包含 `rounds`。
 
 `wait` 等待会话进入 `idle` 或 `resolved`，默认超时 30 分钟。超时只结束等待，执行可以继续。命令成功结束等待后，仍需查看 `runs[].status` 判断执行成功、失败或取消；会话空闲本身不表示全部 run 成功。
 

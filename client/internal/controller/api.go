@@ -85,7 +85,10 @@ func (c *Controller) registerAPI() {
 	bind("POST", "/api/local/conversations/{conversation}/runs", "start-local-run", "启动本地 harness run", "run", runservice.Run{}, 202, startRunBody{}, c.localStart)
 	bind("POST", "/api/local/conversations/{conversation}/sessions/{session}/{action}", "control-local-run", "调用 session 的 send / cancel / reply", "run", okResponse{}, 200, controlRunBody{}, c.localControl)
 	control := api.OpenAPI().Paths["/api/local/conversations/{conversation}/sessions/{session}/{action}"].Post
-	control.Description = "send 接收 prompt，返回 accepted.run_id 对应的 run；reply 接收 request_id 和原生标准 answer；cancel 取消该 session 当前及排队执行。run_id 由适配器决定。"
+	control.Description = "send 接收 prompt，以 HTTP 200 返回 accepted.run_id 对应的 Run；reply 接收 request_id 和原生标准 answer；cancel 取消该 session 当前及排队执行。reply/cancel 成功返回 HTTP 200 和 {ok:true}。run_id 由适配器决定。"
+	control.Responses["200"].Content["application/json"].Schema = &huma.Schema{
+		OneOf: []*huma.Schema{schema(runservice.Run{}), schema(okResponse{})},
+	}
 	for _, p := range control.Parameters {
 		if p.Name == "action" {
 			p.Schema.Enum = []any{"cancel", "send", "reply"}

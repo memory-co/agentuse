@@ -235,6 +235,6 @@ agentuse-server version
 
 ## 对话协作
 
-在页面创建 conversation，选择单体模式或协作模式。协作 Agent 通过执行环境中的 `context conversation` 拆分任务，子 Agent 的反馈和结果自动回到创建者；无需额外的 Server 管理命令。
+在页面创建 conversation，选择单体模式或协作模式。协作 Agent 通过执行环境中的 `context conversation` 拆分任务，子会话整轮执行结束后，Server 自动通知创建者，协调者按来源会话与轮次读取结果；无需额外的 Server 管理命令。
 
 接口、来源权限和 SDK 用法见 [Conversation](conversations.md)，AI 命令见 [Client CLI](../client/cli.md#对话协作)。

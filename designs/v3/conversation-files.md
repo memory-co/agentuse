@@ -5,7 +5,7 @@
 ## 路径
 
 - 用户上传进入保留目录 user_input/，支持目录层级。
-- AI 上传保留 workspace 内的相对路径；外部文件使用 basename。
+- AI 通过 context 上传时只接受 workspace 内的普通文件，并保留相对路径。附件 HTTP API 省略 path 时使用上传文件名，不提供 Client 本机外部路径读取能力。
 - AI 不能写入 user_input/。
 - 路径不接受绝对地址、反斜线、空目录段、`.`、`..` 或控制字符。
 - 同路径上传在同一发布事务内分配编号路径，不覆盖旧内容；文件与目录不能占用同一位置。
@@ -15,7 +15,7 @@
 
 HTTP message 请求显式携带 attachment_ids；省略表示空，不继承整个 conversation 的文件。Server 在提交消息的同一事务内校验归属，并把附件元数据快照存入 messages.attachments。
 
-Server 首次投递该消息时直接使用已保存快照。随后上传到文件树但未被消息选择的文件不会出现在 Client 输入中。多个 Agent 接收同一消息时使用同一份附件集合；多个输入归属同一 run 时，由 Client 合并已受理输入的快照。
+Server 首次投递该消息时直接使用已保存快照。随后上传到文件树但未被消息选择的文件不会出现在 Client 输入中。多个 Agent 接收同一消息时使用同一份附件集合；多个输入归属同一 run 时，每条消息保留自己的附件快照；AI 通过 conversation 文件工具按路径读取，Client 不另存合并后的附件清单。
 
 最终 result 事务在写入 AI 回复时，关联该 run 已上传的输出文件。不额外创建 task 或文件交付实体。输入和输出的卡片都可以打开文件管理器弹层，自动定位并预览该文件。
 
@@ -30,6 +30,29 @@ Server 首次投递该消息时直接使用已保存快照。随后上传到文�
 ## 存储与版本
 
 schema 9 使用 conversations 表和 conversation_id；attachments 保存 relative_path，messages 保存 attachments JSON 快照。附件 API 和内容地址均位于 /api/conversations 下。无旧数据迁移、旧字段别名或旧路由回退。
+
+## attachments 表
+
+附件元数据属于 conversationService；只在本稿定义，messages 与 conversation 的 SQL 见 [conversation 设计](server-conversation.md#表結構)。created_by_run_id 记录设备产物的执行来源，created_by_agent_id 由 run 关联读取，是 DTO 投影，不重复存入表。
+
+```sql
+CREATE TABLE attachments (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL CHECK(size_bytes>=0),
+    sha256 TEXT NOT NULL CHECK(length(sha256)=64),
+    created_by TEXT NOT NULL,
+    source TEXT NOT NULL CHECK(source IN ('user','device')),
+    device_id TEXT,
+    created_by_run_id TEXT,
+    created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX attachments_path ON attachments(conversation_id,relative_path);
+CREATE INDEX attachments_conversation ON attachments(conversation_id,created_at,id);
+```
 
 ## TODO
 

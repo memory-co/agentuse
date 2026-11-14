@@ -43,7 +43,7 @@ HTTP 普通文件讀取通過 `OpenConversationFile`，寫入通過 `PutConversa
 
 ```text
 <root>/
-  conversations/<conversation_id>/inputs/data.csv
+  conversations/<conversation_id>/user_input/data.csv
   conversations/<conversation_id>/reports/result.pdf
   skills/<skill_id>/<skill_version_id>/skill.zip
 ```

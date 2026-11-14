@@ -6,6 +6,8 @@ AI 在每次执行中可以直接使用 `context status`、`context attachment l
 
 使用 [Client CLI 手册](cli.md) 注册设备、启动 Client、打开本机页面，以及通过 `agentuse conversation` 操作远端会话。
 
+当前内置 Codex、Claude Code 适配器的 manifest 声明支持 Linux，依赖 Python 3.9+ 及已配置的原生 CLI；其他平台需使用声明支持该平台的自定义适配器。
+
 没有注册 Server 时也可以运行 `agentuse start`，再用 `agentuse ui --open` 打开本地调试页面。默认地址为 `127.0.0.1:7801`，可在页面中选择已安装的 harness 实际执行。
 
 本机页面启动后，先通过 `agentuse ui` 输出的链接登录，再访问本机 `/api/docs` 查看和调试 Client API。Server 的管理页面和 Client 的本机页面分别使用各自的登录凭据。

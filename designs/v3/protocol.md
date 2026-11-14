@@ -169,7 +169,7 @@ result 和其他公共事件使用同一外層：
 {"type":"event","id":"e:s1:640","session_id":"s1","event":{"type":"result","ts":"2026-11-07T00:00:10Z","run_id":"550e8400-e29b-41d4-a716-446655440000","input_ids":["in-1"],"status":"completed","output":"已完成","usage":null,"cost_usd":null,"error":null}}
 ```
 
-Server 在同一事務保存關鍵事件、更新 run 投影及必要的 conversation 回覆，提交後才 ACK。result.input_ids 核對該 run 的已受理消息；一個 run 只結算一次，不因受理多條 message 重複寫最終回覆。回覆仍指向該 run 第一條受理的 conversation message，取消可以沒有最終回覆。
+Server 在同一事務保存關鍵事件、更新 run 投影及必要的 conversation 回覆，提交後才 ACK。result.input_ids 核對該 run 的已受理消息；一個 run 只結算一次，不因受理多條 message 重複寫最終回覆。回覆仍指向該 run 第一條受理的 conversation message，頂層取消可以沒有最終回覆；子對話會保存取消說明，整輪收束後統一通知父側。
 
 內層 message_id 是適配器的正文快照標識，與外層來源 conversation message_id 不同。讀取正文按完整快照更新，不能用可丟的 log 片段作為唯一正文。
 
@@ -205,7 +205,7 @@ Client 等待 send 受理或下載資源時，answer/cancel 和事件回傳仍�
 
 message 的成功以 accepted 回覆，不能只回一個不含 run_id 的 ok。錯誤 ACK 不建立 run；Server 只在該消息/Agent 目標上記錄失敗或不確定，不把它寫成執行結果。
 
-普通消息重送不表示重新執行：已受理就補傳原 accepted，仍在處理就等待同一次操作，unknown 則等待確定證據。對 error 且能證明未受理的消息，Server 可按策略退避後使用原 id 重試；Client 串行恢復該消息的準備流程，不改內容和版本，也不增加另一個業務身份。已受理消息需要再次執行時，發送新的 conversation message。
+普通消息重送不表示重新執行：已受理就補傳原 accepted，仍在處理就等待同一次操作，unknown 則等待確定證據。當前 Server 將明確拒絕的目標保留為 rejected，不自動退避重試；再次執行時發送新的 conversation message。若 Client 收到已明確拒絕的相同報文，只能在證明從未提交 send 時串行恢復準備，仍須保持內容和版本一致。已受理消息需要再次執行時，發送新的 conversation message。
 
 Client 可在尚未提交 send 時重試配置讀取和下載，但不能把同一 send 當成可任意重試的 HTTP 讀取。相同規則也適用於控制：已受理或不確定的 answer/cancel 不再次執行，只補傳既有回執；能證明未受理才可重試。
 
@@ -249,4 +249,4 @@ Local 與遠端共用相同的資源校驗、session 綁定和 harnessctl 執行
 
 Client 的 `context attachment list/download` 直接讀取 Server 的 conversation 附件，不按 run 篩選，無須活躍 run。message 只攜帶本次所選附件元資料，移除額外本地 path；relative_path 統一為 conversation 相對路徑。Client 不提前下載，download 才保存到 workspace/<relative_path>。upload 保留 workspace 相對路徑；若 Server 改名則同步保存在返回路徑。設備發布仍提供 X-Agentuse-Run，Server 校驗活動 run 歸屬。提示詞要求 AI 上傳產物並引用 download_path，不以本地路徑作為交付連結。不新增文件 WebSocket 事件。
 
-送入模型的 `complete_messages` 使用可讀的對話文字，按順序標示作者、@收件人、引用的消息正文及附件名稱／ID／路徑；不把 API JSON、消息 UUID、序號、雜湊或執行資料直接拼入提示詞。API 維持結構化資料，Client 只負責排版。程式產生的標題、工具說明與提示詞統一使用英文，使用者和 Agent 的原始正文保留原文；既有 native session 的初始化快照不改寫。
+送入模型的 `complete_messages` 使用可讀的對話文字，按順序標示作者、@收件人、引用的消息正文及附件路徑；不把 API JSON、消息 UUID、序號、雜湊或執行資料直接拼入提示詞。子會話通知保留 context conversation read CHILD_ID --round N 這類可操作的來源導航。API 維持結構化資料，Client 只負責排版。程式產生的標題、工具說明與提示詞統一使用英文，使用者和 Agent 的原始正文保留原文；既有 native session 的初始化快照不改寫。
