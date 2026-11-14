@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowLeftRight, Bot, Boxes, Check, ChevronRight, Languages, LogOut, Menu, MonitorSmartphone, Plus, Users as UsersIcon, X } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, Bot, Boxes, Check, ChevronRight, Languages, LogOut, Menu, MonitorSmartphone, Plus, Users as UsersIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Loading, StatusBadge } from '@/components/Shared';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
@@ -117,6 +117,9 @@ function Shell({ me }: { me: User }) {
   const title = route.page === 'new' ? t('nav.new') : route.page === 'conversation' ? current?.title || route.id
     : page ? t(page.label) : '';
   const heading = <>
+    {current?.parent_conversation_id && <Button asChild variant="ghost" size="sm" className="h-7 shrink-0 gap-1.5 px-2 text-muted-foreground">
+      <a href={`#${href({ page: 'conversation', id: current.parent_conversation_id })}`} aria-label={t('nest.parent')} title={t('nest.parent')}><ArrowLeft /><span className="hidden sm:inline">{t('nest.parent')}</span></a>
+    </Button>}
     <span className="min-w-0 truncate text-sm font-medium">{title}</span>
     {current && current.status !== 'idle' && <span className="shrink-0 whitespace-nowrap"><StatusBadge tone={STATUS_TONE[current.status]}>{statusLabel(current.status)}</StatusBadge></span>}
     {admin && actAs && <span className="ml-auto shrink-0 truncate text-xs text-muted-foreground">{t('actAs.acting', { id: actAs })}</span>}

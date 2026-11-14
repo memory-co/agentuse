@@ -119,7 +119,6 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto grid min-w-0 w-full max-w-3xl grid-cols-1 gap-6 px-4 py-6">
-        {x.parent_conversation_id && <a className="text-xs text-muted-foreground hover:underline" href={`#/conversations/${x.parent_conversation_id}`}>{t('nest.parent')} · @{x.parent_agent_id}</a>}
         <div className="flex items-start gap-2 border-b pb-3">
           <p className="min-w-0 flex-1 break-all font-mono text-xs text-muted-foreground">{meta}</p>
           <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" aria-label={t('attachment.files')} aria-haspopup="dialog" onClick={() => openFiles()}><FolderOpen />{t('attachment.files')}</Button>

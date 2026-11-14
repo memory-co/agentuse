@@ -33,7 +33,7 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 {"mode":"collaborative","title":"改进搜索","prompt":"请分工实现并汇总","to_agent_ids":["planner"]}
 ```
 
-查询 `GET /api/conversations?parent_conversation_id=P` 列出直接子对话。父子关系、mode、标题和状态均位于普通 `conversation` 对象中。前端左侧导航可展开子会话，协作会话右侧独立显示子会话列表；子页面可返回父会话。“文件”按钮或消息附件打开文件管理器弹层，各会话文件树互相独立。删除有子会话的根节点必须显式 `DELETE /api/conversations/P?recursive=true`，所有节点均不能有活跃执行或待派发输入。
+查询 `GET /api/conversations?parent_conversation_id=P` 列出直接子对话。父子关系、mode、标题和状态均位于普通 `conversation` 对象中。前端左侧导航可展开子会话，协作会话右侧独立显示子会话列表；子页面通过顶部标题栏中、标题前的左箭头返回父会话；桌面同时显示“返回父会话”，小屏幕保留图标和可访问名称。“文件”按钮或消息附件打开文件管理器弹层，各会话文件树互相独立。删除有子会话的根节点必须显式 `DELETE /api/conversations/P?recursive=true`，所有节点均不能有活跃执行或待派发输入。
 
 子会话的显式反馈使用 `POST /api/conversations/C/parent/messages`，JSON 为 `{"prompt":"需要澄清的问题"}`；最终 Agent 回复自动回传。源消息先保存，父消息按 `to_agent_ids=[parent_agent_id]` 普通入队；父 run 已结束仍可继续处理。返回 `delivery: pending/delivered/failed`，delivered 仅表示父消息已保存。
 
