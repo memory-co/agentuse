@@ -15,7 +15,7 @@ sequenceDiagram
     participant S as Server conversationService
     participant C as 子對話 Agent
     P->>PC: context conversation create --agents coder 子問題
-    PC->>S: 創建子對話；綁定父對話和回信收件人
+    PC->>S: 創建子對話；綁定父對話及發起 Agent
     S->>C: 用普通 message 派發到目標 Client
     C->>S: context conversation send --parent 澄清問題
     S->>P: 保存並投遞父對話消息給指定收件人
@@ -42,7 +42,7 @@ You are coordinating this top-level conversation. Do not perform the delegated
 implementation, research, or other execution work yourself, even for a small task.
 Analyze the request, inspect the available agents with `context conversation agents`,
 and create execution conversations with `context conversation create`.
-Keep each child's ID and return address. Read child feedback, answer clarification
+Keep each child's ID; the server records you as its parent agent. Read child feedback, answer clarification
 questions by sending messages to the appropriate child agents, review their results,
 and provide the consolidated response to the user.
 If the work needs to be split again, create or update execution children from here.
@@ -59,7 +59,7 @@ If you need clarification, resources, a different assignment, or additional agen
 use `context conversation send --parent` to report the issue to the parent.
 Continue in this conversation when the parent sends instructions.
 Give your final result normally; the server will forward the final message to the
-configured parent recipients. Do not send the same final result a second time.
+recorded parent agent. Do not send the same final result a second time.
 ```
 
 ### 提示詞與工具必須同步生效
@@ -89,9 +89,9 @@ Agent 統一使用既有的 context 工具入口。Client 在執行環境準備�
 | `context conversation read CHILD_ID` | 頂層讀取自己直接子對話的消息和狀態 |
 | `context conversation send CHILD_ID [--agents IDS] [--users IDS] MESSAGE` | 向子對話發普通消息；接收者明確指定 |
 | `context conversation wait CHILD_ID [--timeout DURATION]` | 等待對話進展；完成、需要父側響應、有新輸入或超時時返回，不把 idle 當作執行成功 |
-| `context conversation send --parent [--agents IDS] [--users IDS] MESSAGE` | 向父對話提問或匯報進展；省略收件人時用創建子對話時保存的回信地址 |
+| `context conversation send --parent MESSAGE` | 向父對話中的 parent_agent_id 提問或匯報進展，無需也不能指定回信收件人 |
 
-所有結果為 JSON。create 返回既有 conversation 創建結果及回信地址，Agent 應讀取並保留子對話 ID；CLI 不預先分配 run UUID。省略消息及收件人可先創建空子對話，後續再 send。頂層對話沒有父對話，send --parent 明確報錯。
+所有結果為 JSON。create 返回既有 conversation 創建結果，含 parent_conversation_id / parent_agent_id，Agent 應讀取並保留子對話 ID；CLI 不預先分配 run UUID。省略消息及收件人可先創建空子對話，後續再 send。頂層對話沒有父對話，send --parent 明確報錯。
 
 ### 主 Agent 的使用示例
 
@@ -111,18 +111,13 @@ context conversation send --parent "Which authentication scheme should the searc
 
 子 Agent 用這個入口發問題或階段性信息。最終答案仍正常輸出，由 Server 在保存最終對話消息後自動回傳，無需 Agent 再手工發送一份相同結果。子對話有多個 Agent 時，各自的最終消息獨立回傳，不等待全部 Agent 結束後合成一份結果。取消或已確認的拒絕等沒有正文時，也需回傳清楚的狀態反饋，讓父側能決定如何繼續。
 
-## 身份和回信地址自動綁定
+## 創建關係自動綁定
 
-Client 從當前 execution context 取得 endpoint、conversation、Agent 和已有執行身份。create 的 parent_conversation_id 自動使用當前 conversation；請求固定發往同一 endpoint，不能誤用其他註冊 Server。具體身份校驗和來源範圍由 Server 的通用 HTTP/conversation 邊界完成。
+Client 從當前 execution context 取得 endpoint、conversation 和 agent_id。create 固定發往同一 endpoint；Server 驗證來源後，將當前 conversation 記為 parent_conversation_id，當前 Agent 記為 parent_agent_id。這兩個字段固定記錄誰在何處創建了子對話，不從本次輸入消息或其收件人推算，也不接受調用方任意改寫發起者。
 
-創建子對話時，Server 保存 parent_to_agent_ids 和 parent_to_user_ids：
+例如，父對話 P 同時有 planner 和 reviewer。planner 從自己的 context 創建 C，即使 C 的首條消息發給 coder、tester，C 仍記錄 parent_conversation_id=P、parent_agent_id=planner。C 的問題、進展和最終回覆均回到 P 中的 planner。reviewer 在同一父對話中另行創建子對話時，那個子對話則記錄 reviewer。
 
-- 由 Agent 創建時，默認回給發起創建的那個 Agent。
-- 由人類創建時，默認回給實際創建者用戶。
-- 調用方可在 create 時用 `--return-agents IDS` / `--return-users IDS` 明確指定其他回信收件人；Server 校驗這些收件人能在父對話使用。
-- 子對話必須有明確的回信收件人；不默認廣播給父對話中出現過的全部 Agent。某次 send --parent 可顯式指定本次收件人，不改動子對話的默認地址。
-
-父對話包含多個 Agent，不意味著它們都是某個子問題的接收者。每個子對話的回信地址是該次委派的路由信息，不是固定的全局協調角色。
+頂層的這兩個字段為空，內層均非空。子對話只由 Agent context 創建；人類通過頂層消息讓 Agent 發起委派，不引入回傳用戶或自定義回信地址的分支。普通消息仍使用 to_agent_ids / to_user_ids 選擇收件人，與這個固定的創建關係分開。
 
 Client 根據當前對話是頂層還是內層，僅暴露該層的操作；Server 將頂層限制在其直接子對話，將內層限制在自身執行和明確的父側反饋入口。Server 要依設備憑據、已派發的消息/Agent 關係及真實父子關係核對來源，不能信任 CLI 自報的 ID。通用接口須支持這種來源訪問；只有 CLI 命令而接口仍拒絕設備身份，整條鏈路就不可用。不增加 Work 授權兌換或第二套令牌。
 
@@ -130,7 +125,7 @@ Client 根據當前對話是頂層還是內層，僅暴露該層的操作；Serv
 
 ## 回傳後怎樣繼續執行
 
-send --parent 先在子對話保存一條 Agent 反饋消息，再由 conversationService 將正文和作者引用送入父對話。最終回覆走同一條消息回傳路徑。父對話收到的是普通消息，to_agent_ids / to_user_ids 使用明確的回信地址。
+send --parent 先在子對話保存一條 Agent 反饋消息，再由 conversationService 將正文和作者引用送入父對話。最終回覆走同一條消息回傳路徑。父對話收到的是普通消息，由 Server 設置 to_agent_ids=[parent_agent_id]、to_user_ids=[]。send --parent 不接受改寫這個目標的參數。
 
 父 Agent 正在執行時，新消息沿既有投遞鏈路送入其 session，由 accepted 確認是同一 run 的補充輸入還是新 run；父 Agent 已結束時，正常排隊並啟動後續執行。設備離線時消息留在 Server，不依賴原先的父 run 仍在運行。
 
@@ -150,7 +145,7 @@ wait 必須可中斷：子對話提問回父側、父 Agent 收到新輸入或�
 ## 實作驗收
 
 1. 主 Agent 能僅靠 PATH 中的 context 查到可用 Agent，創建並派發子對話。
-2. 多個主 Agent 並存時，子問題默認回到正確的創建者，可顯式覆蓋接收者。
+2. 多個主 Agent 並存時，每個子對話精確記錄其創建 Agent；消息收件人改變、父 run 結束或 Agent 發布新版本都不改寫這個關係。
 3. 子 Agent 的澄清問題可回到父對話，父 Agent 的答覆可再次進入原子對話。
 4. 子對話的最終回覆可自動回傳；父 run 已結束或父設備短暫離線不丟消息。
 5. 重啟及重放不重複生成父消息，跨層轉發不形成消息回聲。

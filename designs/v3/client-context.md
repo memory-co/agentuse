@@ -48,7 +48,7 @@ status 僅根據公共事件確認所選 run 的歸屬和 request/result 狀態�
 
 conversation 命令組由同一 context 入口提供。Client 每次準備 session 執行環境時綁定當前 endpoint、conversation、Agent 及 Server 提供的 parent_conversation_id，並將入口加入 PATH。頂層的 help 和工具說明提供拆解與創建子對話命令；內層僅提供向父回饋等執行所需能力，create 即使被直接輸入也明確報錯。Server 的分工提示詞仍隨每次消息下發。設備憑據從既有私有配置取得，不輸出給 AI。Server 須同時補齊通用來源校驗、Agent 清單及父子範圍訪問，不能只提供命令名。
 
-create 只在頂層可用，並自動以當前 conversation 為父；send --parent 由 Server 按真實父子關係定位直接父對話。普通 send 明確選擇子 Agent，回信默認路由則由創建時保存的地址決定。命令不根據舊的 run/message 環境變量推斷協調角色，也不另建 Work 授權層。上述新增能力尚未實作。
+create 只在頂層可用，並自動綁定當前 conversation 和 agent_id 為父對話及發起者；send --parent 由 Server 按真實父子關係定位直接父對話。普通 send 明確選擇子 Agent，回傳則固定交給該子對話記錄的 parent_agent_id。命令不根據舊的 run/message 環境變量推斷協調角色，也不另建 Work 授權層。上述新增能力尚未實作。
 
 ## 文件範圍與圖片
 

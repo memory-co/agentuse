@@ -2,7 +2,7 @@
 
 > 執行鏈路使用 [agentuse-client/2](protocol.md)：直接投遞 message，消息/Agent 關係見 [server-run.md](server-run.md)，不再有 task 或獨立輸入 ID。
 
-> 單 conversation 的消息及執行鏈路已實現；本次新增的父子關係、回信地址及消息回傳仍為待實作的目標設計，規範集中在本文「父子對話」及表結構。下列 SQL 表示調整後的目標，並不表示 schema 7 已有父對話或消息回傳字段。關聯不聲明數據庫外鍵，由 service 校驗與清理。
+> 單 conversation 的消息及執行鏈路已實現；本次新增的父子關係、發起 Agent 及消息回傳仍為待實作的目標設計，規範集中在本文「父子對話」及表結構。下列 SQL 表示調整後的目標，並不表示 schema 7 已有父對話或消息回傳字段。關聯不聲明數據庫外鍵，由 service 校驗與清理。
 
 ## 職責
 
@@ -59,7 +59,7 @@ parent_conversation_id 為空表示頂層協調對話；非空時表示直接執
 
 子對話繼承父對話的 user_id，created_by 按普通創建規則記錄。HTTP 入口復用通用身份校驗，本 service 校驗父對話的訪問與創建權限；讀取、發消息及文件操作仍按目標 conversation 校驗。Client 使用當前 endpoint 的設備身份及 execution context；設備請求必須有可核對的來源，缺失時直接拒絕，不降級成整個設備所有者的權限。Server 用已派發的消息/Agent 關係核對來源，再按真實父子關係限定允許的操作。Agent 清單也僅返回該來源可用的角色。頂層只能操作自己的直接子對話；內層僅執行自身任務及向直接父對話反饋，不能利用普通創建 API、省略父 ID 或代填頂層 ID 繞過禁止再委派的限制。這些操作均須由通用接口支持，不把憑據交換或協調角色判定加入組織視圖。
 
-主、子對話各自保留消息歷史、文件樹和狀態。各節點的消息仍以 to_agent_ids / to_user_ids 明確選擇收件人，不繼承父對話上一次的收件人，也不綁定固定協調 Agent。工作目標及約束由消息表達，名稱和所有者使用 conversation 的既有字段。子對話另保存 parent_to_agent_ids / parent_to_user_ids 作為默認回信地址：由 Agent 創建時默認指向該創建者 Agent，由人類創建時默認指向該用戶。調用方可顯式指定，接收者須通過父對話的普通收件人校驗；子對話的回信地址不能兩組都為空。頂層對話的這兩組字段為空。
+主、子對話各自保留消息歷史、文件樹和狀態。各節點的消息仍以 to_agent_ids / to_user_ids 明確選擇收件人，不繼承父對話上一次的收件人，也不綁定固定協調 Agent。工作目標及約束由消息表達，名稱和所有者使用 conversation 的既有字段。子對話用 parent_conversation_id 和 parent_agent_id 記錄「由哪個父對話中的哪個 Agent 創建」。Server 從已校驗的 context conversation create 來源寫入這對標識，調用方不能任意指定或覆蓋 parent_agent_id。它是創建關係，不依賴某條消息的收件人、message_id、run_id 或原生 session。頂層兩個字段均為空，內層均非空；父對話可以有多個 Agent，每個子對話各自記錄實際發起者。
 
 ### API
 
@@ -70,7 +70,7 @@ parent_conversation_id 為空表示頂層協調對話；非空時表示直接執
 | POST | /api/conversations | 創建對話；可選 parent_conversation_id 表示父對話 |
 | GET | /api/conversations | 列出當前身份可見的頂層對話 |
 | GET | /api/conversations?parent_conversation_id=P | 列出 P 的直接子對話，包含空對話 |
-| POST | /api/conversations/{id}/parent/messages | 在來源子對話保存反饋，提交向父對話的回傳；省略收件人使用默認回信地址 |
+| POST | /api/conversations/{id}/parent/messages | 在來源子對話保存反饋，固定回傳給 parent_conversation_id 中的 parent_agent_id，不接受回信收件人參數 |
 | GET | /api/conversations/{id} | 讀取普通對話快照，含 parent_conversation_id |
 | POST | /api/conversations/{id}/messages | 明確選擇收件人及附件，發送普通消息 |
 | POST | /api/conversations/{id}/resolve、reopen | 操作該對話自身的完成標記 |
@@ -91,15 +91,15 @@ parent_conversation_id 為空表示頂層協調對話；非空時表示直接執
 
 省略 prompt 和收件人即可先創建空子對話。之後上傳文件、發消息，使用同一套 conversation API。返回值仍為 conversation、message、runs、deliveries，不新增 Work 響應包裝。
 
-創建子對話及其首條消息共用普通創建事務，任一收件人或內容校驗失敗時整體回滾。指定父對話的創建或列表請求先校驗父對話存在且可訪問，否則返回 404；不將不存在或無權訪問的父對話當作空列表。
+子對話必須由已校驗的 Agent context 創建；人類或管理員可創建頂層對話，再向頂層 Agent 提出委派要求，不能在普通用戶請求中代填 parent_agent_id 建立子對話。創建子對話及其首條消息共用普通創建事務，任一收件人或內容校驗失敗時整體回滾。指定父對話的創建或列表請求先校驗父對話存在且可訪問，否則返回 404；不將不存在或無權訪問的父對話當作空列表。
 
 ### 消息、反饋與生命週期
 
 創建子對話時，調用方在首條消息中提供子問題及必要背景，不隱式複製父對話的全部歷史、初始化指令或附件。reply_to_message_id 仍只引用同一 conversation 的既有消息。
 
-子對話的問題和進展由 context conversation send --parent 提交；本地產生的最終 Agent 回覆在保存時自動請求回傳。源消息可靠落庫後，由本 service 將正文、固定作者及來源引用送入直接父對話。默認收件人使用子對話的回信地址，顯式反饋可為本條消息指定其他合法接收者。回信接收者在源消息的 to_agent_ids / to_user_ids 中保存快照；源記錄不在子對話建立執行分配，只有父消息在父對話建立 message_agents。
+子對話的問題和進展由 context conversation send --parent 提交；本地產生的最終 Agent 回覆在保存時自動請求回傳。源消息可靠落庫後，由本 service 將正文、固定作者及來源引用送入直接父對話。回傳目標只由子對話的 parent_conversation_id / parent_agent_id 決定。父消息生成時設 to_agent_ids=[parent_agent_id]、to_user_ids=[]，再在父對話建立普通 message_agents 分配。源子消息維持自身的消息語義，不保存父側收件人快照，也不從源消息或父消息的收件人數組推算創建關係。
 
-父消息是普通消息，會按明確的 Agent 收件人入隊。父 Agent 執行中時，沿既有輸入鏈路交給適配器決定如何受理；已結束時啟動後續執行；設備離線時保留待派發輸入。父 Agent 回答子問題時，向原子對話發普通消息並明確選擇子 Agent。整條通路不依賴某個父 run 持續存活，也不引入新的問題或任務身份。
+父消息是普通消息，會按已記錄的發起 Agent 入隊。parent_agent_id 使用穩定的 Agent 身份；具體版本在這條父消息入隊時按普通規則固定，不綁定創建子對話時的 run 或 Agent 版本。父 Agent 執行中時，沿既有輸入鏈路交給適配器決定如何受理；已結束時啟動後續執行；設備離線時保留待派發輸入。父 Agent 回答子問題時，向原子對話發普通消息並明確選擇子 Agent。整條通路不依賴某個父 run 持續存活，也不引入新的問題或任務身份。
 
 回傳須符合以下規則：
 
@@ -107,7 +107,7 @@ parent_conversation_id 為空表示頂層協調對話；非空時表示直接執
 - 父消息保存 source_conversation_id / source_message_id，保留源消息的作者、固定版本及正文。reply_to_message_id 仍只引用同一對話，不能冒用源子消息作跨對話回覆 ID。
 - 相同 source_message_id 向同一目標 conversation 最多落一條消息，父消息和 message_agents 在同一事務提交。轉發副本的 parent_delivery_requested 為 0，不再逐級自動轉發。
 - 子對話結果和源消息先提交。父接收者暫時不可用時不回滾子結果；按已提交且標記回傳的源消息，以及缺失的父消息來源引用補送，覆蓋通知丟失、進程重啟和臨時錯誤。不掃描 run 作為 Work 結算。
-- 回傳狀態由源記錄及父消息引用投影。反饋接口返回源 message、parent_conversation_id、可缺省的 parent_message_id，以及 pending / delivered / failed；消息讀取 DTO 也提供同樣的只讀回傳狀態投影。delivered 只表示父消息已保存，不表示父 Agent 已處理。不可恢復的收件人錯誤須顯示 failed 和原因，不靜默吞掉或改成向全部 Agent 廣播。
+- 回傳狀態由源記錄及父消息引用投影。反饋接口返回源 message、parent_conversation_id、可缺省的 parent_message_id，以及 pending / delivered / failed；消息讀取 DTO 也提供同樣的只讀回傳狀態投影。delivered 只表示父消息已保存，不表示父 Agent 已處理。發起 Agent 被刪除等不可恢復錯誤須顯示 failed 和原因，保留源反饋及創建關係，不自動清空或改寫 parent_agent_id，也不改成回給用戶或其他 Agent。
 - 取消、投遞拒絕及準備失敗等沒有最終正文的結束情況，也須在源對話保存有明確對象的狀態反饋並回傳；以已確認的結果或拒絕事實為依據，不從設備離線推斷執行失敗或捏造 run。
 - 附件留在來源對話；父消息保留來源引用，文件讀取再次校驗來源範圍，不直接把子附件 ID 當成父對話附件。
 
@@ -151,7 +151,7 @@ Client 選定實際本地 session 後，向 Server 讀取 `complete_messages`：
 
 ### conversations
 
-共享對話主表。`user_id` 是資源所有者，`created_by` 是創建者。parent_conversation_id 只可指向同一所有者的頂層對話，僅在創建時指定；所有 conversation 都支持多 Agent，不綁定固定協調 Agent，也不設 mode 字段。嵌套對話視圖直接使用主對話 ID。狀態只投影本對話的消息與執行，不聚合子樹。parent_to_agent_ids / parent_to_user_ids 是回信地址；創建者的缺省值及顯式收件人均由本 service 校驗。回信地址與 parent_conversation_id 在首版均於創建時固定，源反饋的收件人另保存逐消息快照。
+共享對話主表。`user_id` 是資源所有者，`created_by` 是創建者。parent_conversation_id 只可指向同一所有者的頂層對話，僅在創建時指定；所有 conversation 都支持多 Agent，不綁定固定協調 Agent，也不設 mode 字段。嵌套對話視圖直接使用主對話 ID。狀態只投影本對話的消息與執行，不聚合子樹。parent_agent_id 是在父對話中發起創建的 Agent；它與 parent_conversation_id 一起在創建時由 Server 固定。兩者不表示消息收件人配置，也不隨消息、執行狀態或後續 Agent 版本變動。
 
 ```sql
 CREATE TABLE conversations (
@@ -159,12 +159,13 @@ CREATE TABLE conversations (
     user_id TEXT NOT NULL,
     created_by TEXT NOT NULL,
     parent_conversation_id TEXT,
-    parent_to_agent_ids TEXT NOT NULL DEFAULT '[]',
-    parent_to_user_ids TEXT NOT NULL DEFAULT '[]',
+    parent_agent_id TEXT,
     title TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'idle',
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    CHECK ((parent_conversation_id IS NULL AND parent_agent_id IS NULL)
+        OR (parent_conversation_id IS NOT NULL AND parent_agent_id IS NOT NULL))
 );
 CREATE INDEX conversations_parent
     ON conversations(parent_conversation_id,updated_at,id);

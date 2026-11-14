@@ -118,7 +118,7 @@ fileService 統一按命名空間存儲字節，不綁定 conversation。convers
 3. 提交後 Server 依 heartbeat 容量直接發送 message 和目標 Agent/版本；Client 缺少配置或技能時自己讀固定版本 API，準備資源並 init。
 4. client 通過 harnessctl send 執行。accepted 決定實際 run UUID，可能與上次相同，也可能不同。
 5. Server 驗證並保存五類公共事件，提交後確認源位置；只從這些事件投影執行狀態。
-6. result 與來源 conversation 的最終回覆一起提交；子對話的最終消息及顯式反饋按回信地址送入父對話，使用普通消息投遞喚起指定收件人。補送基於消息引用，不建立 run 彙總狀態。
+6. result 與來源 conversation 的最終回覆一起提交；子對話的最終消息及顯式反饋按子對話記錄的 parent_agent_id 送入父對話，使用普通消息投遞喚起指定收件人。補送基於消息引用，不建立 run 彙總狀態。
 
 原生執行及原生工具的權限交互在 Client；Server 的 HTTP 身份及業務訪問權限由 controller 和所屬 service 校驗。HTTP 取消或回答只入傳輸隊列，斷線不製造執行結果。完整規則以 server-run.md 爲準。
 
