@@ -1,5 +1,7 @@
 # Work：跨 Client 的协调与执行
 
+> 本页描述当前运行代码。Work 的[新设计](../../designs/v3/server-work.md)已改为父子 conversation 视图，目前尚未实现；以下旧模型的命令和授权行为会在后续实现时整体替换。
+
 Work 由 Server 管理，将一个协调 conversation 和多个线程 conversation 组织在一起。协调 Agent 可以在 Client A 执行，线程中的 Agent 可以分别位于 Client B、C；Server 保存关系、校验权限、向目标设备派发消息，并把线程结果汇总回协调 conversation。
 
 Client 接收 conversation message、准备 Agent、驱动 run 并上报事件。`context` 提供执行身份、状态和文件读写。Work 业务工具由 Server 维护和授权。

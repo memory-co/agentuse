@@ -70,7 +70,7 @@ Server 按容量派發，並計入上份快照之後自己已發出、尚未取�
 Server 在保存消息及目標 Agent 關係時，固定 agent_version_id 和目標 device；投遞的內容不隨重連、Agent 更新而變化。
 
 - content 是 conversation message 的正文，attachments 沿用該消息的檔案引用。
-- `context` 只承載必要的 Work 業務說明及本次文件說明，不夾帶整份共享歷史。Server 固定派發快照，Client 不自行推斷業務角色。
+- `context` 只承載來源 conversation 的必要業務說明及本次文件說明，不夾帶整份共享歷史。Server 固定派發快照，Client 不自行推斷業務角色。
 - Client 選定實際本地 session 後，以設備憑據讀取 `GET /api/conversations/{id}/messages/{message_id}/agents/{agent_id}/context?session_id=...`，取得 `complete_messages`。Server 只返回該 session 最後受理輸入之後、本次之前尚需補齊的共享消息，排除該 session 自己的回覆；新 session 補齊先前歷史。每條只保留作者、正文、收件人和附件。
 - Client 將 `complete_messages` 作為背景補充，與業務說明、本次正文組成一次 send；空列表不生成補充區塊。本次消息不出現在補充列表，舊任務不重複執行。此讀取沿用已投遞的 message/Agent 權限，不增加 WebSocket 類型、資料表或 harnessctl 命令。
 - 報文不攜帶 model、instructions、skills 或下載清單；這些由 Client 按固定 agent_version_id 讀取。
@@ -241,7 +241,7 @@ Local 與遠端共用相同的資源校驗、session 綁定和 harnessctl 執行
 
 ## Work 的業務邊界
 
-Work 由 Server 管理，可以跨多個 Client。message 不包含 work_id/work_token，也不向 Client 環境注入工作令牌；業務說明只通過 context 文本下發。協調 Agent 按 Server 的說明使用 Server 維護的遠端工具，授權由 Server 依來源消息及執行身份驗證。Client 不判斷 Work 角色，也不提供 work/context work 命令。詳見 [server-work.md](server-work.md)。
+Work 的新目標是父子 conversation 視圖，關係仍待 Server 實作。主、子對話都可以有多個 Agent，均通過相同 message、accepted 和事件鏈路執行；message 的 conversation_id 始終是本次目標對話。父對話引用只保存在 Server 的對話模型中，無需進入 WebSocket。Client 不判斷主子角色或提供 Work 子命令；Server 工具復用 conversation HTTP API，不增加 Work 握手、憑據交換或執行身份。詳見 [server-work.md](server-work.md)。
 
 ## 當前執行的文件交互
 

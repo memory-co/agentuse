@@ -2,7 +2,7 @@
 
 > 執行鏈路使用 [agentuse-client/2](protocol.md)：直接投遞 message，消息/Agent 關係見 [server-run.md](server-run.md)，不再有 task 或獨立輸入 ID。
 
-> 執行關係已採用 client 公共事件協議。本文的 conversation/device 是業務名稱，元數據已按下列結構實現；執行記錄及消息附件業務元數據分別見相關設計。目標表不聲明數據庫外鍵，關聯校驗和清理由 service 完成。
+> 單 conversation 的消息及執行鏈路已實現；本次新增的父子 conversation 關係仍為待實作的目標設計，見 [Work](server-work.md)。下列 conversations SQL 表示調整後的目標，並不表示 schema 7 已有父對話字段。關聯不聲明數據庫外鍵，由 service 校驗與清理。
 
 ## 職責
 
@@ -10,7 +10,7 @@ Conversation 是原共享對話概念的新名稱，不新增另一層 conversat
 
 conversationService 管理 conversation、message 和共享歷史，並編排消息分配。一個 conversation 包含若干 message 和若干 run；message 與 run 的任務輸入關係是 **N:M**，由 runService 中 message_agents 連接。
 
-- 創建/讀取/刪除對話，維護標題、歸屬和共享歷史。
+- 創建/讀取/刪除對話，維護標題、歸屬、父子關係和各對話自身的共享歷史。
 - 接收消息，保存 to_agent_ids 和 to_user_ids；按 to_agent_ids 調用 runService，對話原文只保存一次，每個目標 agent 保存一條 message_agents 關係，等待 accepted 關聯實際 run。
 - 消費執行結果事件，把最終回覆寫爲 agent message，並記錄作者和被回覆的 message。
 - 讀取對話時組合對話、run、message_agents、事件和問題的統一快照。
@@ -39,7 +39,7 @@ client accepted (M2,coder)：
 
 (M2,coder) 最終關聯哪個 run，由適配器決定，並通過 accepted 上報。message 與 run 的 N:M 關係由此建立，消息/Agent 複合鍵直接關聯消息，不另分配執行身份。conversation 不綁定 agent，不設置參與者表或每個 agent 獨立的共享歷史。
 
-收到 client result 後，在**同一事務**保存原始事件、更新 run 與輸入狀態、寫入 agent message、綁定 runs.result_message_id，並重算對話狀態。最終回覆的 reply_to_message_id 指向 first_message_id；messages 不保存 run_id。事務提交後才確認源事件位置，重複上報直接確認已有記錄，不重複寫回復或觸發 Work 彙總。
+收到 client result 後，在**同一事務**保存原始事件、更新 run 與輸入狀態、寫入 agent message、綁定 runs.result_message_id，並重算對話狀態。最終回覆的 reply_to_message_id 指向 first_message_id；messages 不保存 run_id。事務提交後才確認源事件位置，重複上報直接確認已有記錄，不重複寫回復。Work 視圖只讀取對話，不參與執行結果消費。
 
 message、request、log 是執行記錄，不能都變成普通聊天消息。cancel 入隊和送達只表示控制傳輸，斷線也只改變設備連接狀態；這些操作都不生成執行結果。只有 client result 決定 completed/failed/cancelled，cancelled 可以沒有最終回覆。
 
@@ -47,7 +47,7 @@ message、request、log 是執行記錄，不能都變成普通聊天消息。ca
 
 Conversation 狀態是實際 run 與未完成輸入的聚合投影，優先 waiting、running、pending，再到 idle；resolved 是用戶的完成標記。投影由 conversationService 通過 runService 查詢當前狀態後更新，run 狀態變化和最終結果事件都觸發重算；重算讀取當前實際 run 和未完成輸入集合，不用舊事件直接覆蓋投影。idle 不表示歷史任務全部成功。
 
-有活躍 run 或待領取/待受理輸入時拒絕刪除，檢查與刪除共用事務；回覆消費前也要重新檢查對話是否存在，已刪除的對話不恢復創建。刪除對話由 conversationService 協調相關 service，在同一事務內清理消息、run、message_agents、事件、問題及輔助記錄；本地目錄或 S3 對象前綴由 fileService 清理。Work 的協調對話和線程歸屬由 workService 決定。
+有活躍 run 或待領取/待受理輸入時拒絕刪除，檢查與刪除共用事務；回覆消費前也要重新檢查對話是否存在，已刪除的對話不恢復創建。刪除對話由 conversationService 協調相關 service，在同一事務內清理消息、run、message_agents、事件、問題及輔助記錄；本地目錄或 S3 對象前綴由 fileService 清理。父子關係由本 service 管理：默認拒絕刪除仍有子對話的節點；顯式 recursive=true 才在同一事務檢查並刪除整個子樹。任一節點忙碌則整體拒絕，見 [Work](server-work.md)。
 
 ## 標識和消息順序
 
@@ -61,29 +61,29 @@ Client 選定實際本地 session 後，向 Server 讀取 `complete_messages`：
 
 發送請求不做去重：每次成功發送創建新的 message UUID，不需要請求 key 或內容摘要字段。
 
-## 元數據實現
+## 已實現的消息模型與本次組織調整
 
-本文下列 SQL 定義元數據的目標命名和字段。物理對話表為 conversations，HTTP 入口為 /api/conversations，SDK 和響應字段亦使用 conversation；消息、附件和執行記錄使用 conversation_id。session_id 唯一表示 Client 上報的本地執行會話，不提供 client_session_id 別名。當前 schema 7 的 conversation/message ID 均為 UUID，messages.seq 是對話內順序；to_agent_ids 和 to_user_ids 已在存儲、發送 API、SDK、CLI 和前端統一實現。發送接口接受 prompt，以及獨立的收件人和 attachment_ids；messages.attachments 已保存所選附件的元數據快照。author_role 使用 user/agent，content 是未包裝的原始正文字符串；不再提供 role、agent_key、agent_name、消息 run_id、mode、input 或 defer_start 別名。作者名稱透過 users 或固定 Agent 版本讀取。通用 fileService 的目錄/S3 後端已實現，conversation 附件元數據歸本 service 管理，字節統一保存在 fileService 的 conversations 命名空間。執行關係見 [server-run.md](server-run.md)。只接受新字段及 schema 7，不保留舊字段別名或數據遷移。
+本文下列 SQL 定義元數據的目標命名和字段。物理對話表為 conversations，HTTP 入口為 /api/conversations，SDK 和響應字段亦使用 conversation；消息、附件和執行記錄使用 conversation_id。session_id 唯一表示 Client 上報的本地執行會話，不提供 client_session_id 別名。當前 schema 7 的 conversation/message ID 均為 UUID，messages.seq 是對話內順序；to_agent_ids 和 to_user_ids 已在存儲、發送 API、SDK、CLI 和前端統一實現。發送接口接受 prompt，以及獨立的收件人和 attachment_ids；messages.attachments 已保存所選附件的元數據快照。author_role 使用 user/agent，content 是未包裝的原始正文字符串；不再提供 role、agent_key、agent_name、消息 run_id、mode、input 或 defer_start 別名。作者名稱透過 users 或固定 Agent 版本讀取。通用 fileService 的目錄/S3 後端已實現，conversation 附件元數據歸本 service 管理，字節統一保存在 fileService 的 conversations 命名空間。執行關係見 [server-run.md](server-run.md)。當前消息鏈路使用 schema 7；父子組織的後續實作將用 parent_conversation_id 替換 work_id，刪除獨立 Work 結構。本次不修改代碼或宣告新 schema 已實現，也不為後續調整保留字段別名或數據遷移。
 
 ## 表結構
 
 ### conversations
 
-共享對話主表。`user_id` 是資源所有者，`created_by` 是創建者；可歸屬一個 work，不綁定 agent。所有 conversation 都支持多 agent，不設 mode 字段。狀態是聚合投影，不替代 run 明細。
+共享對話主表。`user_id` 是資源所有者，`created_by` 是創建者。parent_conversation_id 可指向同一所有者的父對話，僅在創建時指定；所有 conversation 都支持多 Agent，不綁定固定協調 Agent，也不設 mode 字段。Work 視圖直接使用主對話 ID。狀態只投影本對話的消息與執行，不聚合子樹。
 
 ```sql
 CREATE TABLE conversations (
     id TEXT NOT NULL PRIMARY KEY,
     user_id TEXT NOT NULL,
     created_by TEXT NOT NULL,
-    work_id TEXT,
+    parent_conversation_id TEXT,
     title TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'idle',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
-CREATE INDEX conversations_work
-    ON conversations(work_id,updated_at);
+CREATE INDEX conversations_parent
+    ON conversations(parent_conversation_id,updated_at,id);
 CREATE INDEX conversations_status
     ON conversations(status, updated_at);
 CREATE INDEX conversations_user
@@ -161,7 +161,7 @@ CREATE INDEX messages_replies ON messages(conversation_id,reply_to_message_id,se
 
 ## 相關設計
 
-[Server 總覽](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [skillService](server-skill.md) · [Client harnessService](client-harness.md) · [runService](server-run.md) · [fileService](server-file.md) · [workService](server-work.md)
+[Server 總覽](server-main.md) · [userService](server-user.md) · [deviceService](server-device.md) · [agentService](server-agent.md) · [skillService](server-skill.md) · [Client harnessService](client-harness.md) · [runService](server-run.md) · [fileService](server-file.md) · [Work 視圖](server-work.md)
 
 消息附件採用顯式 attachment_ids 選擇，messages.attachments 保存元數據快照；省略時為空，不繼承會話文件。每個 conversation 的文件樹與目錄操作 TODO 見 [conversation-files.md](conversation-files.md)。
 

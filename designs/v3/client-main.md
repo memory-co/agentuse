@@ -128,7 +128,7 @@ send body 爲 prompt，返回此次 accepted 對應的 run，可能與先前相�
 
 ## Server 事件傳輸
 
-Server 與 client 使用 agentuse-client/2。Server 直接下發 message 和目標 Agent，client 用同一 harnessctl 執行路徑處理；accepted 回報實際 run UUID，五種公共事件原樣上傳。Server 準備業務上下文和協調者規則，client 不據憑據推斷角色。
+Server 與 client 使用 agentuse-client/2。Server 直接下發 message 和目標 Agent，client 用同一 harnessctl 執行路徑處理；accepted 回報實際 run UUID，五種公共事件原樣上傳。Server 準備來源 conversation 的消息上下文，Client 對主、子對話使用同一執行鏈路，不推斷 Work 角色。
 
 輸入收據、源 ACK 遊標和控制收據位於 session/.server/；執行事實仍只在 events.jsonl，不再有舊版 run/attempt、租約或結果彙總層。詳見 client-run.md。
 
@@ -144,4 +144,4 @@ Server 的 agentService/skillService 分別發佈不可變版本，輸入只關�
 
 AI 在執行環境直接使用 `context` 查詢執行身份與狀態、讀寫附件，無需知道 Client 管理命令。人類用 `agentuse context` 顯式選擇本機上下文或進入 shell；遠端會話管理改為 `agentuse conversation`。同 session 多 run 的選擇、conversation 附件的按需讀取與統一路徑見 [client-context.md](client-context.md)，操作見 [執行上下文手冊](../../docs/client/context.md)。
 
-Work 編排及業務工具由 Server 維護，Client 不包含 work 命令或角色/令牌邏輯；詳見 [server-work.md](server-work.md)。
+Work 是 Server 的父子 conversation 視圖；對話工具復用普通 conversation API。Client 不包含 Work 命令、主子關係或協調角色邏輯；此組織模型仍待實作，詳見 [server-work.md](server-work.md)。

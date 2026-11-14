@@ -1,6 +1,6 @@
 # Client harnessService：harnessctl 命令與事件橋接
 
-harnessService 只接收準備好的 UTF-8 文本、工作目錄、適配器和固定事件地址。它不接收 caller run/attempt 身份，不生成執行 UUID，不根據 token 選擇協調者或其他業務角色。
+harnessService 只接收準備好的 UTF-8 文本、工作目錄、適配器和固定事件地址。它不接收 caller run/attempt 身份，不生成執行 UUID，不推斷主子對話或其他業務角色。
 
 ## 適配器包與啓動快照
 
@@ -60,7 +60,7 @@ run_id、input_id、request_id 都屬於適配器。Codex 確認的補充輸入�
 
 內置 Codex 創建和恢復時使用 approvalPolicy=never、sandbox=danger-full-access；Claude 使用 bypassPermissions。普通操作不經過額外確認，真實問題及原生例外權限請求才經 reply。認證、組織策略或執行失敗不靠僞造批准繞過。
 
-本地輸入按用戶給出的文本或 JSON 文本發送，不額外注入協調者 prompt。遠端業務指令由來源邊界準備，server 的協調者規則由 server 下發。來源憑據不作爲角色判斷依據。
+本地輸入按用戶給出的文本或 JSON 文本發送。遠端消息上下文由 Server 準備，主、子 conversation 使用同一輸入鏈路；harnessService 不追加 Work 或協調角色提示詞。
 
 每次輸入來源的環境可能不同，適配器只存環境摘要；空閒時可內部重建進程並恢復上下文，讓新憑據生效，忙時拒絕更換環境。這是每次調用的執行上下文，不是配置熱加載。
 

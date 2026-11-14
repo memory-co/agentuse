@@ -6,10 +6,13 @@
 
 v1/v2 是历史存档，其中旧接口和类型不代表当前支持的入口。Server 当前仅使用 [Conversation 接口](../docs/server/conversations.md)，旧 session 路由和兼容别名已删除。
 
+Work 已重新设计为主、子 conversation 的组织视图，支持各自的多 Agent 消息。该调整目前只更新设计稿，运行代码和使用手册仍保留旧实现；目标与删除清单见 [Work 设计](v3/server-work.md)。
+
 | 入口 | 内容 |
 |---|---|
 | [Server 设计](v3/server-main.md) | 服务端业务划分及各 service 的设计 |
 | [Client 设计](v3/client-main.md) | 本机配置、endpoint、session、run 和 harness 的设计 |
+| [Work 设计](v3/server-work.md) | 待实现的父子 conversation 组织，复用多 Agent 消息和 conversation API |
 | [Conversation 文件树](v3/conversation-files.md) | 独立路径空间、消息附件快照与目录操作 TODO |
 | [Client 执行上下文](v3/client-context.md) | AI 的 context 工具、run 归属、附件快照和人类入口 |
 | [Client ↔ Server 协议](v3/protocol.md) | `agentuse-client/2` 报文、受理、控制及恢复规则 |

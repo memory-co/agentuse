@@ -1,5 +1,7 @@
 # runService：message/Agent 關係與實際執行
 
+> Work 的父子對話模型是待實作的新設計；本稿按新的職責邊界描述 runService，舊 Work 授權及結算表的刪除見 [Work 設計](server-work.md)。
+
 Server 使用 [agentuse-client/2](protocol.md)，直接投遞既有 conversation message。沒有 task、run_input、prompt ID 或預分配的 run UUID。只有 Client 上報的 accepted 才建立實際 run。
 
 ## 消息到執行的關係
@@ -50,7 +52,6 @@ answer 和 cancel 直接指定既有 run/session。控制 id 只用於傳輸去�
 | run_events | 公共事件及源位置，作為去重與恢復事實 |
 | run_requests | request 事件的問題查詢投影，不是新的執行對象 |
 | run_controls | answer/cancel 的傳輸收據，防止不確定控制被自動重做 |
-| work_run_tokens / run_notifications | Work 授權和匯總去重；直接關聯 message/Agent，不引用 prompt ID |
 
 只支持 schema 7，messages.id 及消息引用直接使用 UUID，messages.seq 保存 conversation 內順序。舊資料庫啟動時明確拒絕，必須使用新資料庫；不提供舊資料保留、遷移或 ID 轉換。
 
@@ -62,4 +63,4 @@ Client 只讀取新版 message/Agent 收據，不轉換舊 inputs 或控制收�
 
 Server 僅記錄 Client 產生的 session_id，同一值用於消息/Agent 受理關聯、run、事件、請求和控制；不存在另一個 client_session_id。conversation_id 永遠指共享對話。公共事件原樣保存，消息正文不再包裝執行結果；終態 run 拒絕新的 request/message 等執行事實，重放相同來源事件則確認已有記錄。
 
-run 投影向 executionEventConsumer 發送事實，conversation 編排器在原事務保存作者、回覆與狀態；回覆失敗則事件和結果一起回滾。Work 彙總在回覆提交後執行，去重與協調消息另在同一事務提交，可從持久化記錄補償。
+run 投影向 executionEventConsumer 發送事實，conversation 編排器在原事務保存作者、回覆與狀態；回覆失敗則事件和結果一起回滾。父子關係不改變這個提交邊界。runService 不查詢父子對話、不向主對話生成 Work 摘要，也不維護 Work 的授權或通知表。
