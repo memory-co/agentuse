@@ -118,7 +118,7 @@ func runStart(args []string) error {
 	st := service.New(repository)
 	ctx, stop := command.SignalContext()
 	defer stop()
-	if err := st.MarkAllDevicesOffline(ctx); err != nil {
+	if err := st.DeviceService.MarkAllDevicesOffline(ctx); err != nil {
 		return err
 	}
 
@@ -159,7 +159,7 @@ func runStart(args []string) error {
 
 // bootstrapAdmin:库里没用户就建 admin;要求重置就给最早的管理员换令牌。都会打印登录链接。
 func bootstrapAdmin(ctx context.Context, st *service.Service, base string, reset bool) error {
-	n, err := st.CountUsers(ctx)
+	n, err := st.UserService.CountUsers(ctx)
 	if err != nil {
 		return err
 	}
@@ -167,16 +167,16 @@ func bootstrapAdmin(ctx context.Context, st *service.Service, base string, reset
 	var token string
 	switch {
 	case n == 0:
-		if u, token, err = st.CreateUser(ctx, "", "admin", store.RoleAdmin); err != nil {
+		if u, token, err = st.UserService.CreateUser(ctx, "", "admin", store.RoleAdmin); err != nil {
 			return err
 		}
 		log.Printf("第一次启动，已创建管理员 %s(id %s)", u.Name, u.ID)
 	case reset:
-		admin, err := st.FirstAdmin(ctx)
+		admin, err := st.UserService.FirstAdmin(ctx)
 		if err != nil {
 			return fmt.Errorf("找不到管理员: %w", err)
 		}
-		if u, token, err = st.ResetUserToken(ctx, admin.ID); err != nil {
+		if u, token, err = st.UserService.ResetUserToken(ctx, admin.ID); err != nil {
 			return err
 		}
 		log.Printf("已重置管理员 %s(id %s)的令牌，旧令牌已失效", u.Name, u.ID)

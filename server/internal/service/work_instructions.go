@@ -1,6 +1,21 @@
 package service
 
-import "strings"
+import (
+	"context"
+	"database/sql"
+	"strings"
+)
+
+func (s *WorkService) conversationInstructions(ctx context.Context, tx *sql.Tx, conversation Conversation, agent string) (string, error) {
+	w, err := s.getWork(ctx, tx, User{Role: RoleAdmin}, conversation.WorkID)
+	if err != nil {
+		return "", err
+	}
+	if conversation.WorkRole == WorkCoordinator && w.CoordinatorAgentID == agent {
+		return coordinatorInstructions(w.Instructions), nil
+	}
+	return w.Instructions, nil
+}
 
 // coordinatorGuide is server-owned work orchestration policy, independent of the executor.
 const coordinatorGuide = `# You coordinate this work: delegate execution

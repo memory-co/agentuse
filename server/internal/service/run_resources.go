@@ -8,13 +8,10 @@ import (
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
-func (s *Service) GetSkillVersion(ctx context.Context, u User, id, version string) (agentuse.SkillVersion, error) {
-	return s.Skills.Version(ctx, s.db, u, id, version, false)
-}
-func (s *Service) SkillForCredential(ctx context.Context, token, id, version string) (agentuse.SkillVersion, error) {
+func (s *RunService) SkillForCredential(ctx context.Context, token, id, version string) (agentuse.SkillVersion, error) {
 	var count int
 	if len(token) > 3 && token[:3] == "dk_" {
-		d, err := s.DeviceByKey(ctx, token)
+		d, err := s.devices.DeviceByKey(ctx, token)
 		if err != nil {
 			return agentuse.SkillVersion{}, err
 		}
@@ -31,14 +28,14 @@ func (s *Service) SkillForCredential(ctx context.Context, token, id, version str
 	if count == 0 {
 		return agentuse.SkillVersion{}, ErrNotFound
 	}
-	return s.Skills.Version(ctx, s.db, User{Role: RoleAdmin}, id, version, false)
+	return s.skills.Version(ctx, s.db, User{Role: RoleAdmin}, id, version, false)
 }
 
 // AgentVersionForCredential authorizes the fixed version before native acceptance.
-func (s *Service) AgentVersionForCredential(ctx context.Context, token, id, version string) (agentuse.AgentVersion, error) {
+func (s *RunService) AgentVersionForCredential(ctx context.Context, token, id, version string) (agentuse.AgentVersion, error) {
 	var count int
 	if strings.HasPrefix(token, "dk_") {
-		d, err := s.DeviceByKey(ctx, token)
+		d, err := s.devices.DeviceByKey(ctx, token)
 		if err != nil {
 			return agentuse.AgentVersion{}, err
 		}

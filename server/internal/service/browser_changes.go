@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"sync"
+
+	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // BrowserChange is an invalidation hint, never conversation content or a task.
@@ -76,32 +78,32 @@ func (b *BrowserChanges) publish(c BrowserChange) {
 		}
 	}
 }
-func (s *Service) notifyResource(resource, id, owner string) {
+func (s *serviceRuntime) notifyResource(resource, id, owner string) {
 	s.BrowserChanges.publish(BrowserChange{Resource: resource, ID: id, owners: []string{owner}, adminOnly: resource == "users"})
 }
-func (s *Service) publishConversationChange(ss Conversation, resource string) {
+func (s *serviceRuntime) publishConversationChange(ss Conversation, resource string) {
 	s.BrowserChanges.publish(BrowserChange{Resource: resource, ID: ss.ID, WorkID: ss.WorkID, owners: []string{ss.UserID, ss.CreatedBy}})
 }
-func (s *Service) notifyConversation(ctx context.Context, id string) {
+func (s *serviceRuntime) notifyConversation(ctx context.Context, id string) {
 	s.BrowserChanges.mu.Lock()
 	listening := len(s.BrowserChanges.subscribers) > 0
 	s.BrowserChanges.mu.Unlock()
 	if !listening {
 		return
 	}
-	if ss, err := s.GetConversation(ctx, User{Role: RoleAdmin}, id); err == nil {
+	if ss, err := store.ScanConversation(s.db.QueryRowContext(ctx, conversationCols+` WHERE id=?`, id)); err == nil {
 		s.publishConversationChange(ss, "conversations")
 	}
 }
-func (s *Service) notifyCoordinator(ctx context.Context, id string) {
-	if ss, err := s.GetConversation(ctx, User{Role: RoleAdmin}, id); err == nil && ss.WorkID != "" {
-		if w, e := s.GetWork(ctx, User{Role: RoleAdmin}, ss.WorkID); e == nil && w.CoordinatorID != id {
+func (s *serviceRuntime) notifyCoordinator(ctx context.Context, id string) {
+	if ss, err := store.ScanConversation(s.db.QueryRowContext(ctx, conversationCols+` WHERE id=?`, id)); err == nil && ss.WorkID != "" {
+		if w, e := scanWork(s.db.QueryRowContext(ctx, workCols+` WHERE w.id=?`, ss.WorkID)); e == nil && w.CoordinatorID != id {
 			s.notifyConversation(ctx, w.CoordinatorID)
 		}
 	}
 }
 
-func (s *Service) notifyDeviceConversations(ctx context.Context, id string) {
+func (s *serviceRuntime) notifyDeviceConversations(ctx context.Context, id string) {
 	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT conversation_id FROM message_agents WHERE device_id=?`, id)
 	if err != nil {
 		return

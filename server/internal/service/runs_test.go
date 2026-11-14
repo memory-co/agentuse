@@ -166,3 +166,7 @@ func TestClientEventsCannotCrossOwnershipOrRebindInputs(t *testing.T) {
 		t.Fatal("invalid event partially committed", detail)
 	}
 }
+
+func reportEnvelope(delivery protocol.ConversationMessage, session string, seq int64, event json.RawMessage) protocol.ClientEvent {
+	return protocol.ClientEvent{ConversationID: delivery.ConversationID, SessionID: session, MessageID: delivery.MessageID, AgentID: delivery.AgentID, AgentVersionID: delivery.AgentVersionID, Revision: "client-revision", Seq: seq, Event: event}
+}

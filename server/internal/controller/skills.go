@@ -62,9 +62,9 @@ func (s *Server) handleSkillVersion(w http.ResponseWriter, r *http.Request) {
 	var v agentuse.SkillVersion
 	var err error
 	if resourceCredential(r) {
-		v, err = s.service.SkillForCredential(r.Context(), requestToken(r), r.PathValue("id"), r.PathValue("version_id"))
+		v, err = s.service.RunService.SkillForCredential(r.Context(), requestToken(r), r.PathValue("id"), r.PathValue("version_id"))
 	} else {
-		v, err = s.service.GetSkillVersion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("version_id"))
+		v, err = s.service.Skills.GetVersion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("version_id"))
 	}
 	if err != nil {
 		s.storeErr(w, err)
@@ -81,11 +81,11 @@ func (s *Server) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) handleSkillPackage(w http.ResponseWriter, r *http.Request) {
 	serve := func(v agentuse.SkillVersion) {
-		if s.service.Files == nil {
+		if s.service.Skills.Files == nil {
 			writeErr(w, 503, "file storage unavailable")
 			return
 		}
-		stream, size, err := s.service.Files.Get(r.Context(), "skills", v.PackagePath)
+		stream, size, err := s.service.Skills.OpenPackage(r.Context(), v)
 		if errors.Is(err, os.ErrNotExist) {
 			writeErr(w, 404, "skill package missing")
 			return
@@ -108,7 +108,7 @@ func (s *Server) handleSkillPackage(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 403, "device/work tokens cannot impersonate users")
 			return
 		}
-		v, err := s.service.SkillForCredential(r.Context(), token, r.PathValue("id"), r.PathValue("version_id"))
+		v, err := s.service.RunService.SkillForCredential(r.Context(), token, r.PathValue("id"), r.PathValue("version_id"))
 		if err != nil {
 			s.storeErr(w, err)
 			return
@@ -117,7 +117,7 @@ func (s *Server) handleSkillPackage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auth(func(w http.ResponseWriter, r *http.Request) {
-		v, err := s.service.GetSkillVersion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("version_id"))
+		v, err := s.service.Skills.GetVersion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("version_id"))
 		if err != nil {
 			s.storeErr(w, err)
 			return

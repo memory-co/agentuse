@@ -30,7 +30,7 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 			a := service.AttachmentAccess{User: currentUser(r), Token: token}
 			if wk := workScope(r); wk != nil {
 				a.WorkID = wk.ID
-				if run, e := s.service.WorkRunByToken(r.Context(), token); e == nil {
+				if run, e := s.service.WorkService.WorkRunByToken(r.Context(), token); e == nil {
 					a.RunID = run.ID
 				}
 			}
@@ -40,7 +40,7 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 			s.workAuth(finish)(w, r)
 			return
 		}
-		d, err := s.service.DeviceByKey(r.Context(), token)
+		d, err := s.service.DeviceService.DeviceByKey(r.Context(), token)
 		if err != nil {
 			writeErr(w, 401, "device 密钥无效")
 			return
@@ -53,7 +53,7 @@ func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, 403, "device 不能删除附件")
 			return
 		}
-		u, err := s.service.GetUser(r.Context(), d.UserID)
+		u, err := s.service.UserService.GetUser(r.Context(), d.UserID)
 		if err != nil {
 			s.attachmentErr(w, err)
 			return
@@ -85,7 +85,7 @@ func (s *Server) attachmentConversation(w http.ResponseWriter, r *http.Request, 
 	}
 	a := attachmentAccess(r)
 	if a.WorkID != "" {
-		ss, err := s.service.GetConversation(r.Context(), a.User, id)
+		ss, err := s.service.ConversationService.GetConversation(r.Context(), a.User, id)
 		if err != nil {
 			s.attachmentErr(w, err)
 			return false
@@ -95,7 +95,7 @@ func (s *Server) attachmentConversation(w http.ResponseWriter, r *http.Request, 
 			return false
 		}
 	}
-	if _, err := s.service.AttachmentConversation(r.Context(), a, id, upload); err != nil {
+	if _, err := s.service.ConversationService.AttachmentConversation(r.Context(), a, id, upload); err != nil {
 		s.attachmentErr(w, err)
 		return false
 	}
@@ -258,7 +258,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		s.attachmentErr(w, err)
 		return
 	}
-	v := attachment.Attachment{RelativePath: requestedPath, ID: s.service.NewAttachmentID(), ConversationID: r.PathValue("id"), Filename: filename, ContentType: ctype, SizeBytes: size, SHA256: digest, CreatedBy: a.User.ID, Source: "user", CreatedAt: time.Now().Unix()}
+	v := attachment.Attachment{RelativePath: requestedPath, ID: s.service.ConversationService.NewAttachmentID(), ConversationID: r.PathValue("id"), Filename: filename, ContentType: ctype, SizeBytes: size, SHA256: digest, CreatedBy: a.User.ID, Source: "user", CreatedAt: time.Now().Unix()}
 	if a.DeviceID != "" {
 		v.Source = "device"
 		v.DeviceID = a.DeviceID
@@ -268,7 +268,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 	}
 	if a.RunID != "" {
 		v.CreatedByRunID = a.RunID
-		if run, e := s.service.GetRun(r.Context(), service.User{Role: service.RoleAdmin}, func() string {
+		if run, e := s.service.RunService.GetRun(r.Context(), service.User{Role: service.RoleAdmin}, func() string {
 			if a.WorkID != "" {
 				wk := workScope(r)
 				if wk != nil {
@@ -280,7 +280,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 			v.CreatedByAgentID = run.AgentID
 		}
 	}
-	err = s.service.PublishAttachment(r.Context(), a, &v, tmp)
+	err = s.service.ConversationService.PublishAttachment(r.Context(), a, &v, tmp)
 	if err != nil {
 		if errors.Is(err, service.ErrNotFound) {
 			writeErr(w, 409, "上传期间会话或权限发生变化")
@@ -312,12 +312,12 @@ func (s *Server) handleListAttachments(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, "run_id 必须是 UUID")
 			return
 		}
-		if err := s.service.AttachmentRun(r.Context(), attachmentAccess(r), r.PathValue("id"), run); err != nil {
+		if err := s.service.ConversationService.AttachmentRun(r.Context(), attachmentAccess(r), r.PathValue("id"), run); err != nil {
 			s.attachmentErr(w, err)
 			return
 		}
 	}
-	page, err := s.service.ListAttachments(r.Context(), r.PathValue("id"), r.URL.Query().Get("cursor"), limit, run)
+	page, err := s.service.ConversationService.ListAttachments(r.Context(), r.PathValue("id"), r.URL.Query().Get("cursor"), limit, run)
 	if err != nil {
 		if errors.Is(err, service.ErrAttachmentCursor) {
 			writeErr(w, 400, err.Error())
@@ -332,7 +332,7 @@ func (s *Server) handleGetAttachment(w http.ResponseWriter, r *http.Request) {
 	if !s.attachmentConversation(w, r, false) {
 		return
 	}
-	v, err := s.service.GetAttachment(r.Context(), r.PathValue("id"), r.PathValue("attachment_id"))
+	v, err := s.service.ConversationService.GetAttachment(r.Context(), r.PathValue("id"), r.PathValue("attachment_id"))
 	if err != nil {
 		s.attachmentErr(w, err)
 		return
@@ -343,12 +343,12 @@ func (s *Server) handleAttachmentContent(w http.ResponseWriter, r *http.Request)
 	if !s.attachmentConversation(w, r, false) {
 		return
 	}
-	v, err := s.service.GetAttachment(r.Context(), r.PathValue("id"), r.PathValue("attachment_id"))
+	v, err := s.service.ConversationService.GetAttachment(r.Context(), r.PathValue("id"), r.PathValue("attachment_id"))
 	if err != nil {
 		s.attachmentErr(w, err)
 		return
 	}
-	f, err := s.service.OpenAttachmentFile(r.Context(), v.ConversationID, v.ID)
+	f, err := s.service.ConversationService.OpenAttachmentFile(r.Context(), v.ConversationID, v.ID)
 	if err != nil {
 		s.attachmentErr(w, err)
 		return
@@ -368,7 +368,7 @@ func (s *Server) handleDeleteAttachment(w http.ResponseWriter, r *http.Request) 
 	if !s.attachmentConversation(w, r, false) {
 		return
 	}
-	if err := s.service.DeleteAttachment(r.Context(), attachmentAccess(r), r.PathValue("id"), r.PathValue("attachment_id")); err != nil {
+	if err := s.service.ConversationService.DeleteAttachment(r.Context(), attachmentAccess(r), r.PathValue("id"), r.PathValue("attachment_id")); err != nil {
 		s.attachmentErr(w, err)
 		return
 	}

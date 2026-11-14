@@ -2,16 +2,11 @@ package service
 
 import (
 	"context"
-	"database/sql"
 )
-
-type rowsQuerier interface {
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-}
 
 // ReadConversation returns one consistent view. A completed delivery must never be
 // paired with messages read before its result was committed.
-func (s *Service) ReadConversation(ctx context.Context, u User, id string) (ConversationDetail, error) {
+func (s *ConversationService) ReadConversation(ctx context.Context, u User, id string) (ConversationDetail, error) {
 	var detail ConversationDetail
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

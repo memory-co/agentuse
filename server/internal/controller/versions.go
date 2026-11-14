@@ -12,12 +12,12 @@ func (s *Server) handlePublishAgentVersion(w http.ResponseWriter, r *http.Reques
 		writeErr(w, 400, err.Error())
 		return
 	}
-	v, err := s.service.PublishAgentVersion(r.Context(), currentUser(r), r.PathValue("id"), body.BaseVersionID, body.AgentConfig)
+	v, err := s.service.AgentService.PublishAgentVersion(r.Context(), currentUser(r), r.PathValue("id"), body.BaseVersionID, body.AgentConfig)
 	if err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	snapshot, err := s.service.GetAgentVersion(r.Context(), currentUser(r), v.ID, v.CurrentVersionID)
+	snapshot, err := s.service.AgentService.GetAgentVersion(r.Context(), currentUser(r), v.ID, v.CurrentVersionID)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -29,7 +29,7 @@ func (s *Server) handlePublishAgentVersion(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, status, snapshot)
 }
 func (s *Server) handleAgentVersions(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.service.AgentVersions(r.Context(), currentUser(r), r.PathValue("id"))
+	rows, err := s.service.AgentService.AgentVersions(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -40,9 +40,9 @@ func (s *Server) handleAgentVersion(w http.ResponseWriter, r *http.Request) {
 	var v agentuse.AgentVersion
 	var err error
 	if resourceCredential(r) {
-		v, err = s.service.AgentVersionForCredential(r.Context(), requestToken(r), r.PathValue("id"), r.PathValue("version_id"))
+		v, err = s.service.RunService.AgentVersionForCredential(r.Context(), requestToken(r), r.PathValue("id"), r.PathValue("version_id"))
 	} else {
-		v, err = s.service.GetAgentVersion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("version_id"))
+		v, err = s.service.AgentService.GetAgentVersion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("version_id"))
 	}
 	if err != nil {
 		s.storeErr(w, err)

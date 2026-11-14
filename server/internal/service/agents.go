@@ -29,26 +29,6 @@ func cleanAgentName(name string) (string, error) {
 	return name, nil
 }
 
-// runtimeErr 检查运行时 (deviceID, harness) 现在能不能派活:这台 device 上报过这个 harness、最近一次上报里有、用户开启了。
-// 能派返回 nil,否则返回给用户看的原因。device 离线不算：上线后会接着派。
-func runtimeErr(ctx context.Context, q querier, deviceID, harness string) error {
-	var available, enabled bool
-	err := q.QueryRowContext(ctx,
-		store.RuntimeErrSelect,
-		deviceID, harness).Scan(&available, &enabled)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		return fmt.Errorf("%w:device %s 上没有 harness %s", ErrRuntimeUnavailable, deviceID, harness)
-	case err != nil:
-		return err
-	case !available:
-		return fmt.Errorf("%w:device %s 最近一次连上时没检测到 harness %s,请在那台电脑上装好后重启 device", ErrRuntimeUnavailable, deviceID, harness)
-	case !enabled:
-		return fmt.Errorf("%w:device %s 上没有开启 harness %s,请先在 device 页面打开它", ErrRuntimeUnavailable, deviceID, harness)
-	}
-	return nil
-}
-
 func agentWriteErr(err error, id, name string) error {
 	switch {
 	case err == nil:
@@ -62,10 +42,10 @@ func agentWriteErr(err error, id, name string) error {
 }
 
 // CreateAgent is the internal convenience form for a version-one configuration.
-func (s *Service) CreateAgent(ctx context.Context, user, id, name, device, harness, description string) (Agent, error) {
+func (s *AgentService) CreateAgent(ctx context.Context, user, id, name, device, harness, description string) (Agent, error) {
 	return s.CreateConfiguredAgent(ctx, user, id, agentuse.AgentConfig{Name: name, DeviceID: device, Harness: harness, Description: description})
 }
-func (s *Service) validateAgentConfig(ctx context.Context, tx *sql.Tx, user, id string, c *agentuse.AgentConfig) error {
+func (s *AgentService) validateAgentConfig(ctx context.Context, tx *sql.Tx, user, id string, c *agentuse.AgentConfig) error {
 	var err error
 	c.Name, err = cleanAgentName(c.Name)
 	if err != nil {
@@ -78,7 +58,7 @@ func (s *Service) validateAgentConfig(ctx context.Context, tx *sql.Tx, user, id 
 	if err = tx.QueryRowContext(ctx, store.CheckRuntimeSelect, c.DeviceID, c.Harness, user).Scan(&one); err != nil {
 		return fmt.Errorf("device/harness is not registered for this user")
 	}
-	if err = runtimeErr(ctx, tx, c.DeviceID, c.Harness); err != nil {
+	if err = s.devices.runtimeErr(ctx, tx, c.DeviceID, c.Harness); err != nil {
 		return err
 	}
 	var count int
@@ -96,7 +76,7 @@ func (s *Service) validateAgentConfig(ctx context.Context, tx *sql.Tx, user, id 
 	}
 	names, ids := map[string]bool{}, map[string]bool{}
 	for _, ref := range c.Skills {
-		v, e := s.Skills.Version(ctx, tx, User{ID: user}, ref.SkillID, ref.SkillVersionID, true)
+		v, e := s.skills.Version(ctx, tx, User{ID: user}, ref.SkillID, ref.SkillVersionID, true)
 		if e != nil {
 			return e
 		}
@@ -109,7 +89,7 @@ func (s *Service) validateAgentConfig(ctx context.Context, tx *sql.Tx, user, id 
 	}
 	return nil
 }
-func (s *Service) writeAgentVersion(ctx context.Context, tx *sql.Tx, v agentuse.AgentVersion) error {
+func (s *AgentService) writeAgentVersion(ctx context.Context, tx *sql.Tx, v agentuse.AgentVersion) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO agent_versions(id,agent_id,version,name,description,device_id,harness,model,instructions,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, v.ID, v.AgentID, v.Version, v.Name, v.Description, v.DeviceID, v.Harness, nullIfEmpty(v.Model), v.Instructions, v.CreatedAt)
 	if err != nil {
 		return err
@@ -124,7 +104,7 @@ func (s *Service) writeAgentVersion(ctx context.Context, tx *sql.Tx, v agentuse.
 func projection(id, user string, created, updated int64, v agentuse.AgentVersion) Agent {
 	return Agent{ID: id, UserID: user, CurrentVersionID: v.ID, Version: v.Version, Name: v.Name, Description: v.Description, DeviceID: v.DeviceID, Harness: v.Harness, Model: v.Model, Instructions: v.Instructions, Skills: v.Skills, CreatedAt: created, UpdatedAt: updated}
 }
-func (s *Service) CreateConfiguredAgent(ctx context.Context, user, id string, c agentuse.AgentConfig) (Agent, error) {
+func (s *AgentService) CreateConfiguredAgent(ctx context.Context, user, id string, c agentuse.AgentConfig) (Agent, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		id = randomID("ag_")
@@ -153,7 +133,7 @@ func (s *Service) CreateConfiguredAgent(ctx context.Context, user, id string, c 
 	s.notifyResource("agents", id, user)
 	return projection(id, user, now, now, v), nil
 }
-func agentVersion(ctx context.Context, q skillservice.Querier, id string) (agentuse.AgentVersion, error) {
+func agentVersion(ctx context.Context, q queryReader, id string) (agentuse.AgentVersion, error) {
 	var v agentuse.AgentVersion
 	err := q.QueryRowContext(ctx, `SELECT id,agent_id,version,name,description,device_id,harness,COALESCE(model,''),instructions,created_at FROM agent_versions WHERE id=?`, id).Scan(&v.ID, &v.AgentID, &v.Version, &v.Name, &v.Description, &v.DeviceID, &v.Harness, &v.Model, &v.Instructions, &v.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -177,7 +157,7 @@ func agentVersion(ctx context.Context, q skillservice.Querier, id string) (agent
 	}
 	return v, rows.Err()
 }
-func (s *Service) GetAgentVersion(ctx context.Context, u User, id, version string) (agentuse.AgentVersion, error) {
+func (s *AgentService) GetAgentVersion(ctx context.Context, u User, id, version string) (agentuse.AgentVersion, error) {
 	var owner string
 	err := s.db.QueryRowContext(ctx, `SELECT user_id FROM agents WHERE id=?`, id).Scan(&owner)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -195,7 +175,7 @@ func (s *Service) GetAgentVersion(ctx context.Context, u User, id, version strin
 	}
 	return v, err
 }
-func (s *Service) AgentVersions(ctx context.Context, u User, id string) ([]agentuse.AgentVersion, error) {
+func (s *AgentService) AgentVersions(ctx context.Context, u User, id string) ([]agentuse.AgentVersion, error) {
 	if _, err := s.GetAgent(ctx, u, id); err != nil {
 		return nil, err
 	}
@@ -227,7 +207,7 @@ func (s *Service) AgentVersions(ctx context.Context, u User, id string) ([]agent
 	}
 	return out, nil
 }
-func (s *Service) PublishAgentVersion(ctx context.Context, u User, id, base string, c agentuse.AgentConfig) (Agent, error) {
+func (s *AgentService) PublishAgentVersion(ctx context.Context, u User, id, base string, c agentuse.AgentConfig) (Agent, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Agent{}, err
@@ -274,7 +254,7 @@ func (s *Service) PublishAgentVersion(ctx context.Context, u User, id, base stri
 	return projection(id, owner, created, now, v), nil
 }
 
-func (s *Service) DeleteAgent(ctx context.Context, u User, id string) error {
+func (s *AgentService) DeleteAgent(ctx context.Context, u User, id string) error {
 	a, err := s.GetAgent(ctx, u, id)
 	if err != nil {
 		return err
@@ -287,7 +267,7 @@ func (s *Service) DeleteAgent(ctx context.Context, u User, id string) error {
 	if _, err = tx.ExecContext(ctx, `UPDATE agents SET deleted_at=?,updated_at=? WHERE id=?`, s.unix(), s.unix(), id); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE works SET coordinator_agent_id=NULL WHERE coordinator_agent_id=?`, id); err != nil {
+	if err = s.works.detachCoordinatorAgent(ctx, tx, id); err != nil {
 		return err
 	}
 	err = tx.Commit()
@@ -297,7 +277,7 @@ func (s *Service) DeleteAgent(ctx context.Context, u User, id string) error {
 	}
 	return err
 }
-func (s *Service) GetAgent(ctx context.Context, u User, id string) (Agent, error) {
+func (s *AgentService) GetAgent(ctx context.Context, u User, id string) (Agent, error) {
 	q := agentCols + ` WHERE id=?`
 	args := []any{id}
 	if !u.IsAdmin() {
@@ -312,7 +292,7 @@ func (s *Service) GetAgent(ctx context.Context, u User, id string) (Agent, error
 	a.Skills = v.Skills
 	return a, err
 }
-func (s *Service) ListAgents(ctx context.Context, u User) ([]Agent, error) {
+func (s *AgentService) ListAgents(ctx context.Context, u User) ([]Agent, error) {
 	q := agentCols
 	args := []any{}
 	if !u.IsAdmin() {

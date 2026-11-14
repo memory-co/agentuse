@@ -17,7 +17,7 @@ var ErrAttachmentPathConflict = errors.New("文件路径与已有文件冲突")
 var ErrAttachmentReferenced = errors.New("附件已被消息引用，请保留到对话删除时一起清理")
 
 // Assign a unique path without replacing bytes already referenced by a message.
-func (s *Service) assignAttachmentPath(ctx context.Context, tx *sql.Tx, file *attachment.Attachment) error {
+func (s *ConversationService) assignAttachmentPath(ctx context.Context, tx *sql.Tx, file *attachment.Attachment) error {
 	requested, err := attachment.RelativePath(file.RelativePath)
 	if err != nil {
 		return err
@@ -25,7 +25,7 @@ func (s *Service) assignAttachmentPath(ctx context.Context, tx *sql.Tx, file *at
 	candidate := requested
 	extension := path.Ext(requested)
 	stem := strings.TrimSuffix(path.Base(requested), extension)
-	stored, err := s.Files.List(ctx, conversationFileNamespace, file.ConversationID)
+	stored, err := s.files.List(ctx, conversationFileNamespace, file.ConversationID)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}

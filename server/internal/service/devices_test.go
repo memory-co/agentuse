@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/google/uuid"
 	"testing"
 )
 
@@ -116,5 +117,75 @@ func TestDeviceStatus(t *testing.T) {
 		if d.Status == DeviceOnline {
 			t.Fatalf("still online after MarkAllDevicesOffline: %+v", d)
 		}
+	}
+}
+
+func TestDeviceReportsKeepUserEnablementAndCapabilities(t *testing.T) {
+	s, u, d, a := runStore(t)
+	ctx := context.Background()
+	report := []ReportedHarness{{Name: a.Harness, Version: "2", Revision: "package-v2", Capabilities: []string{"file.read", "file.write", "file.read"}}}
+	if _, err := s.DeviceConnected(ctx, d, report); err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.GetDevice(ctx, u, d.ID)
+	if err != nil || len(current.Harnesses) != 1 {
+		t.Fatal(current, err)
+	}
+	h := current.Harnesses[0]
+	if !h.Enabled || !h.Available || h.HarnessRevision != "package-v2" || len(h.Capabilities) != 2 {
+		t.Fatal("report lost user settings or metadata", h)
+	}
+	if err = s.SetDeviceHarnessEnabled(ctx, u, d.ID, a.Harness, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.DeviceConnected(ctx, d, report); err != nil {
+		t.Fatal(err)
+	}
+	current, err = s.GetDevice(ctx, u, d.ID)
+	if err != nil || current.Harnesses[0].Enabled {
+		t.Fatal("heartbeat enabled a disabled harness", current, err)
+	}
+}
+
+func TestDeviceDeletionPreservesActualRunsAndFixedVersions(t *testing.T) {
+	s, u, d, a := runStore(t)
+	ctx := context.Background()
+	live, _, err := s.CreateConversation(ctx, u, "", "", "live", []string{a.ID}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := s.DispatchMessage(ctx, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := uuid.NewString()
+	reportNative(t, s, d, delivery, "native", 1, acceptedEvent(run, "one", "live"))
+	sent, _, err := s.CreateConversation(ctx, u, "", "", "uncertain", []string{a.ID}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.DispatchMessage(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	pending, _, err := s.CreateConversation(ctx, u, "", "", "pending", []string{a.ID}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DeleteDevice(ctx, u, d.ID); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := s.GetRun(ctx, u, live.ID, run)
+	if err != nil || actual.Status != "running" || actual.ResultMessageID != nil {
+		t.Fatal("device deletion invented a native result", actual, err)
+	}
+	for id, want := range map[string]string{sent.ID: "unknown", pending.ID: "rejected"} {
+		targets, err := s.Deliveries(ctx, id)
+		if err != nil || len(targets) != 1 || targets[0].Status != want {
+			t.Fatal(id, targets, err)
+		}
+	}
+	version, err := s.GetAgentVersion(ctx, u, a.ID, a.CurrentVersionID)
+	if err != nil || version.DeviceID != d.ID {
+		t.Fatal("historical device binding was changed", version, err)
 	}
 }

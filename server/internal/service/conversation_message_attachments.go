@@ -11,7 +11,7 @@ import (
 	sdk "github.com/memory-co/agentuse/sdk/golang"
 )
 
-func (s *Service) messageAttachments(ctx context.Context, q querier, conversation string, ids []string) ([]sdk.Attachment, error) {
+func (s *ConversationService) messageAttachments(ctx context.Context, q querier, conversation string, ids []string) ([]sdk.Attachment, error) {
 	if len(ids) > 64 {
 		return nil, fmt.Errorf("一条消息最多包含 64 个附件")
 	}
@@ -34,7 +34,7 @@ func (s *Service) messageAttachments(ctx context.Context, q querier, conversatio
 	return files, nil
 }
 func mustAttachmentJSON(files []sdk.Attachment) []byte { data, _ := json.Marshal(files); return data }
-func (s *Service) attachRunOutputs(ctx context.Context, tx *sql.Tx, run Run, message string) error {
+func (s *ConversationService) attachRunOutputs(ctx context.Context, tx *sql.Tx, run Run, message string) error {
 	files := []sdk.Attachment{}
 	rows, err := tx.QueryContext(ctx, attachmentCols+` WHERE conversation_id=? AND created_by_run_id=? ORDER BY created_at,id`, run.ConversationID, run.ID)
 	if err != nil {

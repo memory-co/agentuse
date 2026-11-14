@@ -158,13 +158,13 @@ const UpdateWorkClause = ` WHERE id=? AND user_id=?`
 
 const UpdateWorkUpdate = `UPDATE works SET coordinator_agent_id=? WHERE id=?`
 
-const UpdateWorkUpdate2 = `UPDATE conversations SET title = ? WHERE id = ?`
+const RenameConversationUpdate = `UPDATE conversations SET title = ? WHERE id = ?`
 
 const UpdateWorkUpdate3 = `UPDATE works SET name = ?, instructions = ?, updated_at = ? WHERE id = ?`
 
-const DeleteWorkSelect = `SELECT COUNT(*) FROM conversations WHERE work_id = ? AND (status IN ('running', 'waiting') OR status='pending')`
+const WorkConversationsBusySelect = `SELECT COUNT(*) FROM conversations WHERE work_id = ? AND (status IN ('running', 'waiting') OR status='pending')`
 
-const DeleteWorkDelete = `DELETE FROM conversations WHERE work_id = ?`
+const DeleteWorkConversationsDelete = `DELETE FROM conversations WHERE work_id = ?`
 
 const DeleteWorkDelete2 = `DELETE FROM works WHERE id = ?`
 

@@ -5,15 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
 
-	"github.com/memory-co/agentuse/internal/attachment"
 	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // DispatchMessage selects one durable input. It does not create or predict a run.
-func (s *Service) DispatchMessage(ctx context.Context, d Device, capacity ...protocol.Message) (protocol.ConversationMessage, error) {
+func (s *RunService) DispatchMessage(ctx context.Context, d Device, capacity ...protocol.Message) (protocol.ConversationMessage, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return protocol.ConversationMessage{}, err
@@ -40,7 +37,7 @@ func (s *Service) DispatchMessage(ctx context.Context, d Device, capacity ...pro
 	if err != nil {
 		return protocol.ConversationMessage{}, err
 	}
-	out, err := s.prepareMessage(ctx, tx, p)
+	out, err := s.conversations.prepareMessage(ctx, tx, p)
 	if err != nil {
 		return out, err
 	}
@@ -58,48 +55,9 @@ func (s *Service) DispatchMessage(ctx context.Context, d Device, capacity ...pro
 	return out, err
 }
 
-func (s *Service) prepareMessage(ctx context.Context, tx *sql.Tx, p Delivery) (protocol.ConversationMessage, error) {
-	ss, err := s.getConversation(ctx, tx, User{Role: RoleAdmin}, p.ConversationID)
-	if err != nil {
-		return protocol.ConversationMessage{}, err
-	}
-	out := protocol.ConversationMessage{ConversationID: p.ConversationID, MessageID: p.MessageID, AgentID: p.AgentID, AgentVersionID: p.AgentVersionID, Content: p.Content, Attachments: []attachment.Attachment{}}
-	instructions := ""
-	if ss.WorkID != "" {
-		w, err := scanWork(tx.QueryRowContext(ctx, workCols+` WHERE w.id=?`, ss.WorkID))
-		if err != nil {
-			return out, err
-		}
-		instructions = w.Instructions
-		if ss.WorkRole == WorkCoordinator && w.CoordinatorAgentID == p.AgentID {
-			instructions = coordinatorInstructions(w.Instructions)
-		}
-	}
-	source, err := store.ScanMessage(tx.QueryRowContext(ctx, messageCols+` WHERE id=? AND conversation_id=?`, p.MessageID, p.ConversationID))
-	if err != nil {
-		return out, err
-	}
-	for _, file := range source.Attachments {
-		out.Attachments = append(out.Attachments, file)
-	}
-	if strings.TrimSpace(p.Content) == "" && len(source.Attachments) > 0 {
-		out.Content = "Please review the attachments in this message."
-	}
-
-	if len(out.Attachments) > 0 {
-		instructions += "\n# Current message attachments\nFiles are fetched on demand. Use context attachment download PATH with a conversation-relative path below to save a file into the workspace before reading it.\n"
-		for _, file := range out.Attachments {
-			instructions += fmt.Sprintf("- %s\n", file.RelativePath)
-		}
-	}
-	// History is assembled by Server after Client selects its actual local session.
-	out.Context = instructions
-	return out, nil
-}
-
 // Sent inputs are never automatically executed again after a disconnect.
 // Reconnection re-delivers the same prompt identity; the client checks its receipt.
-func (s *Service) PendingMessages(ctx context.Context, device string) ([]protocol.ConversationMessage, error) {
+func (s *RunService) PendingMessages(ctx context.Context, device string) ([]protocol.ConversationMessage, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT dispatch FROM message_agents WHERE device_id=? AND status IN ('sent','unknown') ORDER BY created_at,(SELECT seq FROM messages WHERE id=message_agents.message_id),agent_id`, device)
 	if err != nil {
 		return nil, err
@@ -120,7 +78,7 @@ func (s *Service) PendingMessages(ctx context.Context, device string) ([]protoco
 	return out, rows.Err()
 }
 
-func (s *Service) RejectMessage(ctx context.Context, device, id, status, reason string) error {
+func (s *RunService) RejectMessage(ctx context.Context, device, id, status, reason string) error {
 	message, agent, err := protocol.ParseMessageID(id)
 	if err != nil {
 		return err
@@ -148,18 +106,14 @@ func (s *Service) RejectMessage(ctx context.Context, device, id, status, reason 
 		if _, err = tx.ExecContext(ctx, `UPDATE message_agents SET status=?,error=?,updated_at=? WHERE message_id=? AND agent_id=?`, state, reason, s.unix(), message, agent); err != nil {
 			return err
 		}
-		return projectConversationStatus(ctx, tx, p.ConversationID, s.unix())
+		return s.conversations.projectConversationStatus(ctx, tx, p.ConversationID, s.unix())
 	})
 	if err == nil {
-		s.notifyConversation(ctx, conversation)
-		if failure := s.reconcileWorkConversation(ctx, conversation); failure != nil {
-			s.log.Printf("work summary pending: %v", failure)
-		}
-		s.notifyCoordinator(ctx, conversation)
+		s.conversations.deliveryChanged(ctx, conversation)
 	}
 	return err
 }
-func (s *Service) DeviceConversationAccess(ctx context.Context, device, conversation string) error {
+func (s *RunService) DeviceConversationAccess(ctx context.Context, device, conversation string) error {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM message_agents WHERE device_id=? AND conversation_id=? AND status IN ('sent','unknown','accepted','completed','failed','cancelled')`, device, conversation).Scan(&n)
 	if err != nil {
@@ -170,7 +124,7 @@ func (s *Service) DeviceConversationAccess(ctx context.Context, device, conversa
 	}
 	return nil
 }
-func (s *Service) cancelRun(ctx context.Context, u User, conversation, id string) (Run, error) {
+func (s *RunService) CancelRun(ctx context.Context, u User, conversation, id string) (Run, error) {
 	r, err := s.GetRun(ctx, u, conversation, id)
 	if err != nil {
 		return r, err
@@ -181,7 +135,7 @@ func (s *Service) cancelRun(ctx context.Context, u User, conversation, id string
 	_, err = s.queueControl(ctx, r, "cancel", "", nil, u.ID)
 	return r, err
 }
-func (s *Service) queueControl(ctx context.Context, r Run, kind, request string, answer json.RawMessage, user string) (protocol.SessionControl, error) {
+func (s *RunService) queueControl(ctx context.Context, r Run, kind, request string, answer json.RawMessage, user string) (protocol.SessionControl, error) {
 	prefix := "c:"
 	if kind == protocol.TypeAnswer {
 		prefix = "a:"
@@ -199,7 +153,7 @@ func (s *Service) queueControl(ctx context.Context, r Run, kind, request string,
 	}
 	return out, err
 }
-func (s *Service) PendingControls(ctx context.Context, device string) ([]protocol.Message, error) {
+func (s *RunService) PendingControls(ctx context.Context, device string) ([]protocol.Message, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id,conversation_id,session_id,run_id,kind,request_id,answer FROM run_controls WHERE device_id=? AND state IN ('pending','unknown') ORDER BY created_at,id`, device)
 	if err != nil {
 		return nil, err
@@ -220,7 +174,7 @@ func (s *Service) PendingControls(ctx context.Context, device string) ([]protoco
 	}
 	return out, rows.Err()
 }
-func (s *Service) ConfirmControl(ctx context.Context, device, id, status, message string) error {
+func (s *RunService) ConfirmControl(ctx context.Context, device, id, status, message string) error {
 	state := "delivered"
 	if status == protocol.AckError {
 		state = "failed"
@@ -238,7 +192,7 @@ func (s *Service) ConfirmControl(ctx context.Context, device, id, status, messag
 	}
 	return err
 }
-func (s *Service) retireDeviceDeliveries(ctx context.Context, tx *sql.Tx, id, reason string) error {
+func (s *RunService) retireDeviceDeliveries(ctx context.Context, tx *sql.Tx, id, reason string) error {
 	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT conversation_id FROM message_agents WHERE device_id=? AND status IN ('pending','sent')`, id)
 	if err != nil {
 		return err
@@ -261,15 +215,9 @@ func (s *Service) retireDeviceDeliveries(ctx context.Context, tx *sql.Tx, id, re
 		return err
 	}
 	for _, c := range conversations {
-		if err = projectConversationStatus(ctx, tx, c, s.unix()); err != nil {
+		if err = s.conversations.projectConversationStatus(ctx, tx, c, s.unix()); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// Connection loss changes device presence only. Client result remains authoritative.
-
-func runRuntime(ctx context.Context, q querier, a Agent) error {
-	return runtimeErr(ctx, q, a.DeviceID, a.Harness)
 }

@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -22,7 +21,7 @@ func cleanWorkName(name string) (string, error) {
 }
 
 // getWork 取一个工作：普通用户只能取自己的，admin 能取所有人的。
-func getWork(ctx context.Context, q querier, u User, id string) (Work, error) {
+func (s *WorkService) getWork(ctx context.Context, q querier, u User, id string) (Work, error) {
 	query := workCols + store.GetWorkClause
 	args := []any{id}
 	if !u.IsAdmin() {
@@ -32,12 +31,12 @@ func getWork(ctx context.Context, q querier, u User, id string) (Work, error) {
 	return scanWork(q.QueryRowContext(ctx, query, args...))
 }
 
-func (s *Service) GetWork(ctx context.Context, u User, id string) (Work, error) {
-	return getWork(ctx, s.db, u, id)
+func (s *WorkService) GetWork(ctx context.Context, u User, id string) (Work, error) {
+	return s.getWork(ctx, s.db, u, id)
 }
 
 // ListWorks 列工作，最近有变化的在前。普通用户只看自己的,admin 看全部。
-func (s *Service) ListWorks(ctx context.Context, u User) ([]Work, error) {
+func (s *WorkService) ListWorks(ctx context.Context, u User) ([]Work, error) {
 	q := workCols
 	var args []any
 	if !u.IsAdmin() {
@@ -61,19 +60,19 @@ func (s *Service) ListWorks(ctx context.Context, u User) ([]Work, error) {
 }
 
 // UpdateWork 改名字、说明;协调者会话的标题跟着名字走。
-func (s *Service) UpdateWork(ctx context.Context, u User, id string, p WorkPatch) (Work, error) {
+func (s *WorkService) UpdateWork(ctx context.Context, u User, id string, p WorkPatch) (Work, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Work{}, err
 	}
 	defer tx.Rollback()
-	w, err := getWork(ctx, tx, u, id)
+	w, err := s.getWork(ctx, tx, u, id)
 	if err != nil {
 		return Work{}, err
 	}
 	now := s.unix()
 	if p.CoordinatorAgentID != nil {
-		coord, e := s.getConversation(ctx, tx, u, w.CoordinatorID)
+		coord, e := s.conversations.getConversation(ctx, tx, u, w.CoordinatorID)
 		if e != nil {
 			return w, e
 		}
@@ -84,7 +83,7 @@ func (s *Service) UpdateWork(ctx context.Context, u User, id string, p WorkPatch
 		if e != nil {
 			return w, e
 		}
-		if e = runRuntime(ctx, tx, a); e != nil {
+		if e = s.devices.runtimeErr(ctx, tx, a.DeviceID, a.Harness); e != nil {
 			return w, e
 		}
 		if _, e = tx.ExecContext(ctx, store.UpdateWorkUpdate, a.ID, w.ID); e != nil {
@@ -98,7 +97,7 @@ func (s *Service) UpdateWork(ctx context.Context, u User, id string, p WorkPatch
 			return Work{}, err
 		}
 		w.Name = name
-		if _, err := tx.ExecContext(ctx, store.UpdateWorkUpdate2, name, w.CoordinatorID); err != nil {
+		if err := s.conversations.renameConversation(ctx, tx, w.CoordinatorID, name); err != nil {
 			return Work{}, err
 		}
 	}
@@ -122,48 +121,18 @@ func (s *Service) UpdateWork(ctx context.Context, u User, id string, p WorkPatch
 }
 
 // DeleteWork 连协调者和所有线程一起删。有会话在跑时返回 ErrConversationBusy。
-func (s *Service) DeleteWork(ctx context.Context, u User, id string) error {
+func (s *WorkService) DeleteWork(ctx context.Context, u User, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	w, err := getWork(ctx, tx, u, id)
+	w, err := s.getWork(ctx, tx, u, id)
 	if err != nil {
 		return err
 	}
-	var busy int
-	if err := tx.QueryRowContext(ctx,
-		store.DeleteWorkSelect, w.ID).Scan(&busy); err != nil {
-		return err
-	}
-	if busy > 0 {
-		return ErrConversationBusy
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM conversations WHERE work_id=?`, w.ID)
+	ids, err := s.conversations.deleteWorkConversations(ctx, tx, w.ID)
 	if err != nil {
-		return err
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			rows.Close()
-			return err
-		}
-		ids = append(ids, id)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	for _, id := range ids {
-		if err = deleteConversationContents(ctx, tx, id); err != nil {
-			return err
-		}
-	}
-	if _, err := tx.ExecContext(ctx, store.DeleteWorkDelete, w.ID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, store.DeleteWorkDelete2, w.ID); err != nil {
@@ -174,53 +143,46 @@ func (s *Service) DeleteWork(ctx context.Context, u User, id string) error {
 	}
 	s.notifyResource("works", w.ID, w.UserID)
 	for _, id := range ids {
-		s.cleanupConversationFiles(ctx, id)
+		s.conversations.cleanupConversationFiles(ctx, id)
 	}
 	return nil
 }
 
-// ResolveConversation 把 idle 的会话标记为已完成;已经是已完成的直接返回。协调者不能标记。
-func (s *Service) ResolveConversation(ctx context.Context, u User, id string) (Conversation, error) {
-	return s.setResolved(ctx, u, id, ConversationIdle, ConversationResolved)
-}
-
-// ReopenConversation 取消已完成，回到 idle。
-func (s *Service) ReopenConversation(ctx context.Context, u User, id string) (Conversation, error) {
-	return s.setResolved(ctx, u, id, ConversationResolved, ConversationIdle)
-}
-
-func (s *Service) setResolved(ctx context.Context, u User, id, from, to string) (Conversation, error) {
+func (s *WorkService) CreateWork(ctx context.Context, u User, name, agent, instructions string) (Work, Conversation, error) {
+	name, err := cleanWorkName(name)
+	if err != nil {
+		return Work{}, Conversation{}, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Conversation{}, err
+		return Work{}, Conversation{}, err
 	}
 	defer tx.Rollback()
-	ss, err := s.getConversation(ctx, tx, u, id)
+	a, err := scanAgent(tx.QueryRowContext(ctx, agentCols+` WHERE id=? AND user_id=?`, agent, u.ID))
 	if err != nil {
-		return Conversation{}, err
+		return Work{}, Conversation{}, err
 	}
-	if ss.WorkRole == WorkCoordinator {
-		return Conversation{}, ErrCoordinator
-	}
-	if ss.Status == to {
-		return ss, nil
-	}
-	if ss.Status != from {
-		return Conversation{}, fmt.Errorf("%w:现在是 %s", ErrConversationState, ss.Status)
+	if err = s.devices.runtimeErr(ctx, tx, a.DeviceID, a.Harness); err != nil {
+		return Work{}, Conversation{}, err
 	}
 	now := s.unix()
-	if _, err := tx.ExecContext(ctx, store.SetResolvedUpdate, to, now, ss.ID); err != nil {
-		return Conversation{}, err
+	w := Work{ID: newUUID(), UserID: u.ID, Name: name, Instructions: instructions, CoordinatorID: newUUID(), CoordinatorAgentID: agent, CreatedAt: now, UpdatedAt: now}
+	if _, err = tx.ExecContext(ctx, store.CreateWorkInsert, w.ID, u.ID, name, instructions, w.CoordinatorID, agent, now, now); err != nil {
+		return w, Conversation{}, err
 	}
-	ss.Status, ss.UpdatedAt = to, now
+	ss, err := s.conversations.insertConversation(ctx, tx, u, w.ID, name)
+	if err != nil {
+		return w, ss, err
+	}
+	if _, err = tx.ExecContext(ctx, store.CreateWorkUpdate, ss.ID, w.ID); err != nil {
+		return w, ss, err
+	}
+	w.CoordinatorID = ss.ID
+	ss.WorkRole = WorkCoordinator
 	err = tx.Commit()
 	if err == nil {
+		s.notifyResource("works", w.ID, w.UserID)
 		s.publishConversationChange(ss, "conversations")
 	}
-	return ss, err
-}
-
-// WorkByToken validates the server-scoped business credential for a delivered input.
-func (s *Service) WorkByToken(ctx context.Context, token string) (Work, User, error) {
-	return s.runWorkToken(ctx, token)
+	return w, ss, err
 }

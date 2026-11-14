@@ -137,3 +137,26 @@ sequenceDiagram
 ```
 
 瀏覽器透過獨立 WebSocket 接收變更通知，再由既有 HTTP API 讀取資料；詳見 [瀏覽器通知與 Markdown 顯示](server-browser.md)。
+
+## 四、當前源碼組織
+
+本節描述目前代碼的職責拆分。上文及 [Work 設計](server-work.md) 定義父子對話的目標模型；當前仍運行 schema 7 的舊 Work 行爲，該部分將隨新模型實作移除。
+
+`server/internal/service/service.go` 中的 `Service` 是組裝入口，負責創建業務對象、連接依賴和配置存儲與通知。HTTP controller、WebSocket hub 及啓動流程顯式調用對應對象，例如 `ConversationService.SendMessage`、`RunService.DispatchMessage`。
+
+| 當前業務對象 | 實現位置，相對於 `server/internal/service/` |
+|---|---|
+| `UserService` | `user_service.go`、`users.go` |
+| `DeviceService` | `device_service.go`、`devices.go`、`device_*`；包含設備上報的 harness 視圖、能力與可用性校驗 |
+| `AgentService` | `agent_service.go`、`agents.go`；身份與不可變版本發佈 |
+| `ConversationService` | `conversation_service.go`、`conversations.go`、`conversation_*`；包含狀態、歷史、投遞上下文、結果回覆和文件業務 |
+| `RunService` | `run_service.go`、`runs.go`、`run_*`；包含投遞、事件路由、問題、控制與已分配資源的憑據授權 |
+| `skill.Service` | 獨立的 `skill/` 包；版本校驗、發佈、元數據和包讀取 |
+| `file.Service` | 獨立的 `file/` 包；通用字節後端 |
+| `WorkService`（過渡實作） | `work_service.go`、`works.go`、`work_*`；隔離舊的協調授權、指令和自動彙總，待父子對話模型落地時移除 |
+
+協作業務對象目前保留在同一 Go package 中，各自有獨立接收者及顯式協作依賴；`file/`、`skill/` 是獨立 package。共用的 `serviceRuntime` 承載數據庫、時鐘、日誌和通知設施，業務依賴由各對象顯式持有。Conversation 的文件鎖和附件限制由 `ConversationService` 自己持有。
+
+跨業務寫入通過接收同一 `*sql.Tx` 的所屬 service 方法完成：設備刪除由 runService 處理投遞狀態，由 conversationService 清空附件的設備歸屬；目前舊 Work 的刪除和協調授權撤銷同樣遵守此邊界。文件清理和瀏覽器通知在提交後執行。架構測試檢查 SQL 寫入的業務歸屬，回滾測試覆蓋跨業務清理失敗。
+
+沒有 `service/v3` 運行時服務或版本分支。原 `v3_test.go` 的回歸測試現已按 conversation、device、work 分拆，Agent/Skill 版本測試也按業務命名；`v3` 表示本組設計文檔的版本。

@@ -9,7 +9,7 @@ import (
 
 // CompleteMessages renders only the history missing from this actual local
 // session. No new cursor/table: accepted message targets are the boundary.
-func (s *Service) CompleteMessages(ctx context.Context, device, conversation, message, agent, localSession string) (agentuse.MessageContext, error) {
+func (s *ConversationService) CompleteMessages(ctx context.Context, device, conversation, message, agent, localSession string) (agentuse.MessageContext, error) {
 	out := agentuse.MessageContext{CompleteMessages: []agentuse.CompleteMessage{}}
 	if localSession == "" || len(localSession) > 128 {
 		return out, fmt.Errorf("session_id required")

@@ -11,7 +11,7 @@ import (
 // When no message is specified, Server resolves it from its accepted run mapping.
 // An explicit message can authorize while native acceptance is still in flight;
 // once accepted, the reported run must match the caller.
-func (s *Service) AuthorizeWorkTool(ctx context.Context, device, conversation, message, agent, run string) (string, error) {
+func (s *WorkService) AuthorizeWorkTool(ctx context.Context, device, conversation, message, agent, run string) (string, error) {
 	if uuid.Validate(run) != nil {
 		return "", fmt.Errorf("invalid run UUID")
 	}

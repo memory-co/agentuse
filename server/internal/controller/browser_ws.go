@@ -25,7 +25,7 @@ func (s *Server) handleBrowserWS(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) serveBrowserWS(w http.ResponseWriter, r *http.Request) {
 	token := requestToken(r)
-	principal, err := s.service.UserByToken(r.Context(), token)
+	principal, err := s.service.UserService.UserByToken(r.Context(), token)
 	if err != nil {
 		writeErr(w, 401, "invalid user credential")
 		return
@@ -40,7 +40,7 @@ func (s *Server) serveBrowserWS(w http.ResponseWriter, r *http.Request) {
 	sub, unsubscribe := s.service.BrowserChanges.Subscribe(currentUser(r))
 	defer unsubscribe()
 	valid := func() bool {
-		u, e := s.service.UserByToken(ctx, token)
+		u, e := s.service.UserService.UserByToken(ctx, token)
 		return e == nil && u.ID == principal.ID && u.Role == principal.Role
 	}
 	write := func(notice browserNotice) error {

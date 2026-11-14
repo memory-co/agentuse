@@ -34,6 +34,21 @@ type Querier interface {
 
 const columns = `SELECT v.id,v.skill_id,v.version,v.name,v.description,v.package_path,v.sha256,v.size_bytes,v.created_at FROM skill_versions v`
 
+const fileNamespace = "skills"
+
+func (s *Service) GetVersion(ctx context.Context, user agentuse.User, id, version string) (agentuse.SkillVersion, error) {
+	return s.Version(ctx, s.DB, user, id, version, false)
+}
+
+// OpenPackage reads bytes for an immutable version already authorized by this
+// service or by the delivered-input credential policy in RunService.
+func (s *Service) OpenPackage(ctx context.Context, version agentuse.SkillVersion) (io.ReadCloser, int64, error) {
+	if s.Files == nil {
+		return nil, 0, fmt.Errorf("file storage is not configured")
+	}
+	return s.Files.Get(ctx, fileNamespace, version.PackagePath)
+}
+
 func scan(row interface{ Scan(...any) error }) (agentuse.SkillVersion, error) {
 	var v agentuse.SkillVersion
 	err := row.Scan(&v.ID, &v.SkillID, &v.Version, &v.Name, &v.Description, &v.PackagePath, &v.SHA256, &v.SizeBytes, &v.CreatedAt)
@@ -88,13 +103,13 @@ func (s *Service) Publish(ctx context.Context, user agentuse.User, id, base stri
 			return out, ErrConflict
 		}
 	}
-	if err = s.Files.Put(ctx, "skills", key, bytes.NewReader(data), true); err != nil {
+	if err = s.Files.Put(ctx, fileNamespace, key, bytes.NewReader(data), true); err != nil {
 		return out, err
 	}
 	committed := false
 	defer func() {
 		if !committed {
-			_ = s.Files.Delete(context.Background(), "skills", key)
+			_ = s.Files.Delete(context.Background(), fileNamespace, key)
 		}
 	}()
 	tx, err := s.DB.BeginTx(ctx, nil)

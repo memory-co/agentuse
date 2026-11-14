@@ -19,7 +19,7 @@ fileService 不新增全局 files/attachments 元數據表。存儲後端是字�
 
 ## 實現分工
 
-fileService 對應 `server/internal/service/file.Service`，本地和 S3 後端都位於 `service/file/`。Conversation 的文件及附件業務按 `conversation_*` 源碼文件歸攏，由 `service.Service` 作為業務入口編排；這些文件不另建 attachmentService，也不實現第二套存儲後端。
+fileService 對應 `server/internal/service/file.Service`，本地和 S3 後端都位於 `service/file/`。Conversation 的文件及附件業務按 `conversation_*` 源碼文件歸攏，由 `service.ConversationService` 編排，並持有自己的文件鎖與附件限制；這些文件不另建 attachmentService，也不實現第二套存儲後端。根 `service.Service` 只組裝並配置這些服務，完整分工見 [Server 當前源碼組織](server-main.md#四當前源碼組織)。
 
 | 源碼 | 所屬職責 |
 |---|---|

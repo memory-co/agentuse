@@ -15,7 +15,7 @@ conversationService 管理 conversation、message 和共享歷史，並編排消
 - 消費執行結果事件，把最終回覆寫爲 agent message，並記錄作者和被回覆的 message。
 - 讀取對話時組合對話、run、message_agents、事件和問題的統一快照。
 
-附件元數據、發佈與刪除編排、重名策略和消息附件快照都屬於 conversationService，源碼統一歸入 `conversation_*` 文件。文件字節通過獨立的 `service/file/` 本地/S3 後端存取；完整的源碼分工見 [fileService 實現分工](server-file.md#實現分工)。
+對話業務由 `service.ConversationService` 實現，狀態變更和投遞上下文亦歸此對象；父子關係仍待按本稿目標實作。附件元數據、發佈與刪除編排、重名策略和消息附件快照都屬於 conversationService，源碼統一歸入 `conversation_*` 文件。文件字節通過獨立的 `service/file/` 本地/S3 後端存取；完整的源碼分工見 [fileService 實現分工](server-file.md#實現分工) 與 [Server 當前源碼組織](server-main.md#四當前源碼組織)。
 
 ![Conversation、消息、投遞與執行的關係](../images/conversation-run.svg)
 

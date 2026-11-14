@@ -13,7 +13,7 @@ var userIDRe = regexp.MustCompile(`^[A-Za-z0-9._:@-]{1,128}$`)
 
 // CreateUser 建用户，返回用户和登录令牌(只此一次能拿到明文)。
 // id 由调用方给(接入方自己的 user id);为空时生成一个 UUID。
-func (s *Service) CreateUser(ctx context.Context, id, name, role string) (User, string, error) {
+func (s *UserService) CreateUser(ctx context.Context, id, name, role string) (User, string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return User{}, "", errors.New("用户名不能为空")
@@ -46,7 +46,7 @@ func (s *Service) CreateUser(ctx context.Context, id, name, role string) (User, 
 }
 
 // ResetUserToken 给用户换一个新的登录令牌，旧的立即失效。
-func (s *Service) ResetUserToken(ctx context.Context, id string) (User, string, error) {
+func (s *UserService) ResetUserToken(ctx context.Context, id string) (User, string, error) {
 	u, err := s.GetUser(ctx, id)
 	if err != nil {
 		return User{}, "", err
@@ -59,28 +59,28 @@ func (s *Service) ResetUserToken(ctx context.Context, id string) (User, string, 
 	return u, token, nil
 }
 
-func (s *Service) GetUser(ctx context.Context, id string) (User, error) {
+func (s *UserService) GetUser(ctx context.Context, id string) (User, error) {
 	return s.scanUser(s.db.QueryRowContext(ctx, store.GetUserSelect, id))
 }
 
 // FirstAdmin 是最早建的管理员，服务第一次启动自动建的 admin 一般就是它。
-func (s *Service) FirstAdmin(ctx context.Context) (User, error) {
+func (s *UserService) FirstAdmin(ctx context.Context) (User, error) {
 	return s.scanUser(s.db.QueryRowContext(ctx,
 		store.FirstAdminSelect, RoleAdmin))
 }
 
-func (s *Service) UserByToken(ctx context.Context, token string) (User, error) {
+func (s *UserService) UserByToken(ctx context.Context, token string) (User, error) {
 	return s.scanUser(s.db.QueryRowContext(ctx,
 		store.UserByTokenSelect, HashSecret(token)))
 }
 
-func (s *Service) CountUsers(ctx context.Context) (int, error) {
+func (s *UserService) CountUsers(ctx context.Context) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, store.CountUsersSelect).Scan(&n)
 	return n, err
 }
 
-func (s *Service) ListUsers(ctx context.Context) ([]User, error) {
+func (s *UserService) ListUsers(ctx context.Context) ([]User, error) {
 	rows, err := s.db.QueryContext(ctx, store.ListUsersSelect)
 	if err != nil {
 		return nil, err
@@ -97,6 +97,4 @@ func (s *Service) ListUsers(ctx context.Context) ([]User, error) {
 	return out, rows.Err()
 }
 
-type scanner interface{ Scan(...any) error }
-
-func (s *Service) scanUser(row scanner) (User, error) { return store.ScanUser(row) }
+func (s *UserService) scanUser(row scanner) (User, error) { return store.ScanUser(row) }

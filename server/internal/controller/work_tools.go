@@ -29,7 +29,7 @@ func (s *Server) handleAuthorizeWorkTool(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusUnauthorized, "需要执行设备身份")
 		return
 	}
-	device, err := s.service.DeviceByKey(r.Context(), requestToken(r))
+	device, err := s.service.DeviceService.DeviceByKey(r.Context(), requestToken(r))
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, "设备密钥无效")
 		return
@@ -43,7 +43,7 @@ func (s *Server) handleAuthorizeWorkTool(w http.ResponseWriter, r *http.Request)
 		writeErr(w, 400, "需要来源 conversation/agent/run")
 		return
 	}
-	token, err := s.service.AuthorizeWorkTool(r.Context(), device.ID, input.ConversationID, input.MessageID, input.AgentID, input.RunID)
+	token, err := s.service.WorkService.AuthorizeWorkTool(r.Context(), device.ID, input.ConversationID, input.MessageID, input.AgentID, input.RunID)
 	if err != nil {
 		writeErr(w, http.StatusForbidden, "来源不是本设备正在执行的工作协调输入")
 		return
@@ -54,12 +54,12 @@ func (s *Server) handleAuthorizeWorkTool(w http.ResponseWriter, r *http.Request)
 // Work management stays in the Server API and supports any authorized user CLI.
 func (s *Server) workManagementAuth(h http.HandlerFunc) http.HandlerFunc {
 	return s.auth(func(w http.ResponseWriter, r *http.Request) {
-		work, err := s.service.GetWork(r.Context(), currentUser(r), r.PathValue("work_id"))
+		work, err := s.service.WorkService.GetWork(r.Context(), currentUser(r), r.PathValue("work_id"))
 		if err != nil {
 			s.storeErr(w, err)
 			return
 		}
-		owner, err := s.service.GetUser(r.Context(), work.UserID)
+		owner, err := s.service.UserService.GetUser(r.Context(), work.UserID)
 		if err != nil {
 			s.storeErr(w, err)
 			return

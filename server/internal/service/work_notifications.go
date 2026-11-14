@@ -6,70 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
-func (s *Service) CreateWork(ctx context.Context, u User, name, agent, instructions string) (Work, Conversation, error) {
-	name, err := cleanWorkName(name)
-	if err != nil {
-		return Work{}, Conversation{}, err
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return Work{}, Conversation{}, err
-	}
-	defer tx.Rollback()
-	a, err := scanAgent(tx.QueryRowContext(ctx, agentCols+` WHERE id=? AND user_id=?`, agent, u.ID))
-	if err != nil {
-		return Work{}, Conversation{}, err
-	}
-	if err = runRuntime(ctx, tx, a); err != nil {
-		return Work{}, Conversation{}, err
-	}
-	now := s.unix()
-	w := Work{ID: newUUID(), UserID: u.ID, Name: name, Instructions: instructions, CoordinatorID: newUUID(), CoordinatorAgentID: agent, CreatedAt: now, UpdatedAt: now}
-	if _, err = tx.ExecContext(ctx, store.CreateWorkInsert, w.ID, u.ID, name, instructions, w.CoordinatorID, agent, now, now); err != nil {
-		return w, Conversation{}, err
-	}
-	ss, err := s.insertConversation(ctx, tx, u, w.ID, name)
-	if err != nil {
-		return w, ss, err
-	}
-	if _, err = tx.ExecContext(ctx, store.CreateWorkUpdate, ss.ID, w.ID); err != nil {
-		return w, ss, err
-	}
-	w.CoordinatorID = ss.ID
-	ss.WorkRole = WorkCoordinator
-	err = tx.Commit()
-	if err == nil {
-		s.notifyResource("works", w.ID, w.UserID)
-		s.publishConversationChange(ss, "conversations")
-	}
-	return w, ss, err
-}
-func (s *Service) runWorkToken(ctx context.Context, token string) (Work, User, error) {
-	var id string
-	err := s.db.QueryRowContext(ctx, `SELECT t.work_id`+store.ActiveWorkTokenFrom+` WHERE t.token_hash=? AND p.status IN ('sent','accepted')`, HashSecret(token)).Scan(&id)
-	if err == sql.ErrNoRows {
-		return Work{}, User{}, ErrNotFound
-	}
-	if err != nil {
-		return Work{}, User{}, err
-	}
-	w, err := scanWork(s.db.QueryRowContext(ctx, workCols+` WHERE w.id=?`, id))
-	if err != nil {
-		return w, User{}, err
-	}
-	u, err := s.GetUser(ctx, w.UserID)
-	return w, u, err
-}
-func (s *Service) WorkRunByToken(ctx context.Context, token string) (Run, error) {
-	return scanNativeRun(s.db.QueryRowContext(ctx, nativeRunCols+` WHERE id=(SELECT p.run_id`+store.ActiveWorkTokenFrom+` WHERE t.token_hash=? AND p.status IN ('sent','accepted'))`, HashSecret(token)))
-}
-
-func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversation string) error {
-	ss, err := s.getConversation(ctx, tx, User{Role: RoleAdmin}, conversation)
+func (s *WorkService) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversation string) error {
+	ss, err := s.conversations.getConversation(ctx, tx, User{Role: RoleAdmin}, conversation)
 	if err != nil {
 		return err
 	}
@@ -125,11 +65,11 @@ func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversatio
 				summary.WriteString("\n" + output)
 			}
 		}
-		w, err := getWork(ctx, tx, User{Role: RoleAdmin}, ss.WorkID)
+		w, err := s.getWork(ctx, tx, User{Role: RoleAdmin}, ss.WorkID)
 		if err != nil {
 			return err
 		}
-		coord, err := s.getConversation(ctx, tx, User{Role: RoleAdmin}, w.CoordinatorID)
+		coord, err := s.conversations.getConversation(ctx, tx, User{Role: RoleAdmin}, w.CoordinatorID)
 		if err != nil {
 			return err
 		}
@@ -138,7 +78,7 @@ func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversatio
 		if w.CoordinatorAgentID != "" {
 			targets = append(targets, w.CoordinatorAgentID)
 		}
-		if _, err = s.sendMessageTx(ctx, tx, User{ID: w.UserID}, coord, payload, targets, nil, nil, ""); err != nil {
+		if _, err = s.conversations.sendMessageTx(ctx, tx, User{ID: w.UserID}, coord, payload, targets, nil, nil, ""); err != nil {
 			return err
 		}
 	}
@@ -146,7 +86,7 @@ func (s *Service) notifyRunMessages(ctx context.Context, tx *sql.Tx, conversatio
 }
 
 // Summaries have their own atomic message+dedup transaction after the final reply commits.
-func (s *Service) reconcileWorkConversation(ctx context.Context, conversation string) error {
+func (s *WorkService) reconcileWorkConversation(ctx context.Context, conversation string) error {
 	err := s.repository.Tx(ctx, func(tx *sql.Tx) error { return s.notifyRunMessages(ctx, tx, conversation) })
 	if err == nil {
 		s.Notifier.KickAll()
@@ -158,7 +98,7 @@ func (s *Service) reconcileWorkConversation(ctx context.Context, conversation st
 // ReconcileWorkNotifications recovers unreported terminal inputs after a restart
 // or a coordinator configuration/capability change. The dedup row and summary
 // message still commit together inside reconcileWorkConversation.
-func (s *Service) ReconcileWorkNotifications(ctx context.Context) error {
+func (s *WorkService) ReconcileWorkNotifications(ctx context.Context) error {
 	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT c.id FROM conversations c JOIN works w ON c.work_id=w.id JOIN message_agents p ON p.conversation_id=c.id WHERE c.id<>w.coordinator_id AND p.status IN ('completed','failed','cancelled','rejected') AND NOT EXISTS(SELECT 1 FROM run_notifications n WHERE n.message_id=p.message_id)`)
 	if err != nil {
 		return err
@@ -186,7 +126,7 @@ func (s *Service) ReconcileWorkNotifications(ctx context.Context) error {
 	return errors.Join(failures...)
 }
 
-func deleteWorkConversationReferences(ctx context.Context, tx *sql.Tx, id string) error {
+func (s *WorkService) deleteWorkConversationReferences(ctx context.Context, tx *sql.Tx, id string) error {
 	for _, query := range []string{
 		`DELETE FROM work_run_tokens WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)`,
 		`DELETE FROM run_notifications WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)`,

@@ -59,7 +59,7 @@ func (s *Server) authWith(h http.HandlerFunc, allowWork bool) http.HandlerFunc {
 				writeErr(w, http.StatusForbidden, "工作令牌不能调这个接口")
 				return
 			}
-			wk, u, err := s.service.WorkByToken(r.Context(), tok)
+			wk, u, err := s.service.WorkService.WorkByToken(r.Context(), tok)
 			if err != nil {
 				writeErr(w, http.StatusUnauthorized, "工作令牌无效或已过期(只在协调者这条消息还在跑时有效)")
 				return
@@ -68,7 +68,7 @@ func (s *Server) authWith(h http.HandlerFunc, allowWork bool) http.HandlerFunc {
 			h(w, r.WithContext(context.WithValue(ctx, workKey{}, &wk)))
 			return
 		}
-		u, err := s.service.UserByToken(r.Context(), tok)
+		u, err := s.service.UserService.UserByToken(r.Context(), tok)
 		if err != nil {
 			writeErr(w, http.StatusUnauthorized, "令牌无效")
 			return
@@ -89,12 +89,12 @@ func (s *Server) authWith(h http.HandlerFunc, allowWork bool) http.HandlerFunc {
 
 // actAs 取 X-Agentuse-User 指的用户，第一次出现就自动建(role = user,name 取 id)。
 func (s *Server) actAs(ctx context.Context, id string) (service.User, error) {
-	u, err := s.service.GetUser(ctx, id)
+	u, err := s.service.UserService.GetUser(ctx, id)
 	if !errors.Is(err, service.ErrNotFound) {
 		return u, err
 	}
-	if u, _, err = s.service.CreateUser(ctx, id, id, service.RoleUser); err != nil {
-		if again, e := s.service.GetUser(ctx, id); e == nil { // 并发请求抢先建了
+	if u, _, err = s.service.UserService.CreateUser(ctx, id, id, service.RoleUser); err != nil {
+		if again, e := s.service.UserService.GetUser(ctx, id); e == nil { // 并发请求抢先建了
 			return again, nil
 		}
 	}
@@ -121,7 +121,7 @@ func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, token string,
 // handleLoginLink:GET /login?token=… 是服务启动时打印的登录链接。
 func (s *Server) handleLoginLink(w http.ResponseWriter, r *http.Request) {
 	tok := r.URL.Query().Get("token")
-	if _, err := s.service.UserByToken(r.Context(), tok); err != nil {
+	if _, err := s.service.UserService.UserByToken(r.Context(), tok); err != nil {
 		http.Redirect(w, r, "/?login=invalid", http.StatusFound)
 		return
 	}
@@ -135,7 +135,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	u, err := s.service.UserByToken(r.Context(), strings.TrimSpace(req.Token))
+	u, err := s.service.UserService.UserByToken(r.Context(), strings.TrimSpace(req.Token))
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, "令牌无效")
 		return
@@ -154,7 +154,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := s.service.ListUsers(r.Context())
+	users, err := s.service.UserService.ListUsers(r.Context())
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -171,7 +171,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if req.Role == "" {
 		req.Role = service.RoleUser
 	}
-	u, token, err := s.service.CreateUser(r.Context(), req.ID, req.Name, req.Role)
+	u, token, err := s.service.UserService.CreateUser(r.Context(), req.ID, req.Name, req.Role)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -180,7 +180,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleResetUserToken(w http.ResponseWriter, r *http.Request) {
-	u, token, err := s.service.ResetUserToken(r.Context(), r.PathValue("id"))
+	u, token, err := s.service.UserService.ResetUserToken(r.Context(), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -189,7 +189,7 @@ func (s *Server) handleResetUserToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListHarnesses(w http.ResponseWriter, r *http.Request) {
-	harnesses, err := s.service.ListHarnesses(r.Context())
+	harnesses, err := s.service.DeviceService.ListHarnesses(r.Context())
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -198,7 +198,7 @@ func (s *Server) handleListHarnesses(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
-	agents, err := s.service.ListAgents(r.Context(), currentUser(r))
+	agents, err := s.service.AgentService.ListAgents(r.Context(), currentUser(r))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -212,7 +212,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a, err := s.service.CreateConfiguredAgent(r.Context(), currentUser(r).ID, req.ID, agentuse.AgentConfig{Name: req.Name, DeviceID: req.DeviceID, Harness: req.Harness, Description: req.Description, Model: req.Model, Instructions: req.Instructions, Skills: req.Skills})
+	a, err := s.service.AgentService.CreateConfiguredAgent(r.Context(), currentUser(r).ID, req.ID, agentuse.AgentConfig{Name: req.Name, DeviceID: req.DeviceID, Harness: req.Harness, Description: req.Description, Model: req.Model, Instructions: req.Instructions, Skills: req.Skills})
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -221,7 +221,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
-	a, err := s.service.GetAgent(r.Context(), currentUser(r), r.PathValue("id"))
+	a, err := s.service.AgentService.GetAgent(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -230,7 +230,7 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
-	if err := s.service.DeleteAgent(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
+	if err := s.service.AgentService.DeleteAgent(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
 		s.storeErr(w, err)
 		return
 	}
@@ -256,7 +256,7 @@ func setupCommand(base, token string) string {
 }
 
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
-	ds, err := s.service.ListDevices(r.Context(), currentUser(r))
+	ds, err := s.service.DeviceService.ListDevices(r.Context(), currentUser(r))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -276,7 +276,7 @@ func (s *Server) handleCreateDevice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	d, err := s.service.CreateDevice(r.Context(), currentUser(r).ID, req.Name)
+	d, err := s.service.DeviceService.CreateDevice(r.Context(), currentUser(r).ID, req.Name)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -286,7 +286,7 @@ func (s *Server) handleCreateDevice(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := s.service.DeleteDevice(r.Context(), currentUser(r), id); err != nil {
+	if err := s.service.DeviceService.DeleteDevice(r.Context(), currentUser(r), id); err != nil {
 		s.storeErr(w, err)
 		return
 	}
@@ -294,7 +294,7 @@ func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleResetDevice(w http.ResponseWriter, r *http.Request) {
-	d, err := s.service.ResetDeviceSetup(r.Context(), currentUser(r), r.PathValue("id"))
+	d, err := s.service.DeviceService.ResetDeviceSetup(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -310,11 +310,11 @@ func (s *Server) handleToggleHarness(w http.ResponseWriter, r *http.Request) {
 	}
 	u := currentUser(r)
 	id := r.PathValue("id")
-	if err := s.service.SetDeviceHarnessEnabled(r.Context(), u, id, r.PathValue("harness"), req.Enabled); err != nil {
+	if err := s.service.DeviceService.SetDeviceHarnessEnabled(r.Context(), u, id, r.PathValue("harness"), req.Enabled); err != nil {
 		s.storeErr(w, err)
 		return
 	}
-	d, err := s.service.GetDevice(r.Context(), u, id)
+	d, err := s.service.DeviceService.GetDevice(r.Context(), u, id)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -337,9 +337,9 @@ func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request)
 	var conversations []service.Conversation
 	var err error
 	if workID != "" {
-		conversations, err = s.service.ListWorkConversations(r.Context(), currentUser(r), workID, 100)
+		conversations, err = s.service.ConversationService.ListWorkConversations(r.Context(), currentUser(r), workID, 100)
 	} else {
-		conversations, err = s.service.ListConversations(r.Context(), currentUser(r), 100)
+		conversations, err = s.service.ConversationService.ListConversations(r.Context(), currentUser(r), 100)
 	}
 	if err != nil {
 		s.storeErr(w, err)
@@ -368,7 +368,7 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, id) {
 		return
 	}
-	reply, err := s.service.SendMessage(r.Context(), u, id, req.Prompt, req.ToAgentIDs, req.ToUserIDs, req.AttachmentIDs, req.ReplyToMessageID)
+	reply, err := s.service.ConversationService.SendMessage(r.Context(), u, id, req.Prompt, req.ToAgentIDs, req.ToUserIDs, req.AttachmentIDs, req.ReplyToMessageID)
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -380,7 +380,7 @@ func (s *Server) handleGetConversation(w http.ResponseWriter, r *http.Request) {
 	if !s.threadInScope(w, r, r.PathValue("id")) {
 		return
 	}
-	ss, err := s.service.GetConversation(r.Context(), currentUser(r), r.PathValue("id"))
+	ss, err := s.service.ConversationService.GetConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -393,7 +393,7 @@ func (s *Server) threadInScope(w http.ResponseWriter, r *http.Request, id string
 	if sc == nil {
 		return true
 	}
-	ss, err := s.service.GetConversation(r.Context(), currentUser(r), id)
+	ss, err := s.service.ConversationService.GetConversation(r.Context(), currentUser(r), id)
 	if err != nil {
 		s.storeErr(w, err)
 		return false
@@ -410,7 +410,7 @@ func (s *Server) handleResolveConversation(w http.ResponseWriter, r *http.Reques
 	if !s.threadInScope(w, r, r.PathValue("id")) {
 		return
 	}
-	ss, err := s.service.ResolveConversation(r.Context(), currentUser(r), r.PathValue("id"))
+	ss, err := s.service.ConversationService.ResolveConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -419,7 +419,7 @@ func (s *Server) handleResolveConversation(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleReopenConversation(w http.ResponseWriter, r *http.Request) {
-	ss, err := s.service.ReopenConversation(r.Context(), currentUser(r), r.PathValue("id"))
+	ss, err := s.service.ConversationService.ReopenConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -428,7 +428,7 @@ func (s *Server) handleReopenConversation(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleListWorks(w http.ResponseWriter, r *http.Request) {
-	works, err := s.service.ListWorks(r.Context(), currentUser(r))
+	works, err := s.service.WorkService.ListWorks(r.Context(), currentUser(r))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -454,7 +454,7 @@ func (s *Server) handleCreateWork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetWork(w http.ResponseWriter, r *http.Request) {
-	wk, err := s.service.GetWork(r.Context(), currentUser(r), r.PathValue("id"))
+	wk, err := s.service.WorkService.GetWork(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -468,7 +468,7 @@ func (s *Server) handleUpdateWork(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	wk, err := s.service.UpdateWork(r.Context(), currentUser(r), r.PathValue("id"), service.WorkPatch{Name: req.Name, Instructions: req.Instructions, CoordinatorAgentID: req.CoordinatorAgentID})
+	wk, err := s.service.WorkService.UpdateWork(r.Context(), currentUser(r), r.PathValue("id"), service.WorkPatch{Name: req.Name, Instructions: req.Instructions, CoordinatorAgentID: req.CoordinatorAgentID})
 	if err != nil {
 		s.storeErr(w, err)
 		return
@@ -477,7 +477,7 @@ func (s *Server) handleUpdateWork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteWork(w http.ResponseWriter, r *http.Request) {
-	if err := s.service.DeleteWork(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
+	if err := s.service.WorkService.DeleteWork(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
 		s.storeErr(w, err)
 		return
 	}
@@ -485,7 +485,7 @@ func (s *Server) handleDeleteWork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteConversation(w http.ResponseWriter, r *http.Request) {
-	if err := s.service.DeleteConversation(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
+	if err := s.service.ConversationService.DeleteConversation(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
 		s.storeErr(w, err)
 		return
 	}
@@ -503,7 +503,7 @@ func firstRunes(s string, n int) string {
 // handleDeviceMe:device 用密钥查自己，验证密钥是否还有效。
 func (s *Server) handleDeviceMe(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	d, err := s.service.DeviceByKey(r.Context(), key)
+	d, err := s.service.DeviceService.DeviceByKey(r.Context(), key)
 	if key == "" || err != nil {
 		writeErr(w, http.StatusUnauthorized, "device 密钥无效，请重新运行安装命令")
 		return
@@ -517,7 +517,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	d, key, err := s.service.RegisterDevice(r.Context(), strings.TrimSpace(req.Token), req.Hostname)
+	d, key, err := s.service.DeviceService.RegisterDevice(r.Context(), strings.TrimSpace(req.Token), req.Hostname)
 	if errors.Is(err, service.ErrNotFound) {
 		writeErr(w, http.StatusUnauthorized, "安装令牌无效或已用过，请在页面上重新生成安装命令")
 		return

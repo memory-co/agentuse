@@ -8,7 +8,7 @@ import (
 	"github.com/memory-co/agentuse/internal/protocol"
 )
 
-func (s *Service) resolveEventRoute(ctx context.Context, device string, e *protocol.ClientEvent) error {
+func (s *RunService) resolveEventRoute(ctx context.Context, device string, e *protocol.ClientEvent) error {
 	var raw struct {
 		Type  string `json:"type"`
 		RunID string `json:"run_id"`

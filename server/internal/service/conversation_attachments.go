@@ -23,7 +23,7 @@ var ErrAttachmentQuota = errors.New("附件超过会话容量限制")
 
 var ErrAttachmentCapability = errors.New("device 尚不支持附件，请先升级并连接一次")
 
-func (s *Service) attachmentConversation(ctx context.Context, q querier, a AttachmentAccess, id string, upload bool) (Conversation, error) {
+func (s *ConversationService) attachmentConversation(ctx context.Context, q querier, a AttachmentAccess, id string, upload bool) (Conversation, error) {
 	u := a.User
 	if a.DeviceID != "" {
 		var owner string
@@ -89,12 +89,12 @@ func (s *Service) attachmentConversation(ctx context.Context, q querier, a Attac
 	return ss, nil
 }
 
-func (s *Service) AttachmentConversation(ctx context.Context, a AttachmentAccess, id string, upload bool) (Conversation, error) {
+func (s *ConversationService) AttachmentConversation(ctx context.Context, a AttachmentAccess, id string, upload bool) (Conversation, error) {
 	return s.attachmentConversation(ctx, s.db, a, id, upload)
 }
 
 // CommitAttachment serializes authorization, quota and metadata with publishing the file.
-func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v *attachment.Attachment, max int64, publish func() error) error {
+func (s *ConversationService) CommitAttachment(ctx context.Context, a AttachmentAccess, v *attachment.Attachment, max int64, publish func() error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -129,13 +129,13 @@ func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v *a
 	return err
 }
 
-func (s *Service) NewAttachmentID() string { return randomID("at_") }
+func (s *ConversationService) NewAttachmentID() string { return randomID("at_") }
 
-func (s *Service) GetAttachment(ctx context.Context, conversation, id string) (attachment.Attachment, error) {
+func (s *ConversationService) GetAttachment(ctx context.Context, conversation, id string) (attachment.Attachment, error) {
 	return scanAttachment(s.db.QueryRowContext(ctx, attachmentCols+store.GetAttachmentClause, conversation, id))
 }
 
-func (s *Service) ListAttachments(ctx context.Context, conversation, cursor string, limit int, run string) (attachment.Page, error) {
+func (s *ConversationService) ListAttachments(ctx context.Context, conversation, cursor string, limit int, run string) (attachment.Page, error) {
 	out := attachment.Page{Attachments: []attachment.Attachment{}}
 	var after struct {
 		Conversation string
@@ -179,7 +179,7 @@ func (s *Service) ListAttachments(ctx context.Context, conversation, cursor stri
 	return out, nil
 }
 
-func (s *Service) deleteAttachment(ctx context.Context, a AttachmentAccess, conversation, id string) error {
+func (s *ConversationService) deleteAttachment(ctx context.Context, a AttachmentAccess, conversation, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -213,34 +213,17 @@ func (s *Service) deleteAttachment(ctx context.Context, a AttachmentAccess, conv
 	return err
 }
 
-func (s *Service) AttachmentExists(ctx context.Context, conversation, id string) (bool, error) {
+func (s *ConversationService) AttachmentExists(ctx context.Context, conversation, id string) (bool, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, store.AttachmentExistsSelect, conversation, id).Scan(&n)
 	return n > 0, err
 }
 
-func (s *Service) deviceCapabilities(ctx context.Context, id string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, store.DeviceCapabilitiesSelect, id)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []string{}
-	for rows.Next() {
-		var c string
-		if err := rows.Scan(&c); err != nil {
-			return nil, err
-		}
-		out = append(out, c)
-	}
-	return out, rows.Err()
-}
-
 // AttachmentRun checks attribution without changing the general conversation read scope.
-func (s *Service) AttachmentRun(ctx context.Context, a AttachmentAccess, conversation, run string) error {
+func (s *ConversationService) AttachmentRun(ctx context.Context, a AttachmentAccess, conversation, run string) error {
 	return s.attachmentRun(ctx, s.db, a, conversation, run, false)
 }
-func (s *Service) attachmentRun(ctx context.Context, q querier, a AttachmentAccess, conversation, run string, active bool) error {
+func (s *ConversationService) attachmentRun(ctx context.Context, q querier, a AttachmentAccess, conversation, run string, active bool) error {
 	var count int
 	err := q.QueryRowContext(ctx, `SELECT count(*) FROM runs WHERE id=? AND conversation_id=? AND (?='' OR device_id=?) AND (?=0 OR status IN ('running','waiting'))`, run, conversation, a.DeviceID, a.DeviceID, active).Scan(&count)
 	if err != nil {

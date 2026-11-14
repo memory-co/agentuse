@@ -12,7 +12,7 @@ import (
 )
 
 // CreateDevice 在页面上添加一台 device:生成一次性的安装令牌，等用户在电脑上跑 setup.sh 注册。
-func (s *Service) CreateDevice(ctx context.Context, userID, name string) (Device, error) {
+func (s *DeviceService) CreateDevice(ctx context.Context, userID, name string) (Device, error) {
 	d := Device{
 		ID:         randomID("dev_"),
 		UserID:     userID,
@@ -31,7 +31,7 @@ func (s *Service) CreateDevice(ctx context.Context, userID, name string) (Device
 }
 
 // RegisterDevice 用安装令牌换长期密钥。令牌用一次就作废。
-func (s *Service) RegisterDevice(ctx context.Context, setupToken, hostname string) (Device, string, error) {
+func (s *DeviceService) RegisterDevice(ctx context.Context, setupToken, hostname string) (Device, string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Device{}, "", err
@@ -67,7 +67,7 @@ func (s *Service) RegisterDevice(ctx context.Context, setupToken, hostname strin
 }
 
 // ResetDeviceSetup 重新生成安装令牌(用于换电脑 / 重装),旧密钥立即失效。
-func (s *Service) resetDeviceSetup(ctx context.Context, u User, id string) (Device, error) {
+func (s *DeviceService) resetDeviceSetup(ctx context.Context, u User, id string) (Device, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Device{}, err
@@ -85,7 +85,7 @@ func (s *Service) resetDeviceSetup(ctx context.Context, u User, id string) (Devi
 	} else if err != nil {
 		return Device{}, err
 	}
-	if err = s.retireDeviceDeliveries(ctx, tx, id, "device 已重置，请重新发送任务"); err != nil {
+	if err = s.runs.retireDeviceDeliveries(ctx, tx, id, "device 已重置，请重新发送任务"); err != nil {
 		return Device{}, err
 	}
 	if _, err = tx.ExecContext(ctx, store.ResetDeviceSetupUpdate, RandomToken("st_"), DevicePending, id); err != nil {
@@ -97,14 +97,14 @@ func (s *Service) resetDeviceSetup(ctx context.Context, u User, id string) (Devi
 	return s.GetDevice(ctx, u, id)
 }
 
-func (s *Service) DeviceByKey(ctx context.Context, key string) (Device, error) {
+func (s *DeviceService) DeviceByKey(ctx context.Context, key string) (Device, error) {
 	return s.scanDevice(s.db.QueryRowContext(ctx, deviceCols+store.DeviceByKeyClause, HashSecret(key)))
 }
 
-func (s *Service) scanDevice(row scanner) (Device, error) { return store.ScanDevice(row) }
+func (s *DeviceService) scanDevice(row scanner) (Device, error) { return store.ScanDevice(row) }
 
 // GetDevice 取一台 device 及其 harness 列表;非 admin 只能看自己的。
-func (s *Service) GetDevice(ctx context.Context, u User, id string) (Device, error) {
+func (s *DeviceService) GetDevice(ctx context.Context, u User, id string) (Device, error) {
 	q := deviceCols + store.GetDeviceClause
 	args := []any{id}
 	if !u.IsAdmin() {
@@ -124,7 +124,7 @@ func (s *Service) GetDevice(ctx context.Context, u User, id string) (Device, err
 }
 
 // ListDevices 列出用户的 device;admin 看所有人的。
-func (s *Service) ListDevices(ctx context.Context, u User) ([]Device, error) {
+func (s *DeviceService) ListDevices(ctx context.Context, u User) ([]Device, error) {
 	q := deviceCols
 	var args []any
 	if !u.IsAdmin() {
@@ -173,7 +173,7 @@ func (s *Service) ListDevices(ctx context.Context, u User) ([]Device, error) {
 	return out, nil
 }
 
-func (s *Service) deviceHarnesses(ctx context.Context, where string, args ...any) ([]DeviceHarness, error) {
+func (s *DeviceService) deviceHarnesses(ctx context.Context, where string, args ...any) ([]DeviceHarness, error) {
 	rows, err := s.db.QueryContext(ctx,
 		store.DeviceHarnessesSelect+where+store.DeviceHarnessesClause, args...)
 	if err != nil {
@@ -198,7 +198,7 @@ func (s *Service) deviceHarnesses(ctx context.Context, where string, args ...any
 }
 
 // DeleteDevice revokes credentials without manufacturing native run results.
-func (s *Service) deleteDevice(ctx context.Context, u User, id string) error {
+func (s *DeviceService) deleteDevice(ctx context.Context, u User, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -217,14 +217,17 @@ func (s *Service) deleteDevice(ctx context.Context, u User, id string) error {
 	} else if err != nil {
 		return err
 	}
-	if err := s.retireDeviceDeliveries(ctx, tx, id, "device 已删除"); err != nil {
+	if err := s.runs.retireDeviceDeliveries(ctx, tx, id, "device 已删除"); err != nil {
 		return err
 	}
 
-	for _, query := range []string{`DELETE FROM device_harnesses WHERE device_id=?`, `DELETE FROM device_capabilities WHERE device_id=?`, `UPDATE attachments SET device_id=NULL WHERE device_id=?`} {
+	for _, query := range []string{`DELETE FROM device_harnesses WHERE device_id=?`, `DELETE FROM device_capabilities WHERE device_id=?`} {
 		if _, err := tx.ExecContext(ctx, query, id); err != nil {
 			return err
 		}
+	}
+	if err := s.conversations.detachDeviceAttachments(ctx, tx, id); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, q, args...); err != nil {
 		return err
@@ -235,7 +238,7 @@ func (s *Service) deleteDevice(ctx context.Context, u User, id string) error {
 // DeviceConnected 处理 device 连上:标在线，按上报更新 device_harnesses。
 // 上报里有的标 available=1 并保留原来的 enabled;没上报的标 available=0。
 // Harness 标识直接来自 client；server 不维护适配器注册表或原生执行配置。
-func (s *Service) DeviceConnected(ctx context.Context, d Device, reported []ReportedHarness, caps ...[]string) (ignored []string, err error) {
+func (s *DeviceService) DeviceConnected(ctx context.Context, d Device, reported []ReportedHarness, caps ...[]string) (ignored []string, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -281,7 +284,7 @@ func (s *Service) DeviceConnected(ctx context.Context, d Device, reported []Repo
 	return ignored, err
 }
 
-func (s *Service) DeviceDisconnected(ctx context.Context, id string) error {
+func (s *DeviceService) DeviceDisconnected(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, store.DeviceDisconnectedUpdate,
 		DeviceOffline, s.unix(), id, DeviceOnline)
 	if err == nil {
@@ -292,20 +295,20 @@ func (s *Service) DeviceDisconnected(ctx context.Context, id string) error {
 	return err
 }
 
-func (s *Service) TouchDevice(ctx context.Context, id string) error {
+func (s *DeviceService) TouchDevice(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, store.TouchDeviceUpdate, s.unix(), id)
 	return err
 }
 
 // MarkAllDevicesOffline 在服务启动时调用:上次进程留下的 online 都不作数了。
-func (s *Service) MarkAllDevicesOffline(ctx context.Context) error {
+func (s *DeviceService) MarkAllDevicesOffline(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, store.MarkAllDevicesOfflineUpdate, DeviceOffline, DeviceOnline)
 	return err
 }
 
 // SetDeviceHarnessEnabled 开关某台 device 上的某个 harness。只能开本机上报可用的。
 // 关闭后暂停派发；实际 run 的终态仍由 Client 上报。
-func (s *Service) setDeviceHarnessEnabled(ctx context.Context, u User, deviceID, harness string, enabled bool) error {
+func (s *DeviceService) setDeviceHarnessEnabled(ctx context.Context, u User, deviceID, harness string, enabled bool) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
