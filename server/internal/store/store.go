@@ -1,4 +1,4 @@
-// Package store 是 agentuse 服务的 SQLite 存储，表结构见 designs/v3/designs/。
+// Package store 是 agentuse 服务的 SQLite 存储，表结构见 designs/v3/。
 package store
 
 import (

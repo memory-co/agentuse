@@ -10,6 +10,6 @@ AI 在每次执行中可以直接使用 `context status`、`context attachment l
 
 本机页面启动后，先通过 `agentuse ui` 输出的链接登录，再访问本机 `/api/docs` 查看和调试 Client API。Server 的管理页面和 Client 的本机页面分别使用各自的登录凭据。
 
-[Server 使用文档](../server/README.md) 说明中心服务如何部署。开发资料位于 [Client 设计](../../designs/v3/designs/client-main.md)，适配器接口见 [harnessctl](../../harnessctl/README.md)。
+[Server 使用文档](../server/README.md) 说明中心服务如何部署。开发资料位于 [Client 设计](../../designs/v3/client-main.md)，适配器接口见 [harnessctl](../../harnessctl/README.md)。
 
 跨 Client 的 Work 编排与协调工具见 [Server Work](../server/work.md)。

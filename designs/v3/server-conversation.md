@@ -17,7 +17,7 @@ conversationService 管理 conversation、message 和共享歷史，並編排消
 
 附件元數據、發佈與刪除編排、重名策略和消息附件快照都屬於 conversationService，源碼統一歸入 `conversation_*` 文件。文件字節通過獨立的 `service/file/` 本地/S3 後端存取；完整的源碼分工見 [fileService 實現分工](server-file.md#實現分工)。
 
-![Conversation、消息、投遞與執行的關係](../../images/conversation-run.svg)
+![Conversation、消息、投遞與執行的關係](../images/conversation-run.svg)
 
 ## 發送和回覆
 

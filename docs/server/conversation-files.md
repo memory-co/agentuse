@@ -48,6 +48,6 @@ AI 使用 `context attachment upload` 上傳產物。在 workspace 內上傳 `re
 
 當前使用數據庫 schema 7。不提供舊數據遷移或兼容讀取；升級時按項目約定重建數據庫，兩端一起更新。
 
-目錄創建、移動、重命名等後續操作列在 [文件樹設計的 TODO](../../designs/v3/designs/conversation-files.md#todo)。
+目錄創建、移動、重命名等後續操作列在 [文件樹設計的 TODO](../../designs/v3/conversation-files.md#todo)。
 
 附件字节统一使用 fileService 的 conversations/<conversation_id>/<relative_path>，与通用对话文件使用相同的本地/S3 后端。消息引用的元数据属于 conversation 业务；不再配置独立 attachments-dir。通用 PUT 无法覆盖已登记的附件，删除对话仅清理对应 conversations 前缀。

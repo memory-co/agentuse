@@ -17,7 +17,7 @@ export interface Conversation {
   id: string; user_id: string; created_by: string; work_id?: string; work_role?: 'coordinator' | 'thread';
   title: string; status: ConversationStatus; created_at: number; updated_at: number;
 }
-// 工作：协调者 + 线程 + 共用说明(designs/v3/designs/server-work.md)
+// 工作：协调者 + 线程 + 共用说明(designs/v3/server-work.md)
 export interface Work { coordinator_agent_id?: string; id: string; user_id: string; name: string; instructions: string; coordinator_id: string; thread_count: number; created_at: number; updated_at: number }
 export interface Message {attachments:Attachment[];author_user_id?:string;reply_to_message_id?:string;author_agent_version_id?:string; seq?:number; author_agent_id?:string;author_name?:string;to_agent_ids:string[];to_user_ids:string[]; id: string; conversation_id: string; author_role: 'user' | 'agent'; content: string; created_at: number }
 export interface ConversationEvent { run_id?:string;session_id:string;agent_id:string;event_seq:number; id: number; conversation_id: string; device_id: string; kind: string; payload?: any; created_at: number }

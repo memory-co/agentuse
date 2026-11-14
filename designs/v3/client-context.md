@@ -1,6 +1,6 @@
 # Client 執行上下文工具
 
-AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇或進入相同上下文。它提供執行身份、狀態與文件能力，遠端 conversation 管理使用 `agentuse conversation`。操作文檔見 [執行上下文手冊](../../../docs/client/context.md)。
+AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇或進入相同上下文。它提供執行身份、狀態與文件能力，遠端 conversation 管理使用 `agentuse conversation`。操作文檔見 [執行上下文手冊](../../docs/client/context.md)。
 
 ## 與 harnessctl 的邊界
 

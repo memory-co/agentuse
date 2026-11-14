@@ -109,7 +109,7 @@ agentuse context --path /绝对路径/context.json --run RUN_UUID enter  # 进�
 | GET | `/api/harnesses` | 列设备上报的 harness |
 | GET / POST | `/api/users` | (admin)列用户 / 建用户 |
 
-Server 和 Client 都使用 [Huma](https://github.com/danielgtaylor/huma) 自动生成 API 文档。登录对应服务后访问 `/api/docs` 可查看并调试接口；OpenAPI JSON/YAML 位于 `/api/openapi.json`、`/api/openapi.yaml`，JSON Schema 位于 `/api/schemas/{schema}.json`。文档使用现有 cookie 或 Bearer token 鉴权。运行路由与文档共用注册定义，请求和响应 schema 从 Go 类型生成，包含用户、工作及设备令牌的适用范围和文件上传下载格式。WebSocket 文档描述握手，连接后的消息协议见 [protocol.md](designs/v3/designs/protocol.md)。
+Server 和 Client 都使用 [Huma](https://github.com/danielgtaylor/huma) 自动生成 API 文档。登录对应服务后访问 `/api/docs` 可查看并调试接口；OpenAPI JSON/YAML 位于 `/api/openapi.json`、`/api/openapi.yaml`，JSON Schema 位于 `/api/schemas/{schema}.json`。文档使用现有 cookie 或 Bearer token 鉴权。运行路由与文档共用注册定义，请求和响应 schema 从 Go 类型生成，包含用户、工作及设备令牌的适用范围和文件上传下载格式。WebSocket 文档描述握手，连接后的消息协议见 [protocol.md](designs/v3/protocol.md)。
 
 ## 文档
 
@@ -123,8 +123,8 @@ Server 和 Client 都使用 [Huma](https://github.com/danielgtaylor/huma) 自动
 | [执行上下文](docs/client/context.md) | AI 使用 context 查询执行状态、读写文件；人类选择或进入 run |
 | 运行中的 `/api/docs` | 两端分别提供的 Huma API 交互文档 |
 | [SDK](sdk/README.md) | Go、Node.js 和 Python 接入示例 |
-| [Server 设计](designs/v3/designs/server-main.md) · [Client 设计](designs/v3/designs/client-main.md) | 业务划分及实现约定 |
-| [通信协议](designs/v3/designs/protocol.md) | Client 与 Server 的 WebSocket 报文和恢复规则 |
+| [Server 设计](designs/v3/server-main.md) · [Client 设计](designs/v3/client-main.md) | 业务划分及实现约定 |
+| [通信协议](designs/v3/protocol.md) | Client 与 Server 的 WebSocket 报文和恢复规则 |
 | [设计资料索引](designs/README.md) | 原 docs 中保留的各版本设计、历史接口和插图 |
 
 ## 从源码构建
@@ -164,7 +164,7 @@ docs/                 当前使用文档：server / client
 designs/              设计方案、协议、历史资料及插图：v1 / v2 / v3
 ```
 
-client 和 server 通过 Go internal 规则隔离；本机 controller 分别查询 sessionService 和 runService；client 各 service 直接管理文件，fileutil 仅提供通用文件操作。服务端写操作和事务编排经过 service，store 保存 SQL、schema 和行解码。详见[Server 设计](designs/v3/designs/server-main.md)。
+client 和 server 通过 Go internal 规则隔离；本机 controller 分别查询 sessionService 和 runService；client 各 service 直接管理文件，fileutil 仅提供通用文件操作。服务端写操作和事务编排经过 service，store 保存 SQL、schema 和行解码。详见[Server 设计](designs/v3/server-main.md)。
 
 ## License
 
@@ -185,7 +185,7 @@ context attachment upload ./report.pdf
 
 每个 conversation 有独立的文件树，用户输入位于 `user_input/`，AI 产物保留相对路径。页面右侧浏览文件，输入框选择每条消息的附件，消息显示可预览的文件卡片。详见 [对话文件](docs/server/conversation-files.md)。
 
-网页会话页和 Go、Python、Node SDK 均支持附件。服务端默认单文件 100 MiB、每会话总计 1 GiB；文件统一通过 fileService 的 conversations 命名空间保存，本地默认 `~/.agentuse/files`，也支持 S3；须与数据库一起管理和备份。[文件树设计](designs/v3/designs/conversation-files.md) · [Client CLI](docs/client/cli.md)。HTTP API 说明见运行中 Server 的 `/api/docs`。
+网页会话页和 Go、Python、Node SDK 均支持附件。服务端默认单文件 100 MiB、每会话总计 1 GiB；文件统一通过 fileService 的 conversations 命名空间保存，本地默认 `~/.agentuse/files`，也支持 S3；须与数据库一起管理和备份。[文件树设计](designs/v3/conversation-files.md) · [Client CLI](docs/client/cli.md)。HTTP API 说明见运行中 Server 的 `/api/docs`。
 
 ## 多 agent 共享会话
 
@@ -201,7 +201,7 @@ context attachment upload ./report.pdf
 {"prompt":"分别看看实现和风险","to_agent_ids":["coder","reviewer"],"to_user_ids":["alice"]}
 ```
 
-返回 `{message, runs, deliveries}`。也支持 `agentuse conversation send CONVERSATION_ID --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有 conversation 统一使用共享消息模型，不再提供 mode/input/defer_start 包装。消息以 author_role 区分 user/agent，content 是原始正文，执行事实单独保存在 run 中。Server 与 Client 使用 `agentuse-client/2` 通信。[设计](designs/v3/designs/server-conversation.md) · [API](docs/server/conversations.md)。
+返回 `{message, runs, deliveries}`。也支持 `agentuse conversation send CONVERSATION_ID --agents coder,reviewer "…"`、读取、等待和取消，以及 Go/Node/Python SDK。所有 conversation 统一使用共享消息模型，不再提供 mode/input/defer_start 包装。消息以 author_role 区分 user/agent，content 是原始正文，执行事实单独保存在 run 中。Server 与 Client 使用 `agentuse-client/2` 通信。[设计](designs/v3/server-conversation.md) · [API](docs/server/conversations.md)。
 
 ### Client 本机页面与文件配置
 
@@ -247,7 +247,7 @@ Client 不再使用 SQLite，文件结构为：
 
 Agent 指令与 skills 由 Client 按固定版本 API 获取，通过 init 保存资源快照，不覆盖共享 workspace 中的 AGENTS.md / CLAUDE.md。Codex 恢复指定 thread，Claude Code 恢复指定 session；不同 session 可并行执行。执行事实只保存在 events.jsonl，run_id 由适配器决定；补充输入可能属于同一个 run，也可能排队形成新 run。client 不创建 attempt。中心输入收据、事件 ACK 游标和控制收据隔离在 .server/，未确认事件仍受目录保护。
 
-详见 [Client 设计与 API](designs/v3/designs/client-main.md)。
+详见 [Client 设计与 API](designs/v3/client-main.md)。
 
 配置生命周期统一为：启动时加载 setting.yaml、endpoints.yaml 和 harness 包，运行期间固定使用快照。修改、增删、启停和凭据变更一律重启生效；没有热更新、周期重读、重新探测或 active_work_root / restart_required 双态字段。自动重连、任务控制和 quota 检查属于运行行为，不重新加载配置。
 
@@ -255,4 +255,4 @@ Agent 指令与 skills 由 Client 按固定版本 API 获取，通过 init 保�
 
 消息使用 `to_agent_ids` 和 `to_user_ids` 指定收件人：只有 Agent 收件人触发执行，用户收件人必须已有会话读取权限，两组省略时均为 `[]`。CLI 通过 `--agents`、`--users` 分别指定；不保留旧字段别名。
 
-Server/client 使用 `agentuse-client/2`：Server 直接投递 conversation message 和目标 Agent，Client 按需获取固定版本配置与 skills 并在本地 init，适配器通过 accepted 返回真实 run UUID。只支持数据库 schema 7 和新版消息收据，不保留旧数据迁移或兼容逻辑。升级需重建 Server 数据库、清空 Client 本地工作目录并重新初始化、注册设备；两端必须一起更新。详见 [协议](designs/v3/designs/protocol.md) 和 [server-run 设计](designs/v3/designs/server-run.md)。
+Server/client 使用 `agentuse-client/2`：Server 直接投递 conversation message 和目标 Agent，Client 按需获取固定版本配置与 skills 并在本地 init，适配器通过 accepted 返回真实 run UUID。只支持数据库 schema 7 和新版消息收据，不保留旧数据迁移或兼容逻辑。升级需重建 Server 数据库、清空 Client 本地工作目录并重新初始化、注册设备；两端必须一起更新。详见 [协议](designs/v3/protocol.md) 和 [server-run 设计](designs/v3/server-run.md)。

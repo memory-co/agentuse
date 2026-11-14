@@ -15,7 +15,7 @@ agentService 負責 agent 和 agent_version，以及 agent_version_skills 關聯
 | agent_version_skills | agentService | 將某個 agent 版本關聯到指定 skill 版本，並保存順序 |
 | skills 命名空間的文件字節 | fileService 提供存儲能力，skillService 決定生命週期 | 本地/S3 的獨立版本 ZIP，不屬於任何 conversation 或 agent |
 
-![Agent 與 Skill 獨立版本化](../../images/agent-versions.svg)
+![Agent 與 Skill 獨立版本化](../images/agent-versions.svg)
 
 ## 包與不可變版本
 

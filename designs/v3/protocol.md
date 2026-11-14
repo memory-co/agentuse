@@ -36,7 +36,7 @@ WebSocket 傳消息、公共事件和控制；HTTP 讀取固定版本配置及�
 | cancel | Server → Client | 取消已存在的指定 run | Client 回 ack；實際終態看 result 事件 |
 | ack | 雙向 | 確認對應消息已處理，或報告拒絕、不確定 | 不再確認 ack |
 
-`event` 統一承載 accepted、message、request、result、log，內層沿用 [harnessctl 公共事件](../../../harnessctl/EVENT.md)。外層 `type=message` 是 Server 投遞消息，內層 `event.type=message` 是 Agent 正文快照，按方向和層次區分。
+`event` 統一承載 accepted、message、request、result、log，內層沿用 [harnessctl 公共事件](../../harnessctl/EVENT.md)。外層 `type=message` 是 Server 投遞消息，內層 `event.type=message` 是 Agent 正文快照，按方向和層次區分。
 
 報文 id 只用於傳輸去重，不新增業務對象：
 
@@ -231,7 +231,7 @@ Server 發送 message、回答和取消控制，管理固定版本與消息/run 
 
 Local 與遠端共用相同的資源校驗、session 綁定和 harnessctl 執行路徑。Local 的固定配置和資源來自本地輸入，不經 Server HTTP/WebSocket。
 
-[Agent 版本 API](server-agent.md) · [Skill 版本與下載](server-skill.md) · [Client session](client-session.md) · [harnessctl 介面](../../../harnessctl/README.md) · [公共事件](../../../harnessctl/EVENT.md)
+[Agent 版本 API](server-agent.md) · [Skill 版本與下載](server-skill.md) · [Client session](client-session.md) · [harnessctl 介面](../../harnessctl/README.md) · [公共事件](../../harnessctl/EVENT.md)
 
 ## 升級與持久化
 

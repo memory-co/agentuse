@@ -216,7 +216,7 @@ func (s *Server) registerAPI() {
 	bind("POST", protocol.RegisterPath, "register-device", "用一次性安装令牌注册设备", "client", public, protocol.RegisterRequest{}, protocol.RegisterResponse{}, 200, s.handleRegister)
 	bind("GET", protocol.MePath, "get-device-identity", "使用设备密钥读取设备身份", "client", device, nil, protocol.MeResponse{}, 200, s.handleDeviceMe)
 	ws := bind("GET", protocol.WSPath, "connect-client", "升级为 Client 双向 WebSocket 连接", "client", device, nil, nil, 101, s.cfg.ClientHandler.ServeHTTP, &huma.Param{Name: protocol.ProtocolHeader, In: "header", Required: true, Schema: &huma.Schema{Type: "string", Enum: []any{protocol.ExecutionProtocol}}})
-	ws.Description = "HTTP 只负责握手；连接后使用 agentuse-client/2 的 heartbeat、message、event、answer、cancel、ack 报文。完整报文和恢复规则见仓库 designs/v3/designs/protocol.md。"
+	ws.Description = "HTTP 只负责握手；连接后使用 agentuse-client/2 的 heartbeat、message、event、answer、cancel、ack 报文。完整报文和恢复规则见仓库 designs/v3/protocol.md。"
 	ws.Extensions = map[string]any{"x-websocket-protocol": protocol.ExecutionProtocol}
 	ws.Responses = map[string]*huma.Response{"101": {Description: "Switching Protocols"}, "503": jsonResponse(503, apiErrorBody{})}
 	for _, code := range []int{400, 401, 403, 426} {

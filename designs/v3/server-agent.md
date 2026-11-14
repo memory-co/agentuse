@@ -14,7 +14,7 @@ agentService 只管理 agent 身份、不可變配置版本及其固定的 skill
 
 **Agent 和 Skill 各自版本化，通過具體版本關聯。發佈新 skill 版本不會改變任何已有 agent 版本。** Agent 不擁有獨立的 server 對話歷史；原生上下文仍由 client session 承載。
 
-![Agent、Skill 版本和初始化](../../images/agent-versions.svg)
+![Agent、Skill 版本和初始化](../images/agent-versions.svg)
 
 ## Agent 的版本規則
 

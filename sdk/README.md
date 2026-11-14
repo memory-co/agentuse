@@ -1,6 +1,6 @@
 # SDK
 
-给**网站后端**用的 agentuse 客户端，把 agentuse 嵌进自己的站点。思路见 [Server 身份](../designs/v3/designs/server-user.md),接口见 [apis](../docs/server/conversations.md)。
+给**网站后端**用的 agentuse 客户端，把 agentuse 嵌进自己的站点。思路见 [Server 身份](../designs/v3/server-user.md),接口见 [apis](../docs/server/conversations.md)。
 
 | 语言 | 目录 | 依赖 |
 |---|---|---|
@@ -30,7 +30,7 @@
 
 ## 会话附件
 
-设计见 [conversation 文件](../designs/v3/designs/conversation-files.md)，HTTP 约定见 [attachments](../docs/server/conversations.md)。三种 SDK 同步增加 `Attachment` 类型和以下方法，仍按第一个用户参数发送 `X-Agentuse-User`：
+设计见 [conversation 文件](../designs/v3/conversation-files.md)，HTTP 约定见 [attachments](../docs/server/conversations.md)。三种 SDK 同步增加 `Attachment` 类型和以下方法，仍按第一个用户参数发送 `X-Agentuse-User`：
 
 | 操作 | Python / Node / Go |
 |---|---|
@@ -50,6 +50,6 @@
 
 三个 SDK 增加 get/cancel/wait run、wait message runs、reply run request 方法。等待一条消息完成要跟踪 deliveries（accepted 前 run_id 为空），不能只等最初返回的新 runs。WaitConversation 对新模式默认等全部执行结束；returnOnWaiting / return_on_waiting / Go WaitOptions 可选择在提问时返回。
 
-Agent 和共享 skill 独立版本化：创建 agent 会发布 v1，后续配置修改调用版本发布 API，旧版本不可变。先上传根目录含 SKILL.md 的 ZIP，再在 agent 配置的 skills 中固定 skill_id 与 skill_version_id；skill 发布新版本不会自动升级 agent。各 SDK 均提供版本查询、skill 上传和固定版本下载方法。完整规则见 [agentService](../designs/v3/designs/server-agent.md) 和 [skillService](../designs/v3/designs/server-skill.md)。
+Agent 和共享 skill 独立版本化：创建 agent 会发布 v1，后续配置修改调用版本发布 API，旧版本不可变。先上传根目录含 SKILL.md 的 ZIP，再在 agent 配置的 skills 中固定 skill_id 与 skill_version_id；skill 发布新版本不会自动升级 agent。各 SDK 均提供版本查询、skill 上传和固定版本下载方法。完整规则见 [agentService](../designs/v3/server-agent.md) 和 [skillService](../designs/v3/server-skill.md)。
 
 Message 使用 author_role=user/agent、author_user_id / author_agent_id 和纯字符串 content。reply_to_message_id 引用同一 conversation 的消息，执行结果在 Run 中。session_id 只由 Client 生成，Server 记录同一个值；不存在 client_session_id。

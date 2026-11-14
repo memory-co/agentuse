@@ -7,7 +7,7 @@ React、TypeScript、Vite、Tailwind CSS、TanStack Query，UI 使用 shadcn/ui�
 左边是导航和 conversation / Work 列表，中间是对话，右边是当前 conversation 的文件树和预览。文件树支持多级路径，手机端使用抽屉。路由在 hash 里：`#/` 创建对话、`#/conversations/<id>` 对话、`#/works/new` 创建 Work、`#/w/<id>` Work，以及 `#/agents` 等管理页。
 
 - **导航**：普通用户可管理 Agents、Skills、Devices；管理员还可查看设备上报的 Harness 和管理 Users。
-- **列表**：conversation 与 Work 分开显示；管理员可通过身份选择器代用户操作，请求带 `X-Agentuse-User`，见 [用户身份](../../designs/v3/designs/server-user.md)。
+- **列表**：conversation 与 Work 分开显示；管理员可通过身份选择器代用户操作，请求带 `X-Agentuse-User`，见 [用户身份](../../designs/v3/server-user.md)。
 - **对话**：发送时明确选择 Agent / 用户收件人和本次附件；消息显示各自附件。用户上传进入 `user_input/`，AI 输出保留自己的相对路径。Agent 回答使用 Markdown，原生事件和控制在 run 详情中查看。
 
 ≥1024 桌面侧栏可展开或收为图标栏；768–1023 默认图标栏；<768 手机以整屏导航和主内容横向切换。输入框 Enter 发送，Shift+Enter 换行，输入法选词时的 Enter 不发送。
@@ -22,7 +22,7 @@ React、TypeScript、Vite、Tailwind CSS、TanStack Query，UI 使用 shadcn/ui�
 | Harness | (仅 admin)查看设备上报的可用 harness 标识；接入包由 Client 管理 |
 | Users | (仅 admin)建用户，拿登录链接 |
 
-启动先查询 `GET /api/me`；401 显示登录页，通过 `POST /api/login` 写入用户 cookie。浏览器 WebSocket 只接收资源变更通知，随后使相关 HTTP 查询失效；重连和轮询补齐状态。API 见 [conversation 接口](../../docs/server/conversations.md)，通知约定见 [浏览器设计](../../designs/v3/designs/server-browser.md)。
+启动先查询 `GET /api/me`；401 显示登录页，通过 `POST /api/login` 写入用户 cookie。浏览器 WebSocket 只接收资源变更通知，随后使相关 HTTP 查询失效；重连和轮询补齐状态。API 见 [conversation 接口](../../docs/server/conversations.md)，通知约定见 [浏览器设计](../../designs/v3/server-browser.md)。
 
 ## 开发与构建
 

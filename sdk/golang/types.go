@@ -180,7 +180,7 @@ type Reply struct {
 	Message    *Message   `json:"message"`
 }
 
-// Work 是工作：协调者会话 + 若干线程会话 + 一份共用说明，见 designs/v3/designs/server-work.md。
+// Work 是工作：协调者会话 + 若干线程会话 + 一份共用说明，见 designs/v3/server-work.md。
 type Work struct {
 	CoordinatorAgentID string `json:"coordinator_agent_id,omitempty"`
 	ID                 string `json:"id"`

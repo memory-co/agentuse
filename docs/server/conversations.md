@@ -65,4 +65,4 @@ Go 类型为 `Conversation`、`ConversationDetail`、`ConversationEvent`、`Crea
 
 创建对话省略 prompt 即创建空对话。不接受 mode、input、defer_start 或旧消息字段；向原生 harness 投递的输入格式由 Client 负责。
 
-不迁移或读取旧数据库；更新时重建 Server 数据库，并一起更新 Client、前端和 SDK。附件总量配置使用 `--attachment-conversation-max-bytes` / `AGENTUSE_ATTACHMENT_CONVERSATION_MAX_BYTES`。设计约束见 [Server conversation 设计](../../designs/v3/designs/server-conversation.md)。
+不迁移或读取旧数据库；更新时重建 Server 数据库，并一起更新 Client、前端和 SDK。附件总量配置使用 `--attachment-conversation-max-bytes` / `AGENTUSE_ATTACHMENT_CONVERSATION_MAX_BYTES`。设计约束见 [Server conversation 设计](../../designs/v3/server-conversation.md)。
