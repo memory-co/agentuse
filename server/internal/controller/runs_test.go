@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -61,7 +62,7 @@ func TestRunAPIUsesClientIdentityAndGenericReply(t *testing.T) {
 	if err != nil || r.Status != "waiting" {
 		t.Fatal("cancel request fabricated terminal state", r, err)
 	}
-	report(3, map[string]any{"type": "result", "run_id": run, "status": "cancelled", "input_ids": []string{"input"}, "output": "", "model": "native-default-model"})
+	report(3, map[string]any{"type": "result", "run_id": run, "status": "cancelled", "input_ids": []string{"input"}, "output": "", "model": "native-default-model", "usage": map[string]int{"input_tokens": 0, "output_tokens": 3}})
 	r, _ = f.e.st.RunService.GetRun(ctx, f.u, f.conversation.ID, run)
 	if r.Status != "cancelled" {
 		t.Fatal(r)
@@ -69,10 +70,24 @@ func TestRunAPIUsesClientIdentityAndGenericReply(t *testing.T) {
 	if response := f.e.req(f.token, "GET", "/api/conversations/"+f.conversation.ID+"/runs/"+run, nil, &execution); response.StatusCode != 200 || execution.Run.Model == nil || *execution.Run.Model != "native-default-model" {
 		t.Fatal("Run API omitted the native model on cancellation", execution)
 	}
+	usage := execution.Run.Usage
+	if usage == nil || usage.InputTokens == nil || *usage.InputTokens != 0 || usage.OutputTokens == nil || *usage.OutputTokens != 3 || usage.CacheReadTokens != nil || usage.CacheWriteTokens != nil {
+		t.Fatal("Run API lost zero or unknown token measurements", usage)
+	}
 	spec := readServerAPISpec(t, f.e, f.token)
 	modelSchema, _ := json.Marshal(spec.Components.Schemas["Run"]["properties"].(map[string]any)["model"])
 	if !strings.Contains(string(modelSchema), "string") || !strings.Contains(string(modelSchema), "null") {
 		t.Fatal("Run model must be nullable in OpenAPI", string(modelSchema))
+	}
+	usageSchema := spec.resolve(spec.Components.Schemas["Run"]["properties"].(map[string]any)["usage"].(map[string]any))
+	if !reflect.DeepEqual(usageSchema["type"], []any{"object", "null"}) {
+		t.Fatal("Run usage must be nullable in OpenAPI", usageSchema)
+	}
+	for _, field := range []string{"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"} {
+		counter := usageSchema["properties"].(map[string]any)[field].(map[string]any)
+		if !reflect.DeepEqual(counter["type"], []any{"integer", "null"}) || counter["minimum"] != float64(0) {
+			t.Fatal("token measurements must be nullable non-negative integers", field, counter)
+		}
 	}
 }
 func TestMessageSubmissionDoesNotDeduplicateUserText(t *testing.T) {

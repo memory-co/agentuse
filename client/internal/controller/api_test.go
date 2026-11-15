@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -107,6 +108,16 @@ func TestAPIDocumentationAuthenticationAndContract(t *testing.T) {
 	}
 	if len(doc.Components.Schemas["Run"]) == 0 || len(doc.Components.Schemas["Session"]) == 0 {
 		t.Fatal("missing service response schemas")
+	}
+	var usageSchema map[string]any
+	if err := json.Unmarshal(doc.Components.Schemas["RunUsage"], &usageSchema); err != nil || !reflect.DeepEqual(usageSchema["type"], []any{"object", "null"}) {
+		t.Fatal("Run usage must be nullable in OpenAPI", usageSchema, err)
+	}
+	for _, field := range []string{"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"} {
+		counter := usageSchema["properties"].(map[string]any)[field].(map[string]any)
+		if !reflect.DeepEqual(counter["type"], []any{"integer", "null"}) || counter["minimum"] != float64(0) {
+			t.Fatal("token measurements must be nullable non-negative integers", field, counter)
+		}
 	}
 	var controlResponse struct {
 		Content map[string]struct {

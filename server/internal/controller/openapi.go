@@ -62,6 +62,8 @@ func (s *Server) registerAPI() {
 	}
 	config.Security = []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}}
 	api := humago.New(&documentationRouter{server: s}, config)
+	// Huma cannot mark an object reference nullable via a field tag.
+	api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(agentuse.RunUsage{}), false, "").Nullable = true
 	schema := func(v any) *huma.Schema { return api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(v), true, "") }
 	jsonResponse := func(status int, v any) *huma.Response {
 		r := &huma.Response{Description: http.StatusText(status)}

@@ -33,6 +33,13 @@ class AttachmentPage(TypedDict):
     next_cursor: Optional[str]
 
 
+class RunUsage(TypedDict):
+    input_tokens: Optional[int]
+    output_tokens: Optional[int]
+    cache_read_tokens: Optional[int]
+    cache_write_tokens: Optional[int]
+
+
 class Run(TypedDict, total=False):
     id: str
     conversation_id: str
@@ -44,6 +51,7 @@ class Run(TypedDict, total=False):
     harness: str
     harness_revision: str
     model: Optional[str]
+    usage: Optional[RunUsage]
     status: Literal["running", "waiting", "completed", "failed", "cancelled"]
     result_message_id: str
     output: str

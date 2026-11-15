@@ -9,6 +9,7 @@ import { listAttachments } from '@/lib/attachments';
 import { useMessageFiles } from '@/hooks/use-message-files';
 import { MessageFiles } from '@/components/MessageFiles';
 import { RunEvents } from '@/components/RunEvents';
+import { RunTokenUsage } from '@/components/RunTokenUsage';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -262,9 +263,17 @@ function RunView({run,events,questions,messages,inputs,conversationId,onOpenFile
  const mine=events.filter(e=>e.run_id===run.id);
  const active=['running','waiting'].includes(run.status);
  return <section data-run-id={run.id} aria-label={`run @${run.agent_id}`}><Dialog.Root open={open} onOpenChange={setOpen}>
-  <Dialog.Trigger asChild><button className="inline-flex max-w-full items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted">{active&&<LoaderCircle className="size-3.5 animate-spin"/>}<span>Run · @{run.agent_id}</span><span>{t(`run.status.${run.status}`)}</span><ChevronRight className="size-3.5"/></button></Dialog.Trigger>
+  <Dialog.Trigger asChild><button className="flex max-w-full flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted" data-run-summary>
+   <span className="inline-flex shrink-0 items-center gap-2">{active&&<LoaderCircle className="size-3.5 animate-spin"/>}<span>Run · @{run.agent_id}</span><span>{t(`run.status.${run.status}`)}</span><ChevronRight className="size-3.5"/></span>
+   <span className="inline-flex min-w-0 max-w-full flex-wrap gap-x-3 gap-y-1">
+    <span>{t('run.harness')} <span className="font-medium text-foreground/80" data-run-summary-harness>{run.harness}</span></span>
+    <span className="min-w-0 break-words [overflow-wrap:anywhere]">{t('run.model')} <span className="font-medium text-foreground/80" data-run-summary-model>{run.model ?? t('run.modelUnknown')}</span></span>
+   </span>
+   <RunTokenUsage usage={run.usage} compact />
+  </button></Dialog.Trigger>
   <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-50 bg-black/50"/><Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-background p-4 shadow-lg" data-run-detail={run.id}>
    <div className="flex items-start justify-between"><div><Dialog.Title className="font-semibold">@{run.agent_id} · {t('run.details')}</Dialog.Title><Dialog.Description className="mt-1 text-xs text-muted-foreground">{t(`run.status.${run.status}`)} · {run.harness} · {run.harness_revision}</Dialog.Description></div><Dialog.Close asChild><Button size="icon" variant="ghost" aria-label="关闭"><X className="size-4"/></Button></Dialog.Close></div>
+   <RunTokenUsage usage={run.usage} />
    <dl className="my-4 grid grid-cols-[auto_minmax(0,1fr)] gap-2 text-xs"><dt>Run</dt><dd className="break-all">{run.id}</dd><dt>{t('run.model')}</dt><dd className="break-all" data-run-model>{run.model ?? t('run.modelUnknown')}</dd><dt>Client session</dt><dd className="break-all">{run.session_id}</dd><dt>Device</dt><dd className="break-all">{run.device_id}</dd></dl>
    <section className="my-4 grid gap-2" aria-label={t('run.inputs')}>
     <h3 className="text-sm font-medium">{t('run.inputs')} · {inputs.length}</h3>

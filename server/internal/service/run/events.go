@@ -14,16 +14,17 @@ import (
 )
 
 type ExecutionFacts struct {
-	Type      string   `json:"type"`
-	RunID     string   `json:"run_id"`
-	InputID   string   `json:"input_id"`
-	InputIDs  []string `json:"input_ids"`
-	RequestID string   `json:"request_id"`
-	State     string   `json:"state"`
-	Status    string   `json:"status"`
-	Output    string   `json:"output"`
-	Model     *string  `json:"model"`
-	Error     *string  `json:"error"`
+	Type      string             `json:"type"`
+	RunID     string             `json:"run_id"`
+	InputID   string             `json:"input_id"`
+	InputIDs  []string           `json:"input_ids"`
+	RequestID string             `json:"request_id"`
+	State     string             `json:"state"`
+	Status    string             `json:"status"`
+	Output    string             `json:"output"`
+	Model     *string            `json:"model"`
+	Usage     *agentuse.RunUsage `json:"usage"`
+	Error     *string            `json:"error"`
 }
 
 type ExecutionEventConsumer interface {
@@ -164,6 +165,13 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 				}
 			}
 			if event.Type == "result" {
+				if event.Usage != nil {
+					for _, count := range []*int64{event.Usage.InputTokens, event.Usage.OutputTokens, event.Usage.CacheReadTokens, event.Usage.CacheWriteTokens} {
+						if count != nil && *count < 0 {
+							return fmt.Errorf("result token usage must be non-negative integers")
+						}
+					}
+				}
 				if event.Model != nil && strings.TrimSpace(*event.Model) == "" {
 					return fmt.Errorf("result model must be a non-empty string or null")
 				}

@@ -91,8 +91,9 @@ export interface ConversationEvent {
 }
 
 export interface Question {delivery_error?:string;request_id:string;conversation_id:string;run_id:string;state:"pending"|"replied"|"expired";payload:unknown;answer?:unknown;answered_by?:string;created_at:number}
+export interface RunUsage {input_tokens:number|null;output_tokens:number|null;cache_read_tokens:number|null;cache_write_tokens:number|null}
 export interface Run {
- agent_version_id:string;id:string;conversation_id:string;first_message_id:string;agent_id:string;device_id:string;session_id:string;harness:string;harness_revision:string;model:string|null;status:"running"|"waiting"|"completed"|"failed"|"cancelled";result_message_id?:string;output?:string;error?:string;result?:unknown;created_at:number;updated_at:number}
+ agent_version_id:string;id:string;conversation_id:string;first_message_id:string;agent_id:string;device_id:string;session_id:string;harness:string;harness_revision:string;model:string|null;usage:RunUsage|null;status:"running"|"waiting"|"completed"|"failed"|"cancelled";result_message_id?:string;output?:string;error?:string;result?:unknown;created_at:number;updated_at:number}
 export interface MessageError {error:string;uncertain?:boolean}
 export interface RunInput {run_id:string;input_id:string;message_id:string;created_at:number}
 export interface RunDetail { run:Run;events:ConversationEvent[];inputs:RunInput[] }

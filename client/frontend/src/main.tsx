@@ -86,6 +86,8 @@ type Usage = {
   cache_read_tokens: number;
   cache_write_tokens: number;
 };
+type RunUsage = { [K in keyof Usage]: number | null };
+const tokenCount = (value: number | null | undefined) => value == null ? "未回报" : value.toLocaleString();
 type Run = {
  agent_version_id: string;
   run_id: string;
@@ -101,7 +103,7 @@ type Run = {
   received_at: number;
   finished_at?: number;
   duration_ms: number;
-  usage: Usage | null;
+  usage: RunUsage | null;
   cost_usd?: number;
   events?: { kind: string; at: number; payload: unknown }[];
 };
@@ -596,7 +598,9 @@ function App() {
                       <RunConversation run={r} />
                       <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
                         <span>{Math.round(r.duration_ms / 1000)} 秒</span>
-                        <span>{r.usage ? `${(r.usage.input_tokens + r.usage.output_tokens).toLocaleString()} tokens` : "用量未知"}</span>
+                        <span>执行器 {r.harness}</span><span>实际模型 {r.model ?? "未知"}</span>
+                        <span>输入 token {tokenCount(r.usage?.input_tokens)}</span><span>输出 token {tokenCount(r.usage?.output_tokens)}</span>
+                        <span>缓存读 token {tokenCount(r.usage?.cache_read_tokens)}</span><span>缓存写 token {tokenCount(r.usage?.cache_write_tokens)}</span>
                       </div>
                     </article>
                   ))}
@@ -962,12 +966,10 @@ function RunDetail({
               ["收到时间", date(r.received_at)],
               ["结束时间", date(r.finished_at)],
               ["耗时", `${r.duration_ms} ms`],
-              [
-                "输入 / 输出",
-                r.usage
-                  ? `${r.usage.input_tokens} / ${r.usage.output_tokens}`
-                  : "未知",
-              ],
+              ["输入 token（含缓存）", tokenCount(r.usage?.input_tokens)],
+              ["输出 token", tokenCount(r.usage?.output_tokens)],
+              ["缓存读取 token", tokenCount(r.usage?.cache_read_tokens)],
+              ["缓存写入 token", tokenCount(r.usage?.cache_write_tokens)],
             ].map(([k, v]) => (
               <React.Fragment key={k}>
                 <dt className="text-muted-foreground">{k}</dt>

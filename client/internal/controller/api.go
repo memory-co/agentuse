@@ -8,6 +8,7 @@ import (
 
 	runservice "github.com/memory-co/agentuse/client/internal/service/run"
 	"github.com/memory-co/agentuse/client/internal/service/session"
+	sdk "github.com/memory-co/agentuse/sdk/golang"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -27,6 +28,8 @@ func (c *Controller) registerAPI() {
 	}
 	config.Security = []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}}
 	api := humago.New(c.mux, config)
+	// Huma cannot mark an object reference nullable via a field tag.
+	api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(sdk.RunUsage{}), false, "").Nullable = true
 	schema := func(v any) *huma.Schema { return api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(v), true, "") }
 	bind := func(method, path, id, summary, tag string, output any, status int, input any, handler http.HandlerFunc, params ...*huma.Param) {
 		op := &huma.Operation{Method: method, Path: path, OperationID: id, Summary: summary, Tags: []string{tag}, Parameters: params, Responses: map[string]*huma.Response{}}

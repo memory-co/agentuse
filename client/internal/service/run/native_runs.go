@@ -23,25 +23,25 @@ import (
 // Run is exactly one adapter-owned interaction. There is no client attempt ID
 // or caller-assigned run identity. All execution facts come from events.jsonl.
 type Run struct {
-	AgentVersionID  string     `json:"agent_version_id"`
-	EndpointID      string     `json:"endpoint_id"`
-	ConversationID  string     `json:"conversation_id"`
-	SessionID       string     `json:"session_id"`
-	RunID           string     `json:"run_id"`
-	AgentID         string     `json:"agent_id"`
-	Harness         string     `json:"harness"`
-	HarnessRevision string     `json:"harness_revision"`
-	Model           *string    `json:"model" nullable:"true" doc:"Actual native model from result, including harness defaults; null until reported."`
-	Summary         string     `json:"summary"`
-	Status          string     `json:"status"`
-	Output          string     `json:"output,omitempty"`
-	Error           string     `json:"error,omitempty"`
-	ReceivedAt      int64      `json:"received_at"`
-	FinishedAt      *int64     `json:"finished_at,omitempty"`
-	DurationMS      int64      `json:"duration_ms"`
-	Usage           *sdk.Usage `json:"usage"`
-	CostUSD         *float64   `json:"cost_usd"`
-	Events          []Event    `json:"events,omitempty"`
+	AgentVersionID  string        `json:"agent_version_id"`
+	EndpointID      string        `json:"endpoint_id"`
+	ConversationID  string        `json:"conversation_id"`
+	SessionID       string        `json:"session_id"`
+	RunID           string        `json:"run_id"`
+	AgentID         string        `json:"agent_id"`
+	Harness         string        `json:"harness"`
+	HarnessRevision string        `json:"harness_revision"`
+	Model           *string       `json:"model" nullable:"true" doc:"Actual native model from result, including harness defaults; null until reported."`
+	Summary         string        `json:"summary"`
+	Status          string        `json:"status"`
+	Output          string        `json:"output,omitempty"`
+	Error           string        `json:"error,omitempty"`
+	ReceivedAt      int64         `json:"received_at"`
+	FinishedAt      *int64        `json:"finished_at,omitempty"`
+	DurationMS      int64         `json:"duration_ms"`
+	Usage           *sdk.RunUsage `json:"usage"`
+	CostUSD         *float64      `json:"cost_usd"`
+	Events          []Event       `json:"events,omitempty"`
 }
 type nativeReceipt struct {
 	AgentVersionID  string `json:"agent_version_id"`
@@ -127,7 +127,7 @@ func (r *Service) Detail(ctx context.Context, endpoint, conversation, session, i
 			RunID                             string `json:"run_id"`
 			RequestID                         string `json:"request_id"`
 			TS                                string `json:"ts"`
-			Usage                             *sdk.Usage
+			Usage                             *sdk.RunUsage
 			CostUSD                           *float64 `json:"cost_usd"`
 			Error                             *string
 			Model                             *string `json:"model"`
@@ -314,10 +314,18 @@ func (r *Service) Stats(ctx context.Context, group string, f Filter) ([]Statisti
 			s.Runs++
 			if v.Usage != nil {
 				s.UsageRuns++
-				s.Usage.InputTokens += v.Usage.InputTokens
-				s.Usage.OutputTokens += v.Usage.OutputTokens
-				s.Usage.CacheReadTokens += v.Usage.CacheReadTokens
-				s.Usage.CacheWriteTokens += v.Usage.CacheWriteTokens
+				if v.Usage.InputTokens != nil {
+					s.Usage.InputTokens += *v.Usage.InputTokens
+				}
+				if v.Usage.OutputTokens != nil {
+					s.Usage.OutputTokens += *v.Usage.OutputTokens
+				}
+				if v.Usage.CacheReadTokens != nil {
+					s.Usage.CacheReadTokens += *v.Usage.CacheReadTokens
+				}
+				if v.Usage.CacheWriteTokens != nil {
+					s.Usage.CacheWriteTokens += *v.Usage.CacheWriteTokens
+				}
 			}
 			if v.CostUSD != nil {
 				s.CostUSD += *v.CostUSD

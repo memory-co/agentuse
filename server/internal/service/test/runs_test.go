@@ -77,7 +77,7 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 		t.Fatal(rows, err)
 	}
 	reportNative(t, s, d, p2, "client-conversation", 3, map[string]any{"type": "message", "run_id": id, "message_id": "body", "text": "client body"})
-	reportNative(t, s, d, p2, "client-conversation", 4, map[string]any{"type": "result", "run_id": id, "status": "completed", "input_ids": []string{"input-1", "input-2"}, "output": "client result", "usage": map[string]int{"input_tokens": 17}, "cost_usd": .03})
+	reportNative(t, s, d, p2, "client-conversation", 4, map[string]any{"type": "result", "run_id": id, "status": "completed", "input_ids": []string{"input-1", "input-2"}, "output": "client result", "usage": map[string]int{"input_tokens": 17, "output_tokens": 5, "cache_read_tokens": 10, "cache_write_tokens": 2}, "cost_usd": .03})
 	detail, err := s.ConversationService.ReadConversation(ctx, u, ss.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -91,6 +91,10 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 	}
 	if len(detail.RunInputs) != 2 || len(detail.Messages[0].ToAgentIDs) != 1 || detail.Messages[0].ToAgentIDs[0] != a.ID || len(detail.Messages[0].ToUserIDs) != 0 {
 		t.Fatal("result changed original recipients or scheduled another agent", detail)
+	}
+	usage := detail.Runs[0].Usage
+	if usage == nil || usage.InputTokens == nil || *usage.InputTokens != 17 || usage.CacheReadTokens == nil || *usage.CacheReadTokens != 10 {
+		t.Fatal("run usage must not be multiplied by inputs or added to cache tokens", usage)
 	}
 	for _, prompt := range detail.RunInputs {
 		if prompt.RunID != id || prompt.InputID == "" {

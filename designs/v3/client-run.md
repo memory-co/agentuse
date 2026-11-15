@@ -38,6 +38,10 @@ input_id 和 request_id 來自適配器，不能以客戶端臨時 ID 替換。�
 
 Run.model 從該 run 的 result.model 讀取，表示原生實際確認的主模型，類型為 string 或 null。用戶未聲明 model 時也展示 harness 回報的默認模型；init 的 model 配置選擇與此執行事實分開。尚未回報時保持 null，不能以 session 配置或上一個 run 的模型補值。失敗和取消的已知模型照常保留；引用文件不複製模型事實，重建後仍從原始事件查詢。
 
+Run.usage 從同一 result.usage 讀取，使用 RunUsage 返回四個可為 null 的非負整數：input_tokens、output_tokens、cache_read_tokens、cache_write_tokens。未回報 usage 時整體為 null；缺失計量不補 0，明確回報的零值保留。輸入已包含緩存讀寫部分，不能再把緩存加到輸入數上。列表及詳情分別展示四項計量，未知顯示「未回報」。引用不複製用量，重建仍讀取同一 run 的結果，失敗和取消同樣保留已知計量。
+
+session 統計仍用 Usage 返回各項已回報數值的和，每個真實 run 只計一次，不按 accepted 數量計次或混入原生 session 累計值。usage_runs 計有 usage 對象的 run 數，部分計量仍可能缺失；單次 RunUsage 與統計 Usage 分開，避免將未知值默認成零。
+
 ## 恢復和目錄保護
 
 accepted 事件是執行歸屬的事實。若適配器寫入 accepted 後 client 來不及創建引用就退出，啓動時掃描該 session 的公共事件即可重建引用；不需要預分配 ID、按時間猜測或恢復執行嘗試。

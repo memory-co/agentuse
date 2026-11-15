@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/memory-co/agentuse/client/internal/service/session"
+	sdk "github.com/memory-co/agentuse/sdk/golang"
 )
 
 func TestNativeIndexesComeOnlyFromAdapterAccepted(t *testing.T) {
@@ -47,11 +49,11 @@ func TestNativeIndexesComeOnlyFromAdapterAccepted(t *testing.T) {
 		t.Fatal(page, err)
 	}
 	run, err := files.Detail(ctx, "local", conversation.ID, session.ID, first)
-	if err != nil || run.Status != "completed" || run.Summary != "first" || run.Output != "unique result" || run.DurationMS != 2000 || run.Usage.InputTokens != 42 || run.Model == nil || *run.Model != "native-default-model" {
+	if err != nil || run.Status != "completed" || run.Summary != "first" || run.Output != "unique result" || run.DurationMS != 2000 || run.Usage == nil || run.Usage.InputTokens == nil || *run.Usage.InputTokens != 42 || run.Usage.CacheReadTokens != nil || run.Model == nil || *run.Model != "native-default-model" {
 		t.Fatal(run, err)
 	}
 	queued, err := files.Detail(ctx, "local", conversation.ID, session.ID, second)
-	if err != nil || queued.Status != "waiting" || queued.Model != nil {
+	if err != nil || queued.Status != "waiting" || queued.Model != nil || queued.Usage != nil {
 		t.Fatal(queued, err)
 	}
 	index := filepath.Join(filepath.Dir(source), "runs", first+".jsonl")
@@ -74,6 +76,58 @@ func TestNativeIndexesComeOnlyFromAdapterAccepted(t *testing.T) {
 	}
 	if err = files.AcceptNative(ctx, session, "caller-chosen-name"); err == nil {
 		t.Fatal("non-adapter run identity accepted")
+	}
+}
+
+func TestNativeRunUsagePreservesReportedCountersAndAggregatesOnce(t *testing.T) {
+	ctx := context.Background()
+	files, err := openFileServices(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversation, err := files.Sessions.CreateLocalConversation(ctx, "usage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, cwd, err := files.Sessions.Acquire(ctx, "local", conversation.ID, "agent", "codex", "v", "agent-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := func(n int64) *int64 { return &n }
+	tests := []struct {
+		id, usage string
+		want      *sdk.RunUsage
+	}{
+		{"550e8400-e29b-41d4-a716-446655440010", `{"input_tokens":12345,"output_tokens":321,"cache_read_tokens":6789,"cache_write_tokens":0}`, &sdk.RunUsage{InputTokens: count(12345), OutputTokens: count(321), CacheReadTokens: count(6789), CacheWriteTokens: count(0)}},
+		{"550e8400-e29b-41d4-a716-446655440011", `{"input_tokens":0}`, &sdk.RunUsage{InputTokens: count(0)}},
+		{"550e8400-e29b-41d4-a716-446655440012", `null`, nil},
+		{"550e8400-e29b-41d4-a716-446655440013", "", nil},
+	}
+	var body []byte
+	for _, test := range tests {
+		body = append(body, append(raw(map[string]any{"type": "accepted", "run_id": test.id, "input_id": test.id, "text": "work"}), '\n')...)
+		event := map[string]any{"type": "result", "run_id": test.id, "status": "completed", "output": "done"}
+		if test.usage != "" {
+			event["usage"] = json.RawMessage(test.usage)
+		}
+		body = append(body, append(raw(event), '\n')...)
+	}
+	source := filepath.Join(filepath.Dir(cwd), "sessions", session.ID, "events.jsonl")
+	if err = os.WriteFile(source, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = files.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range tests {
+		run, err := files.Detail(ctx, "local", conversation.ID, session.ID, test.id)
+		if err != nil || !reflect.DeepEqual(run.Usage, test.want) {
+			t.Fatal("per-run counters were filled or changed", run.Usage, test.want, err)
+		}
+	}
+	stats, err := files.Stats(ctx, "harness", Filter{Endpoint: "local", Conversation: conversation.ID, Session: session.ID})
+	if err != nil || len(stats) != 1 || stats[0].Runs != 4 || stats[0].UsageRuns != 2 || stats[0].Usage.InputTokens != 12345 || stats[0].Usage.OutputTokens != 321 || stats[0].Usage.CacheReadTokens != 6789 || stats[0].Usage.CacheWriteTokens != 0 {
+		t.Fatal("aggregates must count only reported measurements once per run", stats, err)
 	}
 }
 

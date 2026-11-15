@@ -54,12 +54,14 @@ func ScanRun(row Scanner) (agentuse.Run, error) {
 	if result.Valid {
 		r.Result = json.RawMessage(result.String)
 		var facts struct {
-			Model *string `json:"model"`
+			Model *string            `json:"model"`
+			Usage *agentuse.RunUsage `json:"usage"`
 		}
 		if decodeErr := json.Unmarshal(r.Result, &facts); decodeErr != nil {
 			return r, decodeErr
 		}
 		r.Model = facts.Model
+		r.Usage = facts.Usage
 	}
 	return r, err
 }

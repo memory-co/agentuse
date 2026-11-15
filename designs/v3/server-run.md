@@ -36,6 +36,10 @@ accepted、run、run_inputs 和 conversation 狀態在同一事務提交，提�
 
 Run.model 是本次原生主執行實際確認的模型，直接從已持久保存的 runs.result.model 提取。用戶不聲明 model 時，同樣記錄 harness 回報的實際默認模型；聲明別名時則記錄原生解析或重路由後的模型。運行中尚未取得 result、或原生未回報時為 null，不從 Agent 配置或 session 初始化參數補填。成功、失敗和取消都保留 result 已確認的值；不匯總子 Agent 模型。不新增 SQL 列或改變 schema 10。
 
+Run.usage 同樣從 runs.result.usage 提取，保留單次執行的 input_tokens、output_tokens、cache_read_tokens、cache_write_tokens。整體未回報時為 null，部分計量未回報時該字段為 null；明確的 0 必須保留，不能用零補齊未知值。計量為非負整數，非法 result 在提交前拒絕，不留下無法讀取的 run。失敗及取消也展示已回報的用量。
+
+input_tokens 已包含緩存部分，cache_read_tokens 和 cache_write_tokens 是輸入的細分，不再額外累加。Server 不按 run_inputs 數量乘算、不加入其他 run 或子對話、不解析私有日志推測計量。完整 result JSON 保持不變，不新增計量 SQL 列或獨立統計表。
+
 回覆指向 first_message_id，result_message_id 防止重複回覆。頂層 cancelled 可以沒有最終回覆；子對話保存取消說明。子對話在所有目標有受理結果或明確拒絕、所有實際執行結束後，關閉本地輪次並自動通知父側。普通 log 只作診斷，不要求 ACK。
 
 answer/cancel 指定既有 run/session，控制 ACK 不等於 request 已 replied 或 run 已 cancelled；實際狀態仍由公共事件確認。run_controls 只保存控制的傳輸收據。
@@ -45,6 +49,8 @@ answer/cancel 指定既有 run/session，控制 ACK 不等於 request 已 replie
 ConversationDetail 返回 messages、runs、run_inputs、rounds、questions 和 events；新消息的響應中 runs、run_inputs 都是空數組。消息受理前的否定回執以 Message.agent_errors 返回，不再提供 deliveries。
 
 GET run 返回 run、inputs 和 events。前端對每個真實 run 只保留一個明確可點擊的入口；受理輸入列表、原消息、input_id 和診斷事件集中在 Run 詳情，不在每條消息下面重複顯示 completed 標籤。子會話通知維持默認折疊。
+
+Run 入口直接展示 harness、實際 model、輸入、輸出、緩存讀取及緩存寫入 token，窄屏自動換行。未回報計量顯示「—」，詳情的四項計量顯示「未回報」，零值顯示 0；詳情同時說明輸入已含緩存，不將緩存重複計入。
 
 原始事件默認展示緊湊時間線，每條保留原類型、topic、status/state/level 和時間，按公共事件類型配置圖標。標題依次取 payload 的 `$.data.title`、`$.title`、`$.message`、`$.text`、`$.output`、`$.data.reason`、`$.reason`、`$.topic`、`$.type` 中第一個非空字符串，最後回退到 event.kind；長文本僅截短展示。這只是已有字段的優先級，不把日志映射為「運行命令」等動作，不解析原生私有幀推測意義，也不合併或重排事件。點擊單條後才渲染完整原始 JSON，原始內容保持不變。
 

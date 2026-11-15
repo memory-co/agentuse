@@ -18,6 +18,7 @@ type Run struct {
 	Harness         string          `json:"harness"`
 	HarnessRevision string          `json:"harness_revision"`
 	Model           *string         `json:"model" nullable:"true" doc:"Actual native model from result, including harness defaults; null until reported."`
+	Usage           *RunUsage       `json:"usage" doc:"Native token measurements for this run; null if not reported."`
 	Status          string          `json:"status"`
 	ResultMessageID *string         `json:"result_message_id,omitempty"`
 	Output          string          `json:"output,omitempty"`

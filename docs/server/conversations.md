@@ -147,6 +147,17 @@ Go 类型为 `Conversation`、`ConversationRound`、`ConversationDetail`、`Conv
 
 “原始事件”默认显示带图标的紧凑列表，保留事件类型、topic、状态和时间。标题优先展示 `data.title`、`title`、`message`、`text` 等已有字段的原值，长文本截短；点击单条事件才展开完整 JSON。事件的顺序、数量和原始内容保持不变，不将日志改写为动作描述。
 
-Run 的 `model` 表示 harnessctl `result.model` 回报的实际执行模型，详情页显示为“实际模型”。用户未指定模型时，也会记录 harness 实际使用并回报的默认模型；配置中的别名不会覆盖原生结果。尚未取得结果或未回报模型时为 `null`，页面显示“未知”。失败和取消同样保留已确认的模型。
+Run 的摘要行直接显示执行器、实际模型和四项 token 用量，点击后查看完整计量、输入和事件。`model` 表示 harnessctl `result.model` 回报的实际执行模型。用户未指定模型时，也会记录 harness 实际使用并回报的默认模型；配置中的别名不会覆盖原生结果。尚未取得结果或未回报模型时为 `null`，页面显示“未知”。失败和取消同样保留已确认的模型。
+
+Run 的 `usage` 直接来自本次 `result.usage`，没有回报时为 `null`；对象中每个未回报的计数也为 `null`。页面摘要显示 `—`，详情显示“未回报”；原生明确回报的 `0` 显示为 `0`。
+
+| 字段 | 含义 |
+|---|---|
+| `input_tokens` | 总输入 token，已包含缓存部分 |
+| `output_tokens` | 输出 token |
+| `cache_read_tokens` | 读取缓存的输入 token |
+| `cache_write_tokens` | 写入缓存的输入 token |
+
+四项是本次 run 的原生计量，不按受理消息数累加，也不混入其他 run 或子会话的用量。缓存读写是输入的细分，不能再额外加到输入数上；不从原始日志推测未回报的数据。原始 `result` 和事件保留完整内容。
 
 初始化失败或明确拒绝不会生成 run；错误位于消息的 agent_errors，以 agent_id 为键，每项包含 error 和可选的 uncertain。uncertain=true 表示受理结果尚待确认，不等于失败或完成。等待消息完成必须检查全部 Agent 目标的受理关联和对应 run 的终态，不能因为 runs 为空就提前返回。
