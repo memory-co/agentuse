@@ -31,6 +31,7 @@ type Run struct {
 	AgentID         string     `json:"agent_id"`
 	Harness         string     `json:"harness"`
 	HarnessRevision string     `json:"harness_revision"`
+	Model           *string    `json:"model" nullable:"true" doc:"Actual native model from result, including harness defaults; null until reported."`
 	Summary         string     `json:"summary"`
 	Status          string     `json:"status"`
 	Output          string     `json:"output,omitempty"`
@@ -129,6 +130,7 @@ func (r *Service) Detail(ctx context.Context, endpoint, conversation, session, i
 			Usage                             *sdk.Usage
 			CostUSD                           *float64 `json:"cost_usd"`
 			Error                             *string
+			Model                             *string `json:"model"`
 		}
 		if err = json.Unmarshal(line, &event); err != nil {
 			return result, err
@@ -164,6 +166,7 @@ func (r *Service) Detail(ctx context.Context, endpoint, conversation, session, i
 			}
 		case "result":
 			result.Status = event.Status
+			result.Model = event.Model
 			result.Output = event.Output
 			result.Usage = event.Usage
 			result.CostUSD = event.CostUSD

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/protocol"
@@ -21,6 +22,7 @@ type ExecutionFacts struct {
 	State     string   `json:"state"`
 	Status    string   `json:"status"`
 	Output    string   `json:"output"`
+	Model     *string  `json:"model"`
 	Error     *string  `json:"error"`
 }
 
@@ -162,6 +164,9 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 				}
 			}
 			if event.Type == "result" {
+				if event.Model != nil && strings.TrimSpace(*event.Model) == "" {
+					return fmt.Errorf("result model must be a non-empty string or null")
+				}
 				if event.Status != "completed" && event.Status != "failed" && event.Status != "cancelled" {
 					return fmt.Errorf("invalid public result status")
 				}

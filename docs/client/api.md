@@ -44,4 +44,6 @@ Client 本机服务用于查看 endpoint、conversation、session、run，并通
 
 还可提供 `model`、`agent_instructions`、`skill_packages`，其中技能是本机 ZIP 路径。当前内置适配器支持 Linux，要求 Python 3.9+ 及已配置的原生 CLI。实际 run UUID 来自 accepted；补充输入可能继续同一 run，也可能排队形成下一次执行。
 
+请求中的 `model` 是可选配置。Run 响应中的 `model` 是 harnessctl 在 `result.model` 回报的实际执行模型，用户未指定时同样记录 harness 的默认模型。尚未回报时为 `null`；本机 Run 详情显示“实际模型”，不会使用初始化配置推测执行结果。
+
 文件读写及会话协作通过执行环境中的 `context`，见 [执行上下文](context.md)。本机 API 不替代 Server 的会话管理与文件接口。底层会话、目录与恢复模型见 [Client 设计](../../designs/v3/client-main.md)。

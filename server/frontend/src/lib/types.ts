@@ -30,7 +30,7 @@ export interface Attachment {
  created_by: string; source: 'user' | 'device'; device_id?: string; created_at: number; download_path: string;
 }
 
-export interface Run {agent_version_id:string;id:string;conversation_id:string;first_message_id:string;agent_id:string;device_id:string;session_id:string;harness:string;harness_revision:string;status:'running'|'waiting'|'completed'|'failed'|'cancelled';error?:string;output?:string;result?:any;result_message_id?:string}
+export interface Run {agent_version_id:string;id:string;conversation_id:string;first_message_id:string;agent_id:string;device_id:string;session_id:string;harness:string;harness_revision:string;model:string|null;status:'running'|'waiting'|'completed'|'failed'|'cancelled';error?:string;output?:string;result?:any;result_message_id?:string}
 export interface MessageError {error:string;uncertain?:boolean}
 export interface RunInput {run_id:string;input_id:string;message_id:string;created_at:number}
 

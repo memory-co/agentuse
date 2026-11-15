@@ -43,6 +43,7 @@ class Run(TypedDict, total=False):
     session_id: str
     harness: str
     harness_revision: str
+    model: Optional[str]
     status: Literal["running", "waiting", "completed", "failed", "cancelled"]
     result_message_id: str
     output: str

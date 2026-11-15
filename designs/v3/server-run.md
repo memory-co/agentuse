@@ -34,6 +34,8 @@ Server 核對認證設備、來源消息、Agent 固定版本及 session 歸屬�
 
 accepted、run、run_inputs 和 conversation 狀態在同一事務提交，提交後才 ACK。run_inputs 在 accepted 時寫入，不等 result。result.input_ids 必須恰好覆蓋該 run 的所有受理輸入；結果與最終回覆仍原子提交，每個 run 只結算一次。終態不修改 run_inputs，也不複製回消息元數據。
 
+Run.model 是本次原生主執行實際確認的模型，直接從已持久保存的 runs.result.model 提取。用戶不聲明 model 時，同樣記錄 harness 回報的實際默認模型；聲明別名時則記錄原生解析或重路由後的模型。運行中尚未取得 result、或原生未回報時為 null，不從 Agent 配置或 session 初始化參數補填。成功、失敗和取消都保留 result 已確認的值；不匯總子 Agent 模型。不新增 SQL 列或改變 schema 10。
+
 回覆指向 first_message_id，result_message_id 防止重複回覆。頂層 cancelled 可以沒有最終回覆；子對話保存取消說明。子對話在所有目標有受理結果或明確拒絕、所有實際執行結束後，關閉本地輪次並自動通知父側。普通 log 只作診斷，不要求 ACK。
 
 answer/cancel 指定既有 run/session，控制 ACK 不等於 request 已 replied 或 run 已 cancelled；實際狀態仍由公共事件確認。run_controls 只保存控制的傳輸收據。

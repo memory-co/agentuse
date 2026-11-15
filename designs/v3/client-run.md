@@ -36,6 +36,8 @@ run 引用僅定位實際的適配器 UUID：
 
 input_id 和 request_id 來自適配器，不能以客戶端臨時 ID 替換。無論 local 還是遠端，Run DTO 都沒有 attempt_id、server_confirmed、harness_run_ids 或第二套任務 ID。
 
+Run.model 從該 run 的 result.model 讀取，表示原生實際確認的主模型，類型為 string 或 null。用戶未聲明 model 時也展示 harness 回報的默認模型；init 的 model 配置選擇與此執行事實分開。尚未回報時保持 null，不能以 session 配置或上一個 run 的模型補值。失敗和取消的已知模型照常保留；引用文件不複製模型事實，重建後仍從原始事件查詢。
+
 ## 恢復和目錄保護
 
 accepted 事件是執行歸屬的事實。若適配器寫入 accepted 後 client 來不及創建引用就退出，啓動時掃描該 session 的公共事件即可重建引用；不需要預分配 ID、按時間猜測或恢復執行嘗試。

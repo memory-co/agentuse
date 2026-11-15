@@ -17,6 +17,7 @@ type Run struct {
 	SessionID       string          `json:"session_id"`
 	Harness         string          `json:"harness"`
 	HarnessRevision string          `json:"harness_revision"`
+	Model           *string         `json:"model" nullable:"true" doc:"Actual native model from result, including harness defaults; null until reported."`
 	Status          string          `json:"status"`
 	ResultMessageID *string         `json:"result_message_id,omitempty"`
 	Output          string          `json:"output,omitempty"`

@@ -53,6 +53,13 @@ func ScanRun(row Scanner) (agentuse.Run, error) {
 	}
 	if result.Valid {
 		r.Result = json.RawMessage(result.String)
+		var facts struct {
+			Model *string `json:"model"`
+		}
+		if decodeErr := json.Unmarshal(r.Result, &facts); decodeErr != nil {
+			return r, decodeErr
+		}
+		r.Model = facts.Model
 	}
 	return r, err
 }

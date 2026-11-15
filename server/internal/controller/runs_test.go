@@ -61,10 +61,18 @@ func TestRunAPIUsesClientIdentityAndGenericReply(t *testing.T) {
 	if err != nil || r.Status != "waiting" {
 		t.Fatal("cancel request fabricated terminal state", r, err)
 	}
-	report(3, map[string]any{"type": "result", "run_id": run, "status": "cancelled", "input_ids": []string{"input"}, "output": ""})
+	report(3, map[string]any{"type": "result", "run_id": run, "status": "cancelled", "input_ids": []string{"input"}, "output": "", "model": "native-default-model"})
 	r, _ = f.e.st.RunService.GetRun(ctx, f.u, f.conversation.ID, run)
 	if r.Status != "cancelled" {
 		t.Fatal(r)
+	}
+	if response := f.e.req(f.token, "GET", "/api/conversations/"+f.conversation.ID+"/runs/"+run, nil, &execution); response.StatusCode != 200 || execution.Run.Model == nil || *execution.Run.Model != "native-default-model" {
+		t.Fatal("Run API omitted the native model on cancellation", execution)
+	}
+	spec := readServerAPISpec(t, f.e, f.token)
+	modelSchema, _ := json.Marshal(spec.Components.Schemas["Run"]["properties"].(map[string]any)["model"])
+	if !strings.Contains(string(modelSchema), "string") || !strings.Contains(string(modelSchema), "null") {
+		t.Fatal("Run model must be nullable in OpenAPI", string(modelSchema))
 	}
 }
 func TestMessageSubmissionDoesNotDeduplicateUserText(t *testing.T) {

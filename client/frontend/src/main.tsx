@@ -94,6 +94,7 @@ type Run = {
   agent_id: string;
   harness: string;
   status: string;
+  model: string | null;
   summary: string;
   output?: string;
   error?: string;
@@ -957,6 +958,7 @@ function RunDetail({
             {[
               ["Run", r.run_id],
               ["Session", r.session_id],
+              ["实际模型", r.model ?? "未知"],
               ["收到时间", date(r.received_at)],
               ["结束时间", date(r.finished_at)],
               ["耗时", `${r.duration_ms} ms`],
