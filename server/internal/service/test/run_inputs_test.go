@@ -7,11 +7,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/protocol"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 )
 
 func TestRunInputsRecordOnlyAcceptedTargetsOfAMultiAgentMessage(t *testing.T) {
-	s, u, d, a := runStore(t)
+	s, u, d, a := runFixture(t)
 	ctx := context.Background()
 	b, err := s.AgentService.CreateAgent(ctx, u.ID, "reviewer", "Reviewer", d.ID, a.Harness, "")
 	if err != nil {
@@ -59,7 +59,7 @@ func TestRunInputsRecordOnlyAcceptedTargetsOfAMultiAgentMessage(t *testing.T) {
 }
 
 func TestUnknownReceiptCreatesNoInputAndAcceptanceUnblocksSupplements(t *testing.T) {
-	s, u, d, a := runStore(t)
+	s, u, d, a := runFixture(t)
 	ctx := context.Background()
 	conversation, first, err := s.ConversationService.CreateConversation(ctx, u, "", "", "first", []string{a.ID}, nil, "", nil)
 	if err != nil {
@@ -76,7 +76,7 @@ func TestUnknownReceiptCreatesNoInputAndAcceptanceUnblocksSupplements(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.RunService.DispatchMessage(ctx, d); !errors.Is(err, store.ErrNotFound) {
+	if _, err = s.RunService.DispatchMessage(ctx, d); !errors.Is(err, database.ErrNotFound) {
 		t.Fatal("uncertain send did not block its binding", err)
 	}
 	detail, err := s.ConversationService.ReadConversation(ctx, u, conversation.ID)

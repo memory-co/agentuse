@@ -21,7 +21,7 @@ func (s *Server) handleMessageContext(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.service.ConversationService.CompleteMessages(r.Context(), d.ID, r.PathValue("id"), r.PathValue("message_id"), r.PathValue("agent_id"), r.URL.Query().Get("session_id"))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

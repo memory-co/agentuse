@@ -7,12 +7,12 @@ import (
 	"testing"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	deviceservice "github.com/memory-co/agentuse/server/internal/service/device"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 func TestAgents(t *testing.T) {
-	s := newStore(t)
+	s := newService(t)
 	ctx := context.Background()
 	alice, _, _ := s.UserService.CreateUser(ctx, "", "alice", agentuse.RoleUser)
 	bob, _, _ := s.UserService.CreateUser(ctx, "", "bob", agentuse.RoleUser)
@@ -46,7 +46,7 @@ func TestAgents(t *testing.T) {
 	}
 	// Only the owner may publish a full immutable configuration.
 	config := agentuse.AgentConfig{Name: ag.Name, DeviceID: desktop.ID, Harness: "codex"}
-	if _, err := s.AgentService.PublishAgentVersion(ctx, bob, ag.ID, ag.CurrentVersionID, config); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.AgentService.PublishAgentVersion(ctx, bob, ag.ID, ag.CurrentVersionID, config); !errors.Is(err, database.ErrNotFound) {
 		t.Fatalf("bob publish: %v", err)
 	}
 	old := ag.CurrentVersionID
@@ -69,7 +69,7 @@ func TestAgents(t *testing.T) {
 	}
 
 	// Soft deletion retains immutable history.
-	if err := s.AgentService.DeleteAgent(ctx, bob, ag.ID); !errors.Is(err, store.ErrNotFound) {
+	if err := s.AgentService.DeleteAgent(ctx, bob, ag.ID); !errors.Is(err, database.ErrNotFound) {
 		t.Fatalf("bob delete: %v", err)
 	}
 	if err := s.AgentService.DeleteAgent(ctx, alice, ag.ID); err != nil {

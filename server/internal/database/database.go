@@ -1,18 +1,13 @@
-// Package store owns the Server metadata database, ORM models and migrations.
-package store
+// Package database owns the Server metadata database, ORM models and migrations.
+package database
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"time"
-
 	"net/url"
 	"path/filepath"
+	"time"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5"
@@ -25,7 +20,7 @@ import (
 )
 
 // ErrNotFound 表示要找的行不存在(或不属于当前用户)。
-var ErrNotFound = errors.New("store: not found")
+var ErrNotFound = errors.New("database: not found")
 
 // Config selects the metadata backend. SQLite is the default; DSN is its file
 // path or a MySQL/PostgreSQL connection string, depending on Driver.
@@ -34,14 +29,13 @@ type Config struct {
 	DSN    string
 }
 
-type Store struct {
-	db  *gorm.DB
-	now func() time.Time
+type DB struct {
+	db *gorm.DB
 }
 
-func Open(path string) (*Store, error) { return OpenConfig(Config{Driver: "sqlite", DSN: path}) }
+func Open(path string) (*DB, error) { return OpenConfig(Config{Driver: "sqlite", DSN: path}) }
 
-func OpenConfig(config Config) (*Store, error) {
+func OpenConfig(config Config) (*DB, error) {
 	if config.Driver == "" {
 		config.Driver = "sqlite"
 	}
@@ -96,7 +90,7 @@ func OpenConfig(config Config) (*Store, error) {
 		// SQLite cannot run its busy handler for every journal-mode transition.
 		// Concurrent first opens may therefore fail before migration can lock.
 		if config.Driver != "sqlite" || !(errors.Is(err, sqlite3.BUSY) || errors.Is(err, sqlite3.LOCKED)) || time.Now().After(deadline) {
-			return nil, fmt.Errorf("store: connect %s: %w", config.Driver, err)
+			return nil, fmt.Errorf("database: connect %s: %w", config.Driver, err)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -114,12 +108,12 @@ func OpenConfig(config Config) (*Store, error) {
 	}
 	if err = migrate(db); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("store: migrate: %w", err)
+		return nil, fmt.Errorf("database: migrate: %w", err)
 	}
-	return &Store{db: db, now: time.Now}, nil
+	return &DB{db: db}, nil
 }
 
-func (s *Store) Close() error {
+func (s *DB) Close() error {
 	pool, err := s.db.DB()
 	if err != nil {
 		return err
@@ -127,55 +121,10 @@ func (s *Store) Close() error {
 	return pool.Close()
 }
 
-func (s *Store) unix() int64 { return s.now().Unix() }
-
-// HashSecret 把令牌 / 密钥变成存库用的哈希。
-func HashSecret(secret string) string {
-	h := sha256.Sum256([]byte(secret))
-	return hex.EncodeToString(h[:])
-}
-
-// RandomToken 生成带前缀的随机令牌，如 ut_xxxx。
-func RandomToken(prefix string) string {
-	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
-		panic(err)
-	}
-	return prefix + hex.EncodeToString(b)
-}
-
-func RandomID(prefix string) string {
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		panic(err)
-	}
-	return prefix + hex.EncodeToString(b)
-}
-
-func NewUUID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic(err)
-	}
-	b[6] = b[6]&0x0f | 0x40
-	b[8] = b[8]&0x3f | 0x80
-	h := hex.EncodeToString(b)
-	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
-}
-
-func nullInt(v sql.NullInt64) *int64 {
-	if !v.Valid {
-		return nil
-	}
-	return &v.Int64
-}
-
-func nullStr(v sql.NullString) string { return v.String }
-
 // Connection supplies the ORM executor for service-owned transactions.
-func (s *Store) Connection() *gorm.DB { return s.db }
+func (s *DB) Connection() *gorm.DB { return s.db }
 
-func (s *Store) Tx(ctx context.Context, fn func(*gorm.DB) error) error {
+func (s *DB) Tx(ctx context.Context, fn func(*gorm.DB) error) error {
 	tx, err := Begin(ctx, s.db)
 	if err != nil {
 		return err

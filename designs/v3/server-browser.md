@@ -42,7 +42,7 @@ Service 在交易提交成功後發布通知；回滾不發布。設備的 accep
 
 ## 源碼職責
 
-server/internal/notification 的 Broker 只分發變更提示，使用明確的訂閱者 ID、管理員標記及發佈者提供的所有者範圍，不依賴 SQL、store 或 service。用戶變更由 user.Service 以僅管理員範圍發佈；其他資源由所屬服務發佈，對話包含所有者、創建者及父對話引用。設備相關對話由 conversation.Service 根據消息的固定目標路由查詢並發佈。HTTP/WebSocket 層消費通知，不參與業務消息或輪次生成。所有變更仍在業務事務成功提交後發佈。
+server/internal/notification 的 Broker 只分發變更提示，使用明確的訂閱者 ID、管理員標記及發佈者提供的所有者範圍，不依賴 SQL、database 或 service。用戶變更由 user.Service 以僅管理員範圍發佈；其他資源由所屬服務發佈，對話包含所有者、創建者及父對話引用。設備相關對話由 conversation.Service 根據消息的固定目標路由查詢並發佈。HTTP/WebSocket 層消費通知，不參與業務消息或輪次生成。所有變更仍在業務事務成功提交後發佈。
 
 ## Run 與輸入展示
 

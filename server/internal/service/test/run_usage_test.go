@@ -26,7 +26,7 @@ func TestRunUsagePreservesNativeMeasurements(t *testing.T) {
 		{"cancelled", "cancelled", `{"input_tokens":7}`, &agentuse.RunUsage{InputTokens: count(7)}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			s, u, d, a := runStore(t)
+			s, u, d, a := runFixture(t)
 			ctx := context.Background()
 			conversation, _, err := s.ConversationService.CreateConversation(ctx, u, "", "", "hello", []string{a.ID}, nil, "", nil)
 			if err != nil {
@@ -75,7 +75,7 @@ func TestInvalidResultUsageDoesNotPartiallyCommit(t *testing.T) {
 		`{"input_tokens":1.5}`, `{"cache_read_tokens":"123"}`, `{"output_tokens":true}`, `[]`, `"unknown"`,
 	} {
 		t.Run(usage, func(t *testing.T) {
-			s, u, d, a := runStore(t)
+			s, u, d, a := runFixture(t)
 			ctx := context.Background()
 			conversation, _, err := s.ConversationService.CreateConversation(ctx, u, "", "", "hello", []string{a.ID}, nil, "", nil)
 			if err != nil {

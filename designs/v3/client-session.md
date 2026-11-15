@@ -84,6 +84,6 @@ Local 模式的 agent_version_id 是 harness、model、指令及有序 ZIP 摘�
 
 ## 實現歸屬
 
-sessionService 直接管理 conversation.yaml、session.yaml、workspace 和會話目錄，提供 conversation/session 查詢、Acquire、Release、指定 session 複用、重啓元數據恢復以及 quota 回收。所有這些操作位於 service/session，直接通過 fileutil 的通用原子寫入和路徑檢查操作文件，不轉發給 store。
+sessionService 直接管理 conversation.yaml、session.yaml、workspace 和會話目錄，提供 conversation/session 查詢、Acquire、Release、指定 session 複用、重啓元數據恢復以及 quota 回收。所有這些操作位於 service/session，直接通過 fileutil 的通用原子寫入和路徑檢查操作文件，不轉發給 database。
 
 runService 依賴 sessionService 完成佔用與釋放；HTTP controller 只接收其只讀查詢接口。目錄正在執行或被保留時不得回收；中心未確認事件的保護條件由 runService 注入，sessionService 不讀取或理解交付協議。運行互斥和目錄保留計數僅協調進程內併發，文件仍是唯一持久化事實。

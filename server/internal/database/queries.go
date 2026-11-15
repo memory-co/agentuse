@@ -1,5 +1,5 @@
 // SQL used by the server metadata services. Native execution facts are client-owned.
-package store
+package database
 
 const CheckRuntimeSelect = `SELECT 1 FROM device_harnesses WHERE device_id = ? AND harness = ? AND user_id = ?`
 

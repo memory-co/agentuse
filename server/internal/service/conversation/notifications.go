@@ -4,8 +4,8 @@ import (
 	"context"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/notification"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 func (s *Service) PublishConversationChange(conversation agentuse.Conversation, resource string) {
@@ -15,7 +15,7 @@ func (s *Service) NotifyConversation(ctx context.Context, id string) {
 	if !s.Changes.HasSubscribers() {
 		return
 	}
-	if conversation, err := store.ScanConversation(store.Row(ctx, s.DB, store.ConversationCols+` WHERE id=?`, id)); err == nil {
+	if conversation, err := database.ScanConversation(database.Row(ctx, s.DB, database.ConversationCols+` WHERE id=?`, id)); err == nil {
 		s.PublishConversationChange(conversation, "conversations")
 	}
 }

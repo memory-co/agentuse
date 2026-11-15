@@ -9,9 +9,12 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
+	"github.com/memory-co/agentuse/internal/identity"
+
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/notification"
-	"github.com/memory-co/agentuse/server/internal/store"
 	"gorm.io/gorm"
 )
 
@@ -26,7 +29,7 @@ func (s *Service) CreateUser(ctx context.Context, id, name, role string) (agentu
 	}
 	id = strings.TrimSpace(id)
 	if id == "" {
-		id = store.NewUUID()
+		id = uuid.NewString()
 	} else if !userIDRe.MatchString(id) {
 		return agentuse.User{}, "", errors.New("用户 id 只能用字母、数字和 . _ - : @,最长 128 个字符")
 	}
@@ -34,12 +37,12 @@ func (s *Service) CreateUser(ctx context.Context, id, name, role string) (agentu
 		return agentuse.User{}, "", fmt.Errorf("未知角色 %q", role)
 	}
 	u := agentuse.User{ID: id, Name: name, Role: role, CreatedAt: s.Now().Unix()}
-	token := store.RandomToken("ut_")
-	err := s.DB.WithContext(ctx).Create(&store.User{ID: u.ID, Name: u.Name, Role: u.Role, TokenHash: store.HashSecret(token), CreatedAt: u.CreatedAt}).Error
+	token := identity.NewToken("ut_")
+	err := s.DB.WithContext(ctx).Create(&database.User{ID: u.ID, Name: u.Name, Role: u.Role, TokenHash: identity.HashSecret(token), CreatedAt: u.CreatedAt}).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			var existing int64
-			if s.DB.WithContext(ctx).Model(&store.User{}).Where("id=?", id).Count(&existing).Error == nil && existing > 0 {
+			if s.DB.WithContext(ctx).Model(&database.User{}).Where("id=?", id).Count(&existing).Error == nil && existing > 0 {
 				return agentuse.User{}, "", fmt.Errorf("用户 id %q 已存在", id)
 			}
 			return agentuse.User{}, "", fmt.Errorf("用户名 %q 已存在", name)
@@ -52,7 +55,7 @@ func (s *Service) CreateUser(ctx context.Context, id, name, role string) (agentu
 
 // ResetUserToken 给用户换一个新的登录令牌，旧的立即失效。
 func (s *Service) ResetUserToken(ctx context.Context, id string) (agentuse.User, string, error) {
-	token := store.RandomToken("ut_")
+	token := identity.NewToken("ut_")
 	u, err := s.SetUserToken(ctx, id, token)
 	if err != nil {
 		return agentuse.User{}, "", err
@@ -69,7 +72,7 @@ func (s *Service) SetUserToken(ctx context.Context, id, token string) (agentuse.
 	if err != nil {
 		return agentuse.User{}, err
 	}
-	if _, err := store.Exec(ctx, s.DB, store.ResetUserTokenUpdate, store.HashSecret(token), id); err != nil {
+	if _, err := database.Exec(ctx, s.DB, database.ResetUserTokenUpdate, identity.HashSecret(token), id); err != nil {
 		return agentuse.User{}, err
 	}
 	s.Changes.Publish(notification.Change{Resource: "users", ID: u.ID})
@@ -87,35 +90,35 @@ func ValidateUserToken(token string) error {
 }
 
 func (s *Service) GetUser(ctx context.Context, id string) (agentuse.User, error) {
-	return store.ScanUser(store.Row(ctx, s.DB, store.GetUserSelect, id))
+	return database.ScanUser(database.Row(ctx, s.DB, database.GetUserSelect, id))
 }
 
 // FirstAdmin 是最早建的管理员，服务第一次启动自动建的 admin 一般就是它。
 func (s *Service) FirstAdmin(ctx context.Context) (agentuse.User, error) {
-	return store.ScanUser(store.Row(ctx, s.DB,
-		store.FirstAdminSelect, agentuse.RoleAdmin))
+	return database.ScanUser(database.Row(ctx, s.DB,
+		database.FirstAdminSelect, agentuse.RoleAdmin))
 }
 
 func (s *Service) UserByToken(ctx context.Context, token string) (agentuse.User, error) {
-	return store.ScanUser(store.Row(ctx, s.DB,
-		store.UserByTokenSelect, store.HashSecret(token)))
+	return database.ScanUser(database.Row(ctx, s.DB,
+		database.UserByTokenSelect, identity.HashSecret(token)))
 }
 
 func (s *Service) CountUsers(ctx context.Context) (int, error) {
 	var n int
-	err := store.Row(ctx, s.DB, store.CountUsersSelect).Scan(&n)
+	err := database.Row(ctx, s.DB, database.CountUsersSelect).Scan(&n)
 	return n, err
 }
 
 func (s *Service) ListUsers(ctx context.Context) ([]agentuse.User, error) {
-	rows, err := store.Rows(ctx, s.DB, store.ListUsersSelect)
+	rows, err := database.Rows(ctx, s.DB, database.ListUsersSelect)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []agentuse.User
 	for rows.Next() {
-		u, err := store.ScanUser(rows)
+		u, err := database.ScanUser(rows)
 		if err != nil {
 			return nil, err
 		}

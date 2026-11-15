@@ -4,7 +4,7 @@ import (
 	"context"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 )
 
 // ReadConversation returns one consistent view. A terminal run must never be
@@ -14,13 +14,13 @@ func (s *Service) ReadConversation(ctx context.Context, u agentuse.User, id stri
 }
 func (s *Service) ReadRound(ctx context.Context, u agentuse.User, id string, seq int64) (agentuse.ConversationDetail, error) {
 	if seq <= 0 {
-		return agentuse.ConversationDetail{}, store.ErrNotFound
+		return agentuse.ConversationDetail{}, database.ErrNotFound
 	}
 	return s.readConversation(ctx, u, id, seq)
 }
 func (s *Service) readConversation(ctx context.Context, u agentuse.User, id string, roundSeq int64) (agentuse.ConversationDetail, error) {
 	var detail agentuse.ConversationDetail
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return detail, err
 	}
@@ -55,7 +55,7 @@ func (s *Service) readConversation(ctx context.Context, u agentuse.User, id stri
 			}
 		}
 		if selected == nil {
-			return detail, store.ErrNotFound
+			return detail, database.ErrNotFound
 		}
 		included := map[string]bool{}
 		messages := []agentuse.Message{}

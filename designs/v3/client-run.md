@@ -78,7 +78,7 @@ Endpoint 根目錄的 .server/messages 另外保留很小的提交收據（消�
 
 ## 實現歸屬
 
-native_runs.go 管引用與查詢，views.go 定義公開視圖，reconcile.go 管啓動恢復，server_connection.go 管中心連接、輸入收據、事件遊標和控制傳輸。沒有 store、執行 attempt、結果副本或舊資料兼容層。sessionService 管目錄與會話元數據，fileutil 僅提供通用文件操作。
+native_runs.go 管引用與查詢，views.go 定義公開視圖，reconcile.go 管啓動恢復，server_connection.go 管中心連接、輸入收據、事件遊標和控制傳輸。沒有 database、執行 attempt、結果副本或舊資料兼容層。sessionService 管目錄與會話元數據，fileutil 僅提供通用文件操作。
 
 ## Server Agent 版本銜接（已實現）
 

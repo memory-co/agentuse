@@ -4,9 +4,11 @@ Server 使用 GORM 和 gormigrate，支持 SQLite、MySQL、PostgreSQL。默认 
 
 ## 分层与模型
 
-service 继续持有业务逻辑、事务边界和各表的写入权限，跨服务操作传递同一个 `*gorm.DB` 事务。store 管理数据库连接、GORM 模型、迁移、方言和投影扫描。API/SDK DTO 不带 GORM 持久化标签，不把数据库关联或默认软删除行为引入协议。
+service 继续持有业务逻辑、事务边界和各表的写入权限，跨服务操作传递同一个 `*gorm.DB` 事务。database 管理数据库连接、GORM 模型、迁移、方言和投影扫描。API/SDK DTO 不带 GORM 持久化标签，不把数据库关联或默认软删除行为引入协议。
 
-普通写入和冲突处理使用 GORM；复杂投影可保留显式 SQL，通过 GORM 绑定参数。JSON 对象展开、属性提取和附件引用查询的三库差异只在 [dialect.go](../../server/internal/store/dialect.go) 中实现，业务层不包含 SQLite 专有函数。消息目标仍属于 messages.agent_targets，不恢复 message_agents、Work 或预分配 run/input。
+数据库入口类型为 `database.DB`，service 的 `Database` 字段持有它，`DB` 字段持有事务查询所用的 `*gorm.DB`。凭据和前缀 ID 工具归 `internal/identity`，UUID 使用 `google/uuid`；内容摘要由标准库在对应业务中计算。
+
+普通写入和冲突处理使用 GORM；复杂投影可保留显式 SQL，通过 GORM 绑定参数。JSON 对象展开、属性提取和附件引用查询的三库差异只在 [dialect.go](../../server/internal/database/dialect.go) 中实现，业务层不包含 SQLite 专有函数。消息目标仍属于 messages.agent_targets，不恢复 message_agents、Work 或预分配 run/input。
 
 路由元数据及附件快照在 SQLite 使用 TEXT，MySQL 使用 JSON，PostgreSQL 使用 JSONB。原始 run_events.payload、run_requests.payload 和 runs.result 使用文本，避免 JSONB 改写原始事件字节。model、usage 仍由已保存的 result 投影，不重复增加数据库列。
 
@@ -14,7 +16,7 @@ service 继续持有业务逻辑、事务边界和各表的写入权限，跨服
 
 ## 初始化与升级
 
-连接 → 取得迁移锁 → 检查版本 → 执行未完成迁移 → 释放锁 → HTTP/WebSocket 监听。迁移入口为 [migrations.go](../../server/internal/store/migrations.go)，初始模型在 [models.go](../../server/internal/store/models.go)。业务表不在每次启动时 AutoMigrate。
+连接 → 取得迁移锁 → 检查版本 → 执行未完成迁移 → 释放锁 → HTTP/WebSocket 监听。迁移入口为 [migrations.go](../../server/internal/database/migrations.go)，初始模型在 [models.go](../../server/internal/database/models.go)。业务表不在每次启动时 AutoMigrate。
 
 当前基线 `0001_initial` 只用于新库；此前 schema 10 等未版本化数据不读取、不转换，也不自动删除。新基线之后新增有序迁移，保持已有迁移不变。迁移中需要固定当时的结构，不能通过不断变化的 API DTO 推导历史建表。数据库存在未知迁移版本时拒绝启动。
 

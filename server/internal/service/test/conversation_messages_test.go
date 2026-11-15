@@ -8,11 +8,11 @@ import (
 
 	"github.com/google/uuid"
 	sdk "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 )
 
 func TestMessagesKeepTextAuthorsAndConversationReplies(t *testing.T) {
-	s, u, d, a := runStore(t)
+	s, u, d, a := runFixture(t)
 	ctx := context.Background()
 	conversation, _, err := s.ConversationService.CreateConversation(ctx, u, "", "", "", nil, nil, "", nil)
 	if err != nil {
@@ -31,7 +31,7 @@ func TestMessagesKeepTextAuthorsAndConversationReplies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.ConversationService.SendMessage(ctx, u, other.ID, "cross conversation", nil, nil, nil, first.Message.ID); !errors.Is(err, store.ErrNotFound) {
+	if _, err = s.ConversationService.SendMessage(ctx, u, other.ID, "cross conversation", nil, nil, nil, first.Message.ID); !errors.Is(err, database.ErrNotFound) {
 		t.Fatal("foreign reply accepted", err)
 	}
 	if messages, err := s.ConversationService.Messages(ctx, other.ID); err != nil || len(messages) != 0 {

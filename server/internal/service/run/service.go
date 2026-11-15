@@ -8,16 +8,16 @@ import (
 
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	skillservice "github.com/memory-co/agentuse/server/internal/service/skill"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // Service owns the run business operations. Peers are explicit contracts.
 type Service struct {
-	DB         *gorm.DB
-	Repository *store.Store
-	Now        func() time.Time
-	Notifier   interface {
+	DB       *gorm.DB
+	Database *database.DB
+	Now      func() time.Time
+	Notifier interface {
 		PushRun(string, protocol.Message)
 	}
 	AgentService        agentService

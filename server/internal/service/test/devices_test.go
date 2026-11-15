@@ -7,12 +7,12 @@ import (
 
 	"github.com/google/uuid"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	deviceservice "github.com/memory-co/agentuse/server/internal/service/device"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 func TestDeviceSetup(t *testing.T) {
-	s := newStore(t)
+	s := newService(t)
 	ctx := context.Background()
 	alice, _, _ := s.UserService.CreateUser(ctx, "", "alice", agentuse.RoleUser)
 	bob, _, _ := s.UserService.CreateUser(ctx, "", "bob", agentuse.RoleUser)
@@ -21,7 +21,7 @@ func TestDeviceSetup(t *testing.T) {
 	if err != nil || d.Status != agentuse.DevicePending || d.SetupToken == "" || d.Name != "" {
 		t.Fatalf("create: %v %+v", err, d)
 	}
-	if _, _, err := s.DeviceService.RegisterDevice(ctx, "st_nope", "h"); !errors.Is(err, store.ErrNotFound) {
+	if _, _, err := s.DeviceService.RegisterDevice(ctx, "st_nope", "h"); !errors.Is(err, database.ErrNotFound) {
 		t.Fatalf("bad setup token: %v", err)
 	}
 	// 没起名字：用主机名;主机名也没有就用 id
@@ -29,7 +29,7 @@ func TestDeviceSetup(t *testing.T) {
 	if err != nil || reg.Name != d.ID || reg.Status != agentuse.DeviceOffline {
 		t.Fatalf("register: %v %+v", err, reg)
 	}
-	if _, _, err := s.DeviceService.RegisterDevice(ctx, d.SetupToken, "h"); !errors.Is(err, store.ErrNotFound) {
+	if _, _, err := s.DeviceService.RegisterDevice(ctx, d.SetupToken, "h"); !errors.Is(err, database.ErrNotFound) {
 		t.Fatal("setup token is single-use")
 	}
 	if got, err := s.DeviceService.DeviceByKey(ctx, key); err != nil || got.ID != d.ID || got.SetupToken != "" {
@@ -37,14 +37,14 @@ func TestDeviceSetup(t *testing.T) {
 	}
 
 	// 重置：新安装令牌，旧密钥失效;别人重置不了
-	if _, err := s.DeviceService.ResetDeviceSetup(ctx, bob, d.ID); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.DeviceService.ResetDeviceSetup(ctx, bob, d.ID); !errors.Is(err, database.ErrNotFound) {
 		t.Fatalf("bob reset: %v", err)
 	}
 	reset, err := s.DeviceService.ResetDeviceSetup(ctx, alice, d.ID)
 	if err != nil || reset.Status != agentuse.DevicePending || reset.SetupToken == "" || reset.SetupToken == d.SetupToken {
 		t.Fatalf("reset: %v %+v", err, reset)
 	}
-	if _, err := s.DeviceService.DeviceByKey(ctx, key); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.DeviceService.DeviceByKey(ctx, key); !errors.Is(err, database.ErrNotFound) {
 		t.Fatal("old key should be invalid after reset")
 	}
 	if again, _, err := s.DeviceService.RegisterDevice(ctx, reset.SetupToken, "other-host"); err != nil || again.Name != d.ID {
@@ -53,7 +53,7 @@ func TestDeviceSetup(t *testing.T) {
 }
 
 func TestDeviceStatus(t *testing.T) {
-	s := newStore(t)
+	s := newService(t)
 	ctx := context.Background()
 	alice, _, _ := s.UserService.CreateUser(ctx, "", "alice", agentuse.RoleUser)
 	bob, _, _ := s.UserService.CreateUser(ctx, "", "bob", agentuse.RoleUser)
@@ -68,7 +68,7 @@ func TestDeviceStatus(t *testing.T) {
 	if h := got.Harnesses[0]; h.Harness != "claude" || !h.Available || !h.Enabled || h.UserID != alice.ID {
 		t.Fatalf("reported harness: %+v", h)
 	}
-	if _, err := s.DeviceService.GetDevice(ctx, bob, d.ID); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.DeviceService.GetDevice(ctx, bob, d.ID); !errors.Is(err, database.ErrNotFound) {
 		t.Fatalf("bob sees alice's device: %v", err)
 	}
 	if _, err := s.DeviceService.GetDevice(ctx, root, d.ID); err != nil {
@@ -82,10 +82,10 @@ func TestDeviceStatus(t *testing.T) {
 	}
 
 	// 开关：只能开自己的、上报过的
-	if err := s.DeviceService.SetDeviceHarnessEnabled(ctx, bob, d.ID, "claude", true); !errors.Is(err, store.ErrNotFound) {
+	if err := s.DeviceService.SetDeviceHarnessEnabled(ctx, bob, d.ID, "claude", true); !errors.Is(err, database.ErrNotFound) {
 		t.Fatalf("bob toggles: %v", err)
 	}
-	if err := s.DeviceService.SetDeviceHarnessEnabled(ctx, alice, d.ID, "ghost", true); !errors.Is(err, store.ErrNotFound) {
+	if err := s.DeviceService.SetDeviceHarnessEnabled(ctx, alice, d.ID, "ghost", true); !errors.Is(err, database.ErrNotFound) {
 		t.Fatalf("unreported harness: %v", err)
 	}
 	if err := s.DeviceService.SetDeviceHarnessEnabled(ctx, root, d.ID, "codex", true); err != nil {
@@ -125,7 +125,7 @@ func TestDeviceStatus(t *testing.T) {
 }
 
 func TestDeviceReportsKeepUserEnablementAndCapabilities(t *testing.T) {
-	s, u, d, a := runStore(t)
+	s, u, d, a := runFixture(t)
 	ctx := context.Background()
 	report := []deviceservice.ReportedHarness{{Name: a.Harness, Version: "2", Revision: "package-v2", Capabilities: []string{"file.read", "file.write", "file.read"}}}
 	if _, err := s.DeviceService.DeviceConnected(ctx, d, report); err != nil {
@@ -152,7 +152,7 @@ func TestDeviceReportsKeepUserEnablementAndCapabilities(t *testing.T) {
 }
 
 func TestDeviceDeletionPreservesActualRunsAndFixedVersions(t *testing.T) {
-	s, u, d, a := runStore(t)
+	s, u, d, a := runFixture(t)
 	ctx := context.Background()
 	live, _, err := s.ConversationService.CreateConversation(ctx, u, "", "", "live", []string{a.ID}, nil, "", nil)
 	if err != nil {

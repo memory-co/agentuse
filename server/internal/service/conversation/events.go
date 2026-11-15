@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"gorm.io/gorm"
 
 	"github.com/memory-co/agentuse/internal/protocol"
@@ -31,7 +31,7 @@ func (c conversationEvents) Applied(ctx context.Context, tx *gorm.DB, envelope p
 			return s.ProjectStatus(ctx, tx, envelope.ConversationID, s.Now().Unix())
 		}
 		var author string
-		if err := store.Row(ctx, tx, `SELECT COALESCE(author_user_id,'') FROM messages WHERE id=?`, completed.FirstMessageID).Scan(&author); err != nil {
+		if err := database.Row(ctx, tx, `SELECT COALESCE(author_user_id,'') FROM messages WHERE id=?`, completed.FirstMessageID).Scan(&author); err != nil {
 			return err
 		}
 		toUsers := []string{}
@@ -56,7 +56,7 @@ func (c conversationEvents) Applied(ctx context.Context, tx *gorm.DB, envelope p
 		if err = s.attachRunOutputs(ctx, tx, *completed, message.ID); err != nil {
 			return err
 		}
-		if _, err = store.Exec(ctx, tx, `UPDATE messages SET author_agent_id=?,author_agent_version_id=?,reply_to_message_id=?,to_user_ids=? WHERE id=?`, completed.AgentID, completed.AgentVersionID, completed.FirstMessageID, string(recipients), message.ID); err != nil {
+		if _, err = database.Exec(ctx, tx, `UPDATE messages SET author_agent_id=?,author_agent_version_id=?,reply_to_message_id=?,to_user_ids=? WHERE id=?`, completed.AgentID, completed.AgentVersionID, completed.FirstMessageID, string(recipients), message.ID); err != nil {
 			return err
 		}
 		if err = s.RunService.LinkRunReply(ctx, tx, completed.ID, message.ID); err != nil {

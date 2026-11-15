@@ -23,7 +23,7 @@ func TestRunModelComesFromNativeResultIncludingHarnessDefaults(t *testing.T) {
 		{"unknown_with_config", "completed", "configured-alias", nil, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			s, u, d, a := runStore(t)
+			s, u, d, a := runFixture(t)
 			ctx := context.Background()
 			if test.configured != "" {
 				var err error
@@ -78,7 +78,7 @@ func TestRunModelComesFromNativeResultIncludingHarnessDefaults(t *testing.T) {
 
 func TestInvalidResultModelDoesNotCommitAnUnreadableRun(t *testing.T) {
 	for _, model := range []any{"", "   ", 42, map[string]any{"name": "native"}} {
-		s, u, d, a := runStore(t)
+		s, u, d, a := runFixture(t)
 		ctx := context.Background()
 		conversation, _, err := s.ConversationService.CreateConversation(ctx, u, "", "", "hello", []string{a.ID}, nil, "", nil)
 		if err != nil {

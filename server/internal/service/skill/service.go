@@ -17,8 +17,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/skillbundle"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/service/file"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 var ErrConflict = errors.New("version changed; reload before publishing")
@@ -51,7 +51,7 @@ func scan(row interface{ Scan(...any) error }) (agentuse.SkillVersion, error) {
 	var v agentuse.SkillVersion
 	err := row.Scan(&v.ID, &v.SkillID, &v.Version, &v.Name, &v.Description, &v.PackagePath, &v.SHA256, &v.SizeBytes, &v.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = store.ErrNotFound
+		err = database.ErrNotFound
 	}
 	v.DownloadPath = "/api/skills/" + v.SkillID + "/versions/" + v.ID + "/package"
 	return v, err
@@ -59,17 +59,17 @@ func scan(row interface{ Scan(...any) error }) (agentuse.SkillVersion, error) {
 func (s *Service) Version(ctx context.Context, q *gorm.DB, user agentuse.User, id, version string, forPublish bool) (agentuse.SkillVersion, error) {
 	var owner string
 	var deleted sql.NullInt64
-	err := store.Row(ctx, q, `SELECT user_id,deleted_at FROM skills WHERE id=?`, id).Scan(&owner, &deleted)
+	err := database.Row(ctx, q, `SELECT user_id,deleted_at FROM skills WHERE id=?`, id).Scan(&owner, &deleted)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = store.ErrNotFound
+		err = database.ErrNotFound
 	}
 	if err != nil {
 		return agentuse.SkillVersion{}, err
 	}
 	if (!user.IsAdmin() && owner != user.ID) || (forPublish && deleted.Valid) {
-		return agentuse.SkillVersion{}, store.ErrNotFound
+		return agentuse.SkillVersion{}, database.ErrNotFound
 	}
-	return scan(store.Row(ctx, q, columns+` WHERE v.skill_id=? AND v.id=?`, id, version))
+	return scan(database.Row(ctx, q, columns+` WHERE v.skill_id=? AND v.id=?`, id, version))
 }
 func (s *Service) Publish(ctx context.Context, user agentuse.User, id, base string, source io.Reader) (agentuse.Skill, error) {
 	var out agentuse.Skill
@@ -93,9 +93,9 @@ func (s *Service) Publish(ctx context.Context, user agentuse.User, id, base stri
 	if !fresh {
 		var owner, head string
 		var deleted sql.NullInt64
-		err = store.Row(ctx, s.DB, `SELECT user_id,current_version_id,deleted_at FROM skills WHERE id=?`, id).Scan(&owner, &head, &deleted)
+		err = database.Row(ctx, s.DB, `SELECT user_id,current_version_id,deleted_at FROM skills WHERE id=?`, id).Scan(&owner, &head, &deleted)
 		if err != nil || deleted.Valid || (!user.IsAdmin() && owner != user.ID) {
-			return out, store.ErrNotFound
+			return out, database.ErrNotFound
 		}
 		if base == "" || head != base {
 			return out, ErrConflict
@@ -110,7 +110,7 @@ func (s *Service) Publish(ctx context.Context, user agentuse.User, id, base stri
 			_ = s.Files.Delete(context.Background(), fileNamespace, key)
 		}
 	}()
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return out, err
 	}
@@ -122,26 +122,26 @@ func (s *Service) Publish(ctx context.Context, user agentuse.User, id, base stri
 	if !fresh {
 		var head string
 		var deleted sql.NullInt64
-		err = store.Row(ctx, tx, `SELECT user_id,current_version_id,created_at,deleted_at FROM skills WHERE id=?`, id).Scan(&owner, &head, &created, &deleted)
+		err = database.Row(ctx, tx, `SELECT user_id,current_version_id,created_at,deleted_at FROM skills WHERE id=?`, id).Scan(&owner, &head, &created, &deleted)
 		if err != nil || deleted.Valid || (!user.IsAdmin() && owner != user.ID) {
-			return out, store.ErrNotFound
+			return out, database.ErrNotFound
 		}
 		if head != base {
 			return out, ErrConflict
 		}
-		if err = store.Row(ctx, tx, `SELECT version+1 FROM skill_versions WHERE id=? AND skill_id=?`, head, id).Scan(&version); err != nil {
+		if err = database.Row(ctx, tx, `SELECT version+1 FROM skill_versions WHERE id=? AND skill_id=?`, head, id).Scan(&version); err != nil {
 			return out, err
 		}
 	}
 	digest := sha256.Sum256(data)
 	v := agentuse.SkillVersion{ID: versionID, SkillID: id, Version: version, Name: meta.Name, Description: meta.Description, PackagePath: key, SHA256: hex.EncodeToString(digest[:]), SizeBytes: int64(len(data)), CreatedAt: now, DownloadPath: "/api/skills/" + id + "/versions/" + versionID + "/package"}
-	if _, err = store.Exec(ctx, tx, `INSERT INTO skill_versions(id,skill_id,version,name,description,package_path,sha256,size_bytes,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, v.ID, id, version, v.Name, v.Description, key, v.SHA256, v.SizeBytes, now); err != nil {
+	if _, err = database.Exec(ctx, tx, `INSERT INTO skill_versions(id,skill_id,version,name,description,package_path,sha256,size_bytes,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, v.ID, id, version, v.Name, v.Description, key, v.SHA256, v.SizeBytes, now); err != nil {
 		return out, err
 	}
 	if fresh {
-		_, err = store.Exec(ctx, tx, `INSERT INTO skills(id,user_id,current_version_id,created_at,updated_at) VALUES(?,?,?,?,?)`, id, owner, versionID, now, now)
+		_, err = database.Exec(ctx, tx, `INSERT INTO skills(id,user_id,current_version_id,created_at,updated_at) VALUES(?,?,?,?,?)`, id, owner, versionID, now, now)
 	} else {
-		_, err = store.Exec(ctx, tx, `UPDATE skills SET current_version_id=?,updated_at=? WHERE id=?`, versionID, now, id)
+		_, err = database.Exec(ctx, tx, `UPDATE skills SET current_version_id=?,updated_at=? WHERE id=?`, versionID, now, id)
 	}
 	if err != nil {
 		return out, err
@@ -157,15 +157,15 @@ func (s *Service) Publish(ctx context.Context, user agentuse.User, id, base stri
 }
 func (s *Service) Get(ctx context.Context, user agentuse.User, id string) (agentuse.Skill, error) {
 	var out agentuse.Skill
-	err := store.Row(ctx, s.DB, `SELECT id,user_id,current_version_id,created_at,updated_at,deleted_at FROM skills WHERE id=? AND deleted_at IS NULL`, id).Scan(&out.ID, &out.UserID, &out.CurrentVersionID, &out.CreatedAt, &out.UpdatedAt, &out.DeletedAt)
+	err := database.Row(ctx, s.DB, `SELECT id,user_id,current_version_id,created_at,updated_at,deleted_at FROM skills WHERE id=? AND deleted_at IS NULL`, id).Scan(&out.ID, &out.UserID, &out.CurrentVersionID, &out.CreatedAt, &out.UpdatedAt, &out.DeletedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = store.ErrNotFound
+		err = database.ErrNotFound
 	}
 	if err != nil {
 		return out, err
 	}
 	if !user.IsAdmin() && out.UserID != user.ID {
-		return out, store.ErrNotFound
+		return out, database.ErrNotFound
 	}
 	out.CurrentVersion, err = s.Version(ctx, s.DB, user, id, out.CurrentVersionID, false)
 	return out, err
@@ -178,7 +178,7 @@ func (s *Service) List(ctx context.Context, user agentuse.User) ([]agentuse.Skil
 		args = append(args, user.ID)
 	}
 	query += ` ORDER BY updated_at DESC,id`
-	rows, err := store.Rows(ctx, s.DB, query, args...)
+	rows, err := database.Rows(ctx, s.DB, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +211,7 @@ func (s *Service) Versions(ctx context.Context, user agentuse.User, id string) (
 	if err != nil {
 		return nil, err
 	}
-	rows, err := store.Rows(ctx, s.DB, columns+` WHERE v.skill_id=? ORDER BY v.version DESC`, id)
+	rows, err := database.Rows(ctx, s.DB, columns+` WHERE v.skill_id=? ORDER BY v.version DESC`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +231,7 @@ func (s *Service) Delete(ctx context.Context, user agentuse.User, id string) err
 	if err != nil {
 		return err
 	}
-	_, err = store.Exec(ctx, s.DB, `UPDATE skills SET deleted_at=? WHERE id=?`, s.Now().Unix(), id)
+	_, err = database.Exec(ctx, s.DB, `UPDATE skills SET deleted_at=? WHERE id=?`, s.Now().Unix(), id)
 	if err == nil && s.OnChange != nil {
 		s.OnChange(id, v.UserID)
 	}

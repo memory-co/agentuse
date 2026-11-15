@@ -137,7 +137,7 @@ client/
 └── frontend/         本机会话、执行记录和 token 统计网页
 server/
 ├── cmd/agentuse-server/ 服务端 CLI
-├── internal/         cli、HTTP controller、WebSocket hub、业务 service、notification、GORM store
+├── internal/         cli、HTTP controller、WebSocket hub、业务 service、notification、GORM database
 └── frontend/         管理网页
 internal/             protocol、skillbundle、attachment 校验、command、version
 sdk/                  HTTP API 类型及客户端：golang / nodejs / python
@@ -147,7 +147,7 @@ docs/                 当前使用文档：server / client
 designs/              设计方案、协议、历史资料及插图：v1 / v2 / v3
 ```
 
-client 和 server 通过 Go internal 规则隔离；本机 controller 分别查询 sessionService 和 runService；client 各 service 直接管理文件，fileutil 仅提供通用文件操作。服务端写操作和事务编排经过 service，store 管理 GORM 模型、版本迁移、查询方言和行解码。详见[Server 设计](designs/v3/server-main.md)。
+client 和 server 通过 Go internal 规则隔离；本机 controller 分别查询 sessionService 和 runService；client 各 service 直接管理文件，fileutil 仅提供通用文件操作。服务端写操作和事务编排经过 service，database 管理 GORM 模型、版本迁移、查询方言和行解码。详见[Server 设计](designs/v3/server-main.md)。
 
 ## License
 

@@ -75,7 +75,7 @@ Server 以 GORM/gormigrate 管理遷移基線 `0001_initial` 及後續版本；�
 
 ## 表結構
 
-以下是 SQLite 表達的邏輯結構；各庫實際字段、索引與約束由 GORM/gormigrate 管理，對應 [models.go](../../server/internal/store/models.go)，是五張執行表的唯一設計定義。時間為 Unix 秒，各表關聯由 service 在事務內校驗，不聲明數據庫外鍵。
+以下是 SQLite 表達的邏輯結構；各庫實際字段、索引與約束由 GORM/gormigrate 管理，對應 [models.go](../../server/internal/database/models.go)，是五張執行表的唯一設計定義。時間為 Unix 秒，各表關聯由 service 在事務內校驗，不聲明數據庫外鍵。
 
 ```sql
 -- IDs and terminal facts come exclusively from authenticated client reports.

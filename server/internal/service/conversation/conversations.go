@@ -12,35 +12,35 @@ import (
 
 	"github.com/google/uuid"
 	sdk "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	runservice "github.com/memory-co/agentuse/server/internal/service/run"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 func (s *Service) insertMessage(ctx context.Context, tx *gorm.DB, conversationID, role string, content string, now int64) (sdk.Message, error) {
 	var seq int64
-	if err := store.Row(ctx, tx, "SELECT COALESCE(MAX(seq),0)+1 FROM messages WHERE conversation_id=?", conversationID).Scan(&seq); err != nil {
+	if err := database.Row(ctx, tx, "SELECT COALESCE(MAX(seq),0)+1 FROM messages WHERE conversation_id=?", conversationID).Scan(&seq); err != nil {
 		return sdk.Message{}, err
 	}
-	id := store.NewUUID()
-	_, err := store.Exec(ctx, tx, store.InsertMessageInsert, id, seq, conversationID, role, content, now)
+	id := uuid.NewString()
+	_, err := database.Exec(ctx, tx, database.InsertMessageInsert, id, seq, conversationID, role, content, now)
 	if err != nil {
 		return sdk.Message{}, err
 	}
 	return sdk.Message{ID: id, Seq: seq, ConversationID: conversationID, AuthorRole: role, Content: content, CreatedAt: now, ToAgentIDs: []string{}, ToUserIDs: []string{}, Attachments: []sdk.Attachment{}}, nil
 }
 
-func (s *Service) scanConversation(row store.Scanner) (sdk.Conversation, error) {
-	return store.ScanConversation(row)
+func (s *Service) scanConversation(row database.Scanner) (sdk.Conversation, error) {
+	return database.ScanConversation(row)
 }
 
 func (s *Service) LookupConversation(ctx context.Context, q *gorm.DB, u sdk.User, id string) (sdk.Conversation, error) {
-	query := store.ConversationCols + store.GetConversationClause
+	query := database.ConversationCols + database.GetConversationClause
 	args := []any{id}
 	if !u.IsAdmin() {
-		query += store.GetConversationClause2
+		query += database.GetConversationClause2
 		args = append(args, u.ID, u.ID)
 	}
-	return s.scanConversation(store.Row(ctx, q, query, args...))
+	return s.scanConversation(database.Row(ctx, q, query, args...))
 }
 
 func (s *Service) GetConversation(ctx context.Context, u sdk.User, id string) (sdk.Conversation, error) {
@@ -49,10 +49,10 @@ func (s *Service) GetConversation(ctx context.Context, u sdk.User, id string) (s
 
 // ListConversations lists visible top-level conversations.
 func (s *Service) ListConversations(ctx context.Context, u sdk.User, limit int) ([]sdk.Conversation, error) {
-	q := store.ConversationCols + store.ListConversationsClause
+	q := database.ConversationCols + database.ListConversationsClause
 	var args []any
 	if !u.IsAdmin() {
-		q += store.ListConversationsClause2
+		q += database.ListConversationsClause2
 		args = append(args, u.ID, u.ID)
 	}
 	return s.listConversations(ctx, q, limit, args...)
@@ -63,13 +63,13 @@ func (s *Service) ListChildren(ctx context.Context, u sdk.User, parent string, l
 	if _, err := s.GetConversation(ctx, u, parent); err != nil {
 		return nil, err
 	}
-	return s.listConversations(ctx, store.ConversationCols+` WHERE parent_conversation_id=?`, limit, parent)
+	return s.listConversations(ctx, database.ConversationCols+` WHERE parent_conversation_id=?`, limit, parent)
 }
 
 func (s *Service) listConversations(ctx context.Context, q string, limit int, args ...any) ([]sdk.Conversation, error) {
-	q += store.ListConversationsClause3
+	q += database.ListConversationsClause3
 	args = append(args, limit)
-	rows, err := store.Rows(ctx, s.DB, q, args...)
+	rows, err := database.Rows(ctx, s.DB, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (s *Service) DeleteTree(ctx context.Context, u sdk.User, id string) error {
 	return s.deleteConversation(ctx, u, id, true)
 }
 func (s *Service) deleteConversation(ctx context.Context, u sdk.User, id string, recursive bool) error {
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func (s *Service) deleteConversation(ctx context.Context, u sdk.User, id string,
 		return err
 	}
 	children := []sdk.Conversation{}
-	rows, err := store.Rows(ctx, tx, store.ConversationCols+` WHERE parent_conversation_id=?`, id)
+	rows, err := database.Rows(ctx, tx, database.ConversationCols+` WHERE parent_conversation_id=?`, id)
 	if err != nil {
 		return err
 	}
@@ -132,7 +132,7 @@ func (s *Service) deleteConversation(ctx context.Context, u sdk.User, id string,
 		}
 		if v.ParentConversationID != "" && v.ParentConversationID != root.ID {
 			var pending int
-			if err = store.Row(ctx, tx, `SELECT count(*) FROM conversation_rounds r WHERE r.conversation_id=? AND r.finished_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id=? AND m.author_conversation_id=r.conversation_id AND m.author_round_seq=r.seq)`, v.ID, v.ParentConversationID).Scan(&pending); err != nil {
+			if err = database.Row(ctx, tx, `SELECT count(*) FROM conversation_rounds r WHERE r.conversation_id=? AND r.finished_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id=? AND m.author_conversation_id=r.conversation_id AND m.author_round_seq=r.seq)`, v.ID, v.ParentConversationID).Scan(&pending); err != nil {
 				return err
 			}
 			if pending > 0 {
@@ -144,7 +144,7 @@ func (s *Service) deleteConversation(ctx context.Context, u sdk.User, id string,
 		if err = s.deleteConversationContents(ctx, tx, v.ID); err != nil {
 			return err
 		}
-		if _, err = store.Exec(ctx, tx, store.DeleteConversationDelete, v.ID); err != nil {
+		if _, err = database.Exec(ctx, tx, database.DeleteConversationDelete, v.ID); err != nil {
 			return err
 		}
 	}
@@ -163,14 +163,14 @@ func (s *Service) Messages(ctx context.Context, conversationID string) ([]sdk.Me
 }
 
 func (s *Service) messages(ctx context.Context, q *gorm.DB, conversationID string) ([]sdk.Message, error) {
-	rows, err := store.Rows(ctx, q, store.MessageCols+store.MessagesClause, conversationID)
+	rows, err := database.Rows(ctx, q, database.MessageCols+database.MessagesClause, conversationID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []sdk.Message{}
 	for rows.Next() {
-		m, err := store.ScanMessage(rows)
+		m, err := database.ScanMessage(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -185,9 +185,9 @@ func (s *Service) messages(ctx context.Context, q *gorm.DB, conversationID strin
 }
 
 func (s *Service) ProjectStatus(ctx context.Context, tx *gorm.DB, conversation string, now int64) error {
-	tq := store.MessageTargets(s.DB, "m", "t")
+	tq := database.MessageTargets(s.DB, "m", "t")
 
-	_, err := store.Exec(ctx, tx, `UPDATE conversations SET status=CASE WHEN EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status='waiting') THEN 'waiting' WHEN EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status='running') THEN 'running' WHEN EXISTS(SELECT 1 FROM `+tq.From+` WHERE m.conversation_id=? AND `+tq.Pending+`) THEN 'pending' WHEN status='resolved' THEN 'resolved' ELSE 'idle' END,updated_at=? WHERE id=?`, conversation, conversation, conversation, now, conversation)
+	_, err := database.Exec(ctx, tx, `UPDATE conversations SET status=CASE WHEN EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status='waiting') THEN 'waiting' WHEN EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status='running') THEN 'running' WHEN EXISTS(SELECT 1 FROM `+tq.From+` WHERE m.conversation_id=? AND `+tq.Pending+`) THEN 'pending' WHEN status='resolved' THEN 'resolved' ELSE 'idle' END,updated_at=? WHERE id=?`, conversation, conversation, conversation, now, conversation)
 	if err != nil {
 		return err
 	}
@@ -195,7 +195,7 @@ func (s *Service) ProjectStatus(ctx context.Context, tx *gorm.DB, conversation s
 }
 
 func (s *Service) createConversation(ctx context.Context, u sdk.User, parent, title, input string, toAgentIDs, toUserIDs []string, mode string, source *runservice.AgentSource) (sdk.Conversation, *sdk.Reply, error) {
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return sdk.Conversation{}, nil, err
 	}
@@ -206,7 +206,7 @@ func (s *Service) createConversation(ctx context.Context, u sdk.User, parent, ti
 	if mode != sdk.ConversationModeSingle && mode != sdk.ConversationModeCollaborative {
 		return sdk.Conversation{}, nil, fmt.Errorf("mode must be single or collaborative")
 	}
-	v := sdk.Conversation{Mode: mode, ID: store.NewUUID(), UserID: u.ID, CreatedBy: u.ID, Title: title, Status: sdk.ConversationIdle, CreatedAt: s.Now().Unix(), UpdatedAt: s.Now().Unix()}
+	v := sdk.Conversation{Mode: mode, ID: uuid.NewString(), UserID: u.ID, CreatedBy: u.ID, Title: title, Status: sdk.ConversationIdle, CreatedAt: s.Now().Unix(), UpdatedAt: s.Now().Unix()}
 	if source != nil {
 		if parent == "" || parent != source.ConversationID || source.User.ID != u.ID {
 			return v, nil, ErrConversationScope
@@ -224,7 +224,7 @@ func (s *Service) createConversation(ctx context.Context, u sdk.User, parent, ti
 	} else if parent != "" {
 		return v, nil, ErrConversationScope
 	}
-	if _, err = store.Exec(ctx, tx, store.InsertConversationInsert, v.ID, v.UserID, v.CreatedBy, store.NullIfEmpty(v.ParentConversationID), store.NullIfEmpty(v.ParentAgentID), mode, title, v.CreatedAt, v.UpdatedAt); err != nil {
+	if _, err = database.Exec(ctx, tx, database.InsertConversationInsert, v.ID, v.UserID, v.CreatedBy, database.NullIfEmpty(v.ParentConversationID), database.NullIfEmpty(v.ParentAgentID), mode, title, v.CreatedAt, v.UpdatedAt); err != nil {
 		return v, nil, err
 	}
 	if input == "" && (len(toAgentIDs) > 0 || len(toUserIDs) > 0) {
@@ -275,7 +275,7 @@ func (s *Service) checkAgentAccessIn(ctx context.Context, q *gorm.DB, source run
 	return nil
 }
 func (s *Service) SendAgentMessage(ctx context.Context, source runservice.AgentSource, target, input string, agents, users, attachments []string, replyTo string) (sdk.Reply, error) {
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return sdk.Reply{}, err
 	}
@@ -302,18 +302,18 @@ func (s *Service) SendAgentMessage(ctx context.Context, source runservice.AgentS
 	return r, nil
 }
 func (s *Service) setAgentAuthor(ctx context.Context, tx *gorm.DB, m *sdk.Message, source *runservice.AgentSource) error {
-	if _, err := store.Exec(ctx, tx, `UPDATE messages SET author_role='agent',author_user_id=NULL,author_agent_id=?,author_agent_version_id=? WHERE id=?`, source.AgentID, source.AgentVersionID, m.ID); err != nil {
+	if _, err := database.Exec(ctx, tx, `UPDATE messages SET author_role='agent',author_user_id=NULL,author_agent_id=?,author_agent_version_id=? WHERE id=?`, source.AgentID, source.AgentVersionID, m.ID); err != nil {
 		return err
 	}
 	m.AuthorRole = sdk.RoleAgentMsg
 	m.AuthorUserID = ""
 	m.AuthorAgentID = source.AgentID
 	m.AuthorAgentVersionID = source.AgentVersionID
-	return store.Row(ctx, tx, `SELECT name FROM agent_versions WHERE id=? AND agent_id=?`, source.AgentVersionID, source.AgentID).Scan(&m.AuthorName)
+	return database.Row(ctx, tx, `SELECT name FROM agent_versions WHERE id=? AND agent_id=?`, source.AgentVersionID, source.AgentID).Scan(&m.AuthorName)
 }
 
 func (s *Service) sendMessage(ctx context.Context, u sdk.User, conversation string, input string, toAgentIDs, toUserIDs, attachmentIDs []string, replyToMessageID string) (sdk.Reply, error) {
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return sdk.Reply{}, err
 	}
@@ -337,9 +337,9 @@ func (s *Service) SendMessageTx(ctx context.Context, tx *gorm.DB, u sdk.User, ss
 			return sdk.Reply{}, fmt.Errorf("invalid reply_to_message_id")
 		}
 		var found int
-		if err := store.Row(ctx, tx, `SELECT 1 FROM messages WHERE id=? AND conversation_id=?`, replyToMessageID, ss.ID).Scan(&found); err != nil {
+		if err := database.Row(ctx, tx, `SELECT 1 FROM messages WHERE id=? AND conversation_id=?`, replyToMessageID, ss.ID).Scan(&found); err != nil {
 			if err == sql.ErrNoRows {
-				return sdk.Reply{}, store.ErrNotFound
+				return sdk.Reply{}, database.ErrNotFound
 			}
 			return sdk.Reply{}, err
 		}
@@ -353,7 +353,7 @@ func (s *Service) SendMessageTx(ctx context.Context, tx *gorm.DB, u sdk.User, ss
 		return sdk.Reply{}, err
 	}
 	for _, id := range toUserIDs {
-		recipient, err := store.ScanUser(store.Row(ctx, tx, store.GetUserSelect, id))
+		recipient, err := database.ScanUser(database.Row(ctx, tx, database.GetUserSelect, id))
 		if err != nil {
 			return sdk.Reply{}, err
 		}
@@ -372,7 +372,7 @@ func (s *Service) SendMessageTx(ctx context.Context, tx *gorm.DB, u sdk.User, ss
 	}
 	agentJSON, _ := json.Marshal(toAgentIDs)
 	userJSON, _ := json.Marshal(toUserIDs)
-	if _, err = store.Exec(ctx, tx, `UPDATE messages SET author_user_id=?,to_agent_ids=?,to_user_ids=?,attachments=?,reply_to_message_id=? WHERE id=?`, u.ID, string(agentJSON), string(userJSON), string(mustAttachmentJSON(files)), store.NullIfEmpty(replyToMessageID), m.ID); err != nil {
+	if _, err = database.Exec(ctx, tx, `UPDATE messages SET author_user_id=?,to_agent_ids=?,to_user_ids=?,attachments=?,reply_to_message_id=? WHERE id=?`, u.ID, string(agentJSON), string(userJSON), string(mustAttachmentJSON(files)), database.NullIfEmpty(replyToMessageID), m.ID); err != nil {
 		return sdk.Reply{}, err
 	}
 	m.AuthorUserID, m.ToAgentIDs, m.ToUserIDs, m.Attachments = u.ID, toAgentIDs, toUserIDs, files
@@ -388,7 +388,7 @@ func (s *Service) SendMessageTx(ctx context.Context, tx *gorm.DB, u sdk.User, ss
 		title = title[:50]
 	}
 	if ss.Title == "" {
-		if _, err = store.Exec(ctx, tx, `UPDATE conversations SET title=? WHERE id=?`, string(title), ss.ID); err != nil {
+		if _, err = database.Exec(ctx, tx, `UPDATE conversations SET title=? WHERE id=?`, string(title), ss.ID); err != nil {
 			return sdk.Reply{}, err
 		}
 	}
@@ -411,7 +411,7 @@ func (s *Service) deleteConversationContents(ctx context.Context, tx *gorm.DB, i
 		return err
 	}
 	for _, query := range []string{`DELETE FROM conversation_rounds WHERE conversation_id=?`, `DELETE FROM attachments WHERE conversation_id=?`, `DELETE FROM messages WHERE conversation_id=?`} {
-		if _, err := store.Exec(ctx, tx, query, id); err != nil {
+		if _, err := database.Exec(ctx, tx, query, id); err != nil {
 			return err
 		}
 	}

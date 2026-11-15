@@ -9,7 +9,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"gorm.io/gorm"
 
 	"github.com/memory-co/agentuse/internal/attachment"
@@ -29,7 +29,7 @@ func (s *Service) assignAttachmentPath(ctx context.Context, tx *gorm.DB, file *a
 		return err
 	}
 	var occupiedPaths []string
-	if err = tx.WithContext(ctx).Model(&store.Attachment{}).Where("conversation_id=?", file.ConversationID).Pluck("relative_path", &occupiedPaths).Error; err != nil {
+	if err = tx.WithContext(ctx).Model(&database.Attachment{}).Where("conversation_id=?", file.ConversationID).Pluck("relative_path", &occupiedPaths).Error; err != nil {
 		return err
 	}
 	for _, entry := range stored {

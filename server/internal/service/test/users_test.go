@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 )
 
 func TestCreateUserID(t *testing.T) {
-	s := newStore(t)
+	s := newService(t)
 	ctx := context.Background()
 
 	u, _, err := s.UserService.CreateUser(ctx, "u_10086", "alice", agentuse.RoleUser)
@@ -34,13 +34,13 @@ func TestCreateUserID(t *testing.T) {
 }
 
 func TestUsers(t *testing.T) {
-	s := newStore(t)
+	s := newService(t)
 	ctx := context.Background()
 
 	if n, _ := s.UserService.CountUsers(ctx); n != 0 {
 		t.Fatalf("empty count: %d", n)
 	}
-	if _, err := s.UserService.FirstAdmin(ctx); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.UserService.FirstAdmin(ctx); !errors.Is(err, database.ErrNotFound) {
 		t.Fatalf("no admin yet: %v", err)
 	}
 	if _, _, err := s.UserService.CreateUser(ctx, "", "  ", agentuse.RoleUser); err == nil {
@@ -65,7 +65,7 @@ func TestUsers(t *testing.T) {
 	if u, err := s.UserService.UserByToken(ctx, rootTok); err != nil || u.ID != root.ID {
 		t.Fatalf("by token: %v %+v", err, u)
 	}
-	if _, err := s.UserService.UserByToken(ctx, "ut_nope"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.UserService.UserByToken(ctx, "ut_nope"); !errors.Is(err, database.ErrNotFound) {
 		t.Fatalf("bad token: %v", err)
 	}
 	list, _ := s.UserService.ListUsers(ctx)
@@ -78,13 +78,13 @@ func TestUsers(t *testing.T) {
 	if err != nil || u.ID != alice.ID || newTok == aliceTok {
 		t.Fatalf("reset: %v %+v", err, u)
 	}
-	if _, err := s.UserService.UserByToken(ctx, aliceTok); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.UserService.UserByToken(ctx, aliceTok); !errors.Is(err, database.ErrNotFound) {
 		t.Fatal("old token should be invalid")
 	}
 	if got, err := s.UserService.UserByToken(ctx, newTok); err != nil || got.ID != alice.ID {
 		t.Fatalf("new token: %v", err)
 	}
-	if _, _, err := s.UserService.ResetUserToken(ctx, "nobody"); !errors.Is(err, store.ErrNotFound) {
+	if _, _, err := s.UserService.ResetUserToken(ctx, "nobody"); !errors.Is(err, database.ErrNotFound) {
 		t.Fatalf("reset unknown: %v", err)
 	}
 }

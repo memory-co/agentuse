@@ -174,7 +174,7 @@ Client 選定實際本地 session 後，向 Server 讀取 `complete_messages`：
 
 ## 已實現的消息模型與本次組織調整
 
-本文 SQL 是 SQLite 表達的邏輯結構，實際各庫建表由 [GORM 模型](../../server/internal/store/models.go) 和 [版本遷移](../../server/internal/store/migrations.go) 管理，當前 遷移基線 `0001_initial`。共享對話使用 conversation_id，原生執行會話使用 Client 產生的 session_id；兩者保持獨立。消息正文仍為原始字符串，收件人、作者、附件及執行關係沿用既有模型。mode 是 conversation 創建參數，不是舊的消息執行包裝；不接受 input/defer_start 或其他舊別名。父子協作不增加執行身份或 service；conversation_rounds 只保存本對話內的輪次區間。
+本文 SQL 是 SQLite 表達的邏輯結構，實際各庫建表由 [GORM 模型](../../server/internal/database/models.go) 和 [版本遷移](../../server/internal/database/migrations.go) 管理，當前 遷移基線 `0001_initial`。共享對話使用 conversation_id，原生執行會話使用 Client 產生的 session_id；兩者保持獨立。消息正文仍為原始字符串，收件人、作者、附件及執行關係沿用既有模型。mode 是 conversation 創建參數，不是舊的消息執行包裝；不接受 input/defer_start 或其他舊別名。父子協作不增加執行身份或 service；conversation_rounds 只保存本對話內的輪次區間。
 
 ## 表結構
 

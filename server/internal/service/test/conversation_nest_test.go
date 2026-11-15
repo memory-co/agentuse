@@ -13,10 +13,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/service"
 	conversationservice "github.com/memory-co/agentuse/server/internal/service/conversation"
 	runservice "github.com/memory-co/agentuse/server/internal/service/run"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 type roundFixture struct {
@@ -34,7 +34,7 @@ type roundFixture struct {
 
 func roundSetup(t *testing.T, multi, accept bool) roundFixture {
 	t.Helper()
-	s, u, d, a := runStore(t)
+	s, u, d, a := runFixture(t)
 	ctx := context.Background()
 	b, err := s.AgentService.CreateAgent(ctx, u.ID, "executor", "Executor", d.ID, a.Harness, "")
 	if err != nil {
@@ -175,7 +175,7 @@ func TestFinishedRoundsSurviveNotificationFailureAndHaveFixedSnapshots(t *testin
 		t.Fatal(err)
 	}
 	restore_block_round_notice()
-	restarted := service.New(s.Repository)
+	restarted := service.New(s.Database)
 	for i := 0; i < 3; i++ {
 		if err = restarted.ConversationService.ReconcileRoundNotifications(ctx); err != nil {
 			t.Fatal(err)
@@ -196,7 +196,7 @@ func TestFinishedRoundsSurviveNotificationFailureAndHaveFixedSnapshots(t *testin
 	if err != nil || len(snapshot.Messages) != 2 || snapshot.Messages[1].Content != "Tests failed" || len(snapshot.RunInputs) != 1 || len(snapshot.Runs) != 1 || len(snapshot.Events) != 2 {
 		t.Fatal(snapshot, err)
 	}
-	if _, err = s.ConversationService.ReadRound(ctx, f.u, f.child.ID, 3); !errors.Is(err, store.ErrNotFound) {
+	if _, err = s.ConversationService.ReadRound(ctx, f.u, f.child.ID, 3); !errors.Is(err, database.ErrNotFound) {
 		t.Fatal(err)
 	}
 }

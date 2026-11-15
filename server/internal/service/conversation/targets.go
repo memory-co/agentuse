@@ -9,8 +9,8 @@ import (
 
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/service/run"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // setMessageTargets freezes recipient routes on the message itself. It does not
@@ -18,12 +18,12 @@ import (
 func (s *Service) setMessageTargets(ctx context.Context, tx *gorm.DB, conversation agentuse.Conversation, message string, agents []string) error {
 	targets := map[string]run.MessageTarget{}
 	for _, id := range agents {
-		a, err := store.ScanAgent(store.Row(ctx, tx, store.AgentCols+` WHERE id=?`, id))
+		a, err := database.ScanAgent(database.Row(ctx, tx, database.AgentCols+` WHERE id=?`, id))
 		if err != nil {
 			return err
 		}
 		if a.UserID != conversation.UserID {
-			return store.ErrNotFound
+			return database.ErrNotFound
 		}
 		if err = s.DeviceService.CheckRuntime(ctx, tx, a.DeviceID, a.Harness); err != nil {
 			return err
@@ -35,7 +35,7 @@ func (s *Service) setMessageTargets(ctx context.Context, tx *gorm.DB, conversati
 
 func (s *Service) messageTargets(ctx context.Context, tx *gorm.DB, message string) (map[string]run.MessageTarget, error) {
 	var raw string
-	if err := store.Row(ctx, tx, `SELECT agent_targets FROM messages WHERE id=?`, message).Scan(&raw); err != nil {
+	if err := database.Row(ctx, tx, `SELECT agent_targets FROM messages WHERE id=?`, message).Scan(&raw); err != nil {
 		return nil, err
 	}
 	targets := map[string]run.MessageTarget{}
@@ -48,7 +48,7 @@ func (s *Service) saveMessageTargets(ctx context.Context, tx *gorm.DB, message s
 	if err != nil {
 		return err
 	}
-	_, err = store.Exec(ctx, tx, `UPDATE messages SET agent_targets=? WHERE id=?`, string(raw), message)
+	_, err = database.Exec(ctx, tx, `UPDATE messages SET agent_targets=? WHERE id=?`, string(raw), message)
 	return err
 }
 
@@ -60,7 +60,7 @@ func (s *Service) SaveMessageDispatch(ctx context.Context, tx *gorm.DB, message,
 	}
 	target, ok := targets[agent]
 	if !ok {
-		return store.ErrNotFound
+		return database.ErrNotFound
 	}
 	if target.Dispatch != nil {
 		return fmt.Errorf("message dispatch is already fixed")
@@ -79,7 +79,7 @@ func (s *Service) SaveMessageError(ctx context.Context, tx *gorm.DB, message, ag
 	}
 	target, ok := targets[agent]
 	if !ok {
-		return store.ErrNotFound
+		return database.ErrNotFound
 	}
 	if receipt != nil && target.Error != nil && target.Error.Uncertain {
 		receipt.Uncertain = true
@@ -90,9 +90,9 @@ func (s *Service) SaveMessageError(ctx context.Context, tx *gorm.DB, message, ag
 }
 
 func (s *Service) RetireDeviceMessages(ctx context.Context, tx *gorm.DB, device, reason string) error {
-	tq := store.MessageTargets(s.DB, "m", "t")
+	tq := database.MessageTargets(s.DB, "m", "t")
 
-	rows, err := store.Rows(ctx, tx, `SELECT m.id,m.conversation_id,`+tq.Key+`,`+tq.Dispatched+` FROM `+tq.From+` WHERE `+tq.Device+`=? AND `+tq.Pending, device)
+	rows, err := database.Rows(ctx, tx, `SELECT m.id,m.conversation_id,`+tq.Key+`,`+tq.Dispatched+` FROM `+tq.From+` WHERE `+tq.Device+`=? AND `+tq.Pending, device)
 	if err != nil {
 		return err
 	}
@@ -131,9 +131,9 @@ func (s *Service) RetireDeviceMessages(ctx context.Context, tx *gorm.DB, device,
 
 // NotifyDeviceConversations resolves execution ownership before publishing hints.
 func (s *Service) NotifyDeviceConversations(ctx context.Context, id string) {
-	tq := store.MessageTargets(s.DB, "m", "t")
+	tq := database.MessageTargets(s.DB, "m", "t")
 
-	rows, err := store.Rows(ctx, s.DB, `SELECT DISTINCT m.conversation_id FROM `+tq.From+` WHERE `+tq.Device+`=?`, id)
+	rows, err := database.Rows(ctx, s.DB, `SELECT DISTINCT m.conversation_id FROM `+tq.From+` WHERE `+tq.Device+`=?`, id)
 	if err != nil {
 		return
 	}

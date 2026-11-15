@@ -9,19 +9,19 @@ import (
 	"github.com/memory-co/agentuse/internal/testdb"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/service"
 	deviceservice "github.com/memory-co/agentuse/server/internal/service/device"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
-// newStore 开一个内存库，测试结束时关掉。时钟每读一次走一秒，按时间排序的结果是确定的。
-func newStore(t *testing.T) *service.Service {
+// newService 开一个内存库，测试结束时关掉。时钟每读一次走一秒，按时间排序的结果是确定的。
+func newService(t *testing.T) *service.Service {
 	t.Helper()
 	driver, dsn := testdb.Config(t)
-	repository, err := store.OpenConfig(store.Config{Driver: driver, DSN: dsn})
+	db, err := database.OpenConfig(database.Config{Driver: driver, DSN: dsn})
 	var s *service.Service
 	if err == nil {
-		s = service.New(repository)
+		s = service.New(db)
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -83,21 +83,5 @@ func TestOpenFile(t *testing.T) {
 	hs, _ := s.DeviceService.ListHarnesses(ctx)
 	if len(hs) != 0 {
 		t.Fatalf("unreported harnesses after reopen: %+v", hs)
-	}
-}
-
-func TestSecrets(t *testing.T) {
-	a, b := store.RandomToken("ut_"), store.RandomToken("ut_")
-	if a == b || len(a) != 3+48 || a[:3] != "ut_" {
-		t.Fatalf("tokens: %q %q", a, b)
-	}
-	if store.HashSecret(a) == store.HashSecret(b) || store.HashSecret(a) != store.HashSecret(a) || len(store.HashSecret(a)) != 64 {
-		t.Fatal("hash")
-	}
-	if id := randomID("dev_"); len(id) != len("dev_")+16 {
-		t.Fatalf("randomID: %q", id)
-	}
-	if u := newUUID(); len(u) != 36 || u[14] != '4' {
-		t.Fatalf("uuid v4: %q", u)
 	}
 }

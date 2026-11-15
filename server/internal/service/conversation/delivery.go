@@ -10,8 +10,8 @@ import (
 	"github.com/memory-co/agentuse/internal/attachment"
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/service/run"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // prepareMessage assembles conversation context for a fixed delivery assignment.
@@ -22,7 +22,7 @@ func (s *Service) PrepareMessage(ctx context.Context, tx *gorm.DB, p run.Message
 	}
 	out := protocol.ConversationMessage{ConversationID: p.ConversationID, MessageID: p.MessageID, AgentID: p.AgentID, AgentVersionID: p.AgentVersionID, Content: p.Content, Attachments: []attachment.Attachment{}}
 	instructions := executionPolicy(ss)
-	source, err := store.ScanMessage(store.Row(ctx, tx, store.MessageCols+` WHERE id=? AND conversation_id=?`, p.MessageID, p.ConversationID))
+	source, err := database.ScanMessage(database.Row(ctx, tx, database.MessageCols+` WHERE id=? AND conversation_id=?`, p.MessageID, p.ConversationID))
 	if err != nil {
 		return out, err
 	}

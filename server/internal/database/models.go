@@ -1,4 +1,4 @@
-package store
+package database
 
 import (
 	"gorm.io/gorm"
@@ -251,6 +251,9 @@ type RunControl struct {
 
 // A transaction-scoped row lock preserves the existing serialized metadata
 // transaction semantics across all databases and across Server processes.
-type StoreLock struct {
+type TransactionLock struct {
 	ID int `gorm:"primaryKey;autoIncrement:false"`
 }
+
+// TableName is fixed by the published migration, independently of Go naming.
+func (TransactionLock) TableName() string { return "store_locks" }

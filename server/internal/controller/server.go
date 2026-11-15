@@ -11,12 +11,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/service"
 	conversationservice "github.com/memory-co/agentuse/server/internal/service/conversation"
 	fileservice "github.com/memory-co/agentuse/server/internal/service/file"
 	runservice "github.com/memory-co/agentuse/server/internal/service/run"
 	skillservice "github.com/memory-co/agentuse/server/internal/service/skill"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 type Config struct {
@@ -141,7 +141,7 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
 }
 
-func (s *Server) storeErr(w http.ResponseWriter, err error) {
+func (s *Server) serviceErr(w http.ResponseWriter, err error) {
 	if errors.Is(err, conversationservice.ErrConversationScope) {
 		writeErr(w, 403, err.Error())
 		return
@@ -150,7 +150,7 @@ func (s *Server) storeErr(w http.ResponseWriter, err error) {
 		writeErr(w, 409, err.Error())
 		return
 	}
-	if errors.Is(err, store.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, database.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 		writeErr(w, http.StatusNotFound, "不存在")
 		return
 	}

@@ -10,11 +10,11 @@ import (
 
 	"github.com/google/uuid"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 )
 
 func TestCompleteMessagesUsesActualSessionAndAcceptedBoundary(t *testing.T) {
-	s, u, d, a := runStore(t)
+	s, u, d, a := runFixture(t)
 	ctx := context.Background()
 	ss, _, err := s.ConversationService.CreateConversation(ctx, u, "", "", "", nil, nil, "", nil)
 	if err != nil {
@@ -96,7 +96,7 @@ func TestCompleteMessagesUsesActualSessionAndAcceptedBoundary(t *testing.T) {
 	if _, err = s.ConversationService.CompleteMessages(ctx, d.ID, ss.ID, current.ID, a.ID, "native-b"); err == nil {
 		t.Fatal("cross-agent conversation accepted")
 	}
-	if _, err = s.ConversationService.CompleteMessages(ctx, "other-device", ss.ID, current.ID, a.ID, "native-a"); !errors.Is(err, store.ErrNotFound) {
+	if _, err = s.ConversationService.CompleteMessages(ctx, "other-device", ss.ID, current.ID, a.ID, "native-a"); !errors.Is(err, database.ErrNotFound) {
 		t.Fatal("unassigned device obtained context", err)
 	}
 	// A new version needs full context; an old native address cannot be rebound.

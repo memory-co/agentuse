@@ -10,16 +10,16 @@ import (
 
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/notification"
 	fileservice "github.com/memory-co/agentuse/server/internal/service/file"
 	"github.com/memory-co/agentuse/server/internal/service/run"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // Service owns the conversation business operations. Peers are explicit contracts.
 type Service struct {
 	DB            *gorm.DB
-	Repository    *store.Store
+	Database      *database.DB
 	Now           func() time.Time
 	Log           *log.Logger
 	Changes       *notification.Broker

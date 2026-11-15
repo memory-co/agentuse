@@ -4,7 +4,7 @@ Server/client WebSocket 報文、字段和恢復規則見 [protocol.md](protocol
 
 Server HTTP API 通過 Huma 註冊，從共用的請求和響應 Go 類型自動生成 OpenAPI。用戶登錄後可打開 `/api/docs` 交互文檔，或讀取 `/api/openapi.json`、`/api/openapi.yaml` 和 `/api/schemas/{schema}.json`。文檔入口沿用用戶 cookie / Bearer 鑒權；每個操作分別標明用戶與設備身份的適用範圍。文件接口使用 multipart 或二進制格式，WebSocket 入口僅描述 HTTP 握手。
 
-> 本文定義 Server 的業務劃分。嵌套 conversation 模型已實作，見 [conversation 設計](server-conversation.md#父子對話)；其他已實現鏈路仍按各自說明。controller 處理傳輸和身份，service 按下表組織業務與事務，store 保存 GORM 模型、版本遷移、查詢方言與行解碼。Client 職責見 [client-main.md](client-main.md)。
+> 本文定義 Server 的業務劃分。嵌套 conversation 模型已實作，見 [conversation 設計](server-conversation.md#父子對話)；其他已實現鏈路仍按各自說明。controller 處理傳輸和身份，service 按下表組織業務與事務，database 保存 GORM 模型、版本遷移、查詢方言與行解碼。Client 職責見 [client-main.md](client-main.md)。
 
 Conversation 表示共享對話，由 conversationService 管理；原 session 業務整體改用此名稱，session 專指 client 對應 Codex/Claude Code 的原生執行會話，見 [client-session.md](client-session.md)；server 不增加 sessionService 或 sessions 表。
 
@@ -42,7 +42,7 @@ Server 分爲三層：
 
 - **controller**：HTTP / WebSocket 入口，處理身份、請求和響應，把業務交給 service。
 - **service**：按業務對象劃分職責，決定如何保存對話、分配任務、管理設備和業務狀態。
-- **store**：表、查詢和事務；各 service 通過它保存自己的業務數據。
+- **database**：表、查詢和事務；各 service 通過它保存自己的業務數據。
 
 設備的在線連接由連接管理組件維護。Service 通過通知接口讓它派活、推送輸入、取消或答案；連接本身不承擔 conversation/run 的業務規則。
 
@@ -159,7 +159,7 @@ sequenceDiagram
 
 每個業務目錄都是獨立 Go package。service 頂層只保留 services.go 組裝入口，使用具名字段連接各服務，負責資源配置及生命週期；調用方明確使用 UserService、ConversationService 等所屬對象。各服務用接口描述所需的業務協作，並直接聲明 DB、時鐘、日誌及所需通知方法，不嵌入共用 Runtime 容器。
 
-業務和 API 模型直接使用 sdk/golang 的公開 DTO，狀態常量也由該 SDK 定義；不經 store、core 或 service 逐層轉發。執行來源 AgentSource 歸 run，附件訪問參數 AttachmentAccess 歸 conversation，Client 上報身份 ReportedHarness 歸 device。GORM 數據庫模型與公開 DTO 分開，版本遷移、查詢方言、列定義、掃描和空值參數處理歸 store；業務錯誤及輸入校驗歸各自服務。收件人與 harness capabilities 分別按所屬業務校驗。
+業務和 API 模型直接使用 sdk/golang 的公開 DTO，狀態常量也由該 SDK 定義；不經 database、core 或 service 逐層轉發。執行來源 AgentSource 歸 run，附件訪問參數 AttachmentAccess 歸 conversation，Client 上報身份 ReportedHarness 歸 device。GORM 數據庫模型與公開 DTO 分開，版本遷移、查詢方言、列定義、掃描和空值參數處理歸 database；業務錯誤及輸入校驗歸各自服務。收件人與 harness capabilities 分別按所屬業務校驗。
 
 server/internal/notification 僅負責通知分發：Broker 按調用方明確提供的所有者與管理員身份隔離訂閱、合併變更並限制隊列長度；Client 描述設備傳輸方法，各服務只依賴自己使用的方法。通知包不查庫，也不決定業務訪問範圍。conversation.Service 確定對話通知的所有者和父引用；run.Service 查詢設備相關的執行對話，再請 conversation.Service 發出變更。業務服務層測試集中放在 test/，通知分發器的獨立測試放在 notification 包。
 

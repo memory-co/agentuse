@@ -1,13 +1,17 @@
-package store
+package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/memory-co/agentuse/internal/identity"
 
 	"github.com/go-gormigrate/gormigrate/v2"
 	"github.com/memory-co/agentuse/internal/testdb"
@@ -27,7 +31,7 @@ func TestConcurrentOpenMigratesOnceAndReopenPreservesData(t *testing.T) {
 	config := backendConfig(t)
 	const count = 4
 	var group sync.WaitGroup
-	results := make(chan *Store, count)
+	results := make(chan *DB, count)
 	errors := make(chan error, count)
 	for range count {
 		group.Add(1)
@@ -53,7 +57,7 @@ func TestConcurrentOpenMigratesOnceAndReopenPreservesData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = db.db.Create(&User{ID: "persisted", Name: "persisted", TokenHash: HashSecret("token"), CreatedAt: 1}).Error; err != nil {
+	if err = db.db.Create(&User{ID: "persisted", Name: "persisted", TokenHash: identity.HashSecret("token"), CreatedAt: 1}).Error; err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
@@ -77,7 +81,7 @@ func TestVersionedMigrationPreservesDataAndRejectsUnknownVersions(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = db.db.Create(&User{ID: "u", Name: "original", TokenHash: HashSecret("token"), CreatedAt: 1}).Error; err != nil {
+	if err = db.db.Create(&User{ID: "u", Name: "original", TokenHash: identity.HashSecret("token"), CreatedAt: 1}).Error; err != nil {
 		t.Fatal(err)
 	}
 	steps := append(migrations(), &gormigrate.Migration{ID: "0002_test_column", Migrate: func(tx *gorm.DB) error {
@@ -111,7 +115,7 @@ func TestBackendConstraintsPreserveNullsCaseAndRoundUniqueness(t *testing.T) {
 	}
 	defer db.Close()
 	for _, name := range []string{"Alice", "alice"} {
-		if err = db.db.Create(&User{ID: name, Name: name, TokenHash: HashSecret(name), CreatedAt: 1}).Error; err != nil {
+		if err = db.db.Create(&User{ID: name, Name: name, TokenHash: identity.HashSecret(name), CreatedAt: 1}).Error; err != nil {
 			t.Fatal("case-sensitive identities changed", err)
 		}
 	}
@@ -134,7 +138,7 @@ func TestBackendConstraintsPreserveNullsCaseAndRoundUniqueness(t *testing.T) {
 		t.Fatal("closed round blocked next round", err)
 	}
 	path := strings.Repeat("路径/", 500) + "file.txt"
-	attachment := Attachment{ID: "long-path", ConversationID: "root", RelativePath: Text(path), PathHash: HashSecret(path), Filename: "file.txt", ContentType: "text/plain", SizeBytes: 1, SHA256: HashSecret("x"), CreatedBy: "Alice", Source: "user", CreatedAt: 1}
+	attachment := Attachment{ID: "long-path", ConversationID: "root", RelativePath: Text(path), PathHash: fmt.Sprintf("%x", sha256.Sum256([]byte(path))), Filename: "file.txt", ContentType: "text/plain", SizeBytes: 1, SHA256: fmt.Sprintf("%x", sha256.Sum256([]byte("x"))), CreatedBy: "Alice", Source: "user", CreatedAt: 1}
 	if err = db.db.Create(&attachment).Error; err != nil {
 		t.Fatal("long Unicode path was truncated or rejected", err)
 	}

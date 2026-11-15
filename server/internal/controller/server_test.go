@@ -15,9 +15,9 @@ import (
 	"github.com/memory-co/agentuse/internal/testdb"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/service"
 	conversationservice "github.com/memory-co/agentuse/server/internal/service/conversation"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // env 是一个跑在 httptest 上的服务，带一个内存库。
@@ -31,10 +31,10 @@ type env struct {
 func newEnv(t *testing.T, cfg Config) *env {
 	t.Helper()
 	driver, dsn := testdb.Config(t)
-	repository, err := store.OpenConfig(store.Config{Driver: driver, DSN: dsn})
+	db, err := database.OpenConfig(database.Config{Driver: driver, DSN: dsn})
 	var st *service.Service
 	if err == nil {
-		st = service.New(repository)
+		st = service.New(db)
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -119,14 +119,14 @@ func TestBaseURL(t *testing.T) {
 func TestStoreErr(t *testing.T) {
 	s := &Server{}
 	for err, code := range map[error]int{
-		store.ErrNotFound:                                            404,
-		fmt.Errorf("wrap: %w", store.ErrNotFound):                    404,
+		database.ErrNotFound:                                         404,
+		fmt.Errorf("wrap: %w", database.ErrNotFound):                 404,
 		conversationservice.ErrConversationBusy:                      409,
 		errors.New("名字不对"):                                           400,
 		fmt.Errorf("x: %w", conversationservice.ErrConversationBusy): 409,
 	} {
 		w := httptest.NewRecorder()
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		if w.Code != code {
 			t.Errorf("%v → %d, want %d", err, w.Code, code)
 		}

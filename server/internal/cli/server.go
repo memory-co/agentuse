@@ -17,11 +17,11 @@ import (
 	"github.com/memory-co/agentuse/internal/command"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	server "github.com/memory-co/agentuse/server/internal/controller"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/hub"
 	"github.com/memory-co/agentuse/server/internal/service"
 	fileservice "github.com/memory-co/agentuse/server/internal/service/file"
 	userservice "github.com/memory-co/agentuse/server/internal/service/user"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 const serverUsage = `agentuse-server —— agentuse 服务端
@@ -124,12 +124,12 @@ func runStart(args []string) error {
 			return err
 		}
 	}
-	repository, err := store.OpenConfig(store.Config{Driver: *dbDriver, DSN: *dbPath})
+	db, err := database.OpenConfig(database.Config{Driver: *dbDriver, DSN: *dbPath})
 	if err != nil {
 		return err
 	}
-	defer repository.Close()
-	st := service.New(repository)
+	defer db.Close()
+	st := service.New(db)
 	ctx, stop := command.SignalContext()
 	defer stop()
 	ln, err := net.Listen("tcp", *addr)

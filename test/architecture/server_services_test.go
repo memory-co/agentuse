@@ -13,16 +13,16 @@ import (
 )
 
 // Sharing a SQL transaction does not transfer ownership of the affected tables.
-// Check inline SQL and store constants so an orchestrator cannot quietly acquire
+// Check inline SQL and database constants so an orchestrator cannot quietly acquire
 // another domain's writes when new cleanup/publication paths are added.
 func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 	root := filepath.Join("..", "..", "server", "internal")
 	constants := map[string]string{}
-	storeFiles, err := filepath.Glob(filepath.Join(root, "store", "*.go"))
+	databaseFiles, err := filepath.Glob(filepath.Join(root, "database", "*.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range storeFiles {
+	for _, path := range databaseFiles {
 		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 		if err != nil {
 			t.Fatal(err)
@@ -98,7 +98,7 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 				case *ast.Ident:
 					return variables[value.Name]
 				case *ast.SelectorExpr:
-					if id, ok := value.X.(*ast.Ident); ok && id.Name == "store" {
+					if id, ok := value.X.(*ast.Ident); ok && id.Name == "database" {
 						return models[value.Sel.Name]
 					}
 				}
@@ -156,7 +156,7 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 						sql, _ = strconv.Unquote(n.Value)
 					}
 				case *ast.SelectorExpr:
-					if id, ok := n.X.(*ast.Ident); ok && id.Name == "store" {
+					if id, ok := n.X.(*ast.Ident); ok && id.Name == "database" {
 						sql = constants[n.Sel.Name]
 					}
 				}
@@ -239,7 +239,7 @@ func TestServerServicePackageDependencies(t *testing.T) {
 func TestServerServicesUseDirectModelsAndExplicitDependencies(t *testing.T) {
 	root := filepath.Join("..", "..", "server", "internal")
 	business := map[string]bool{"user": true, "device": true, "agent": true, "conversation": true, "run": true}
-	for _, directory := range []string{"service", "store"} {
+	for _, directory := range []string{"service", "database"} {
 		err := filepath.WalkDir(filepath.Join(root, directory), func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 				return err

@@ -18,14 +18,14 @@ func (s *Server) handleConversationFile(w http.ResponseWriter, r *http.Request) 
 	case http.MethodPut:
 		r.Body = http.MaxBytesReader(w, r.Body, s.cfg.AttachmentMaxBytes)
 		if err := s.service.ConversationService.PutConversationFile(r.Context(), attachmentAccess(r), r.PathValue("id"), r.PathValue("path"), r.Body); err != nil {
-			s.storeErr(w, err)
+			s.serviceErr(w, err)
 			return
 		}
 		w.WriteHeader(204)
 	default:
 		stream, size, err := s.service.ConversationService.OpenConversationFile(r.Context(), attachmentAccess(r), r.PathValue("id"), r.PathValue("path"))
 		if err != nil {
-			s.storeErr(w, err)
+			s.serviceErr(w, err)
 			return
 		}
 		defer stream.Close()

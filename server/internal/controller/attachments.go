@@ -16,8 +16,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/attachment"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	conversationservice "github.com/memory-co/agentuse/server/internal/service/conversation"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 type attachmentKey struct{}
@@ -71,7 +71,7 @@ func (s *Server) attachmentErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, conversationservice.ErrAttachmentUnauthorized):
 		writeErr(w, 401, err.Error())
-	case errors.Is(err, store.ErrNotFound):
+	case errors.Is(err, database.ErrNotFound):
 		writeErr(w, 404, "会话或附件不存在")
 	case errors.Is(err, conversationservice.ErrAttachmentReferenced), errors.Is(err, conversationservice.ErrAttachmentPathConflict), errors.Is(err, conversationservice.ErrAttachmentRun), errors.Is(err, conversationservice.ErrAttachmentCapability):
 		writeErr(w, 409, err.Error())
@@ -266,7 +266,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 	}
 	err = s.service.ConversationService.PublishAttachment(r.Context(), a, &v, tmp)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, database.ErrNotFound) {
 			writeErr(w, 409, "上传期间会话或权限发生变化")
 			return
 		}

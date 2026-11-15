@@ -14,7 +14,7 @@ Client 從輸入來源接收文本，選擇本機 session，調用 harnessctl，
 | runService | 接收輸入、驅動 session、登記實際 run、查詢、控制和執行上下文工具 | runs/<run_id>.jsonl 引用及 events.jsonl |
 | harnessService | 安裝和固定適配器，通過 init 和四個交互命令執行、讀取公共事件 | ~/.agentuse/harness/ 下的啓動快照 |
 
-controller 處理本機 HTTP，通過 sessionService 和 runService 的只讀查詢接口獲取頁面數據。各 service 直接管理自己負責的 YAML / JSONL 文件；client 不設 store、repository、Ledger 或統一 Reader / Writer 層。fileutil 只提供路徑檢查、原子文件寫入、YAML 編解碼和進程文件鎖，不包含業務實體、索引或恢復策略。原生 Codex RPC、Claude stream-json、權限策略和進程生命週期全部屬於獨立 harnessctl 包，client 不實現另一套原生協議。
+controller 處理本機 HTTP，通過 sessionService 和 runService 的只讀查詢接口獲取頁面數據。各 service 直接管理自己負責的 YAML / JSONL 文件；client 不設 database、repository、Ledger 或統一 Reader / Writer 層。fileutil 只提供路徑檢查、原子文件寫入、YAML 編解碼和進程文件鎖，不包含業務實體、索引或恢復策略。原生 Codex RPC、Claude stream-json、權限策略和進程生命週期全部屬於獨立 harnessctl 包，client 不實現另一套原生協議。
 
 ```mermaid
 flowchart LR

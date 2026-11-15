@@ -10,7 +10,7 @@ import (
 
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 )
 
 const cookieName = "agentuse_token"
@@ -55,7 +55,7 @@ func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 			}
 			u, err = s.actAs(r.Context(), as)
 			if err != nil {
-				s.storeErr(w, err)
+				s.serviceErr(w, err)
 				return
 			}
 		}
@@ -66,7 +66,7 @@ func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
 // actAs 取 X-Agentuse-User 指的用户，第一次出现就自动建(role = user,name 取 id)。
 func (s *Server) actAs(ctx context.Context, id string) (agentuse.User, error) {
 	u, err := s.service.UserService.GetUser(ctx, id)
-	if !errors.Is(err, store.ErrNotFound) {
+	if !errors.Is(err, database.ErrNotFound) {
 		return u, err
 	}
 	if u, _, err = s.service.UserService.CreateUser(ctx, id, id, agentuse.RoleUser); err != nil {
@@ -132,7 +132,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := s.service.UserService.ListUsers(r.Context())
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, users)
@@ -149,7 +149,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	u, token, err := s.service.UserService.CreateUser(r.Context(), req.ID, req.Name, req.Role)
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, agentuse.UserToken{User: u, Token: token, LoginURL: s.baseURL(r) + "/login?token=" + token})
@@ -158,7 +158,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleResetUserToken(w http.ResponseWriter, r *http.Request) {
 	u, token, err := s.service.UserService.ResetUserToken(r.Context(), r.PathValue("id"))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, agentuse.UserToken{User: u, Token: token, LoginURL: s.baseURL(r) + "/login?token=" + token})
@@ -167,7 +167,7 @@ func (s *Server) handleResetUserToken(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListHarnesses(w http.ResponseWriter, r *http.Request) {
 	harnesses, err := s.service.DeviceService.ListHarnesses(r.Context())
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, harnesses)
@@ -177,7 +177,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	if source := currentSource(r); source != nil {
 		v, err := s.service.ConversationService.GetConversation(r.Context(), source.User, source.ConversationID)
 		if err != nil {
-			s.storeErr(w, err)
+			s.serviceErr(w, err)
 			return
 		}
 		if v.ParentConversationID != "" || v.Mode != agentuse.ConversationModeCollaborative {
@@ -187,7 +187,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	}
 	agents, err := s.service.AgentService.ListAgents(r.Context(), currentUser(r))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, agents)
@@ -201,7 +201,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	a, err := s.service.AgentService.CreateConfiguredAgent(r.Context(), currentUser(r).ID, req.ID, agentuse.AgentConfig{Name: req.Name, DeviceID: req.DeviceID, Harness: req.Harness, Description: req.Description, Model: req.Model, Instructions: req.Instructions, Skills: req.Skills})
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, a)
@@ -210,7 +210,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 	a, err := s.service.AgentService.GetAgent(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, a)
@@ -218,7 +218,7 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	if err := s.service.AgentService.DeleteAgent(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -245,7 +245,7 @@ func setupCommand(base, token string) string {
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 	ds, err := s.service.DeviceService.ListDevices(r.Context(), currentUser(r))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	out := make([]deviceView, 0, len(ds))
@@ -265,7 +265,7 @@ func (s *Server) handleCreateDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	d, err := s.service.DeviceService.CreateDevice(r.Context(), currentUser(r).ID, req.Name)
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, s.view(r, d))
@@ -274,7 +274,7 @@ func (s *Server) handleCreateDevice(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := s.service.DeviceService.DeleteDevice(r.Context(), currentUser(r), id); err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -283,7 +283,7 @@ func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleResetDevice(w http.ResponseWriter, r *http.Request) {
 	d, err := s.service.DeviceService.ResetDeviceSetup(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.view(r, d))
@@ -298,12 +298,12 @@ func (s *Server) handleToggleHarness(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	id := r.PathValue("id")
 	if err := s.service.DeviceService.SetDeviceHarnessEnabled(r.Context(), u, id, r.PathValue("harness"), req.Enabled); err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	d, err := s.service.DeviceService.GetDevice(r.Context(), u, id)
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.view(r, d))
@@ -320,7 +320,7 @@ func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request)
 	if source := currentSource(r); source != nil {
 		own, err := s.service.ConversationService.GetConversation(r.Context(), source.User, source.ConversationID)
 		if err != nil {
-			s.storeErr(w, err)
+			s.serviceErr(w, err)
 			return
 		}
 		if own.ParentConversationID != "" || own.Mode != agentuse.ConversationModeCollaborative || parent != own.ID {
@@ -336,7 +336,7 @@ func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request)
 		out, err = s.service.ConversationService.ListConversations(r.Context(), currentUser(r), 100)
 	}
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, 200, out)
@@ -349,7 +349,7 @@ func (s *Server) handleCreateConversation(w http.ResponseWriter, r *http.Request
 	}
 	v, reply, err := s.service.ConversationService.CreateConversation(r.Context(), currentUser(r), req.ParentConversationID, req.Title, req.Prompt, req.ToAgentIDs, req.ToUserIDs, req.Mode, currentSource(r))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	out := agentuse.CreateConversationResponse{Conversation: v, Runs: []agentuse.Run{}, RunInputs: []agentuse.RunInput{}}
@@ -375,7 +375,7 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 		reply, err = s.service.ConversationService.SendMessage(r.Context(), currentUser(r), r.PathValue("id"), req.Prompt, req.ToAgentIDs, req.ToUserIDs, req.AttachmentIDs, req.ReplyToMessageID)
 	}
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, 201, reply)
@@ -407,7 +407,7 @@ func (s *Server) handleGetConversation(w http.ResponseWriter, r *http.Request) {
 		v, err = s.service.ConversationService.ReadConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	}
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, 200, v)
@@ -415,7 +415,7 @@ func (s *Server) handleGetConversation(w http.ResponseWriter, r *http.Request) {
 func (s *Server) conversationInScope(w http.ResponseWriter, r *http.Request, id string, write bool) bool {
 	if source := currentSource(r); source != nil {
 		if err := s.service.ConversationService.CheckAgentAccess(r.Context(), *source, id, write); err != nil {
-			s.storeErr(w, err)
+			s.serviceErr(w, err)
 			return false
 		}
 	}
@@ -424,7 +424,7 @@ func (s *Server) conversationInScope(w http.ResponseWriter, r *http.Request, id 
 func (s *Server) handleResolveConversation(w http.ResponseWriter, r *http.Request) {
 	v, err := s.service.ConversationService.ResolveConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, 200, v)
@@ -432,7 +432,7 @@ func (s *Server) handleResolveConversation(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleReopenConversation(w http.ResponseWriter, r *http.Request) {
 	v, err := s.service.ConversationService.ReopenConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, 200, v)
@@ -450,7 +450,7 @@ func (s *Server) handleDeleteConversation(w http.ResponseWriter, r *http.Request
 		err = s.service.ConversationService.DeleteConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	}
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	w.WriteHeader(204)
@@ -482,12 +482,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d, key, err := s.service.DeviceService.RegisterDevice(r.Context(), strings.TrimSpace(req.Token), req.Hostname)
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, database.ErrNotFound) {
 		writeErr(w, http.StatusUnauthorized, "安装令牌无效或已用过，请在页面上重新生成安装命令")
 		return
 	}
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	s.log.Printf("device %s (%s) 注册成功", d.ID, d.Name)

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/protocol"
@@ -13,9 +13,9 @@ import (
 	"github.com/memory-co/agentuse/server/internal/service"
 )
 
-func runStore(t *testing.T) (*service.Service, agentuse.User, agentuse.Device, agentuse.Agent) {
+func runFixture(t *testing.T) (*service.Service, agentuse.User, agentuse.Device, agentuse.Agent) {
 	t.Helper()
-	s := newStore(t)
+	s := newService(t)
 	u, _, err := s.UserService.CreateUser(context.Background(), "u", "user", agentuse.RoleUser)
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +40,7 @@ func reportNative(t *testing.T, s *service.Service, d agentuse.Device, p protoco
 	return e
 }
 func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
-	s, u, d, a := runStore(t)
+	s, u, d, a := runFixture(t)
 	ctx := context.Background()
 	ss, reply, err := s.ConversationService.CreateConversation(ctx, u, "", "", "first", []string{a.ID}, nil, "", nil)
 	if err != nil {
@@ -54,7 +54,7 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	var allocated int
-	if err := store.Row(ctx, s.DB, `SELECT count(*) FROM run_inputs`).Scan(&allocated); err != nil || allocated != 0 {
+	if err := database.Row(ctx, s.DB, `SELECT count(*) FROM run_inputs`).Scan(&allocated); err != nil || allocated != 0 {
 		t.Fatal("dispatch allocated an input before accepted", allocated, err)
 	}
 	id := uuid.NewString()
@@ -115,7 +115,7 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 	}
 }
 func TestClientRequestReplyCancelAndDisconnectAreAuthoritative(t *testing.T) {
-	s, u, d, a := runStore(t)
+	s, u, d, a := runFixture(t)
 	ctx := context.Background()
 	ss, _, err := s.ConversationService.CreateConversation(ctx, u, "", "", "question", []string{a.ID}, nil, "", nil)
 	if err != nil {
@@ -154,7 +154,7 @@ func TestClientRequestReplyCancelAndDisconnectAreAuthoritative(t *testing.T) {
 	}
 }
 func TestClientEventsCannotCrossOwnershipOrRebindInputs(t *testing.T) {
-	s, u, d, a := runStore(t)
+	s, u, d, a := runFixture(t)
 	ctx := context.Background()
 	ss, _, _ := s.ConversationService.CreateConversation(ctx, u, "", "", "first", []string{a.ID}, nil, "", nil)
 	p, _ := s.RunService.DispatchMessage(ctx, d)

@@ -15,9 +15,9 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/service"
 	deviceservice "github.com/memory-co/agentuse/server/internal/service/device"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 type Hub struct {
@@ -229,7 +229,7 @@ func (c *deviceConn) reserve(m protocol.ConversationMessage) {
 func (h *Hub) dispatch(ctx context.Context, c *deviceConn) error {
 	for {
 		m, err := h.service.RunService.DispatchMessage(ctx, c.d, c.capacity)
-		if errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, database.ErrNotFound) {
 			return nil
 		}
 		if err != nil {

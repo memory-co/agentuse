@@ -61,7 +61,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Shared schema, service and HTTP tests
-        run: go test -count=1 ./server/internal/store ./server/internal/service/test ./server/internal/controller ./server/internal/cli ./test/architecture
+        run: go test -count=1 ./server/internal/database ./server/internal/service/test ./server/internal/controller ./server/internal/cli ./test/architecture
       - name: Build without CGO
         run: go build ./server/cmd/agentuse-server ./client/cmd/agentuse
 

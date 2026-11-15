@@ -10,7 +10,7 @@ import (
 
 	"github.com/memory-co/agentuse/internal/attachment"
 	sdk "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 )
 
 func (s *Service) messageAttachments(ctx context.Context, q *gorm.DB, conversation string, ids []string) ([]sdk.Attachment, error) {
@@ -27,7 +27,7 @@ func (s *Service) messageAttachments(ctx context.Context, q *gorm.DB, conversati
 			continue
 		}
 		seen[id] = true
-		file, err := store.ScanAttachment(store.Row(ctx, q, store.AttachmentCols+` WHERE conversation_id=? AND id=?`, conversation, id))
+		file, err := database.ScanAttachment(database.Row(ctx, q, database.AttachmentCols+` WHERE conversation_id=? AND id=?`, conversation, id))
 		if err != nil {
 			return nil, err
 		}
@@ -38,12 +38,12 @@ func (s *Service) messageAttachments(ctx context.Context, q *gorm.DB, conversati
 func mustAttachmentJSON(files []sdk.Attachment) []byte { data, _ := json.Marshal(files); return data }
 func (s *Service) attachRunOutputs(ctx context.Context, tx *gorm.DB, run sdk.Run, message string) error {
 	files := []sdk.Attachment{}
-	rows, err := store.Rows(ctx, tx, store.AttachmentCols+` WHERE conversation_id=? AND created_by_run_id=? ORDER BY created_at,id`, run.ConversationID, run.ID)
+	rows, err := database.Rows(ctx, tx, database.AttachmentCols+` WHERE conversation_id=? AND created_by_run_id=? ORDER BY created_at,id`, run.ConversationID, run.ID)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
-		file, e := store.ScanAttachment(rows)
+		file, e := database.ScanAttachment(rows)
 		if e != nil {
 			rows.Close()
 			return e
@@ -55,6 +55,6 @@ func (s *Service) attachRunOutputs(ctx context.Context, tx *gorm.DB, run sdk.Run
 	if err != nil {
 		return err
 	}
-	_, err = store.Exec(ctx, tx, `UPDATE messages SET attachments=? WHERE id=?`, string(mustAttachmentJSON(files)), message)
+	_, err = database.Exec(ctx, tx, `UPDATE messages SET attachments=? WHERE id=?`, string(mustAttachmentJSON(files)), message)
 	return err
 }

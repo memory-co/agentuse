@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 )
 
 // ResolveConversation 把 idle 的会话标记为已完成;已经是已完成的直接返回。协调者不能标记。
@@ -19,7 +19,7 @@ func (s *Service) ReopenConversation(ctx context.Context, u agentuse.User, id st
 }
 
 func (s *Service) setResolved(ctx context.Context, u agentuse.User, id, from, to string) (agentuse.Conversation, error) {
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return agentuse.Conversation{}, err
 	}
@@ -35,7 +35,7 @@ func (s *Service) setResolved(ctx context.Context, u agentuse.User, id, from, to
 		return agentuse.Conversation{}, fmt.Errorf("%w:现在是 %s", ErrConversationState, ss.Status)
 	}
 	now := s.Now().Unix()
-	if _, err := store.Exec(ctx, tx, store.SetResolvedUpdate, to, now, ss.ID); err != nil {
+	if _, err := database.Exec(ctx, tx, database.SetResolvedUpdate, to, now, ss.ID); err != nil {
 		return agentuse.Conversation{}, err
 	}
 	ss.Status, ss.UpdatedAt = to, now

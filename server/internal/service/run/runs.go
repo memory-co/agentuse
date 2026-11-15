@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 )
 
 const nativeRunCols = `SELECT id,conversation_id,first_message_id,agent_id,agent_version_id,device_id,session_id,harness,harness_revision,status,result_message_id,output,error,result,created_at,updated_at FROM runs`
@@ -20,7 +20,7 @@ func (s *Service) GetRun(ctx context.Context, u agentuse.User, conversation, id 
 	if _, err := s.ConversationService.GetConversation(ctx, u, conversation); err != nil {
 		return agentuse.Run{}, err
 	}
-	return store.ScanRun(store.Row(ctx, s.DB, nativeRunCols+` WHERE conversation_id=? AND id=?`, conversation, id))
+	return database.ScanRun(database.Row(ctx, s.DB, nativeRunCols+` WHERE conversation_id=? AND id=?`, conversation, id))
 }
 
 // ExecutionSource verifies Client identity against actual accepted execution facts.
@@ -31,7 +31,7 @@ func (s *Service) ExecutionSource(ctx context.Context, device, conversation, age
 	if uuid.Validate(run) != nil || conversation == "" || agent == "" || session == "" {
 		return out, ErrExecutionSource
 	}
-	r, err := store.ScanRun(store.Row(ctx, s.DB, nativeRunCols+` WHERE id=? AND device_id=? AND conversation_id=? AND agent_id=? AND session_id=?`, run, device, conversation, agent, session))
+	r, err := database.ScanRun(database.Row(ctx, s.DB, nativeRunCols+` WHERE id=? AND device_id=? AND conversation_id=? AND agent_id=? AND session_id=?`, run, device, conversation, agent, session))
 	if err != nil {
 		return out, err
 	}
@@ -42,14 +42,14 @@ func (s *Service) Runs(ctx context.Context, conversation string) ([]agentuse.Run
 	return s.RunsIn(ctx, s.DB, conversation)
 }
 func (s *Service) RunsIn(ctx context.Context, q *gorm.DB, conversation string) ([]agentuse.Run, error) {
-	rows, err := store.Rows(ctx, q, nativeRunCols+` WHERE conversation_id=? ORDER BY created_at,id`, conversation)
+	rows, err := database.Rows(ctx, q, nativeRunCols+` WHERE conversation_id=? ORDER BY created_at,id`, conversation)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []agentuse.Run{}
 	for rows.Next() {
-		r, e := store.ScanRun(rows)
+		r, e := database.ScanRun(rows)
 		if e != nil {
 			return nil, e
 		}
@@ -72,12 +72,12 @@ type MessageTarget struct {
 	Error          *agentuse.MessageError        `json:"error,omitempty"`
 }
 
-func scanMessageTarget(row store.Scanner) (MessageTarget, error) {
+func scanMessageTarget(row database.Scanner) (MessageTarget, error) {
 	var p MessageTarget
 	var dispatch, receipt string
 	err := row.Scan(&p.MessageID, &p.ConversationID, &p.AgentID, &p.AgentVersionID, &p.DeviceID, &p.Harness, &p.Content, &dispatch, &receipt)
 	if err == sql.ErrNoRows {
-		return p, store.ErrNotFound
+		return p, database.ErrNotFound
 	}
 	if err != nil {
 		return p, err
@@ -90,13 +90,13 @@ func scanMessageTarget(row store.Scanner) (MessageTarget, error) {
 }
 
 func (s *Service) DispatchedTarget(ctx context.Context, q *gorm.DB, device, conversation, message, agent string) (MessageTarget, error) {
-	tq := store.MessageTargets(s.DB, "m", "t")
+	tq := database.MessageTargets(s.DB, "m", "t")
 
-	return scanMessageTarget(store.Row(ctx, q, tq.Columns()+` WHERE m.conversation_id=? AND m.id=? AND `+tq.Key+`=? AND `+tq.Device+`=? AND `+tq.Dispatched, conversation, message, agent, device))
+	return scanMessageTarget(database.Row(ctx, q, tq.Columns()+` WHERE m.conversation_id=? AND m.id=? AND `+tq.Key+`=? AND `+tq.Device+`=? AND `+tq.Dispatched, conversation, message, agent, device))
 }
 
 func (s *Service) RunInputsIn(ctx context.Context, q *gorm.DB, conversation string) ([]agentuse.RunInput, error) {
-	rows, err := store.Rows(ctx, q, `SELECT i.run_id,i.input_id,i.message_id,i.created_at FROM run_inputs i JOIN runs r ON r.id=i.run_id JOIN messages m ON m.id=i.message_id WHERE r.conversation_id=? ORDER BY m.seq,r.agent_id`, conversation)
+	rows, err := database.Rows(ctx, q, `SELECT i.run_id,i.input_id,i.message_id,i.created_at FROM run_inputs i JOIN runs r ON r.id=i.run_id JOIN messages m ON m.id=i.message_id WHERE r.conversation_id=? ORDER BY m.seq,r.agent_id`, conversation)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (s *Service) DeleteConversationExecution(ctx context.Context, tx *gorm.DB, 
 		`DELETE FROM run_controls WHERE conversation_id=?`, `DELETE FROM run_requests WHERE conversation_id=?`,
 		`DELETE FROM run_events WHERE conversation_id=?`, `DELETE FROM run_inputs WHERE run_id IN (SELECT id FROM runs WHERE conversation_id=?)`, `DELETE FROM runs WHERE conversation_id=?`,
 	} {
-		if _, err := store.Exec(ctx, tx, query, id); err != nil {
+		if _, err := database.Exec(ctx, tx, query, id); err != nil {
 			return err
 		}
 	}
@@ -131,7 +131,7 @@ func (s *Service) DeleteConversationExecution(ctx context.Context, tx *gorm.DB, 
 
 // linkRunReply preserves one result-to-message relation inside the caller's transaction.
 func (s *Service) LinkRunReply(ctx context.Context, tx *gorm.DB, run, message string) error {
-	result, err := store.Exec(ctx, tx, `UPDATE runs SET result_message_id=? WHERE id=? AND result_message_id IS NULL`, message, run)
+	result, err := database.Exec(ctx, tx, `UPDATE runs SET result_message_id=? WHERE id=? AND result_message_id IS NULL`, message, run)
 	if err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func (s *Service) LinkRunReply(ctx context.Context, tx *gorm.DB, run, message st
 }
 
 func (s *Service) LookupRun(ctx context.Context, q *gorm.DB, id string) (agentuse.Run, error) {
-	return store.ScanRun(store.Row(ctx, q, nativeRunCols+` WHERE id=?`, id))
+	return database.ScanRun(database.Row(ctx, q, nativeRunCols+` WHERE id=?`, id))
 }
 
 // AgentSource is verified against an actual Client execution, never caller-supplied lineage.

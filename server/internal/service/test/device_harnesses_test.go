@@ -9,7 +9,7 @@ import (
 )
 
 func TestHarnessIdentitiesComeOnlyFromDeviceReports(t *testing.T) {
-	s := newStore(t)
+	s := newService(t)
 	ctx := context.Background()
 	hs, err := s.DeviceService.ListHarnesses(ctx)
 	if err != nil || len(hs) != 0 {

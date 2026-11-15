@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 
 	"github.com/memory-co/agentuse/internal/protocol"
 	"github.com/memory-co/agentuse/server/internal/notification"
@@ -21,12 +21,12 @@ type committedNotifier struct {
 func (n committedNotifier) KickAll() { n.kick() }
 
 func TestInputWakeupRunsAfterCommit(t *testing.T) {
-	s, u, _, a := runStore(t)
+	s, u, _, a := runFixture(t)
 	ctx := context.Background()
 	calls := 0
 	s.SetNotifier(committedNotifier{kick: func() {
 		var count int
-		if err := store.Row(ctx, s.DB, `SELECT count(*) FROM messages`).Scan(&count); err != nil || count == 0 {
+		if err := database.Row(ctx, s.DB, `SELECT count(*) FROM messages`).Scan(&count); err != nil || count == 0 {
 			t.Fatalf("input not committed: %d %v", count, err)
 		}
 		calls++
@@ -38,7 +38,7 @@ func TestInputWakeupRunsAfterCommit(t *testing.T) {
 }
 
 func TestReconnectKeepsPreparedConversationPolicy(t *testing.T) {
-	s, u, d, a := runStore(t)
+	s, u, d, a := runFixture(t)
 	ctx := context.Background()
 	coordinator, _, err := s.ConversationService.CreateConversation(ctx, u, "", "coordination", "", nil, nil, "collaborative", nil)
 	if err != nil {
@@ -73,7 +73,7 @@ func TestReconnectKeepsPreparedConversationPolicy(t *testing.T) {
 }
 
 func TestCompletedConversationDeletesExecutionRows(t *testing.T) {
-	s, u, d, a := runStore(t)
+	s, u, d, a := runFixture(t)
 	ctx := context.Background()
 	ss, _, err := s.ConversationService.CreateConversation(ctx, u, "", "task", "hello", []string{a.ID}, nil, "", nil)
 	if err != nil {
@@ -91,14 +91,14 @@ func TestCompletedConversationDeletesExecutionRows(t *testing.T) {
 	}
 	for _, table := range []string{"run_inputs", "runs", "run_events", "run_requests", "run_controls"} {
 		var n int
-		if err = store.Row(ctx, s.DB, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 0 {
+		if err = database.Row(ctx, s.DB, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 0 {
 			t.Fatalf("orphan %s: %d %v", table, n, err)
 		}
 	}
 }
 
 func TestRejectedReplyCanRetryWithoutInventingRequestState(t *testing.T) {
-	s, u, d, a := runStore(t)
+	s, u, d, a := runFixture(t)
 	ctx := context.Background()
 	ss, _, err := s.ConversationService.CreateConversation(ctx, u, "", "task", "hello", []string{a.ID}, nil, "", nil)
 	if err != nil {

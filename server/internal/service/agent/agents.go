@@ -10,12 +10,15 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
+	"github.com/memory-co/agentuse/internal/identity"
+
 	"gorm.io/gorm"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/notification"
 	skillservice "github.com/memory-co/agentuse/server/internal/service/skill"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // agent id 全局唯一，建好后不能改。
@@ -53,14 +56,14 @@ func (s *Service) validateAgentConfig(ctx context.Context, tx *gorm.DB, user, id
 	c.Harness = strings.TrimSpace(c.Harness)
 	c.Model = strings.TrimSpace(c.Model)
 	var one int
-	if err = store.Row(ctx, tx, store.CheckRuntimeSelect, c.DeviceID, c.Harness, user).Scan(&one); err != nil {
+	if err = database.Row(ctx, tx, database.CheckRuntimeSelect, c.DeviceID, c.Harness, user).Scan(&one); err != nil {
 		return fmt.Errorf("device/harness is not registered for this user")
 	}
 	if err = s.DeviceService.CheckRuntime(ctx, tx, c.DeviceID, c.Harness); err != nil {
 		return err
 	}
 	var count int
-	if err = store.Row(ctx, tx, `SELECT count(*) FROM agents a JOIN agent_versions v ON v.id=a.current_version_id WHERE a.user_id=? AND a.deleted_at IS NULL AND a.id<>? AND v.name=?`, user, id, c.Name).Scan(&count); err != nil {
+	if err = database.Row(ctx, tx, `SELECT count(*) FROM agents a JOIN agent_versions v ON v.id=a.current_version_id WHERE a.user_id=? AND a.deleted_at IS NULL AND a.id<>? AND v.name=?`, user, id, c.Name).Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
@@ -88,12 +91,12 @@ func (s *Service) validateAgentConfig(ctx context.Context, tx *gorm.DB, user, id
 	return nil
 }
 func (s *Service) writeAgentVersion(ctx context.Context, tx *gorm.DB, v agentuse.AgentVersion) error {
-	_, err := store.Exec(ctx, tx, `INSERT INTO agent_versions(id,agent_id,version,name,description,device_id,harness,model,instructions,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, v.ID, v.AgentID, v.Version, v.Name, v.Description, v.DeviceID, v.Harness, store.NullIfEmpty(v.Model), v.Instructions, v.CreatedAt)
+	_, err := database.Exec(ctx, tx, `INSERT INTO agent_versions(id,agent_id,version,name,description,device_id,harness,model,instructions,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, v.ID, v.AgentID, v.Version, v.Name, v.Description, v.DeviceID, v.Harness, database.NullIfEmpty(v.Model), v.Instructions, v.CreatedAt)
 	if err != nil {
 		return err
 	}
 	for i, ref := range v.Skills {
-		if _, err = store.Exec(ctx, tx, `INSERT INTO agent_version_skills(agent_version_id,skill_id,skill_version_id,position) VALUES(?,?,?,?)`, v.ID, ref.SkillID, ref.SkillVersionID, i); err != nil {
+		if _, err = database.Exec(ctx, tx, `INSERT INTO agent_version_skills(agent_version_id,skill_id,skill_version_id,position) VALUES(?,?,?,?)`, v.ID, ref.SkillID, ref.SkillVersionID, i); err != nil {
 			return err
 		}
 	}
@@ -105,11 +108,11 @@ func projection(id, user string, created, updated int64, v agentuse.AgentVersion
 func (s *Service) CreateConfiguredAgent(ctx context.Context, user, id string, c agentuse.AgentConfig) (agentuse.Agent, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
-		id = store.RandomID("ag_")
+		id = identity.NewID("ag_")
 	} else if !agentIDRe.MatchString(id) {
 		return agentuse.Agent{}, errors.New("agent id 只能用小写字母、数字、- 和 _,最长 64 个字符")
 	}
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return agentuse.Agent{}, err
 	}
@@ -118,8 +121,8 @@ func (s *Service) CreateConfiguredAgent(ctx context.Context, user, id string, c 
 		return agentuse.Agent{}, err
 	}
 	now := s.Now().Unix()
-	v := agentuse.AgentVersion{ID: store.NewUUID(), AgentID: id, Version: 1, AgentConfig: c, CreatedAt: now}
-	if _, err = store.Exec(ctx, tx, `INSERT INTO agents(id,user_id,current_version_id,created_at,updated_at) VALUES(?,?,?,?,?)`, id, user, v.ID, now, now); err != nil {
+	v := agentuse.AgentVersion{ID: uuid.NewString(), AgentID: id, Version: 1, AgentConfig: c, CreatedAt: now}
+	if _, err = database.Exec(ctx, tx, `INSERT INTO agents(id,user_id,current_version_id,created_at,updated_at) VALUES(?,?,?,?,?)`, id, user, v.ID, now, now); err != nil {
 		return agentuse.Agent{}, agentWriteErr(err, id)
 	}
 	if err = s.writeAgentVersion(ctx, tx, v); err != nil {
@@ -133,14 +136,14 @@ func (s *Service) CreateConfiguredAgent(ctx context.Context, user, id string, c 
 }
 func (s *Service) ReadVersion(ctx context.Context, q *gorm.DB, id string) (agentuse.AgentVersion, error) {
 	var v agentuse.AgentVersion
-	err := store.Row(ctx, q, `SELECT id,agent_id,version,name,description,device_id,harness,COALESCE(model,''),instructions,created_at FROM agent_versions WHERE id=?`, id).Scan(&v.ID, &v.AgentID, &v.Version, &v.Name, &v.Description, &v.DeviceID, &v.Harness, &v.Model, &v.Instructions, &v.CreatedAt)
+	err := database.Row(ctx, q, `SELECT id,agent_id,version,name,description,device_id,harness,COALESCE(model,''),instructions,created_at FROM agent_versions WHERE id=?`, id).Scan(&v.ID, &v.AgentID, &v.Version, &v.Name, &v.Description, &v.DeviceID, &v.Harness, &v.Model, &v.Instructions, &v.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = store.ErrNotFound
+		err = database.ErrNotFound
 	}
 	if err != nil {
 		return v, err
 	}
-	rows, err := store.Rows(ctx, q, `SELECT skill_id,skill_version_id FROM agent_version_skills WHERE agent_version_id=? ORDER BY position`, id)
+	rows, err := database.Rows(ctx, q, `SELECT skill_id,skill_version_id FROM agent_version_skills WHERE agent_version_id=? ORDER BY position`, id)
 	if err != nil {
 		return v, err
 	}
@@ -157,19 +160,19 @@ func (s *Service) ReadVersion(ctx context.Context, q *gorm.DB, id string) (agent
 }
 func (s *Service) GetAgentVersion(ctx context.Context, u agentuse.User, id, version string) (agentuse.AgentVersion, error) {
 	var owner string
-	err := store.Row(ctx, s.DB, `SELECT user_id FROM agents WHERE id=?`, id).Scan(&owner)
+	err := database.Row(ctx, s.DB, `SELECT user_id FROM agents WHERE id=?`, id).Scan(&owner)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = store.ErrNotFound
+		err = database.ErrNotFound
 	}
 	if err != nil {
 		return agentuse.AgentVersion{}, err
 	}
 	if !u.IsAdmin() && owner != u.ID {
-		return agentuse.AgentVersion{}, store.ErrNotFound
+		return agentuse.AgentVersion{}, database.ErrNotFound
 	}
 	v, err := s.ReadVersion(ctx, s.DB, version)
 	if err == nil && v.AgentID != id {
-		err = store.ErrNotFound
+		err = database.ErrNotFound
 	}
 	return v, err
 }
@@ -177,7 +180,7 @@ func (s *Service) AgentVersions(ctx context.Context, u agentuse.User, id string)
 	if _, err := s.GetAgent(ctx, u, id); err != nil {
 		return nil, err
 	}
-	rows, err := store.Rows(ctx, s.DB, `SELECT id FROM agent_versions WHERE agent_id=? ORDER BY version DESC`, id)
+	rows, err := database.Rows(ctx, s.DB, `SELECT id FROM agent_versions WHERE agent_id=? ORDER BY version DESC`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -206,22 +209,22 @@ func (s *Service) AgentVersions(ctx context.Context, u agentuse.User, id string)
 	return out, nil
 }
 func (s *Service) PublishAgentVersion(ctx context.Context, u agentuse.User, id, base string, c agentuse.AgentConfig) (agentuse.Agent, error) {
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return agentuse.Agent{}, err
 	}
 	defer tx.Rollback()
 	var owner, head string
 	var created, updated int64
-	err = store.Row(ctx, tx, `SELECT user_id,current_version_id,created_at,updated_at FROM agents WHERE id=? AND deleted_at IS NULL`, id).Scan(&owner, &head, &created, &updated)
+	err = database.Row(ctx, tx, `SELECT user_id,current_version_id,created_at,updated_at FROM agents WHERE id=? AND deleted_at IS NULL`, id).Scan(&owner, &head, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = store.ErrNotFound
+		err = database.ErrNotFound
 	}
 	if err != nil {
 		return agentuse.Agent{}, err
 	}
 	if !u.IsAdmin() && u.ID != owner {
-		return agentuse.Agent{}, store.ErrNotFound
+		return agentuse.Agent{}, database.ErrNotFound
 	}
 	if base == "" || base != head {
 		return agentuse.Agent{}, skillservice.ErrConflict
@@ -238,11 +241,11 @@ func (s *Service) PublishAgentVersion(ctx context.Context, u agentuse.User, id, 
 		return projection(id, owner, created, updated, old), nil
 	}
 	now := s.Now().Unix()
-	v := agentuse.AgentVersion{ID: store.NewUUID(), AgentID: id, Version: old.Version + 1, AgentConfig: c, CreatedAt: now}
+	v := agentuse.AgentVersion{ID: uuid.NewString(), AgentID: id, Version: old.Version + 1, AgentConfig: c, CreatedAt: now}
 	if err = s.writeAgentVersion(ctx, tx, v); err != nil {
 		return agentuse.Agent{}, err
 	}
-	if _, err = store.Exec(ctx, tx, `UPDATE agents SET current_version_id=?,updated_at=? WHERE id=?`, v.ID, now, id); err != nil {
+	if _, err = database.Exec(ctx, tx, `UPDATE agents SET current_version_id=?,updated_at=? WHERE id=?`, v.ID, now, id); err != nil {
 		return agentuse.Agent{}, err
 	}
 	if err = tx.Commit().Error; err != nil {
@@ -257,12 +260,12 @@ func (s *Service) DeleteAgent(ctx context.Context, u agentuse.User, id string) e
 	if err != nil {
 		return err
 	}
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = store.Exec(ctx, tx, `UPDATE agents SET deleted_at=?,updated_at=? WHERE id=?`, s.Now().Unix(), s.Now().Unix(), id); err != nil {
+	if _, err = database.Exec(ctx, tx, `UPDATE agents SET deleted_at=?,updated_at=? WHERE id=?`, s.Now().Unix(), s.Now().Unix(), id); err != nil {
 		return err
 	}
 	err = tx.Commit().Error
@@ -275,13 +278,13 @@ func (s *Service) DeleteAgent(ctx context.Context, u agentuse.User, id string) e
 	return err
 }
 func (s *Service) GetAgent(ctx context.Context, u agentuse.User, id string) (agentuse.Agent, error) {
-	q := store.AgentCols + ` WHERE id=?`
+	q := database.AgentCols + ` WHERE id=?`
 	args := []any{id}
 	if !u.IsAdmin() {
 		q += ` AND user_id=?`
 		args = append(args, u.ID)
 	}
-	a, err := store.ScanAgent(store.Row(ctx, s.DB, q, args...))
+	a, err := database.ScanAgent(database.Row(ctx, s.DB, q, args...))
 	if err != nil {
 		return a, err
 	}
@@ -290,20 +293,20 @@ func (s *Service) GetAgent(ctx context.Context, u agentuse.User, id string) (age
 	return a, err
 }
 func (s *Service) ListAgents(ctx context.Context, u agentuse.User) ([]agentuse.Agent, error) {
-	q := store.AgentCols
+	q := database.AgentCols
 	args := []any{}
 	if !u.IsAdmin() {
 		q += ` WHERE user_id=?`
 		args = append(args, u.ID)
 	}
 	q += ` ORDER BY name,id`
-	rows, err := store.Rows(ctx, s.DB, q, args...)
+	rows, err := database.Rows(ctx, s.DB, q, args...)
 	if err != nil {
 		return nil, err
 	}
 	out := []agentuse.Agent{}
 	for rows.Next() {
-		a, e := store.ScanAgent(rows)
+		a, e := database.ScanAgent(rows)
 		if e != nil {
 			rows.Close()
 			return nil, e

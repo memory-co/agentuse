@@ -1,4 +1,4 @@
-package store
+package database
 
 import (
 	"database/sql"
@@ -119,4 +119,11 @@ func ScanUser(row Scanner) (agentuse.User, error) {
 		return agentuse.User{}, ErrNotFound
 	}
 	return u, err
+}
+
+func nullInt(v sql.NullInt64) *int64 {
+	if !v.Valid {
+		return nil
+	}
+	return &v.Int64
 }

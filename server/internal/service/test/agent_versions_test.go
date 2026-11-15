@@ -10,13 +10,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/service/file"
 	skillservice "github.com/memory-co/agentuse/server/internal/service/skill"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 func TestVersionsPinQueuedInputAndPreserveHistoricalResources(t *testing.T) {
-	s, u, d, a := runStore(t)
+	s, u, d, a := runFixture(t)
 	ctx := context.Background()
 	files, e := file.NewLocal(t.TempDir())
 	if e != nil {
@@ -104,7 +104,7 @@ func TestVersionsPinQueuedInputAndPreserveHistoricalResources(t *testing.T) {
 	if e != nil || old.Instructions != "Agent v2" {
 		t.Fatal(old, e)
 	}
-	if _, e = s.AgentService.GetAgent(ctx, u, a.ID); !errors.Is(e, store.ErrNotFound) {
+	if _, e = s.AgentService.GetAgent(ctx, u, a.ID); !errors.Is(e, database.ErrNotFound) {
 		t.Fatal("soft-deleted agent remains selectable", e)
 	}
 }

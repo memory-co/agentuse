@@ -4,11 +4,11 @@ package device
 import (
 	"context"
 
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 )
 
 func (s *Service) deviceCapabilities(ctx context.Context, id string) ([]string, error) {
-	rows, err := store.Rows(ctx, s.DB, store.DeviceCapabilitiesSelect, id)
+	rows, err := database.Rows(ctx, s.DB, database.DeviceCapabilitiesSelect, id)
 	if err != nil {
 		return nil, err
 	}

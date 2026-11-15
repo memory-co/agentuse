@@ -9,7 +9,7 @@ import (
 )
 
 func TestBrowserChangesCommitFailureDeletionAndBoundedQueue(t *testing.T) {
-	s, u, _, _ := runStore(t)
+	s, u, _, _ := runFixture(t)
 	sub, unsubscribe := s.BrowserChanges.Subscribe(u.ID, u.IsAdmin())
 	defer unsubscribe()
 	ctx := context.Background()

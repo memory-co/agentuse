@@ -15,7 +15,7 @@ import (
 func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.service.Skills.List(r.Context(), currentUser(r))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, 200, rows)
@@ -23,7 +23,7 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 	v, err := s.service.Skills.Get(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, 200, v)
@@ -45,7 +45,7 @@ func (s *Server) handlePublishSkill(w http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 	v, err := s.service.Skills.Publish(r.Context(), currentUser(r), r.PathValue("id"), r.FormValue("base_version_id"), file)
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, 201, v)
@@ -53,7 +53,7 @@ func (s *Server) handlePublishSkill(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSkillVersions(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.service.Skills.Versions(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, 200, rows)
@@ -67,14 +67,14 @@ func (s *Server) handleSkillVersion(w http.ResponseWriter, r *http.Request) {
 		v, err = s.service.Skills.GetVersion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("version_id"))
 	}
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, 200, v)
 }
 func (s *Server) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 	if err := s.service.Skills.Delete(r.Context(), currentUser(r), r.PathValue("id")); err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	w.WriteHeader(204)
@@ -91,7 +91,7 @@ func (s *Server) handleSkillPackage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			s.storeErr(w, err)
+			s.serviceErr(w, err)
 			return
 		}
 		defer stream.Close()
@@ -110,7 +110,7 @@ func (s *Server) handleSkillPackage(w http.ResponseWriter, r *http.Request) {
 		}
 		v, err := s.service.RunService.SkillForCredential(r.Context(), token, r.PathValue("id"), r.PathValue("version_id"))
 		if err != nil {
-			s.storeErr(w, err)
+			s.serviceErr(w, err)
 			return
 		}
 		serve(v)
@@ -119,7 +119,7 @@ func (s *Server) handleSkillPackage(w http.ResponseWriter, r *http.Request) {
 	s.auth(func(w http.ResponseWriter, r *http.Request) {
 		v, err := s.service.Skills.GetVersion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("version_id"))
 		if err != nil {
-			s.storeErr(w, err)
+			s.serviceErr(w, err)
 			return
 		}
 		serve(v)

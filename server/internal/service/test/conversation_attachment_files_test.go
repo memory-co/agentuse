@@ -12,7 +12,7 @@ import (
 )
 
 func TestPublishAttachmentSingleFileLimit(t *testing.T) {
-	s := newStore(t)
+	s := newService(t)
 	dir := t.TempDir()
 	s.ConversationService.ConfigureConversationAttachments(3, 100, nil)
 	temp := filepath.Join(dir, "incoming")

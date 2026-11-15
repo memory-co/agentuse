@@ -56,12 +56,12 @@ func (s *Server) conversationAuth(h http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 			if err = s.service.RunService.DeviceConversationAccess(r.Context(), d.ID, r.PathValue("id")); err != nil {
-				s.storeErr(w, err)
+				s.serviceErr(w, err)
 				return
 			}
 			u, err := s.service.UserService.GetUser(r.Context(), d.UserID)
 			if err != nil {
-				s.storeErr(w, err)
+				s.serviceErr(w, err)
 				return
 			}
 			u.Role = agentuse.RoleUser

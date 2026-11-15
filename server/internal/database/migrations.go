@@ -1,6 +1,8 @@
-package store
+package database
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -12,7 +14,7 @@ const InitialMigration = "0001_initial"
 
 func migrations() []*gormigrate.Migration {
 	return []*gormigrate.Migration{{ID: InitialMigration, Migrate: func(db *gorm.DB) error {
-		models := []any{&User{}, &Device{}, &DeviceHarness{}, &DeviceCapability{}, &Conversation{}, &Message{}, &ConversationRound{}, &Agent{}, &AgentVersion{}, &AgentVersionSkill{}, &Skill{}, &SkillVersion{}, &Attachment{}, &Run{}, &RunInput{}, &RunEvent{}, &RunRequest{}, &RunControl{}, &StoreLock{}}
+		models := []any{&User{}, &Device{}, &DeviceHarness{}, &DeviceCapability{}, &Conversation{}, &Message{}, &ConversationRound{}, &Agent{}, &AgentVersion{}, &AgentVersionSkill{}, &Skill{}, &SkillVersion{}, &Attachment{}, &Run{}, &RunInput{}, &RunEvent{}, &RunRequest{}, &RunControl{}, &TransactionLock{}}
 		db = db.Session(&gorm.Session{NewDB: true})
 		for _, model := range models {
 			query := db.Session(&gorm.Session{NewDB: true})
@@ -23,7 +25,7 @@ func migrations() []*gormigrate.Migration {
 				return fmt.Errorf("migration %s: create %T: %w", InitialMigration, model, err)
 			}
 		}
-		return db.Create(&StoreLock{ID: 1}).Error
+		return db.Create(&TransactionLock{ID: 1}).Error
 	}}}
 }
 
@@ -42,7 +44,8 @@ func migrate(db *gorm.DB) error {
 			if err := conn.Raw("SELECT DATABASE()").Row().Scan(&name); err != nil {
 				return err
 			}
-			name = "agentuse_migrate_" + HashSecret(name)[:32]
+			digest := sha256.Sum256([]byte(name))
+			name = "agentuse_migrate_" + hex.EncodeToString(digest[:16])
 			var locked int
 			if err := conn.Raw("SELECT GET_LOCK(?, 60)", name).Row().Scan(&locked); err != nil {
 				return err

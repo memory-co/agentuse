@@ -3,25 +3,29 @@ package conversation
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+
+	"github.com/memory-co/agentuse/internal/identity"
 
 	"gorm.io/gorm"
 
 	"github.com/memory-co/agentuse/internal/attachment"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 )
 
 func (s *Service) attachmentConversation(ctx context.Context, q *gorm.DB, a AttachmentAccess, id string, upload bool) (agentuse.Conversation, error) {
-	tq := store.MessageTargets(s.DB, "m", "t")
+	tq := database.MessageTargets(s.DB, "m", "t")
 
 	u := a.User
 	if a.DeviceID != "" {
 		var owner string
-		if err := store.Row(ctx, q, store.AttachmentConversationSelect, a.DeviceID, store.HashSecret(a.Token)).Scan(&owner); err != nil {
+		if err := database.Row(ctx, q, database.AttachmentConversationSelect, a.DeviceID, identity.HashSecret(a.Token)).Scan(&owner); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return agentuse.Conversation{}, ErrAttachmentUnauthorized
 			}
@@ -31,7 +35,7 @@ func (s *Service) attachmentConversation(ctx context.Context, q *gorm.DB, a Atta
 	}
 	if a.DeviceID == "" {
 		var authID, role string
-		if err := store.Row(ctx, q, store.AttachmentConversationSelect3, store.HashSecret(a.Token)).Scan(&authID, &role); err != nil {
+		if err := database.Row(ctx, q, database.AttachmentConversationSelect3, identity.HashSecret(a.Token)).Scan(&authID, &role); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return agentuse.Conversation{}, ErrAttachmentUnauthorized
 			}
@@ -50,7 +54,7 @@ func (s *Service) attachmentConversation(ctx context.Context, q *gorm.DB, a Atta
 	}
 	if a.DeviceID != "" {
 		var allowed int
-		if err := store.Row(ctx, q, `SELECT count(*) FROM `+tq.From+` WHERE `+tq.Device+`=? AND m.conversation_id=? AND `+tq.Dispatched, a.DeviceID, ss.ID).Scan(&allowed); err != nil {
+		if err := database.Row(ctx, q, `SELECT count(*) FROM `+tq.From+` WHERE `+tq.Device+`=? AND m.conversation_id=? AND `+tq.Dispatched, a.DeviceID, ss.ID).Scan(&allowed); err != nil {
 			return ss, err
 		}
 		// An explicit execution source narrows even a device that also executes
@@ -60,20 +64,20 @@ func (s *Service) attachmentConversation(ctx context.Context, q *gorm.DB, a Atta
 		}
 		if allowed == 0 {
 			if upload || a.SourceConversationID == "" {
-				return ss, store.ErrNotFound
+				return ss, database.ErrNotFound
 			}
 			var valid int
-			err := store.Row(ctx, q, `SELECT count(*) FROM conversations c JOIN runs r ON r.conversation_id=c.id WHERE c.id=? AND c.user_id=? AND r.device_id=? AND r.agent_id=? AND ((c.mode='collaborative' AND c.parent_conversation_id IS NULL AND c.id=?) OR c.parent_conversation_id=?)`, a.SourceConversationID, ss.UserID, a.DeviceID, a.SourceAgentID, ss.ParentConversationID, ss.ID).Scan(&valid)
+			err := database.Row(ctx, q, `SELECT count(*) FROM conversations c JOIN runs r ON r.conversation_id=c.id WHERE c.id=? AND c.user_id=? AND r.device_id=? AND r.agent_id=? AND ((c.mode='collaborative' AND c.parent_conversation_id IS NULL AND c.id=?) OR c.parent_conversation_id=?)`, a.SourceConversationID, ss.UserID, a.DeviceID, a.SourceAgentID, ss.ParentConversationID, ss.ID).Scan(&valid)
 			if err != nil {
 				return ss, err
 			}
 			if valid == 0 {
-				return ss, store.ErrNotFound
+				return ss, database.ErrNotFound
 			}
 		}
 		if upload {
 			if err := s.attachmentRun(ctx, q, a, ss.ID, a.RunID, true); err != nil {
-				if errors.Is(err, store.ErrNotFound) {
+				if errors.Is(err, database.ErrNotFound) {
 					return ss, ErrAttachmentRun
 				}
 				return ss, err
@@ -90,7 +94,7 @@ func (s *Service) AttachmentConversation(ctx context.Context, a AttachmentAccess
 
 // CommitAttachment serializes authorization, quota and metadata with publishing the file.
 func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v *attachment.Attachment, max int64, publish func() error) error {
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return err
 	}
@@ -102,7 +106,7 @@ func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v *a
 		return err
 	}
 	var used int64
-	if err = store.Row(ctx, tx, store.CommitAttachmentSelect, v.ConversationID).Scan(&used); err != nil {
+	if err = database.Row(ctx, tx, database.CommitAttachmentSelect, v.ConversationID).Scan(&used); err != nil {
 		return err
 	}
 	if v.SizeBytes > max || used > max-v.SizeBytes {
@@ -111,7 +115,8 @@ func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v *a
 	if err = publish(); err != nil {
 		return err
 	}
-	_, err = store.Exec(ctx, tx, store.CommitAttachmentInsert, v.ID, v.ConversationID, v.Filename, v.ContentType, v.SizeBytes, v.SHA256, v.CreatedBy, v.Source, store.NullIfEmpty(v.DeviceID), v.CreatedAt, store.NullIfEmpty(v.CreatedByRunID), v.RelativePath, store.HashSecret(v.RelativePath))
+	pathHash := sha256.Sum256([]byte(v.RelativePath))
+	_, err = database.Exec(ctx, tx, database.CommitAttachmentInsert, v.ID, v.ConversationID, v.Filename, v.ContentType, v.SizeBytes, v.SHA256, v.CreatedBy, v.Source, database.NullIfEmpty(v.DeviceID), v.CreatedAt, database.NullIfEmpty(v.CreatedByRunID), v.RelativePath, hex.EncodeToString(pathHash[:]))
 	if err != nil {
 		return err
 	}
@@ -124,10 +129,10 @@ func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v *a
 	return err
 }
 
-func (s *Service) NewAttachmentID() string { return store.RandomID("at_") }
+func (s *Service) NewAttachmentID() string { return identity.NewID("at_") }
 
 func (s *Service) GetAttachment(ctx context.Context, conversation, id string) (attachment.Attachment, error) {
-	return store.ScanAttachment(store.Row(ctx, s.DB, store.AttachmentCols+store.GetAttachmentClause, conversation, id))
+	return database.ScanAttachment(database.Row(ctx, s.DB, database.AttachmentCols+database.GetAttachmentClause, conversation, id))
 }
 
 func (s *Service) ListAttachments(ctx context.Context, conversation, cursor string, limit int, run string) (attachment.Page, error) {
@@ -144,13 +149,13 @@ func (s *Service) ListAttachments(ctx context.Context, conversation, cursor stri
 			return out, ErrAttachmentCursor
 		}
 	}
-	rows, err := store.Rows(ctx, s.DB, store.AttachmentCols+store.ListAttachmentsClause, conversation, run, run, after.Time, after.Time, after.ID, limit+1)
+	rows, err := database.Rows(ctx, s.DB, database.AttachmentCols+database.ListAttachmentsClause, conversation, run, run, after.Time, after.Time, after.ID, limit+1)
 	if err != nil {
 		return out, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		a, e := store.ScanAttachment(rows)
+		a, e := database.ScanAttachment(rows)
 		if e != nil {
 			return out, e
 		}
@@ -175,7 +180,7 @@ func (s *Service) ListAttachments(ctx context.Context, conversation, cursor stri
 }
 
 func (s *Service) deleteAttachment(ctx context.Context, a AttachmentAccess, conversation, id string) error {
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return err
 	}
@@ -184,19 +189,19 @@ func (s *Service) deleteAttachment(ctx context.Context, a AttachmentAccess, conv
 		return err
 	}
 	var referenced int
-	if err = store.Row(ctx, tx, store.AttachmentReferences(s.DB), conversation, id).Scan(&referenced); err != nil {
+	if err = database.Row(ctx, tx, database.AttachmentReferences(s.DB), conversation, id).Scan(&referenced); err != nil {
 		return err
 	}
 	if referenced > 0 {
 		return ErrAttachmentReferenced
 	}
 
-	r, err := store.Exec(ctx, tx, store.DeleteAttachmentDelete, conversation, id)
+	r, err := database.Exec(ctx, tx, database.DeleteAttachmentDelete, conversation, id)
 	if err != nil {
 		return err
 	}
 	if r == 0 {
-		return store.ErrNotFound
+		return database.ErrNotFound
 	}
 	err = tx.Commit().Error
 	if err == nil {
@@ -209,7 +214,7 @@ func (s *Service) deleteAttachment(ctx context.Context, a AttachmentAccess, conv
 
 func (s *Service) AttachmentExists(ctx context.Context, conversation, id string) (bool, error) {
 	var n int
-	err := store.Row(ctx, s.DB, store.AttachmentExistsSelect, conversation, id).Scan(&n)
+	err := database.Row(ctx, s.DB, database.AttachmentExistsSelect, conversation, id).Scan(&n)
 	return n > 0, err
 }
 
@@ -219,12 +224,12 @@ func (s *Service) AttachmentRun(ctx context.Context, a AttachmentAccess, convers
 }
 func (s *Service) attachmentRun(ctx context.Context, q *gorm.DB, a AttachmentAccess, conversation, run string, active bool) error {
 	var count int
-	err := store.Row(ctx, q, `SELECT count(*) FROM runs WHERE id=? AND conversation_id=? AND (?='' OR device_id=?) AND (?=0 OR status IN ('running','waiting'))`, run, conversation, a.DeviceID, a.DeviceID, active).Scan(&count)
+	err := database.Row(ctx, q, `SELECT count(*) FROM runs WHERE id=? AND conversation_id=? AND (?='' OR device_id=?) AND (?=0 OR status IN ('running','waiting'))`, run, conversation, a.DeviceID, a.DeviceID, active).Scan(&count)
 	if err != nil {
 		return err
 	}
 	if count == 0 {
-		return store.ErrNotFound
+		return database.ErrNotFound
 	}
 	return nil
 }

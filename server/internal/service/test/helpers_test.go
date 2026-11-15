@@ -1,10 +1,11 @@
 package test
 
 import (
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/google/uuid"
+	"github.com/memory-co/agentuse/internal/identity"
 )
 
-var randomID = store.RandomID
-var newUUID = store.NewUUID
+var randomID = identity.NewID
+var newUUID = uuid.NewString
 
 const conversationFileNamespace = "conversations"

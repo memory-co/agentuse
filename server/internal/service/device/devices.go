@@ -8,24 +8,26 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/memory-co/agentuse/internal/identity"
+
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/notification"
-	"github.com/memory-co/agentuse/server/internal/store"
 	"gorm.io/gorm/clause"
 )
 
 // CreateDevice 在页面上添加一台 device:生成一次性的安装令牌，等用户在电脑上跑 setup.sh 注册。
 func (s *Service) CreateDevice(ctx context.Context, userID, name string) (agentuse.Device, error) {
 	d := agentuse.Device{
-		ID:         store.RandomID("dev_"),
+		ID:         identity.NewID("dev_"),
 		UserID:     userID,
 		Name:       strings.TrimSpace(name),
-		SetupToken: store.RandomToken("st_"),
+		SetupToken: identity.NewToken("st_"),
 		Status:     agentuse.DevicePending,
 		CreatedAt:  s.Now().Unix(),
 	}
-	_, err := store.Exec(ctx, s.DB,
-		store.CreateDeviceInsert,
+	_, err := database.Exec(ctx, s.DB,
+		database.CreateDeviceInsert,
 		d.ID, d.UserID, d.Name, d.SetupToken, d.Status, d.CreatedAt)
 	if err == nil {
 		s.Changes.Publish(notification.Change{Resource: "devices", ID: d.ID}, d.UserID)
@@ -35,16 +37,16 @@ func (s *Service) CreateDevice(ctx context.Context, userID, name string) (agentu
 
 // RegisterDevice 用安装令牌换长期密钥。令牌用一次就作废。
 func (s *Service) RegisterDevice(ctx context.Context, setupToken, hostname string) (agentuse.Device, string, error) {
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return agentuse.Device{}, "", err
 	}
 	defer tx.Rollback()
 	var d agentuse.Device
-	err = store.Row(ctx, tx, store.RegisterDeviceSelect, setupToken).
+	err = database.Row(ctx, tx, database.RegisterDeviceSelect, setupToken).
 		Scan(&d.ID, &d.UserID, &d.Name)
 	if errors.Is(err, sql.ErrNoRows) {
-		return agentuse.Device{}, "", store.ErrNotFound
+		return agentuse.Device{}, "", database.ErrNotFound
 	}
 	if err != nil {
 		return agentuse.Device{}, "", err
@@ -55,10 +57,10 @@ func (s *Service) RegisterDevice(ctx context.Context, setupToken, hostname strin
 	if d.Name == "" {
 		d.Name = d.ID
 	}
-	key := store.RandomToken("dk_")
-	if _, err := store.Exec(ctx, tx,
-		store.RegisterDeviceUpdate,
-		d.Name, store.HashSecret(key), agentuse.DeviceOffline, d.ID); err != nil {
+	key := identity.NewToken("dk_")
+	if _, err := database.Exec(ctx, tx,
+		database.RegisterDeviceUpdate,
+		d.Name, identity.HashSecret(key), agentuse.DeviceOffline, d.ID); err != nil {
 		return agentuse.Device{}, "", err
 	}
 	d.Status = agentuse.DeviceOffline
@@ -71,27 +73,27 @@ func (s *Service) RegisterDevice(ctx context.Context, setupToken, hostname strin
 
 // ResetDeviceSetup 重新生成安装令牌(用于换电脑 / 重装),旧密钥立即失效。
 func (s *Service) resetDeviceSetup(ctx context.Context, u agentuse.User, id string) (agentuse.Device, error) {
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return agentuse.Device{}, err
 	}
 	defer tx.Rollback()
-	query := store.ResetDeviceSetupSelect
+	query := database.ResetDeviceSetupSelect
 	args := []any{id}
 	if !u.IsAdmin() {
-		query += store.ResetDeviceSetupClause
+		query += database.ResetDeviceSetupClause
 		args = append(args, u.ID)
 	}
 	var one int
-	if err = store.Row(ctx, tx, query, args...).Scan(&one); errors.Is(err, sql.ErrNoRows) {
-		return agentuse.Device{}, store.ErrNotFound
+	if err = database.Row(ctx, tx, query, args...).Scan(&one); errors.Is(err, sql.ErrNoRows) {
+		return agentuse.Device{}, database.ErrNotFound
 	} else if err != nil {
 		return agentuse.Device{}, err
 	}
 	if err = s.ConversationService.RetireDeviceMessages(ctx, tx, id, "device 已重置，请重新发送任务"); err != nil {
 		return agentuse.Device{}, err
 	}
-	if _, err = store.Exec(ctx, tx, store.ResetDeviceSetupUpdate, store.RandomToken("st_"), agentuse.DevicePending, id); err != nil {
+	if _, err = database.Exec(ctx, tx, database.ResetDeviceSetupUpdate, identity.NewToken("st_"), agentuse.DevicePending, id); err != nil {
 		return agentuse.Device{}, err
 	}
 	if err = tx.Commit().Error; err != nil {
@@ -101,26 +103,26 @@ func (s *Service) resetDeviceSetup(ctx context.Context, u agentuse.User, id stri
 }
 
 func (s *Service) DeviceByKey(ctx context.Context, key string) (agentuse.Device, error) {
-	return s.scanDevice(store.Row(ctx, s.DB, store.DeviceCols+store.DeviceByKeyClause, store.HashSecret(key)))
+	return s.scanDevice(database.Row(ctx, s.DB, database.DeviceCols+database.DeviceByKeyClause, identity.HashSecret(key)))
 }
 
-func (s *Service) scanDevice(row store.Scanner) (agentuse.Device, error) {
-	return store.ScanDevice(row)
+func (s *Service) scanDevice(row database.Scanner) (agentuse.Device, error) {
+	return database.ScanDevice(row)
 }
 
 // GetDevice 取一台 device 及其 harness 列表;非 admin 只能看自己的。
 func (s *Service) GetDevice(ctx context.Context, u agentuse.User, id string) (agentuse.Device, error) {
-	q := store.DeviceCols + store.GetDeviceClause
+	q := database.DeviceCols + database.GetDeviceClause
 	args := []any{id}
 	if !u.IsAdmin() {
-		q += store.GetDeviceClause2
+		q += database.GetDeviceClause2
 		args = append(args, u.ID)
 	}
-	d, err := s.scanDevice(store.Row(ctx, s.DB, q, args...))
+	d, err := s.scanDevice(database.Row(ctx, s.DB, q, args...))
 	if err != nil {
 		return d, err
 	}
-	harnesses, err := s.deviceHarnesses(ctx, store.GetDeviceClause3, d.ID)
+	harnesses, err := s.deviceHarnesses(ctx, database.GetDeviceClause3, d.ID)
 	d.Harnesses = harnesses
 	if err == nil {
 		d.Capabilities, err = s.deviceCapabilities(ctx, d.ID)
@@ -130,13 +132,13 @@ func (s *Service) GetDevice(ctx context.Context, u agentuse.User, id string) (ag
 
 // ListDevices 列出用户的 device;admin 看所有人的。
 func (s *Service) ListDevices(ctx context.Context, u agentuse.User) ([]agentuse.Device, error) {
-	q := store.DeviceCols
+	q := database.DeviceCols
 	var args []any
 	if !u.IsAdmin() {
-		q += store.ListDevicesClause
+		q += database.ListDevicesClause
 		args = append(args, u.ID)
 	}
-	rows, err := store.Rows(ctx, s.DB, q+store.ListDevicesClause2, args...)
+	rows, err := database.Rows(ctx, s.DB, q+database.ListDevicesClause2, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +159,7 @@ func (s *Service) ListDevices(ctx context.Context, u agentuse.User) ([]agentuse.
 	}
 	where, aargs := "", []any{}
 	if !u.IsAdmin() {
-		where, aargs = store.ListDevicesClause3, []any{u.ID}
+		where, aargs = database.ListDevicesClause3, []any{u.ID}
 	}
 	harnesses, err := s.deviceHarnesses(ctx, where, aargs...)
 	if err != nil {
@@ -179,8 +181,8 @@ func (s *Service) ListDevices(ctx context.Context, u agentuse.User) ([]agentuse.
 }
 
 func (s *Service) deviceHarnesses(ctx context.Context, where string, args ...any) ([]agentuse.DeviceHarness, error) {
-	rows, err := store.Rows(ctx, s.DB,
-		store.DeviceHarnessesSelect+where+store.DeviceHarnessesClause, args...)
+	rows, err := database.Rows(ctx, s.DB,
+		database.DeviceHarnessesSelect+where+database.DeviceHarnessesClause, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -204,21 +206,21 @@ func (s *Service) deviceHarnesses(ctx context.Context, where string, args ...any
 
 // DeleteDevice revokes credentials without manufacturing native run results.
 func (s *Service) deleteDevice(ctx context.Context, u agentuse.User, id string) error {
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	q := store.DeleteDeviceDelete
+	q := database.DeleteDeviceDelete
 	args := []any{id}
 	if !u.IsAdmin() {
-		q += store.DeleteDeviceClause
+		q += database.DeleteDeviceClause
 		args = append(args, u.ID)
 	}
 	var one int
-	check := strings.Replace(q, store.DeleteDeviceDelete2, store.DeleteDeviceSelect, 1)
-	if err := store.Row(ctx, tx, check, args...).Scan(&one); errors.Is(err, sql.ErrNoRows) {
-		return store.ErrNotFound
+	check := strings.Replace(q, database.DeleteDeviceDelete2, database.DeleteDeviceSelect, 1)
+	if err := database.Row(ctx, tx, check, args...).Scan(&one); errors.Is(err, sql.ErrNoRows) {
+		return database.ErrNotFound
 	} else if err != nil {
 		return err
 	}
@@ -227,14 +229,14 @@ func (s *Service) deleteDevice(ctx context.Context, u agentuse.User, id string) 
 	}
 
 	for _, query := range []string{`DELETE FROM device_harnesses WHERE device_id=?`, `DELETE FROM device_capabilities WHERE device_id=?`} {
-		if _, err := store.Exec(ctx, tx, query, id); err != nil {
+		if _, err := database.Exec(ctx, tx, query, id); err != nil {
 			return err
 		}
 	}
 	if err := s.ConversationService.DetachDeviceAttachments(ctx, tx, id); err != nil {
 		return err
 	}
-	if _, err := store.Exec(ctx, tx, q, args...); err != nil {
+	if _, err := database.Exec(ctx, tx, q, args...); err != nil {
 		return err
 	}
 	return tx.Commit().Error
@@ -244,26 +246,26 @@ func (s *Service) deleteDevice(ctx context.Context, u agentuse.User, id string) 
 // 上报里有的标 available=1 并保留原来的 enabled;没上报的标 available=0。
 // Harness 标识直接来自 client；server 不维护适配器注册表或原生执行配置。
 func (s *Service) DeviceConnected(ctx context.Context, d agentuse.Device, reported []ReportedHarness, caps ...[]string) (ignored []string, err error) {
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	if _, err := store.Exec(ctx, tx, store.DeviceConnectedDelete, d.ID); err != nil {
+	if _, err := database.Exec(ctx, tx, database.DeviceConnectedDelete, d.ID); err != nil {
 		return nil, err
 	}
 	if len(caps) > 0 {
 		for _, c := range caps[0] {
-			if err := tx.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&store.DeviceCapability{DeviceID: d.ID, Capability: c}).Error; err != nil {
+			if err := tx.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&database.DeviceCapability{DeviceID: d.ID, Capability: c}).Error; err != nil {
 				return nil, err
 			}
 		}
 	}
 	now := s.Now().Unix()
-	if _, err := store.Exec(ctx, tx, store.DeviceConnectedUpdate, agentuse.DeviceOnline, now, d.ID); err != nil {
+	if _, err := database.Exec(ctx, tx, database.DeviceConnectedUpdate, agentuse.DeviceOnline, now, d.ID); err != nil {
 		return nil, err
 	}
-	if _, err := store.Exec(ctx, tx, store.DeviceConnectedUpdate2, now, d.ID); err != nil {
+	if _, err := database.Exec(ctx, tx, database.DeviceConnectedUpdate2, now, d.ID); err != nil {
 		return nil, err
 	}
 	for _, a := range reported {
@@ -275,7 +277,7 @@ func (s *Service) DeviceConnected(ctx context.Context, d agentuse.Device, report
 			return nil, err
 		}
 		encoded, _ := json.Marshal(capabilities)
-		if err := tx.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "device_id"}, {Name: "harness"}}, DoUpdates: clause.AssignmentColumns([]string{"version", "harness_revision", "capabilities", "available", "updated_at"})}).Create(&store.DeviceHarness{DeviceID: d.ID, UserID: d.UserID, Harness: a.Name, Version: &a.Version, HarnessRevision: store.Text(a.Revision), Capabilities: store.JSON(encoded), Available: 1, UpdatedAt: now}).Error; err != nil {
+		if err := tx.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "device_id"}, {Name: "harness"}}, DoUpdates: clause.AssignmentColumns([]string{"version", "harness_revision", "capabilities", "available", "updated_at"})}).Create(&database.DeviceHarness{DeviceID: d.ID, UserID: d.UserID, Harness: a.Name, Version: &a.Version, HarnessRevision: database.Text(a.Revision), Capabilities: database.JSON(encoded), Available: 1, UpdatedAt: now}).Error; err != nil {
 			return nil, err
 		}
 	}
@@ -288,7 +290,7 @@ func (s *Service) DeviceConnected(ctx context.Context, d agentuse.Device, report
 }
 
 func (s *Service) DeviceDisconnected(ctx context.Context, id string) error {
-	_, err := store.Exec(ctx, s.DB, store.DeviceDisconnectedUpdate,
+	_, err := database.Exec(ctx, s.DB, database.DeviceDisconnectedUpdate,
 		agentuse.DeviceOffline, s.Now().Unix(), id, agentuse.DeviceOnline)
 	if err == nil {
 		if d, e := s.GetDevice(ctx, agentuse.User{Role: agentuse.RoleAdmin}, id); e == nil {
@@ -299,36 +301,36 @@ func (s *Service) DeviceDisconnected(ctx context.Context, id string) error {
 }
 
 func (s *Service) TouchDevice(ctx context.Context, id string) error {
-	_, err := store.Exec(ctx, s.DB, store.TouchDeviceUpdate, s.Now().Unix(), id)
+	_, err := database.Exec(ctx, s.DB, database.TouchDeviceUpdate, s.Now().Unix(), id)
 	return err
 }
 
 // MarkAllDevicesOffline 在服务启动时调用:上次进程留下的 online 都不作数了。
 func (s *Service) MarkAllDevicesOffline(ctx context.Context) error {
-	_, err := store.Exec(ctx, s.DB, store.MarkAllDevicesOfflineUpdate, agentuse.DeviceOffline, agentuse.DeviceOnline)
+	_, err := database.Exec(ctx, s.DB, database.MarkAllDevicesOfflineUpdate, agentuse.DeviceOffline, agentuse.DeviceOnline)
 	return err
 }
 
 // SetDeviceHarnessEnabled 开关某台 device 上的某个 harness。只能开本机上报可用的。
 // 关闭后暂停派发；实际 run 的终态仍由 Client 上报。
 func (s *Service) setDeviceHarnessEnabled(ctx context.Context, u agentuse.User, deviceID, harness string, enabled bool) error {
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	q := store.SetDeviceHarnessEnabledUpdate
+	q := database.SetDeviceHarnessEnabledUpdate
 	args := []any{enabled, s.Now().Unix(), deviceID, harness}
 	if !u.IsAdmin() {
-		q += store.SetDeviceHarnessEnabledClause
+		q += database.SetDeviceHarnessEnabledClause
 		args = append(args, u.ID)
 	}
-	res, err := store.Exec(ctx, tx, q, args...)
+	res, err := database.Exec(ctx, tx, q, args...)
 	if err != nil {
 		return err
 	}
 	if res == 0 {
-		return store.ErrNotFound
+		return database.ErrNotFound
 	}
 
 	return tx.Commit().Error

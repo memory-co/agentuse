@@ -14,12 +14,12 @@ func (s *Server) handlePublishAgentVersion(w http.ResponseWriter, r *http.Reques
 	}
 	v, err := s.service.AgentService.PublishAgentVersion(r.Context(), currentUser(r), r.PathValue("id"), body.BaseVersionID, body.AgentConfig)
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	snapshot, err := s.service.AgentService.GetAgentVersion(r.Context(), currentUser(r), v.ID, v.CurrentVersionID)
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	status := http.StatusCreated
@@ -31,7 +31,7 @@ func (s *Server) handlePublishAgentVersion(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleAgentVersions(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.service.AgentService.AgentVersions(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, 200, rows)
@@ -45,7 +45,7 @@ func (s *Server) handleAgentVersion(w http.ResponseWriter, r *http.Request) {
 		v, err = s.service.AgentService.GetAgentVersion(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("version_id"))
 	}
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, 200, v)

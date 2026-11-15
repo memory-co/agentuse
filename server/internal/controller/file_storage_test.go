@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	sdk "github.com/memory-co/agentuse/sdk/golang"
+	"github.com/memory-co/agentuse/server/internal/database"
 	conversationservice "github.com/memory-co/agentuse/server/internal/service/conversation"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 func TestAttachmentPublicationSharesConversationNamespaceAndProtectsReferences(t *testing.T) {
@@ -63,7 +63,7 @@ func TestConversationFileReadsEnforceBusinessAccess(t *testing.T) {
 		{User: stranger, Token: token},
 		{DeviceID: f.d.ID, Token: f.key}, // No message has been delivered to this device.
 	} {
-		if stream, _, err := f.e.st.ConversationService.OpenConversationFile(ctx, access, f.conversation.ID, path); !errors.Is(err, store.ErrNotFound) {
+		if stream, _, err := f.e.st.ConversationService.OpenConversationFile(ctx, access, f.conversation.ID, path); !errors.Is(err, database.ErrNotFound) {
 			if stream != nil {
 				stream.Close()
 			}

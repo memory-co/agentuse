@@ -6,19 +6,21 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
+
 	"gorm.io/gorm"
 
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 )
 
 // DispatchMessage selects one durable input. It does not create or predict a run.
 func (s *Service) DispatchMessage(ctx context.Context, d agentuse.Device, capacity ...protocol.Message) (protocol.ConversationMessage, error) {
-	tq := store.MessageTargets(s.DB, "m", "t")
-	wq := store.MessageTargets(s.DB, "waiting", "w")
+	tq := database.MessageTargets(s.DB, "m", "t")
+	wq := database.MessageTargets(s.DB, "waiting", "w")
 
-	tx, err := store.Begin(ctx, s.DB)
+	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return protocol.ConversationMessage{}, err
 	}
@@ -32,7 +34,7 @@ func (s *Service) DispatchMessage(ctx context.Context, d agentuse.Device, capaci
 	args := []any{d.ID}
 	if len(capacity) > 0 && capacity[0].FreeSessions <= 0 {
 		if len(capacity[0].ActiveStreams) == 0 {
-			return protocol.ConversationMessage{}, store.ErrNotFound
+			return protocol.ConversationMessage{}, database.ErrNotFound
 		}
 		query += ` AND (`
 		for i, stream := range capacity[0].ActiveStreams {
@@ -45,7 +47,7 @@ func (s *Service) DispatchMessage(ctx context.Context, d agentuse.Device, capaci
 		query += `)`
 	}
 	query += ` ORDER BY m.created_at,m.seq,` + tq.Key + ` LIMIT 1`
-	p, err := scanMessageTarget(store.Row(ctx, tx, query, args...))
+	p, err := scanMessageTarget(database.Row(ctx, tx, query, args...))
 	if err != nil {
 		return protocol.ConversationMessage{}, err
 	}
@@ -66,9 +68,9 @@ func (s *Service) DispatchMessage(ctx context.Context, d agentuse.Device, capaci
 // Sent inputs are never automatically executed again after a disconnect.
 // Reconnection re-delivers the same prompt identity; the client checks its receipt.
 func (s *Service) PendingMessages(ctx context.Context, device string) ([]protocol.ConversationMessage, error) {
-	tq := store.MessageTargets(s.DB, "m", "t")
+	tq := database.MessageTargets(s.DB, "m", "t")
 
-	rows, err := store.Rows(ctx, s.DB, `SELECT `+tq.Dispatch+` FROM `+tq.From+` WHERE `+tq.Device+`=? AND `+tq.Pending+` AND `+tq.Dispatched+` ORDER BY m.created_at,m.seq,`+tq.Key+``, device)
+	rows, err := database.Rows(ctx, s.DB, `SELECT `+tq.Dispatch+` FROM `+tq.From+` WHERE `+tq.Device+`=? AND `+tq.Pending+` AND `+tq.Dispatched+` ORDER BY m.created_at,m.seq,`+tq.Key+``, device)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +91,7 @@ func (s *Service) PendingMessages(ctx context.Context, device string) ([]protoco
 }
 
 func (s *Service) RejectMessage(ctx context.Context, device, id, status, reason string) error {
-	tq := store.MessageTargets(s.DB, "m", "t")
+	tq := database.MessageTargets(s.DB, "m", "t")
 
 	message, agent, err := protocol.ParseMessageID(id)
 	if err != nil {
@@ -99,14 +101,14 @@ func (s *Service) RejectMessage(ctx context.Context, device, id, status, reason 
 		return fmt.Errorf("invalid message acknowledgement")
 	}
 	var conversation string
-	err = s.Repository.Tx(ctx, func(tx *gorm.DB) error {
-		p, err := scanMessageTarget(store.Row(ctx, tx, tq.Columns()+` WHERE m.id=? AND `+tq.Key+`=? AND `+tq.Device+`=? AND `+tq.Dispatched, message, agent, device))
+	err = s.Database.Tx(ctx, func(tx *gorm.DB) error {
+		p, err := scanMessageTarget(database.Row(ctx, tx, tq.Columns()+` WHERE m.id=? AND `+tq.Key+`=? AND `+tq.Device+`=? AND `+tq.Dispatched, message, agent, device))
 		if err != nil {
 			return err
 		}
 		conversation = p.ConversationID
 		var accepted int
-		if err = store.Row(ctx, tx, `SELECT count(*) FROM run_inputs i JOIN runs r ON r.id=i.run_id WHERE i.message_id=? AND r.agent_id=?`, message, agent).Scan(&accepted); err != nil {
+		if err = database.Row(ctx, tx, `SELECT count(*) FROM run_inputs i JOIN runs r ON r.id=i.run_id WHERE i.message_id=? AND r.agent_id=?`, message, agent).Scan(&accepted); err != nil {
 			return err
 		}
 		if accepted > 0 {
@@ -123,15 +125,15 @@ func (s *Service) RejectMessage(ctx context.Context, device, id, status, reason 
 	return err
 }
 func (s *Service) DeviceConversationAccess(ctx context.Context, device, conversation string) error {
-	tq := store.MessageTargets(s.DB, "m", "t")
+	tq := database.MessageTargets(s.DB, "m", "t")
 
 	var n int
-	err := store.Row(ctx, s.DB, `SELECT count(*) FROM `+tq.From+` WHERE `+tq.Device+`=? AND m.conversation_id=? AND `+tq.Dispatched, device, conversation).Scan(&n)
+	err := database.Row(ctx, s.DB, `SELECT count(*) FROM `+tq.From+` WHERE `+tq.Device+`=? AND m.conversation_id=? AND `+tq.Dispatched, device, conversation).Scan(&n)
 	if err != nil {
 		return err
 	}
 	if n == 0 {
-		return store.ErrNotFound
+		return database.ErrNotFound
 	}
 	return nil
 }
@@ -151,9 +153,9 @@ func (s *Service) queueControl(ctx context.Context, r agentuse.Run, kind, reques
 	if kind == protocol.TypeAnswer {
 		prefix = "a:"
 	}
-	out := protocol.SessionControl{ID: prefix + store.NewUUID(), ConversationID: r.ConversationID, SessionID: r.SessionID, RunID: r.ID, RequestID: request, Answer: answer}
-	err := s.Repository.Tx(ctx, func(tx *gorm.DB) error {
-		res, err := store.Exec(ctx, tx, `INSERT INTO run_controls(id,conversation_id,session_id,run_id,device_id,kind,request_id,answer,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM run_controls WHERE run_id=? AND kind=? AND request_id=? AND state IN ('pending','unknown','delivered'))`, out.ID, r.ConversationID, r.SessionID, r.ID, r.DeviceID, kind, request, store.NullIfEmpty(string(answer)), s.Now().Unix(), s.Now().Unix(), r.ID, kind, request)
+	out := protocol.SessionControl{ID: prefix + uuid.NewString(), ConversationID: r.ConversationID, SessionID: r.SessionID, RunID: r.ID, RequestID: request, Answer: answer}
+	err := s.Database.Tx(ctx, func(tx *gorm.DB) error {
+		res, err := database.Exec(ctx, tx, `INSERT INTO run_controls(id,conversation_id,session_id,run_id,device_id,kind,request_id,answer,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM run_controls WHERE run_id=? AND kind=? AND request_id=? AND state IN ('pending','unknown','delivered'))`, out.ID, r.ConversationID, r.SessionID, r.ID, r.DeviceID, kind, request, database.NullIfEmpty(string(answer)), s.Now().Unix(), s.Now().Unix(), r.ID, kind, request)
 		if err != nil {
 			return err
 		}
@@ -169,7 +171,7 @@ func (s *Service) queueControl(ctx context.Context, r agentuse.Run, kind, reques
 	return out, err
 }
 func (s *Service) PendingControls(ctx context.Context, device string) ([]protocol.Message, error) {
-	rows, err := store.Rows(ctx, s.DB, `SELECT id,conversation_id,session_id,run_id,kind,request_id,answer FROM run_controls WHERE device_id=? AND state IN ('pending','unknown') ORDER BY created_at,id`, device)
+	rows, err := database.Rows(ctx, s.DB, `SELECT id,conversation_id,session_id,run_id,kind,request_id,answer FROM run_controls WHERE device_id=? AND state IN ('pending','unknown') ORDER BY created_at,id`, device)
 	if err != nil {
 		return nil, err
 	}
@@ -198,10 +200,10 @@ func (s *Service) ConfirmControl(ctx context.Context, device, id, status, messag
 	} else if status != protocol.AckOK {
 		return fmt.Errorf("invalid control ACK")
 	}
-	_, err := store.Exec(ctx, s.DB, `UPDATE run_controls SET state=?,error=?,updated_at=? WHERE id=? AND device_id=? AND state IN ('pending','unknown')`, state, message, s.Now().Unix(), id, device)
+	_, err := database.Exec(ctx, s.DB, `UPDATE run_controls SET state=?,error=?,updated_at=? WHERE id=? AND device_id=? AND state IN ('pending','unknown')`, state, message, s.Now().Unix(), id, device)
 	if err == nil {
 		var conversation string
-		if e := store.Row(ctx, s.DB, `SELECT conversation_id FROM run_controls WHERE id=? AND device_id=?`, id, device).Scan(&conversation); e == nil {
+		if e := database.Row(ctx, s.DB, `SELECT conversation_id FROM run_controls WHERE id=? AND device_id=?`, id, device).Scan(&conversation); e == nil {
 			s.ConversationService.NotifyConversation(ctx, conversation)
 		}
 	}

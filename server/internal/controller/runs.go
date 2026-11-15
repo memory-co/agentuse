@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 )
 
 func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
@@ -13,7 +13,7 @@ func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 	}
 	snapshot, err := s.service.ConversationService.ReadConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	for _, run := range snapshot.Runs {
@@ -35,7 +35,7 @@ func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, agentuse.RunDetail{Run: run, Events: events, Inputs: inputs})
 		return
 	}
-	s.storeErr(w, store.ErrNotFound)
+	s.serviceErr(w, database.ErrNotFound)
 }
 func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	if !s.conversationInScope(w, r, r.PathValue("id"), false) {
@@ -43,7 +43,7 @@ func (s *Server) handleCancelRun(w http.ResponseWriter, r *http.Request) {
 	}
 	run, err := s.service.RunService.CancelRun(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("run_id"))
 	if err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, 200, run)
@@ -58,7 +58,7 @@ func (s *Server) handleAnswerRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.service.RunService.ReplyRequest(r.Context(), currentUser(r), r.PathValue("id"), r.PathValue("run_id"), r.PathValue("request_id"), body.Answer); err != nil {
-		s.storeErr(w, err)
+		s.serviceErr(w, err)
 		return
 	}
 	writeJSON(w, 202, answerRunResponse{State: "pending"})

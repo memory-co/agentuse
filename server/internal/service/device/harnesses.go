@@ -3,14 +3,14 @@ package device
 import (
 	"context"
 
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 // ListHarnesses exposes reported identities only, never adapter configuration.
 func (s *Service) ListHarnesses(ctx context.Context) ([]agentuse.Harness, error) {
-	rows, err := store.Rows(ctx, s.DB, `SELECT DISTINCT harness FROM device_harnesses WHERE available=1 ORDER BY harness`)
+	rows, err := database.Rows(ctx, s.DB, `SELECT DISTINCT harness FROM device_harnesses WHERE available=1 ORDER BY harness`)
 	if err != nil {
 		return nil, err
 	}

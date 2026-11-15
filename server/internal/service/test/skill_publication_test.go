@@ -10,7 +10,7 @@ import (
 
 	"github.com/memory-co/agentuse/internal/testdb"
 
-	"github.com/memory-co/agentuse/server/internal/store"
+	"github.com/memory-co/agentuse/server/internal/database"
 
 	"github.com/memory-co/agentuse/server/internal/service/file"
 	skillservice "github.com/memory-co/agentuse/server/internal/service/skill"
@@ -29,7 +29,7 @@ func skillZIP(t *testing.T, name, body string) []byte {
 }
 
 func TestFailedSkillPublicationRemovesCandidateObject(t *testing.T) {
-	s, u, _, _ := runStore(t)
+	s, u, _, _ := runFixture(t)
 	ctx := context.Background()
 	files, e := file.NewLocal(t.TempDir())
 	if e != nil {
@@ -45,13 +45,13 @@ func TestFailedSkillPublicationRemovesCandidateObject(t *testing.T) {
 		t.Fatal("unpublished package leaked", rows, e)
 	}
 	var count int
-	if e = store.Row(context.Background(), s.DB, `SELECT count(*) FROM skills`).Scan(&count); e != nil || count != 0 {
+	if e = database.Row(context.Background(), s.DB, `SELECT count(*) FROM skills`).Scan(&count); e != nil || count != 0 {
 		t.Fatal(count, e)
 	}
 }
 
 func TestConcurrentSkillPublicationHasOneWinner(t *testing.T) {
-	s, u, _, _ := runStore(t)
+	s, u, _, _ := runFixture(t)
 	ctx := context.Background()
 	files, e := file.NewLocal(t.TempDir())
 	if e != nil {
