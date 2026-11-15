@@ -30,7 +30,7 @@ curl -H "Authorization: Bearer $AGENTUSE_TOKEN" \
   "$AGENTUSE_SERVER/api/me"
 ```
 
-令牌只在可信客户端或网站后端保存。网页登录入口为 `POST /api/login`，退出为 `POST /api/logout`；管理 CLI 的凭据配置见 [Server CLI](cli.md#管理命令的地址与凭据)。
+令牌只在可信客户端或网站后端保存。网页登录入口为 `POST /api/login`，其 `token` 字段也接受安装时设置的管理员密码；退出为 `POST /api/logout`。管理 CLI 的凭据配置见 [Server CLI](cli.md#管理命令的地址与凭据)。
 
 ## 设备与执行器
 

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/notification"
@@ -50,16 +52,38 @@ func (s *Service) CreateUser(ctx context.Context, id, name, role string) (agentu
 
 // ResetUserToken 给用户换一个新的登录令牌，旧的立即失效。
 func (s *Service) ResetUserToken(ctx context.Context, id string) (agentuse.User, string, error) {
-	u, err := s.GetUser(ctx, id)
+	token := store.RandomToken("ut_")
+	u, err := s.SetUserToken(ctx, id, token)
 	if err != nil {
 		return agentuse.User{}, "", err
 	}
-	token := store.RandomToken("ut_")
+	return u, token, nil
+}
+
+// SetUserToken stores a chosen login credential; plaintext is never persisted.
+func (s *Service) SetUserToken(ctx context.Context, id, token string) (agentuse.User, error) {
+	if err := ValidateUserToken(token); err != nil {
+		return agentuse.User{}, err
+	}
+	u, err := s.GetUser(ctx, id)
+	if err != nil {
+		return agentuse.User{}, err
+	}
 	if _, err := s.DB.ExecContext(ctx, store.ResetUserTokenUpdate, store.HashSecret(token), id); err != nil {
-		return agentuse.User{}, "", err
+		return agentuse.User{}, err
 	}
 	s.Changes.Publish(notification.Change{Resource: "users", ID: u.ID})
-	return u, token, nil
+	return u, nil
+}
+
+func ValidateUserToken(token string) error {
+	if token == "" || len(token) > 1024 || !utf8.ValidString(token) || strings.TrimSpace(token) != token || strings.ContainsFunc(token, unicode.IsControl) {
+		return errors.New("登录密码需为 1–1024 字节，不能包含首尾空白或控制字符")
+	}
+	if strings.HasPrefix(token, "dk_") {
+		return errors.New("登录密码不能使用设备密钥保留前缀 dk_")
+	}
+	return nil
 }
 
 func (s *Service) GetUser(ctx context.Context, id string) (agentuse.User, error) {

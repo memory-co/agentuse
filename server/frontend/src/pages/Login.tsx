@@ -32,7 +32,7 @@ export function Login() {
         <form className="grid gap-4" onSubmit={e => { e.preventDefault(); if (ready) login.mutate(); }}>
           <div className="grid gap-2">
             <Label htmlFor="login-token">{t('login.token')}</Label>
-            <Input id="login-token" placeholder="ut_..." value={token} onChange={e => setToken(e.target.value)} autoComplete="off" autoFocus />
+            <Input id="login-token" type="password" placeholder={t('login.placeholder')} value={token} onChange={e => setToken(e.target.value)} autoComplete="current-password" autoFocus />
           </div>
           {login.isError ? <ErrorState error={login.error} /> : invalidLink && <p className="text-sm text-destructive">{t('login.invalidLink')}</p>}
           <Button type="submit" className="w-full" disabled={!ready}>{login.isPending && <LoaderCircle className="animate-spin" />}{t('login.submit')}</Button>

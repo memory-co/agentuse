@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -26,7 +27,10 @@ func requestToken(r *http.Request) string {
 		return strings.TrimPrefix(h, "Bearer ")
 	}
 	if c, err := r.Cookie(cookieName); err == nil {
-		return c.Value
+		token, err := url.QueryUnescape(c.Value)
+		if err == nil {
+			return token
+		}
 	}
 	return ""
 }
@@ -85,7 +89,7 @@ func (s *Server) admin(h http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, token string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{
-		Name: cookieName, Value: token, Path: "/", MaxAge: maxAge,
+		Name: cookieName, Value: url.QueryEscape(token), Path: "/", MaxAge: maxAge,
 		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: strings.HasPrefix(s.baseURL(r), "https://"),
 	})
 }

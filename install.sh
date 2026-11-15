@@ -46,7 +46,19 @@ fi
 DIST_DIR="${DIST_DIR:-$HOME/.agentuse/dist}"
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+LOCK_DIR=""
+INSTALL_TTY_STATE=""
+STAGED_SERVER=""
+cleanup() {
+  if [ -n "$INSTALL_TTY_STATE" ]; then
+    stty "$INSTALL_TTY_STATE" <&9 2>/dev/null || true
+    exec 9>&-
+  fi
+  rm -rf "$TMP"
+  if [ -n "$STAGED_SERVER" ]; then rm -f "$STAGED_SERVER"; fi
+  if [ -n "$LOCK_DIR" ]; then rmdir "$LOCK_DIR" 2>/dev/null || true; fi
+}
+trap cleanup EXIT
 
 fetch() { curl -fSL --progress-bar "$BASE/$1" -o "$TMP/$1" || die "下载 $BASE/$1 失败"; }
 
@@ -69,7 +81,11 @@ else
 fi
 
 mkdir -p "$INSTALL_DIR" "$DIST_DIR"
-install -m 755 "$TMP/agentuse-server-$OS-$ARCH" "$INSTALL_DIR/agentuse-server"
+# Replace atomically so an existing Server may keep running until the optional restart.
+STAGED_SERVER="$INSTALL_DIR/.agentuse-server.$$"
+install -m 755 "$TMP/agentuse-server-$OS-$ARCH" "$STAGED_SERVER"
+mv -f "$STAGED_SERVER" "$INSTALL_DIR/agentuse-server"
+STAGED_SERVER=""
 for p in $PLATFORMS; do install -m 755 "$TMP/agentuse-$p" "$DIST_DIR/agentuse-$p"; done
 
 info "agentuse-server → $INSTALL_DIR/agentuse-server"
@@ -78,6 +94,96 @@ case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
   *) echo "提示: $INSTALL_DIR 不在 PATH 里，加一行到 shell 配置: export PATH=\"$INSTALL_DIR:\$PATH\"" ;;
 esac
+
+CUSTOM_STARTED=0
+configure_admin_password() {
+  # stdin is the script when invoked through curl | bash; read only from the terminal.
+  if ! { exec 9<>/dev/tty; } 2>/dev/null; then return; fi
+  set +x
+  INSTALL_TTY_STATE="$(stty -g <&9)"
+  stty -echo <&9
+  local password="" confirmation="" bytes=""
+  while :; do
+    printf '\n设置管理员登录密码（直接回车保留原方式；输入后将后台启动或重启 Server）: ' >&9
+    if ! IFS= read -r -s -u 9 password; then password=""; break; fi
+    printf '\n' >&9
+    [ -n "$password" ] || break
+    bytes="$(printf '%s' "$password" | wc -c | tr -d ' ')"
+    if [ "$bytes" -gt 1024 ] || [[ "$password" =~ ^[[:space:]]|[[:space:]]$|[[:cntrl:]] ]] || [[ "$password" == dk_* ]]; then
+      printf '密码最多 1024 字节，不能包含首尾空白、控制字符或使用 dk_ 前缀。\n' >&9
+      continue
+    fi
+    printf '再次输入密码: ' >&9
+    if ! IFS= read -r -s -u 9 confirmation; then password=""; break; fi
+    printf '\n' >&9
+    if [ "$password" = "$confirmation" ]; then break; fi
+    printf '两次输入不一致，请重新输入。\n' >&9
+  done
+  stty "$INSTALL_TTY_STATE" <&9
+  INSTALL_TTY_STATE=""
+  exec 9>&-
+  [ -n "$password" ] || return 0
+
+  umask 077
+  local state="$HOME/.agentuse" pidfile="$HOME/.agentuse/server.pid" log="$HOME/.agentuse/server.log"
+  local pid="" args="" usage="" attempt=0 started=0
+  usage="$("$INSTALL_DIR/agentuse-server" start --help 2>&1 || true)"
+  case "$usage" in
+    *-admin-token-stdin*-pid-file*) ;;
+    *) die "所安装的 $VERSION 尚不支持安装时设置密码，请发布或选择包含此功能的新 Server 版本；原 Server 的登录凭据和进程未改动" ;;
+  esac
+  mkdir -p "$state"
+  if ! mkdir "$state/server.install.lock" 2>/dev/null; then die "已有安装进程正在启动 Server"; fi
+  LOCK_DIR="$state/server.install.lock"
+
+  if [ -f "$pidfile" ]; then
+    IFS= read -r pid <"$pidfile" || true
+    case "$pid" in ''|*[!0-9]*|0|1) die "无效的 Server PID 文件: $pidfile" ;; esac
+    if kill -0 "$pid" 2>/dev/null; then
+      args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+      case "$args" in
+        *agentuse-server*start*--pid-file*"$pidfile"*) ;;
+        *) die "$pidfile 未指向本安装脚本管理的 Server，请检查后再运行" ;;
+      esac
+      info "停止原 Server (pid $pid)"
+      kill -TERM "$pid"
+      while kill -0 "$pid" 2>/dev/null; do
+        case "$(ps -p "$pid" -o stat= 2>/dev/null || true)" in Z*|'') break ;; esac
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 50 ] || die "Server 未能正常退出，请查看 $log"
+        sleep 0.2
+      done
+    fi
+    rm -f "$pidfile"
+  fi
+  [ ! -f "$log" ] || mv -f "$log" "$log.previous"
+  info "设置管理员登录密码并启动 Server"
+  printf '%s' "$password" | nohup "$INSTALL_DIR/agentuse-server" start \
+    --dist "$DIST_DIR" --pid-file "$pidfile" --admin-token-stdin >"$log" 2>&1 &
+  pid=$!
+  unset password confirmation
+  attempt=0
+  while [ "$attempt" -lt 100 ]; do
+    kill -0 "$pid" 2>/dev/null || die "Server 启动失败，请查看 $log"
+    if [ -f "$pidfile" ] && grep -q 'agentuse 服务已启动:' "$log"; then started=1; break; fi
+    attempt=$((attempt + 1))
+    sleep 0.1
+  done
+  if [ "$started" != 1 ]; then
+    kill -TERM "$pid" 2>/dev/null || true
+    die "Server 启动超时，请查看 $log"
+  fi
+  CUSTOM_STARTED=1
+  info "管理员登录密码已设置，Server 已在后台启动 (pid $pid)"
+  grep 'agentuse 服务已启动:' "$log"
+  info "请在登录页面输入刚才设置的密码。日志: $log；PID: $pidfile"
+}
+
+configure_admin_password
+if [ "$CUSTOM_STARTED" = 1 ]; then
+  info "装好了。以后可再次运行安装脚本并输入新密码，以修改密码并重启。"
+  exit 0
+fi
 
 DIST_FLAG=""
 [ "$DIST_DIR" = "$HOME/.agentuse/dist" ] || DIST_FLAG=" -dist $DIST_DIR"

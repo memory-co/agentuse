@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/memory-co/agentuse/internal/protocol"
@@ -147,6 +148,33 @@ func TestUsersAPI(t *testing.T) {
 	var users []agentuse.User
 	if e.req(adminTok, "GET", "/api/users", nil, &users); len(users) != 2 {
 		t.Fatalf("list: %+v", users)
+	}
+}
+
+func TestChosenPasswordLoginPreservesSpecialCharactersInCookie(t *testing.T) {
+	e := newEnv(t, Config{})
+	u, old := e.user("admin", agentuse.RoleAdmin)
+	password := "新密码 +%\";$()&!"
+	if _, err := e.st.UserService.SetUserToken(context.Background(), u.ID, password); err != nil {
+		t.Fatal(err)
+	}
+	if code := e.code(old, "GET", "/api/me", nil); code != http.StatusUnauthorized {
+		t.Fatal("old token is valid", code)
+	}
+	resp := e.req("", "POST", "/api/login", map[string]string{"token": password}, nil)
+	loginCookie := cookie(resp)
+	if resp.StatusCode != http.StatusOK || loginCookie == nil || loginCookie.Value != url.QueryEscape(password) {
+		t.Fatal("custom password login failed", resp.StatusCode)
+	}
+	req, _ := http.NewRequest("GET", e.ts.URL+"/api/me", nil)
+	req.AddCookie(loginCookie)
+	me, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer me.Body.Close()
+	if me.StatusCode != http.StatusOK {
+		t.Fatal("cookie lost password characters", me.StatusCode)
 	}
 }
 

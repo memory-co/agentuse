@@ -90,7 +90,7 @@ func TestBootstrapAdmin(t *testing.T) {
 	defer log.SetOutput(os.Stderr)
 
 	// 空库：建 admin,打印令牌和登录链接
-	if err := bootstrapAdmin(ctx, st, "http://h:1", false); err != nil {
+	if err := bootstrapAdmin(ctx, st, "http://h:1", false, ""); err != nil {
 		t.Fatal(err)
 	}
 	tok := regexp.MustCompile(`令牌\(只显示这一次\): (ut_\w+)`).FindStringSubmatch(logs.String())
@@ -103,11 +103,11 @@ func TestBootstrapAdmin(t *testing.T) {
 
 	// 再启动：什么都不做
 	logs.Reset()
-	if err := bootstrapAdmin(ctx, st, "http://h:1", false); err != nil || logs.Len() != 0 {
+	if err := bootstrapAdmin(ctx, st, "http://h:1", false, ""); err != nil || logs.Len() != 0 {
 		t.Fatalf("second start: %v %q", err, logs.String())
 	}
 	// -reset-admin-token:旧令牌失效
-	if err := bootstrapAdmin(ctx, st, "http://h:1", true); err != nil || !strings.Contains(logs.String(), "已重置") {
+	if err := bootstrapAdmin(ctx, st, "http://h:1", true, ""); err != nil || !strings.Contains(logs.String(), "已重置") {
 		t.Fatalf("reset: %v %q", err, logs.String())
 	}
 	if _, err := st.UserService.UserByToken(ctx, tok[1]); err == nil {
@@ -121,6 +121,85 @@ func TestDisplayAddr(t *testing.T) {
 		if got := displayAddr(a); got != want {
 			t.Errorf("displayAddr(%s) = %s, want %s", in, got, want)
 		}
+	}
+}
+
+func TestChosenAdminPasswordAndStdin(t *testing.T) {
+	st, err := service.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	defer log.SetOutput(os.Stderr)
+	first := "新的密码 +%\";$()&!"
+	if err = bootstrapAdmin(ctx, st, "http://h:1", false, first); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := st.UserService.UserByToken(ctx, first)
+	if err != nil || !admin.IsAdmin() {
+		t.Fatal(admin, err)
+	}
+	if strings.Contains(logs.String(), first) || strings.Contains(logs.String(), "login?token=") {
+		t.Fatal("chosen password leaked into startup logs")
+	}
+	logs.Reset()
+	if err = bootstrapAdmin(ctx, st, "http://h:1", false, ""); err != nil || logs.Len() != 0 {
+		t.Fatal(err, logs.String())
+	}
+	second := "another chosen password"
+	if err = bootstrapAdmin(ctx, st, "http://h:1", false, second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.UserService.UserByToken(ctx, first); err == nil {
+		t.Fatal("old password is still valid")
+	}
+	if got, err := st.UserService.UserByToken(ctx, second); err != nil || got.ID != admin.ID {
+		t.Fatal(got, err)
+	}
+	if got, err := readAdminToken(strings.NewReader(second + "\n")); err != nil || got != second {
+		t.Fatal(got, err)
+	}
+	for _, invalid := range []string{"", " ", " leading", "trailing ", "one\ntwo", "dk_reserved", strings.Repeat("a", 1025)} {
+		if _, err := readAdminToken(strings.NewReader(invalid)); err == nil {
+			t.Fatal("invalid chosen credential accepted")
+		}
+	}
+}
+
+func TestBindFailureLeavesRunningServerDeviceStateUntouched(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	path := filepath.Join(root, "server.db")
+	st, err := service.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	u, _, err := st.UserService.CreateUser(ctx, "admin", "admin", agentuse.RoleAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := st.DeviceService.CreateDevice(ctx, u.ID, "running device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.DB.ExecContext(ctx, `UPDATE devices SET status='online' WHERE id=?`, d.ID); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	if err = runStart([]string{"--addr", listener.Addr().String(), "--db", path, "--files-dir", filepath.Join(root, "files")}); err == nil {
+		t.Fatal("second Server acquired occupied port")
+	}
+	var status string
+	if err = st.DB.QueryRowContext(ctx, `SELECT status FROM devices WHERE id=?`, d.ID).Scan(&status); err != nil || status != "online" {
+		t.Fatal("failed startup changed live device state", status, err)
 	}
 }
 

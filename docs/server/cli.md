@@ -4,13 +4,19 @@
 
 ## 快速开始
 
-安装好 `agentuse-server` 后，在服务主机上运行：
+`install.sh` 安装完成后会在终端询问是否设置管理员登录密码。直接回车或没有交互终端时，只安装程序，保留原流程；随后在服务主机上运行：
 
 ```bash
 agentuse-server start
 ```
 
 默认监听 `:8080`，数据库位于 `~/.agentuse/server.db`。第一次启动时，日志会显示管理员登录令牌和登录链接。用链接进入管理页面；默认本机访问地址是 `http://localhost:8080`。
+
+如果安装时输入并确认了密码，脚本会直接在后台启动 Server；再次安装并输入新密码时，会先正常停止该脚本管理的进程，再设置新密码并启动，旧登录凭据失效。网页登录框直接输入所设密码即可。密码不回显、不进入进程参数或日志，也不写入明文文件；数据库保存凭据摘要。
+
+脚本管理的 PID 位于 `~/.agentuse/server.pid`，日志位于 `~/.agentuse/server.log`，上次日志保留为 `server.log.previous`。后台进程使用当前 `AGENTUSE_*` 环境配置；它不是开机自启服务。由 systemd、容器或其他方式启动的既有 Server，需要先通过原管理方式停止，再选择脚本后台启动；脚本不通过端口号或进程名强行终止其他服务。
+
+密码需为 1–1024 字节，不含首尾空白或控制字符，不能使用设备密钥保留前缀 `dk_`。安装脚本与 Server 二进制需包含同一功能；指定旧 Release 时，输入密码会在停止原 Server 前明确报版本不支持，空输入仍照常安装。
 
 `start` 在前台持续运行。另开终端，保存管理命令使用的地址和管理员令牌：
 
@@ -70,8 +76,18 @@ agentuse-server start [参数]
 | `--s3-region` | `AGENTUSE_S3_REGION` | `us-east-1` | S3 region |
 | `--s3-prefix` | `AGENTUSE_S3_PREFIX` | 空 | S3 对象前缀 |
 | `--reset-admin-token` | — | `false` | 启动时重置最早创建的管理员的令牌，并在日志中显示新令牌和链接；旧令牌立即失效 |
+| `--admin-token-stdin` | — | `false` | 从标准输入读取管理员密码，创建管理员或替换最早管理员的登录凭据；密码不打印，与 `--reset-admin-token` 互斥 |
+| `--pid-file` | — | 空 | 保存服务进程 PID，正常退出时删除；安装脚本用它定位自己管理的 Server |
 
 两个附件容量参数必须是正整数，单位为字节。
+
+也可以在启动时交互设置密码，标准输入仅用于这次设置，后续普通启动保留数据库中的凭据：
+
+```bash
+read -r -s -p '管理员密码: ' ADMIN_PASSWORD; printf '\n'
+printf '%s' "$ADMIN_PASSWORD" | agentuse-server start --admin-token-stdin
+unset ADMIN_PASSWORD
+```
 
 ### Client 二进制分发
 
@@ -122,7 +138,7 @@ agentuse-server start \
 | 公共参数 | 默认值 | 说明 |
 |---|---|---|
 | `--server URL` | 按上述优先级选择 | Server 地址 |
-| `--token TOKEN` | 按上述优先级选择 | 管理员用户令牌，`ut_` 开头 |
+| `--token TOKEN` | 按上述优先级选择 | 管理员登录凭据：令牌或安装时设置的密码 |
 | `--config FILE` | `~/.agentuse/server-cli.json` | 管理凭据文件 |
 
 这些参数用于管理命令，`start` 的配置由启动参数和环境变量提供。
@@ -146,7 +162,7 @@ agentuse-server login \
 | 参数 | 默认来源 | 说明 |
 |---|---|---|
 | `--server` | `AGENTUSE_SERVER` | Server 地址，必填 |
-| `--token` | `AGENTUSE_TOKEN` | 管理员令牌，必填 |
+| `--token` | `AGENTUSE_TOKEN` | 管理员登录凭据：令牌或安装时设置的密码，必填 |
 | `--config` | `~/.agentuse/server-cli.json` | 写入的管理凭据文件 |
 
 `login` 调用 `GET /api/me` 验证令牌和管理员角色，再以 `0600` 权限保存地址与令牌。它的地址和令牌来自参数或环境变量。

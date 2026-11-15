@@ -4,7 +4,7 @@ import "encoding/json"
 
 // Request types are shared by HTTP decoding and Huma schema generation.
 type loginBody struct {
-	Token string `json:"token" doc:"用户登录令牌，ut_ 开头"`
+	Token string `json:"token" doc:"用户登录令牌，或安装时设置的管理员登录密码"`
 }
 
 type createDeviceBody struct {

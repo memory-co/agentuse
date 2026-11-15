@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -19,14 +20,15 @@ import (
 	"github.com/memory-co/agentuse/server/internal/hub"
 	"github.com/memory-co/agentuse/server/internal/service"
 	fileservice "github.com/memory-co/agentuse/server/internal/service/file"
+	userservice "github.com/memory-co/agentuse/server/internal/service/user"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 const serverUsage = `agentuse-server —— agentuse 服务端
 
 用法:
-  agentuse-server start [-addr :8080] [-db 路径] [-public-url URL] [-dist 目录] [-reset-admin-token]
-  agentuse-server login -server URL -token 管理员令牌
+  agentuse-server start [-addr :8080] [-db 路径] [-public-url URL] [-dist 目录] [-reset-admin-token | -admin-token-stdin] [-pid-file 路径]
+  agentuse-server login -server URL -token 管理员登录凭据
   agentuse-server user create 用户名 [-id 用户id] [-role user|admin]
   agentuse-server user list [-json]
   agentuse-server user token 用户id
@@ -83,8 +85,21 @@ func runStart(args []string) error {
 	maxBytes := fs.Int64("attachment-max-bytes", envInt("AGENTUSE_ATTACHMENT_MAX_BYTES", 100<<20), "单附件字节上限")
 	conversationMax := fs.Int64("attachment-conversation-max-bytes", envInt("AGENTUSE_ATTACHMENT_CONVERSATION_MAX_BYTES", 1<<30), "会话附件总字节上限")
 	resetAdmin := fs.Bool("reset-admin-token", false, "启动时给管理员换一个新令牌并打印(令牌丢了用)")
+	adminTokenStdin := fs.Bool("admin-token-stdin", false, "从标准输入读取管理员登录密码，启动时设置；不打印密码")
+	pidFile := fs.String("pid-file", "", "将本进程 PID 保存到指定文件，正常退出时删除")
 	if err := command.Parse(fs, args); err != nil {
 		return err
+	}
+	var adminToken string
+	if *adminTokenStdin {
+		if *resetAdmin {
+			return errors.New("admin-token-stdin 和 reset-admin-token 不能同时使用")
+		}
+		var err error
+		adminToken, err = readAdminToken(os.Stdin)
+		if err != nil {
+			return err
+		}
 	}
 	var files *fileservice.Service
 	var fileErr error
@@ -116,19 +131,33 @@ func runStart(args []string) error {
 	st := service.New(repository)
 	ctx, stop := command.SignalContext()
 	defer stop()
-	if err := st.DeviceService.MarkAllDevicesOffline(ctx); err != nil {
-		return err
-	}
-
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
 		return err
 	}
+	defer ln.Close()
 	base := strings.TrimRight(*publicURL, "/")
 	if base == "" {
 		base = "http://" + displayAddr(ln.Addr())
 	}
-	if err := bootstrapAdmin(ctx, st, base, *resetAdmin); err != nil {
+	if *pidFile != "" {
+		if err := os.MkdirAll(filepath.Dir(*pidFile), 0o700); err != nil {
+			return err
+		}
+		pid := []byte(strconv.Itoa(os.Getpid()) + "\n")
+		if err := os.WriteFile(*pidFile, pid, 0o600); err != nil {
+			return err
+		}
+		defer func() {
+			if saved, err := os.ReadFile(*pidFile); err == nil && string(saved) == string(pid) {
+				_ = os.Remove(*pidFile)
+			}
+		}()
+	}
+	if err := st.DeviceService.MarkAllDevicesOffline(ctx); err != nil {
+		return err
+	}
+	if err := bootstrapAdmin(ctx, st, base, *resetAdmin, adminToken); err != nil {
 		return err
 	}
 	if missing := server.MissingDist(*dist); len(missing) > 0 {
@@ -155,8 +184,13 @@ func runStart(args []string) error {
 	return nil
 }
 
-// bootstrapAdmin:库里没用户就建 admin;要求重置就给最早的管理员换令牌。都会打印登录链接。
-func bootstrapAdmin(ctx context.Context, st *service.Service, base string, reset bool) error {
+// bootstrapAdmin creates/resets the first admin. Chosen credentials are never logged.
+func bootstrapAdmin(ctx context.Context, st *service.Service, base string, reset bool, chosenToken string) error {
+	if chosenToken != "" {
+		if err := userservice.ValidateUserToken(chosenToken); err != nil {
+			return err
+		}
+	}
 	n, err := st.UserService.CountUsers(ctx)
 	if err != nil {
 		return err
@@ -169,22 +203,48 @@ func bootstrapAdmin(ctx context.Context, st *service.Service, base string, reset
 			return err
 		}
 		log.Printf("第一次启动，已创建管理员 %s(id %s)", u.Name, u.ID)
-	case reset:
+	case reset || chosenToken != "":
 		admin, err := st.UserService.FirstAdmin(ctx)
 		if err != nil {
 			return fmt.Errorf("找不到管理员: %w", err)
 		}
-		if u, token, err = st.UserService.ResetUserToken(ctx, admin.ID); err != nil {
+		if chosenToken != "" {
+			u, err = st.UserService.SetUserToken(ctx, admin.ID, chosenToken)
+		} else {
+			u, token, err = st.UserService.ResetUserToken(ctx, admin.ID)
+		}
+		if err != nil {
 			return err
 		}
 		log.Printf("已重置管理员 %s(id %s)的令牌，旧令牌已失效", u.Name, u.ID)
 	default:
 		return nil
 	}
+	if chosenToken != "" {
+		if n == 0 {
+			if _, err = st.UserService.SetUserToken(ctx, u.ID, chosenToken); err != nil {
+				return err
+			}
+		}
+		log.Printf("已设置管理员登录密码，旧登录凭据已失效；请在 %s 输入新密码登录", base)
+		return nil
+	}
 	log.Printf("管理员登录令牌(只显示这一次): %s", token)
 	log.Printf("登录链接: %s/login?token=%s", base, token)
 	log.Printf("令牌丢了: agentuse-server start -reset-admin-token")
 	return nil
+}
+
+func readAdminToken(reader io.Reader) (string, error) {
+	raw, err := io.ReadAll(io.LimitReader(reader, 1027))
+	if err != nil {
+		return "", err
+	}
+	token := strings.TrimSuffix(strings.TrimSuffix(string(raw), "\n"), "\r")
+	if err := userservice.ValidateUserToken(token); err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 func displayAddr(a net.Addr) string {
@@ -201,7 +261,7 @@ func displayAddr(a net.Addr) string {
 func runLogin(args []string) error {
 	fs := command.NewFlags("agentuse-server login")
 	srvURL := fs.String("server", os.Getenv("AGENTUSE_SERVER"), "服务地址")
-	token := fs.String("token", os.Getenv("AGENTUSE_TOKEN"), "管理员登录令牌(ut_ 开头)")
+	token := fs.String("token", os.Getenv("AGENTUSE_TOKEN"), "管理员登录密码或令牌")
 	path := fs.String("config", defaultClientConfig(), "保存到哪")
 	if err := command.Parse(fs, args); err != nil {
 		return err

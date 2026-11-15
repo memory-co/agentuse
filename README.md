@@ -37,12 +37,17 @@ Linux / macOS(amd64 / arm64)上一行装好:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/memory-co/agentuse/main/install.sh | bash
-agentuse-server start                    # 默认监听 :8080,数据在 ~/.agentuse/server.db
 ```
 
 脚本会从最新 [Release](https://github.com/memory-co/agentuse/releases) 下载 `agentuse-server` 装到 `/usr/local/bin`(没权限就装到 `~/.local/bin`),并把各平台的 `agentuse` 放到 `~/.agentuse/dist`,供用户电脑的 `setup.sh` 下载。装指定版本：`curl … | VERSION=v0.0.5 bash`。
 
-第一次启动会建管理员 `admin`,并在日志里打印登录链接:
+安装结束时可设置管理员登录密码，输入并确认后会后台启动或重启脚本管理的 Server。直接回车则保留原流程，手动启动：
+
+```bash
+agentuse-server start                    # 默认监听 :8080,数据在 ~/.agentuse/server.db
+```
+
+未设置自定义密码时，第一次启动会建管理员 `admin`,并在日志里打印登录链接:
 
 ```
 第一次启动，已创建管理员 admin。登录令牌(只显示这一次): ut_…

@@ -57,7 +57,7 @@ func (s *Server) registerAPI() {
 	config.Info.Description = "AgentUse Server API。登录管理页面后可使用 cookie 在文档中调试，也可通过 Authorize 输入 Bearer token。Server 对话统一使用 /api/conversations 和 conversation_id；session_id 表示 Client 本地执行会话。设备入口使用 device 命名。消息用 to_agent_ids 和 to_user_ids 指定收件人；只有 Agent 收件人触发执行，实际 run_id 由 Client accepted 返回。"
 	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
 		"cookieAuth": {Type: "apiKey", In: "cookie", Name: cookieName, Description: "POST /api/login 或登录链接设置的 HttpOnly cookie"},
-		"bearerAuth": {Type: "http", Scheme: "bearer", Description: "用户令牌 ut_…"},
+		"bearerAuth": {Type: "http", Scheme: "bearer", Description: "用户令牌 ut_…，或安装时设置的管理员密码"},
 		"deviceKey":  {Type: "http", Scheme: "bearer", Description: "注册设备返回的 dk_…，只能访问授权的会话及固定资源版本"},
 	}
 	config.Security = []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}}
