@@ -66,7 +66,7 @@ agentuse-server start [参数]
 | `--addr` | `AGENTUSE_ADDR` | `:8080` | HTTP 监听地址，兼用于 WebSocket |
 | `--db-driver` | `AGENTUSE_DB_DRIVER` | `sqlite` | 数据库类型：`sqlite`、`mysql`、`postgres` |
 | `--db` | `AGENTUSE_DB` | `~/.agentuse/server.db` | SQLite 文件路径或所选数据库 DSN；SQLite 的 `:memory:` 为临时库 |
-| `--public-url` | `AGENTUSE_PUBLIC_URL` | 空 | 用户和 Client 访问 Server 的地址，用于生成登录链接和安装命令；省略时按监听地址或请求推导 |
+| `--public-url` | `AGENTUSE_PUBLIC_URL` | 本机监听地址 | 用户和 Client 访问 Server 的公开地址，反向代理部署时填代理的完整地址，如 `https://agentuse.example.com` |
 | `--dist` | `AGENTUSE_DIST` | `~/.agentuse/dist` | 各平台 Client 二进制所在目录 |
 | `--attachment-max-bytes` | `AGENTUSE_ATTACHMENT_MAX_BYTES` | `104857600`，100 MiB | 单个附件的最大字节数 |
 | `--attachment-conversation-max-bytes` | `AGENTUSE_ATTACHMENT_CONVERSATION_MAX_BYTES` | `1073741824`，1 GiB | 每个会话全部附件的最大总字节数 |
@@ -82,9 +82,7 @@ agentuse-server start [参数]
 
 两个附件容量参数必须是正整数，单位为字节。
 
-页面里的设备安装命令由 Server 生成。显式设置 `--public-url` 时使用该地址；否则根据请求的 TLS、Host 和 `X-Forwarded-Proto` / `X-Forwarded-Host` 判断地址。同域浏览器的 `Origin` / `Referer` 表明页面使用 HTTPS 时，生成的命令也使用 HTTPS，覆盖代理最后一跳的 HTTP 协议。命令同时通过 `AGENTUSE_SERVER` 将地址传入 `setup.sh`，使 Client 下载、注册和后续连接使用同一地址。
-
-反向代理应保留公开 Host 并传递正确的转发头；没有浏览器来源的 CLI 请求和直接下载脚本无法据此识别外层 TLS，生产部署可使用 `--public-url https://agentuse.example.com` 固定公开地址。
+公开地址由后端启动配置统一决定。`--public-url`（或 `AGENTUSE_PUBLIC_URL`）控制登录链接、设备安装命令、`setup.sh` 中的下载和注册地址，以及登录 cookie 的 HTTPS 属性。前端直接展示后端返回的安装命令；Host、Origin、Referer 和代理转发头不会改变公开地址。未配置时固定使用启动时的本机监听地址，例如 `http://localhost:8080`；使用域名、局域网地址或 HTTPS 反向代理时应显式配置公开地址。
 
 也可以在启动时交互设置密码，标准输入仅用于这次设置，后续普通启动保留数据库中的凭据：
 

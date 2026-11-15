@@ -87,10 +87,10 @@ func (s *Server) admin(h http.HandlerFunc) http.HandlerFunc {
 	})
 }
 
-func (s *Server) setCookie(w http.ResponseWriter, r *http.Request, token string, maxAge int) {
+func (s *Server) setCookie(w http.ResponseWriter, token string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{
 		Name: cookieName, Value: url.QueryEscape(token), Path: "/", MaxAge: maxAge,
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: strings.HasPrefix(s.baseURL(r), "https://"),
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: strings.HasPrefix(s.cfg.PublicURL, "https://"),
 	})
 }
 
@@ -101,7 +101,7 @@ func (s *Server) handleLoginLink(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/?login=invalid", http.StatusFound)
 		return
 	}
-	s.setCookie(w, r, tok, 365*24*3600)
+	s.setCookie(w, tok, 365*24*3600)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
@@ -116,12 +116,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "令牌无效")
 		return
 	}
-	s.setCookie(w, r, strings.TrimSpace(req.Token), 365*24*3600)
+	s.setCookie(w, strings.TrimSpace(req.Token), 365*24*3600)
 	writeJSON(w, http.StatusOK, u)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	s.setCookie(w, r, "", -1)
+	s.setCookie(w, "", -1)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -152,7 +152,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		s.serviceErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, agentuse.UserToken{User: u, Token: token, LoginURL: s.baseURL(r) + "/login?token=" + token})
+	writeJSON(w, http.StatusCreated, agentuse.UserToken{User: u, Token: token, LoginURL: s.cfg.PublicURL + "/login?token=" + token})
 }
 
 func (s *Server) handleResetUserToken(w http.ResponseWriter, r *http.Request) {
@@ -161,7 +161,7 @@ func (s *Server) handleResetUserToken(w http.ResponseWriter, r *http.Request) {
 		s.serviceErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, agentuse.UserToken{User: u, Token: token, LoginURL: s.baseURL(r) + "/login?token=" + token})
+	writeJSON(w, http.StatusOK, agentuse.UserToken{User: u, Token: token, LoginURL: s.cfg.PublicURL + "/login?token=" + token})
 }
 
 func (s *Server) handleListHarnesses(w http.ResponseWriter, r *http.Request) {
@@ -230,16 +230,16 @@ type deviceView struct {
 	SetupCommand string `json:"setup_command,omitempty"`
 }
 
-func (s *Server) view(r *http.Request, d agentuse.Device) deviceView {
+func (s *Server) view(d agentuse.Device) deviceView {
 	v := deviceView{Device: d}
 	if d.SetupToken != "" {
-		v.SetupCommand = setupCommand(s.baseURL(r), d.SetupToken)
+		v.SetupCommand = setupCommand(s.cfg.PublicURL, d.SetupToken)
 	}
 	return v
 }
 
 func setupCommand(base, token string) string {
-	return `curl -fsSL "` + base + `/setup.sh" -o setup.sh && AGENTUSE_SERVER="` + base + `" TOKEN="` + token + `" bash setup.sh`
+	return `curl -fsSL "` + base + `/setup.sh" -o setup.sh && TOKEN="` + token + `" bash setup.sh`
 }
 
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
@@ -250,7 +250,7 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]deviceView, 0, len(ds))
 	for _, d := range ds {
-		out = append(out, s.view(r, d))
+		out = append(out, s.view(d))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -268,7 +268,7 @@ func (s *Server) handleCreateDevice(w http.ResponseWriter, r *http.Request) {
 		s.serviceErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, s.view(r, d))
+	writeJSON(w, http.StatusCreated, s.view(d))
 }
 
 func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
@@ -286,7 +286,7 @@ func (s *Server) handleResetDevice(w http.ResponseWriter, r *http.Request) {
 		s.serviceErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.view(r, d))
+	writeJSON(w, http.StatusOK, s.view(d))
 }
 
 func (s *Server) handleToggleHarness(w http.ResponseWriter, r *http.Request) {
@@ -306,7 +306,7 @@ func (s *Server) handleToggleHarness(w http.ResponseWriter, r *http.Request) {
 		s.serviceErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.view(r, d))
+	writeJSON(w, http.StatusOK, s.view(d))
 }
 
 func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request) {

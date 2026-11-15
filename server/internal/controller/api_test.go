@@ -100,10 +100,16 @@ func TestLogin(t *testing.T) {
 	if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != "/?login=invalid" || cookie(resp) != nil {
 		t.Fatalf("bad login link: %d %v", resp.StatusCode, resp.Header)
 	}
-	// https 部署时 cookie 带 Secure
+	// 请求头不决定公开地址或 cookie 属性。
 	resp = e.req("", "POST", "/api/login", map[string]string{"token": tok}, nil, "X-Forwarded-Proto", "https")
+	if cookie(resp).Secure {
+		t.Fatal("forwarded headers must not override the configured HTTP address")
+	}
+	secure := newEnv(t, Config{PublicURL: "https://agentuse.example.com"})
+	_, secureToken := secure.user("alice", agentuse.RoleUser)
+	resp = secure.req("", "POST", "/api/login", map[string]string{"token": secureToken}, nil)
 	if !cookie(resp).Secure {
-		t.Fatal("cookie should be Secure behind https")
+		t.Fatal("cookie should be Secure when the configured public address is HTTPS")
 	}
 }
 
@@ -269,7 +275,7 @@ func TestDevicesAPI(t *testing.T) {
 	// 不带请求体也能建
 	var v deviceView
 	if r := e.req(aliceTok, "POST", "/api/devices", nil, &v); r.StatusCode != http.StatusCreated || v.Name != "" ||
-		v.SetupCommand != `curl -fsSL "`+e.ts.URL+`/setup.sh" -o setup.sh && AGENTUSE_SERVER="`+e.ts.URL+`" TOKEN="`+v.SetupToken+`" bash setup.sh` {
+		v.SetupCommand != `curl -fsSL "`+e.ts.URL+`/setup.sh" -o setup.sh && TOKEN="`+v.SetupToken+`" bash setup.sh` {
 		t.Fatalf("create: %d %+v", r.StatusCode, v)
 	}
 	if c := e.code(aliceTok, "POST", "/api/devices", "{"); c != http.StatusBadRequest {

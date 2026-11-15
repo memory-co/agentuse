@@ -12,10 +12,10 @@ import (
 // __SERVER__ 在返回时替换成服务地址。
 const setupScript = `#!/usr/bin/env bash
 # agentuse daemon 安装脚本
-# 用法: curl -fsSL "__SERVER__/setup.sh" -o setup.sh && AGENTUSE_SERVER="__SERVER__" TOKEN="<安装令牌>" bash setup.sh
+# 用法: curl -fsSL "__SERVER__/setup.sh" -o setup.sh && TOKEN="<安装令牌>" bash setup.sh
 set -euo pipefail
 
-SERVER="${AGENTUSE_SERVER:-__SERVER__}"
+SERVER="__SERVER__"
 INSTALL_DIR="${AGENTUSE_INSTALL_DIR:-$HOME/.agentuse/bin}"
 BIN="$INSTALL_DIR/agentuse"
 
@@ -111,7 +111,7 @@ say "完成！回到 agentuse 页面，选择这台电脑上要开启的 harness
 func (s *Server) handleSetupScript(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write([]byte(strings.ReplaceAll(setupScript, "__SERVER__", s.baseURL(r))))
+	_, _ = w.Write([]byte(strings.ReplaceAll(setupScript, "__SERVER__", s.cfg.PublicURL)))
 }
 
 var binNameRe = regexp.MustCompile(`^agentuse-(linux|darwin)-(amd64|arm64)$`)

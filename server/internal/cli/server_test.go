@@ -29,7 +29,9 @@ func TestServerAdminCommands(t *testing.T) {
 	}
 	defer st.Close()
 	ctx := context.Background()
-	ts := httptest.NewServer(server.New(st, server.Config{Logger: log.New(io.Discard, "", 0)}))
+	ts := httptest.NewUnstartedServer(nil)
+	ts.Config.Handler = server.New(st, server.Config{PublicURL: "http://" + ts.Listener.Addr().String(), Logger: log.New(io.Discard, "", 0)})
+	ts.Start()
 	defer ts.Close()
 	_, adminTok, _ := st.UserService.CreateUser(ctx, "", "admin", agentuse.RoleAdmin)
 	_, userTok, _ := st.UserService.CreateUser(ctx, "", "bob", agentuse.RoleUser)

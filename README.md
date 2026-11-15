@@ -54,14 +54,14 @@ agentuse-server start                    # 默认监听 :8080,数据在 ~/.agent
 登录链接: http://localhost:8080/login?token=ut_…
 ```
 
-放到公网 / 反向代理后面时，用 `-public-url https://agentuse.example.com` 指定用户电脑访问服务的地址(会写进安装命令)。不指定就按请求的 Host 推断。
+放到公网 / 反向代理后面时，用 `--public-url https://agentuse.example.com` 指定用户电脑访问服务的地址。登录链接、设备安装命令和安装脚本统一使用这个地址；不指定时使用启动时确定的本机监听地址。
 
 ### 2. 接入一台电脑
 
 打开网页 →「机器」→「添加设备」,页面会给出一条命令，在要跑 harness 的电脑上执行:
 
 ```bash
-curl -fsSL "https://agentuse.example.com/setup.sh" -o setup.sh && AGENTUSE_SERVER="https://agentuse.example.com" TOKEN="st_…" bash setup.sh
+curl -fsSL "https://agentuse.example.com/setup.sh" -o setup.sh && TOKEN="st_…" bash setup.sh
 ```
 
 它会下载 agentuse、注册这台电脑、装成后台服务(macOS launchd / Linux systemd --user,都没有就 nohup)。几秒后页面上这台电脑变成「在线」,并列出本机检测到的 harness。

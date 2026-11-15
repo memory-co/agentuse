@@ -63,7 +63,7 @@ func runStart(args []string) error {
 	addr := fs.String("addr", command.EnvOr("AGENTUSE_ADDR", ":8080"), "监听地址")
 	dbDriver := fs.String("db-driver", command.EnvOr("AGENTUSE_DB_DRIVER", "sqlite"), "元数据数据库：sqlite、mysql 或 postgres")
 	dbPath := fs.String("db", command.EnvOr("AGENTUSE_DB", defaultDB()), "SQLite 文件路径，或 MySQL/PostgreSQL DSN")
-	publicURL := fs.String("public-url", os.Getenv("AGENTUSE_PUBLIC_URL"), "用户电脑访问服务的地址(写进安装命令),空 = 按请求推断")
+	publicURL := fs.String("public-url", os.Getenv("AGENTUSE_PUBLIC_URL"), "公开访问地址或反向代理地址；省略时使用本机监听地址")
 	dist := fs.String("dist", command.EnvOr("AGENTUSE_DIST", defaultDist()), "各平台 agentuse 二进制所在目录(agentuse-<os>-<arch>)")
 	home, _ := os.UserHomeDir()
 	filesDir := fs.String("files-dir", command.EnvOr("AGENTUSE_FILES_DIR", filepath.Join(home, ".agentuse", "files")), "fileService 本地存储目录")
@@ -169,7 +169,7 @@ func runStart(args []string) error {
 	svc := st
 	transport := hub.New(svc, log.Default())
 	svc.SetNotifier(transport)
-	srv := server.New(st, server.Config{FileStore: files, ClientHandler: transport, PublicURL: *publicURL, DistDir: *dist, AttachmentMaxBytes: *maxBytes, AttachmentConversationMaxBytes: *conversationMax})
+	srv := server.New(st, server.Config{FileStore: files, ClientHandler: transport, PublicURL: base, DistDir: *dist, AttachmentMaxBytes: *maxBytes, AttachmentConversationMaxBytes: *conversationMax})
 	go svc.Run(ctx)
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 	go func() {

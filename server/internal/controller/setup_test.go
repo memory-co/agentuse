@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 func TestSetupScript(t *testing.T) {
@@ -19,9 +21,43 @@ func TestSetupScript(t *testing.T) {
 	b, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	script := string(b)
-	if !strings.Contains(script, `SERVER="${AGENTUSE_SERVER:-`+e.ts.URL+`}"`) || strings.Contains(script, "__SERVER__") ||
+	if !strings.Contains(script, `SERVER="`+e.ts.URL+`"`) || strings.Contains(script, "__SERVER__") ||
 		resp.Header.Get("Cache-Control") != "no-store" || !strings.HasPrefix(script, "#!/usr/bin/env bash") {
 		t.Fatalf("setup.sh: %v\n%s", resp.Header, script)
+	}
+}
+
+func TestConfiguredPublicURL(t *testing.T) {
+	const publicURL = "https://agentuse.example.com:8443"
+	e := newEnv(t, Config{PublicURL: publicURL + "/"})
+	_, token := e.user("admin", agentuse.RoleAdmin)
+	headers := []string{"X-Forwarded-Host", "proxy.invalid", "X-Forwarded-Proto", "http", "Origin", "https://browser.invalid", "Referer", "https://browser.invalid/"}
+	var device deviceView
+	resp := e.req(token, "POST", "/api/devices", nil, &device, headers...)
+	want := `curl -fsSL "` + publicURL + `/setup.sh" -o setup.sh && TOKEN="` + device.SetupToken + `" bash setup.sh`
+	if resp.StatusCode != http.StatusCreated || device.SetupCommand != want {
+		t.Fatal("device installation command must use the configured public URL")
+	}
+	var user agentuse.UserToken
+	resp = e.req(token, "POST", "/api/users", map[string]string{"name": "alice"}, &user, headers...)
+	if resp.StatusCode != http.StatusCreated || user.LoginURL != publicURL+"/login?token="+user.Token {
+		t.Fatal("login links must use the configured public URL")
+	}
+	req, err := http.NewRequest("GET", e.ts.URL+"/setup.sh", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < len(headers); i += 2 {
+		req.Header.Set(headers[i], headers[i+1])
+	}
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	script, err := io.ReadAll(resp.Body)
+	if err != nil || !strings.Contains(string(script), `SERVER="`+publicURL+`"`) {
+		t.Fatal("setup.sh must use the same configured public URL")
 	}
 }
 

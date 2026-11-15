@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +25,7 @@ type Config struct {
 	ClientHandler                  http.Handler
 	AttachmentMaxBytes             int64
 	AttachmentConversationMaxBytes int64
-	// PublicURL 是用户电脑访问服务的地址，写进安装命令和 setup.sh。空 = 按请求及同域浏览器来源推断。
+	// PublicURL 是启动层确定的公开访问地址，写进登录链接、安装命令和 setup.sh。
 	PublicURL string
 	// DistDir 放各平台的 agentuse 二进制(agentuse-<os>-<arch>),setup.sh 从这里下载。
 	DistDir string
@@ -111,35 +110,6 @@ func (s *Server) handleUnknownAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeErr(w, http.StatusNotFound, "API endpoint not found")
-}
-
-// baseURL 是安装命令里的服务地址。
-func (s *Server) baseURL(r *http.Request) string {
-	if s.cfg.PublicURL != "" {
-		return s.cfg.PublicURL
-	}
-	host := r.Host
-	if h := r.Header.Get("X-Forwarded-Host"); h != "" {
-		host = strings.TrimSpace(strings.Split(h, ",")[0])
-	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	if p := r.Header.Get("X-Forwarded-Proto"); p != "" {
-		scheme = strings.TrimSpace(strings.Split(p, ",")[0])
-	}
-	// TLS may terminate before this Server, with forwarded headers missing or
-	// describing only the final HTTP hop. A same-host browser source confirms
-	// HTTPS without changing the inferred host or an explicitly configured URL.
-	for _, header := range []string{"Origin", "Referer"} {
-		source, err := url.Parse(r.Header.Get(header))
-		if err == nil && source.Scheme == "https" && source.User == nil && strings.EqualFold(source.Host, host) {
-			scheme = "https"
-			break
-		}
-	}
-	return scheme + "://" + host
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
