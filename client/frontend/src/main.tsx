@@ -598,7 +598,7 @@ function App() {
                       <RunConversation run={r} />
                       <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
                         <span>{Math.round(r.duration_ms / 1000)} 秒</span>
-                        <span>执行器 {r.harness}</span><span>实际模型 {r.model ?? "未知"}</span>
+                        <span>执行器 {r.harness}</span><span>模型 {r.model ?? "未知"}</span>
                         <span>输入 token {tokenCount(r.usage?.input_tokens)}</span><span>输出 token {tokenCount(r.usage?.output_tokens)}</span>
                         <span>缓存读 token {tokenCount(r.usage?.cache_read_tokens)}</span><span>缓存写 token {tokenCount(r.usage?.cache_write_tokens)}</span>
                       </div>
@@ -962,7 +962,7 @@ function RunDetail({
             {[
               ["Run", r.run_id],
               ["Session", r.session_id],
-              ["实际模型", r.model ?? "未知"],
+              ["模型", r.model ?? "未知"],
               ["收到时间", date(r.received_at)],
               ["结束时间", date(r.finished_at)],
               ["耗时", `${r.duration_ms} ms`],

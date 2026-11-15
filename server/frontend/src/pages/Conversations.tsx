@@ -262,9 +262,9 @@ function RunView({run,events,questions,messages,inputs,conversationId,onOpenFile
  const cancel=useMutation({mutationFn:()=>api(`/api/conversations/${conversationId}/runs/${run.id}/cancel`,{method:'POST'}),onSuccess:()=>void refresh()});
  const mine=events.filter(e=>e.run_id===run.id);
  const active=['running','waiting'].includes(run.status);
- return <section data-run-id={run.id} aria-label={`run @${run.agent_id}`}><Dialog.Root open={open} onOpenChange={setOpen}>
+ return <section data-run-id={run.id} aria-label={`${t('run.label')} @${run.agent_id}`}><Dialog.Root open={open} onOpenChange={setOpen}>
   <Dialog.Trigger asChild><button className="flex max-w-full flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted" data-run-summary>
-   <span className="inline-flex shrink-0 items-center gap-2">{active&&<LoaderCircle className="size-3.5 animate-spin"/>}<span>Run · @{run.agent_id}</span><span>{t(`run.status.${run.status}`)}</span><ChevronRight className="size-3.5"/></span>
+   <span className="inline-flex shrink-0 items-center gap-2">{active&&<LoaderCircle className="size-3.5 animate-spin"/>}<span>{t('run.label')} · @{run.agent_id}</span><span>{t(`run.status.${run.status}`)}</span><ChevronRight className="size-3.5"/></span>
    <span className="inline-flex min-w-0 max-w-full flex-wrap gap-x-3 gap-y-1">
     <span>{t('run.harness')} <span className="font-medium text-foreground/80" data-run-summary-harness>{run.harness}</span></span>
     <span className="min-w-0 break-words [overflow-wrap:anywhere]">{t('run.model')} <span className="font-medium text-foreground/80" data-run-summary-model>{run.model ?? t('run.modelUnknown')}</span></span>
@@ -272,9 +272,9 @@ function RunView({run,events,questions,messages,inputs,conversationId,onOpenFile
    <RunTokenUsage usage={run.usage} compact />
   </button></Dialog.Trigger>
   <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-50 bg-black/50"/><Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-background p-4 shadow-lg" data-run-detail={run.id}>
-   <div className="flex items-start justify-between"><div><Dialog.Title className="font-semibold">@{run.agent_id} · {t('run.details')}</Dialog.Title><Dialog.Description className="mt-1 text-xs text-muted-foreground">{t(`run.status.${run.status}`)} · {run.harness} · {run.harness_revision}</Dialog.Description></div><Dialog.Close asChild><Button size="icon" variant="ghost" aria-label="关闭"><X className="size-4"/></Button></Dialog.Close></div>
+   <div className="flex items-start justify-between"><div><Dialog.Title className="font-semibold">@{run.agent_id} · {t('run.details')}</Dialog.Title><Dialog.Description className="mt-1 text-xs text-muted-foreground">{t(`run.status.${run.status}`)} · {run.harness} · {run.harness_revision}</Dialog.Description></div><Dialog.Close asChild><Button size="icon" variant="ghost" aria-label={t('common.close')}><X className="size-4"/></Button></Dialog.Close></div>
    <RunTokenUsage usage={run.usage} />
-   <dl className="my-4 grid grid-cols-[auto_minmax(0,1fr)] gap-2 text-xs"><dt>Run</dt><dd className="break-all">{run.id}</dd><dt>{t('run.model')}</dt><dd className="break-all" data-run-model>{run.model ?? t('run.modelUnknown')}</dd><dt>Client session</dt><dd className="break-all">{run.session_id}</dd><dt>Device</dt><dd className="break-all">{run.device_id}</dd></dl>
+   <dl className="my-4 grid grid-cols-[auto_minmax(0,1fr)] gap-2 text-xs"><dt>{t('run.id')}</dt><dd className="break-all">{run.id}</dd><dt>{t('run.model')}</dt><dd className="break-all" data-run-model>{run.model ?? t('run.modelUnknown')}</dd><dt>{t('run.clientSession')}</dt><dd className="break-all">{run.session_id}</dd><dt>{t('run.device')}</dt><dd className="break-all">{run.device_id}</dd></dl>
    <section className="my-4 grid gap-2" aria-label={t('run.inputs')}>
     <h3 className="text-sm font-medium">{t('run.inputs')} · {inputs.length}</h3>
     {inputs.map(input=>{
@@ -286,7 +286,7 @@ function RunView({run,events,questions,messages,inputs,conversationId,onOpenFile
        <span className="hidden shrink-0 text-muted-foreground sm:inline">{fmtTime(input.created_at)}</span>
       </summary>
       <div className="grid gap-3 border-t p-3 text-sm">
-       <p className="break-all text-xs text-muted-foreground">Input · {input.input_id}</p>
+       <p className="break-all text-xs text-muted-foreground">{t('run.inputId')} · {input.input_id}</p>
        <p className="text-xs text-muted-foreground sm:hidden">{fmtTime(input.created_at)}</p>
        {message && <><Markdown>{message.content}</Markdown><MessageFiles files={message.attachments} onOpen={file=>{setOpen(false);onOpenFile(file);}} /></>}
       </div>
@@ -296,8 +296,8 @@ function RunView({run,events,questions,messages,inputs,conversationId,onOpenFile
    {run.output&&<Markdown>{run.output}</Markdown>}
    {run.error&&<p className="text-sm text-destructive">{run.error}</p>}
    <div className="my-4 grid gap-3">{questions.filter(q=>q.run_id===run.id).map(q=><QuestionView key={q.request_id} q={q} conversationId={conversationId}/>)}</div>
-   {active&&<Button size="sm" variant="outline" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>取消此 run</Button>}
-   {cancel.isSuccess&&active&&<p className="mt-2 text-xs text-muted-foreground">取消请求已发送，等待 client 上报结果</p>}
+   {active&&<Button size="sm" variant="outline" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>{t('run.cancel')}</Button>}
+   {cancel.isSuccess&&active&&<p className="mt-2 text-xs text-muted-foreground">{t('run.cancelPending')}</p>}
    {cancel.isError&&<ErrorState error={cancel.error}/>}
    <RunEvents events={mine} />
   </Dialog.Content></Dialog.Portal>

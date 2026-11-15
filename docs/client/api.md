@@ -44,7 +44,7 @@ Client 本机服务用于查看 endpoint、conversation、session、run，并通
 
 还可提供 `model`、`agent_instructions`、`skill_packages`，其中技能是本机 ZIP 路径。当前内置适配器支持 Linux，要求 Python 3.9+ 及已配置的原生 CLI。实际 run UUID 来自 accepted；补充输入可能继续同一 run，也可能排队形成下一次执行。
 
-请求中的 `model` 是可选配置。Run 响应中的 `model` 是 harnessctl 在 `result.model` 回报的实际执行模型，用户未指定时同样记录 harness 的默认模型。尚未回报时为 `null`；本机 Run 详情显示“实际模型”，不会使用初始化配置推测执行结果。
+请求中的 `model` 是可选配置。Run 响应中的 `model` 是 harnessctl 在 `result.model` 回报的实际执行模型，用户未指定时同样记录 harness 的默认模型。尚未回报时为 `null`；本机 Run 详情显示“模型”，不会使用初始化配置推测执行结果。
 
 Run 响应中的 `usage` 来自该 run 的 `result.usage`，分别提供 `input_tokens`、`output_tokens`、`cache_read_tokens`、`cache_write_tokens`。未回报用量时整个对象为 `null`；部分计量缺失时对应字段为 `null`，不补成 `0`。本机 Run 列表和详情均分别显示四项，用“未回报”区分明确回报的零值。`input_tokens` 已包含缓存部分，缓存读取和写入不能重复加到输入数上。
 
