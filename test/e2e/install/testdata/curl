@@ -28,7 +28,7 @@ case "$url" in
     printf '{\n  "url": "x",\n  "tag_name": "%s",\n  "name": "%s"\n}\n' "$FAKE_LATEST" "$FAKE_LATEST" ;;
   https://github.com/memory-co/agentuse/releases/download/*)
     serve "$FAKE_RELEASES/${url#https://github.com/memory-co/agentuse/releases/download/}" ;;
-  http://127.0.0.1:* | http://localhost:*)
+  http://127.0.0.1:* | http://localhost:* | https://127.0.0.1:* | https://localhost:*)
     exec "$REAL_CURL" "$@" ;;
   *)
     echo "fake curl: e2e 里不访问外网: $url" >&2

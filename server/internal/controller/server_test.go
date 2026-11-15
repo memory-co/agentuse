@@ -96,20 +96,33 @@ func (e *env) code(tok, method, path string, body any) int {
 }
 
 func TestBaseURL(t *testing.T) {
-	s := &Server{}
-	r := httptest.NewRequest("GET", "/x", nil)
-	r.Host = "a.com:8080"
-	if got := s.baseURL(r); got != "http://a.com:8080" {
-		t.Fatalf("host: %q", got)
-	}
-	r.Header.Set("X-Forwarded-Proto", "https, http")
-	r.Header.Set("X-Forwarded-Host", "agentuse.example.com, proxy")
-	if got := s.baseURL(r); got != "https://agentuse.example.com" {
-		t.Fatalf("forwarded: %q", got)
-	}
-	s.cfg.PublicURL = "https://public"
-	if got := s.baseURL(r); got != "https://public" {
-		t.Fatalf("public url wins: %q", got)
+	for _, test := range []struct {
+		name, requestURL, publicURL, want string
+		headers                           map[string]string
+	}{
+		{name: "http", requestURL: "http://a.com:8080/x", want: "http://a.com:8080"},
+		{name: "tls", requestURL: "https://a.com/x", want: "https://a.com"},
+		{name: "proxy chain", requestURL: "http://backend/x", headers: map[string]string{"X-Forwarded-Proto": "https, http", "X-Forwarded-Host": "agentuse.example.com, proxy"}, want: "https://agentuse.example.com"},
+		{name: "https page without forwarded protocol", requestURL: "http://a.com/x", headers: map[string]string{"Referer": "https://a.com/"}, want: "https://a.com"},
+		{name: "https origin with port", requestURL: "http://a.com:8443/x", headers: map[string]string{"Origin": "https://a.com:8443"}, want: "https://a.com:8443"},
+		{name: "final proxy hop is http", requestURL: "http://a.com/x", headers: map[string]string{"X-Forwarded-Proto": "http", "Origin": "https://a.com"}, want: "https://a.com"},
+		{name: "forwarded public host", requestURL: "http://backend/x", headers: map[string]string{"X-Forwarded-Host": "agentuse.example.com", "Referer": "https://agentuse.example.com/"}, want: "https://agentuse.example.com"},
+		{name: "foreign page", requestURL: "http://a.com/x", headers: map[string]string{"Referer": "https://other.example/"}, want: "http://a.com"},
+		{name: "different public port", requestURL: "http://a.com:8080/x", headers: map[string]string{"Origin": "https://a.com:8443"}, want: "http://a.com:8080"},
+		{name: "invalid source", requestURL: "http://a.com/x", headers: map[string]string{"Origin": "://", "Referer": "https://other.example@a.com/"}, want: "http://a.com"},
+		{name: "http page cannot downgrade tls", requestURL: "https://a.com/x", headers: map[string]string{"Origin": "http://a.com"}, want: "https://a.com"},
+		{name: "explicit address wins", requestURL: "http://a.com/x", publicURL: "https://public", headers: map[string]string{"Origin": "https://a.com"}, want: "https://public"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s := &Server{cfg: Config{PublicURL: test.publicURL}}
+			r := httptest.NewRequest("GET", test.requestURL, nil)
+			for name, value := range test.headers {
+				r.Header.Set(name, value)
+			}
+			if got := s.baseURL(r); got != test.want {
+				t.Fatalf("base URL: %q, want %q", got, test.want)
+			}
+		})
 	}
 	if New(nil, Config{PublicURL: "https://x/"}).cfg.PublicURL != "https://x" {
 		t.Fatal("PublicURL trailing slash")

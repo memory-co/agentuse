@@ -269,7 +269,7 @@ func TestDevicesAPI(t *testing.T) {
 	// 不带请求体也能建
 	var v deviceView
 	if r := e.req(aliceTok, "POST", "/api/devices", nil, &v); r.StatusCode != http.StatusCreated || v.Name != "" ||
-		v.SetupCommand != `curl -fsSL "`+e.ts.URL+`/setup.sh" -o setup.sh && TOKEN="`+v.SetupToken+`" bash setup.sh` {
+		v.SetupCommand != `curl -fsSL "`+e.ts.URL+`/setup.sh" -o setup.sh && AGENTUSE_SERVER="`+e.ts.URL+`" TOKEN="`+v.SetupToken+`" bash setup.sh` {
 		t.Fatalf("create: %d %+v", r.StatusCode, v)
 	}
 	if c := e.code(aliceTok, "POST", "/api/devices", "{"); c != http.StatusBadRequest {

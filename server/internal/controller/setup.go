@@ -12,7 +12,7 @@ import (
 // __SERVER__ 在返回时替换成服务地址。
 const setupScript = `#!/usr/bin/env bash
 # agentuse daemon 安装脚本
-# 用法: curl -fsSL "__SERVER__/setup.sh" -o setup.sh && TOKEN="<安装令牌>" bash setup.sh
+# 用法: curl -fsSL "__SERVER__/setup.sh" -o setup.sh && AGENTUSE_SERVER="__SERVER__" TOKEN="<安装令牌>" bash setup.sh
 set -euo pipefail
 
 SERVER="${AGENTUSE_SERVER:-__SERVER__}"

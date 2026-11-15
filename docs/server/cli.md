@@ -82,6 +82,10 @@ agentuse-server start [参数]
 
 两个附件容量参数必须是正整数，单位为字节。
 
+页面里的设备安装命令由 Server 生成。显式设置 `--public-url` 时使用该地址；否则根据请求的 TLS、Host 和 `X-Forwarded-Proto` / `X-Forwarded-Host` 判断地址。同域浏览器的 `Origin` / `Referer` 表明页面使用 HTTPS 时，生成的命令也使用 HTTPS，覆盖代理最后一跳的 HTTP 协议。命令同时通过 `AGENTUSE_SERVER` 将地址传入 `setup.sh`，使 Client 下载、注册和后续连接使用同一地址。
+
+反向代理应保留公开 Host 并传递正确的转发头；没有浏览器来源的 CLI 请求和直接下载脚本无法据此识别外层 TLS，生产部署可使用 `--public-url https://agentuse.example.com` 固定公开地址。
+
 也可以在启动时交互设置密码，标准输入仅用于这次设置，后续普通启动保留数据库中的凭据：
 
 ```bash

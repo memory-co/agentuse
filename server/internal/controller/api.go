@@ -239,7 +239,7 @@ func (s *Server) view(r *http.Request, d agentuse.Device) deviceView {
 }
 
 func setupCommand(base, token string) string {
-	return `curl -fsSL "` + base + `/setup.sh" -o setup.sh && TOKEN="` + token + `" bash setup.sh`
+	return `curl -fsSL "` + base + `/setup.sh" -o setup.sh && AGENTUSE_SERVER="` + base + `" TOKEN="` + token + `" bash setup.sh`
 }
 
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
