@@ -102,6 +102,13 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
     <DraftFiles files={files} busy={busy} onRemove={onRemoveFile ?? (() => undefined)} />
     <Textarea ref={textarea} value={text} disabled={busy} placeholder={placeholder} enterKeyHint="send"
       className="max-h-60 min-h-[44px] resize-none border-0 p-2 shadow-none focus-visible:ring-0"
+      onPaste={event => {
+        if (busy || !onFiles) return;
+        const images = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/'));
+        if (!images.length) return;
+        event.preventDefault();
+        onFiles(images);
+      }}
       onChange={e => {
         const value = e.target.value, end = e.target.selectionStart;
         setText(value);
@@ -140,7 +147,7 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
       {!ids.length && <p className="p-2 text-xs text-muted-foreground">{t('mention.noMatch')}</p>}
     </div>}
     <div className="flex flex-wrap items-center gap-2">
-      {onFiles && <><Button type="button" variant="ghost" size="icon" className="size-8" disabled={busy || files.length >= 64} aria-label={t('attachment.upload')} onClick={() => fileInput.current?.click()}><Paperclip className="size-4" /></Button><input ref={fileInput} type="file" multiple className="hidden" disabled={busy} aria-label={t('attachment.upload')} onChange={event => { const next=Array.from(event.target.files ?? []); event.target.value=''; onFiles(next); }} /></>}
+      {onFiles && <><Button type="button" variant="ghost" size="icon" className="size-8" disabled={busy || files.length >= 64} aria-label={t('attachment.upload')} title={t('attachment.uploadHint')} onClick={() => fileInput.current?.click()}><Paperclip className="size-4" /></Button><input ref={fileInput} type="file" multiple className="hidden" disabled={busy} aria-label={t('attachment.upload')} onChange={event => { const next=Array.from(event.target.files ?? []); event.target.value=''; onFiles(next); }} /></>}
 
       {!showAgentPicker && <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5" disabled={busy || targets.length >= 8} aria-label={t('mention.choose')}
         onClick={() => {
