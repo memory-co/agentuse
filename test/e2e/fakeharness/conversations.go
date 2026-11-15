@@ -1,10 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os/exec"
-	"strconv"
+	"regexp"
 )
 
 // Execute the bare context command from the actual native run environment.
@@ -19,26 +18,12 @@ func contextConversationSpawn(agent, prompt string) ([]byte, error) {
 	if b, err := contextCommand("conversation", "agents"); err != nil {
 		return b, err
 	}
-	b, err := contextCommand("conversation", "create", "--title", "Child execution", "--mode", "single", "--agents", agent, prompt)
-	if err != nil {
-		return b, err
+	return contextCommand("conversation", "create", "--title", "Child execution", "--mode", "single", "--agents", agent, prompt)
+}
+func contextConversationReadNotification(instructions string) ([]byte, error) {
+	match := regexp.MustCompile(`context conversation read ([a-z0-9-]+) --round ([0-9]+)`).FindStringSubmatch(instructions)
+	if len(match) != 3 {
+		return nil, fmt.Errorf("missing child round reference")
 	}
-	var created struct {
-		Conversation struct {
-			ID string `json:"id"`
-		} `json:"conversation"`
-		Round struct {
-			Seq int64 `json:"seq"`
-		} `json:"round"`
-	}
-	if err = json.Unmarshal(b, &created); err != nil {
-		return b, err
-	}
-	if b, err = contextCommand("conversation", "list"); err != nil {
-		return b, err
-	}
-	if b, err = contextCommand("conversation", "wait", created.Conversation.ID, "--round", strconv.FormatInt(created.Round.Seq, 10), "--timeout", "10s"); err != nil {
-		return b, err
-	}
-	return contextCommand("conversation", "read", created.Conversation.ID, "--round", strconv.FormatInt(created.Round.Seq, 10))
+	return contextCommand("conversation", "read", match[1], "--round", match[2])
 }

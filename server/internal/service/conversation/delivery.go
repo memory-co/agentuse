@@ -66,8 +66,12 @@ questions with context conversation send CHILD_ID --agents IDS MESSAGE, review
 results, and consolidate the response. Server sends one child_conversation notification
 per completed child round. Read it with context conversation read CHILD_ID --round N;
 a completed round may contain questions or failed executions and is not proof of success. Only you may create execution children.
-Do not wait indefinitely while a child needs your decision. No Server identity or
-credentials need to be supplied to the context commands.
+After creating children or sending follow-up work, briefly tell the user what you
+delegated and end this run immediately. Do not wait for child completion, poll,
+sleep, or repeatedly read/list to keep this run alive. Server will deliver a child
+round notification and invoke you again if this run has ended. On that notification,
+read the specified completed round and respond or delegate follow-up work.
+No Server identity or credentials need to be supplied to the context commands.
 `
 const singlePolicy = `# Conversation execution policy: single
 Execute the request yourself using the tools available here. This conversation is

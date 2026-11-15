@@ -134,6 +134,15 @@ func claudeTurns(args []string, resume string, stdin *bufio.Reader) int {
 			}
 		}
 
+		if strings.HasPrefix(prompt, "Child conversation ") {
+			b, err := contextConversationReadNotification(instructionText)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 2
+			}
+			out = "Reviewed child round: " + string(b)
+		}
+
 		if prompt == "wait-steer" {
 			time.Sleep(1500 * time.Millisecond)
 		}
@@ -253,8 +262,21 @@ func custom() int {
 		emit(map[string]any{"type": "result", "ok": true, "output": out})
 		return 0
 	}
-	if in.Input.Prompt == "nest-execute" {
-		if b, err := contextCommand("conversation", "help"); err != nil || strings.Contains(string(b), "create") {
+	if in.Input.Prompt == "nest-execute" || strings.HasPrefix(in.Input.Prompt, "nest-execute-hold ") {
+		if release, hold := strings.CutPrefix(in.Input.Prompt, "nest-execute-hold "); hold {
+			deadline := time.Now().Add(15 * time.Second)
+			for {
+				if _, err := os.Stat(release); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					fmt.Fprintln(os.Stderr, "child execution release timed out")
+					return 2
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+		}
+		if b, err := contextCommand("conversation", "help"); err != nil || strings.Contains(string(b), "context conversation create") {
 			fmt.Fprintln(os.Stderr, "leaf help exposes create", err, string(b))
 			return 2
 		}

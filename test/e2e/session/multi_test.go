@@ -287,11 +287,28 @@ func TestMultiNativeSteerQuestionAndNestedConversation(t *testing.T) {
 	if r := lastResult(t, detail); !r.OK || !strings.Contains(r.Output, "answer=Go") {
 		t.Fatal("answer", r)
 	}
-	parent, err := c.CreateConversation(ctx, user, agentuse.CreateConversationRequest{Title: "Collaborative", Mode: "collaborative", Prompt: "spawn worker nest-execute", ToAgentIDs: []string{"native"}})
+	release := filepath.Join(t.TempDir(), "release-child")
+	parent, err := c.CreateConversation(ctx, user, agentuse.CreateConversationRequest{Title: "Collaborative", Mode: "collaborative", Prompt: "spawn worker nest-execute-hold " + release, ToAgentIDs: []string{"native"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var childID string
+	e2eutil.WaitFor(t, 10*time.Second, "coordinator returned while child is still executing", func() bool {
+		children, e := c.ListChildren(ctx, user, parent.Conversation.ID)
+		if e != nil || len(children) != 1 {
+			return false
+		}
+		childID = children[0].ID
+		coordinator, e := c.GetConversation(ctx, user, parent.Conversation.ID)
+		if e != nil || len(coordinator.Runs) != 1 || coordinator.Runs[0].Status != "completed" || coordinator.Conversation.Status != "idle" {
+			return false
+		}
+		child, e := c.GetConversation(ctx, user, childID)
+		return e == nil && len(child.Runs) == 1 && child.Runs[0].Status == "running"
+	})
+	if err = os.WriteFile(release, []byte("finish"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	e2eutil.WaitFor(t, 20*time.Second, "nested conversation results", func() bool {
 		children, e := c.ListChildren(ctx, user, parent.Conversation.ID)
 		if e != nil || len(children) != 1 {
@@ -299,8 +316,17 @@ func TestMultiNativeSteerQuestionAndNestedConversation(t *testing.T) {
 		}
 		childID = children[0].ID
 		detail, e := c.GetConversation(ctx, user, parent.Conversation.ID)
-		if e != nil || detail.Conversation.Status != "idle" {
+		if e != nil || detail.Conversation.Status != "idle" || len(detail.Runs) != 2 {
 			return false
+		}
+		reviewed := false
+		for _, run := range detail.Runs {
+			if run.Status == "completed" && strings.Contains(run.Output, "Reviewed child round:") && strings.Contains(run.Output, "Child execution complete.") {
+				reviewed = true
+			}
+		}
+		if !reviewed {
+			t.Fatal("notification did not review the completed child round")
 		}
 		notifications := 0
 		for _, m := range detail.Messages {

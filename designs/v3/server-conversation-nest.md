@@ -44,7 +44,10 @@ Use context conversation agents and create to delegate into child conversations.
 Keep each child ID. Server sends one child_conversation notification after every
 completed child round. Read CHILD_ID --round N, review all results and failures,
 answer child questions with send CHILD_ID --agents IDS MESSAGE, and consolidate.
-A completed round is not proof of success. Waiting is optional.
+A completed round is not proof of success. After creating children or sending
+follow-up work, briefly report the assignments and end this run immediately.
+Do not poll, sleep, or repeatedly read/list to wait for results. Server will
+deliver a child round notification; read that round when notified.
 ```
 
 子 Agent 的核心指令：
@@ -72,21 +75,19 @@ Client 將裸 context 放入每個 session 的 PATH，綁定 endpoint、conversa
 | context conversation list | 列出直接子對話，包含空對話 |
 | context conversation read CHILD_ID [--round N] | 讀取完整對話或指定輪次範圍 |
 | context conversation send CHILD_ID --agents IDS MESSAGE | 向子 Agent 發普通輸入；未結束時加入當輪，已結束則開始下一輪 |
-| context conversation wait CHILD_ID [--round N] [--timeout 5m] | 可選等待；不負責生成通知 |
 
 這組管理子對話的命令僅 collaborative 根可用。single 根與 single 子對話保留 status、attachment 等執行能力；子對話 help 提示自行執行並正常結束，create 等操作由 CLI 和 Server 同時拒絕。
 
-create 省略消息及收件人可先建空子對話，此時沒有 round。create/send 的成功結果若包含 Agent 輸入會有 round.seq，協調者可保留它作固定等待目標。原生 run UUID 仍只能由 accepted 產生。
+create 省略消息及收件人可先建空子對話，此時沒有 round。create/send 的成功結果若包含 Agent 輸入會有 round.seq，協調者可保留它作為後續通知與結果的輪次標識。原生 run UUID 仍只能由 accepted 產生。
 
 ```bash
 context conversation agents
 context conversation create --mode single --title "Search API" --agents coder,tester "Implement and test the API"
-context conversation wait CHILD_ID --round 1 --timeout 5m
 context conversation read CHILD_ID --round 1
 context conversation send CHILD_ID --agents coder "Use the existing OAuth mechanism"
 ```
 
-wait 返回 {reason, detail}。指定輪次 finished_at 已寫入即 settled，不因下一輪啓動繼續等待；不表示業務成功。省略 --round 固定開始等待時的最新輪次，空對話返回 no_round。new_input、needs_input、run_ended、timeout 可中斷等待；協調者隨後處理正常輸入。通知也可能在父 run 結束後觸發下一次執行，協調者不必保持同一 run 阻塞等待。
+派發或補充子任務後，協調者簡短告知使用者已委派的工作並立即結束當前 run。context 不提供 wait、timeout 或等待輪次的入口；禁止用輪詢、sleep 或反覆 read/list 代替等待。Server 在子會話整輪結束後自動通知；父 run 已結束時，通知觸發新的 run，再讀取通知指定的輪次。
 
 ## 邊界和可靠性
 

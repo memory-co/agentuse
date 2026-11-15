@@ -65,3 +65,22 @@ func TestContextRequiresBindingAndRejectsScopeOverride(t *testing.T) {
 		t.Fatal(code, out, stderr)
 	}
 }
+
+func TestContextConversationRejectsRemovedWaitCommand(t *testing.T) {
+	t.Setenv("AGENTUSE_CONTEXT", "")
+	var code int
+	out, stderr := capture(t, func() { code = ContextMain([]string{"conversation", "help"}) })
+	if code != 0 || strings.Contains(out+stderr, "conversation wait") || !strings.Contains(out+stderr, "end this run immediately") {
+		t.Fatal(code, out, stderr)
+	}
+	for _, args := range [][]string{{"conversation", "wait", "child"}, {"conversation", "wait", "child", "--round", "1", "--timeout", "5m"}} {
+		_, stderr = capture(t, func() { code = ContextMain(args) })
+		if code != 2 || !strings.Contains(stderr, "未知 conversation 命令 wait") {
+			t.Fatal("removed bound command accepted", code, stderr)
+		}
+		_, stderr = capture(t, func() { code = Main(append([]string{"context"}, args...)) })
+		if code != 2 || !strings.Contains(stderr, "未知 conversation 命令 wait") {
+			t.Fatal("removed human context command accepted", code, stderr)
+		}
+	}
+}

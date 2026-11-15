@@ -294,7 +294,7 @@ agentuse conversation runs CONVERSATION_ID [--json]
 agentuse conversation wait CONVERSATION_ID [--timeout 10m]
 ```
 
-`read` 默认按顺序显示共享消息。`runs` 默认每行显示 run ID、Agent ID 和状态。`read/runs --json` 以及 `wait` 输出包含 `conversation`、`messages`、`runs` 的 JSON 对象。这个管理命令只输出上述三部分；执行环境中的 `context conversation read/wait` 返回完整详情，包含 `rounds`。
+`read` 默认按顺序显示共享消息。`runs` 默认每行显示 run ID、Agent ID 和状态。`read/runs --json` 以及 `wait` 输出包含 `conversation`、`messages`、`runs` 的 JSON 对象。这个管理命令只输出上述三部分；执行环境中的 `context conversation read` 返回完整详情，包含 `rounds`。
 
 `wait` 等待会话进入 `idle` 或 `resolved`，默认超时 30 分钟。超时只结束等待，执行可以继续。命令成功结束等待后，仍需查看 `runs[].status` 判断执行成功、失败或取消；会话空闲本身不表示全部 run 成功。
 
@@ -329,19 +329,17 @@ context conversation create --mode single --title "搜索接口" --agents coder 
 context conversation list
 context conversation read CHILD_ID
 context conversation send CHILD_ID --agents coder "使用游标分页"
-context conversation wait CHILD_ID --timeout 5m
 ```
 
 上述能力仅 collaborative 顶层可用。创建/发送含 Agent 收件人的输入时，JSON 返回 `round.seq`。收到 Server 的子会话通知后，按通知的来源和轮次读取：
 
 ```bash
 context conversation read CHILD_ID --round 1
-context conversation wait CHILD_ID --round 1 --timeout 5m
 ```
 
 子 Agent 不调用向父发消息的工具。需要澄清或遇到阻碍时，在最终回复中说明并正常结束本轮，不在同一轮等待协调者。Server 只在该子会话所有输入和 Agent 执行收束后自动生成一条 `child_conversation` 通知；Agent 结果保留在子会话。协调者读取该轮，向子会话指定 Agent 发送答案后开始下一轮。目标固定为 `parent_agent_id`，父 run 已结束也能继续处理。
 
-`wait` 输出 `{reason, detail}`；省略 `--round` 时固定开始等待时的最新轮次，空会话返回 `no_round`。指定轮次结束即 `settled`，即使下一轮已启动也会返回，不表示任务成功。`new_input`、`needs_input`、`run_ended`、`timeout` 可中断等待。原生人工请求用原来的请求回复接口处理，等待期间不触发结束通知。等待不是收到自动通知的必要条件。
+派發或補充子任務後，協調者簡短告知使用者已委派的工作並立即結束當前 run。context 不提供 wait、timeout 或等待輪次的入口；禁止用輪詢、sleep 或反覆 read/list 代替等待。Server 在子會話整輪結束後自動通知；父 run 已結束時，通知觸發新的 run，再讀取通知指定的輪次。
 
 `read --round N` 返回固定轮次的消息和执行范围，不混入下一轮；对话当前状态与通知送达状态仍为当前值。轮次的 `parent_delivery` 为 pending / delivered / failed，delivered 仅指父消息和分配已保存，不代表父 Agent 已处理。故障时保留子结果并补送通知。
 

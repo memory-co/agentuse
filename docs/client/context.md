@@ -175,17 +175,17 @@ context conversation create --mode single --title "API" --agents coder "Implemen
 context conversation list
 context conversation read CHILD_ID
 context conversation send CHILD_ID --agents coder "Use cursor pagination"
-context conversation wait CHILD_ID --timeout 5m
 ```
 
 子對話固定 single，不能再拆分，也沒有主動向父發消息的命令。缺信息或遇到阻礙時，在最終答復中說明並正常結束本輪，不在當輪等待協調者回信。Server 在所有 Agent 輸入和執行收束後，自動生成一條 child_conversation 通知給創建者 parent_agent_id；Agent 結果只保存在子對話。協調者按通知讀取該輪，再向子 Agent 發答案或下一步要求。
 
 ```bash
 context conversation read CHILD_ID --round 1
-context conversation wait CHILD_ID --round 1 --timeout 5m
 ```
 
-create/send 有 Agent 輸入時會返回 round.seq；空對話、備註、上傳文件不啓動一輪。read --round N 僅返回這一輪的消息及執行範圍。wait 省略輪次時固定開始等待時最新的一輪；空對話返回 no_round。指定輪次結束即 settled，不追逐下一輪，也不代表任務成功。new_input、needs_input、run_ended、timeout 可以中斷等待。原生人工請求仍走 request/reply，不視為輪次完成。
+create/send 有 Agent 輸入時會返回 round.seq；空對話、備註、上傳文件不啟動一輪。read --round N 僅返回指定輪次的消息與執行範圍，不混入下一輪。輪次完成不代表業務成功；原生人工請求仍走 request/reply，不視為輪次完成。
+
+協調者派發或補充子任務後，簡短告知使用者已委派的工作並立即結束當前 run。context 不提供 wait；不要輪詢、sleep 或反覆 read/list 等待。Server 的子輪次完成通知會再次觸發協調者，再讀取通知指定的輪次。
 
 單體根對話沒有協作管理命令。context conversation help 按當前能力顯示幫助。父側故障不回滾子結果，Server 會補送每輪唯一通知；輪次上的 parent_delivery=delivered 僅指父消息已保存，不表示已處理。
 
