@@ -8,6 +8,7 @@ import { FileManager } from '@/components/FileManager';
 import { listAttachments } from '@/lib/attachments';
 import { useMessageFiles } from '@/hooks/use-message-files';
 import { MessageFiles } from '@/components/MessageFiles';
+import { RunEvents } from '@/components/RunEvents';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,8 +28,6 @@ export const useChildren = (parent: string, enabled=true) => useQuery({
   queryKey: ['conversations', 'children', parent], queryFn: () => api<Conversation[]>(`/api/conversations?parent_conversation_id=${encodeURIComponent(parent)}`), enabled,
 });
 const refresh = () => queryClient.invalidateQueries({ queryKey: ['conversations'] });
-// progress 回报只有 {text} 时直接显示文字，否则显示 JSON。
-const evText = (p: any) => (p && typeof p === 'object' && Object.keys(p).length === 1 && 'text' in p ? String(p.text) : JSON.stringify(p ?? ''));
 
 /** 新会话：选 agent,写第一句话。 */
 export function NewConversation({ onCreated }: { onCreated: (id: string) => void }) {
@@ -291,7 +290,7 @@ function RunView({run,events,questions,messages,inputs,conversationId,onOpenFile
    {active&&<Button size="sm" variant="outline" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>取消此 run</Button>}
    {cancel.isSuccess&&active&&<p className="mt-2 text-xs text-muted-foreground">取消请求已发送，等待 client 上报结果</p>}
    {cancel.isError&&<ErrorState error={cancel.error}/>}
-   <details className="mt-4 rounded-lg border"><summary className="cursor-pointer p-3 text-xs text-muted-foreground">{t('run.events')} · {mine.length}</summary><div className="grid gap-3 border-t p-3">{mine.map(e=><div key={e.id} className="rounded border p-3 text-xs"><span className="text-muted-foreground">{e.kind}</span><pre className="mt-2 whitespace-pre-wrap break-words">{JSON.stringify(e.payload,null,2)}</pre></div>)}</div></details>
+   <RunEvents events={mine} />
   </Dialog.Content></Dialog.Portal>
  </Dialog.Root></section>;
 }

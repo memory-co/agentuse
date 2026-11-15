@@ -44,7 +44,9 @@ answer/cancel 指定既有 run/session，控制 ACK 不等於 request 已 replie
 
 ConversationDetail 返回 messages、runs、run_inputs、rounds、questions 和 events；新消息的響應中 runs、run_inputs 都是空數組。消息受理前的否定回執以 Message.agent_errors 返回，不再提供 deliveries。
 
-GET run 返回 run、inputs 和 events。前端對每個真實 run 只保留一個明確可點擊的入口；受理輸入列表、原消息、input_id 和診斷事件集中在 Run 詳情，原始事件默認折疊，不在每條消息下面重複顯示 completed 標籤。子會話通知維持默認折疊。
+GET run 返回 run、inputs 和 events。前端對每個真實 run 只保留一個明確可點擊的入口；受理輸入列表、原消息、input_id 和診斷事件集中在 Run 詳情，不在每條消息下面重複顯示 completed 標籤。子會話通知維持默認折疊。
+
+原始事件默認展示緊湊時間線，每條保留原類型、topic、status/state/level 和時間，按公共事件類型配置圖標。標題依次取 payload 的 `$.data.title`、`$.title`、`$.message`、`$.text`、`$.output`、`$.data.reason`、`$.reason`、`$.topic`、`$.type` 中第一個非空字符串，最後回退到 event.kind；長文本僅截短展示。這只是已有字段的優先級，不把日志映射為「運行命令」等動作，不解析原生私有幀推測意義，也不合併或重排事件。點擊單條後才渲染完整原始 JSON，原始內容保持不變。
 
 SDK 等待一條消息時逐一檢查它的 Agent 目標：明確拒絕視為收束；否則必須找到 run_inputs 關聯且對應 run 終態。空 runs/run_inputs 不代表 Agent 消息已完成。等待整個 conversation 仍使用對話狀態。
 

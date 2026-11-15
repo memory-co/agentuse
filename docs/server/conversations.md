@@ -145,6 +145,8 @@ Go 类型为 `Conversation`、`ConversationRound`、`ConversationDetail`、`Conv
 
 网页每个 run 只有一个明确的详情入口。打开 Run 后集中查看已受理输入，展开原消息和附件；输入关联不会在每条消息下面重复显示状态标签。读取单个 run 返回 run、inputs 和 events。
 
+“原始事件”默认显示带图标的紧凑列表，保留事件类型、topic、状态和时间。标题优先展示 `data.title`、`title`、`message`、`text` 等已有字段的原值，长文本截短；点击单条事件才展开完整 JSON。事件的顺序、数量和原始内容保持不变，不将日志改写为动作描述。
+
 Run 的 `model` 表示 harnessctl `result.model` 回报的实际执行模型，详情页显示为“实际模型”。用户未指定模型时，也会记录 harness 实际使用并回报的默认模型；配置中的别名不会覆盖原生结果。尚未取得结果或未回报模型时为 `null`，页面显示“未知”。失败和取消同样保留已确认的模型。
 
 初始化失败或明确拒绝不会生成 run；错误位于消息的 agent_errors，以 agent_id 为键，每项包含 error 和可选的 uncertain。uncertain=true 表示受理结果尚待确认，不等于失败或完成。等待消息完成必须检查全部 Agent 目标的受理关联和对应 run 的终态，不能因为 runs 为空就提前返回。
