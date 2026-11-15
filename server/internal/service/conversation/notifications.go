@@ -15,7 +15,7 @@ func (s *Service) NotifyConversation(ctx context.Context, id string) {
 	if !s.Changes.HasSubscribers() {
 		return
 	}
-	if conversation, err := store.ScanConversation(s.DB.QueryRowContext(ctx, store.ConversationCols+` WHERE id=?`, id)); err == nil {
+	if conversation, err := store.ScanConversation(store.Row(ctx, s.DB, store.ConversationCols+` WHERE id=?`, id)); err == nil {
 		s.PublishConversationChange(conversation, "conversations")
 	}
 }

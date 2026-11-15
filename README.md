@@ -20,7 +20,7 @@ agentuse 是一个可以自己部署的 agent 中间件。用户用**一行命�
 - **活在自己电脑上跑**:代码、密钥、harness 的登录状态都不离开用户电脑;消息只派给 agent 主人自己的 device。
 - **harness 可换**:内置 Claude Code、Codex,也能注册自己写的程序;agent 切换运行时(哪台电脑上的哪个 harness)不用改名字。
 - **共享会话**:一个 conversation 可 @ 多个 agent，按本地 session 补齐共享历史，支持执行中的补充输入；协作模式可拆分子会话并汇总结果。
-- **部署简单**:一个 `agentuse-server` 二进制，内嵌网页，数据就一个 SQLite 文件。
+- **部署简单**:一个 `agentuse-server` 二进制，内嵌网页，默认使用一个 SQLite 文件，也可选择 MySQL 或 PostgreSQL，构建无需 CGO。
 - **方便嵌入**:Python / Node.js / Go 零依赖 SDK,带上网站自己的 user id 就能代表这个用户调用。
 
 <p align="center"><img src="designs/images/flow.svg" alt="使用流程：添加机器 → 一行命令安装 → 打开 harness → 建 agent → 开会话" width="860"></p>
@@ -102,6 +102,7 @@ agentuse context --path /绝对路径/context.json --run RUN_UUID enter  # 进�
 | [Server 文档](docs/server/README.md) · [CLI](docs/server/cli.md) | 启动服务、存储设置、管理员登录和用户管理 |
 | [Client 文档](docs/client/README.md) · [CLI](docs/client/cli.md) | 注册、启动、本机调试、远端会话和附件 |
 | [Conversation 协作](docs/server/conversations.md#模式与嵌套) | 单体/协作模式、跨 Client 子会话和消息回传 |
+| [数据库配置与升级](docs/server/database.md) | 默认 SQLite、MySQL/PostgreSQL 配置、无 CGO 构建及版本迁移 |
 | [执行上下文](docs/client/context.md) | AI 使用 context 查询执行状态、读写文件；人类选择或进入 run |
 | [Server API](docs/server/api.md) · [Client API](docs/client/api.md) | 鉴权、接口索引、请求示例和在线交互文档入口 |
 | [SDK](sdk/README.md) | Go、Node.js 和 Python 接入示例 |
@@ -136,7 +137,7 @@ client/
 └── frontend/         本机会话、执行记录和 token 统计网页
 server/
 ├── cmd/agentuse-server/ 服务端 CLI
-├── internal/         cli、HTTP controller、WebSocket hub、业务 service、notification、SQLite store
+├── internal/         cli、HTTP controller、WebSocket hub、业务 service、notification、GORM store
 └── frontend/         管理网页
 internal/             protocol、skillbundle、attachment 校验、command、version
 sdk/                  HTTP API 类型及客户端：golang / nodejs / python
@@ -146,7 +147,7 @@ docs/                 当前使用文档：server / client
 designs/              设计方案、协议、历史资料及插图：v1 / v2 / v3
 ```
 
-client 和 server 通过 Go internal 规则隔离；本机 controller 分别查询 sessionService 和 runService；client 各 service 直接管理文件，fileutil 仅提供通用文件操作。服务端写操作和事务编排经过 service，store 保存 SQL、schema 和行解码。详见[Server 设计](designs/v3/server-main.md)。
+client 和 server 通过 Go internal 规则隔离；本机 controller 分别查询 sessionService 和 runService；client 各 service 直接管理文件，fileutil 仅提供通用文件操作。服务端写操作和事务编排经过 service，store 管理 GORM 模型、版本迁移、查询方言和行解码。详见[Server 设计](designs/v3/server-main.md)。
 
 ## License
 

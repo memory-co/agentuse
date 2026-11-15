@@ -235,7 +235,7 @@ Local 與遠端共用相同的資源校驗、session 綁定和 harnessctl 執行
 
 ## 升級與持久化
 
-只支持 schema 10：消息及消息引用直接使用 UUID，messages.seq 保存順序；messages 保存固定目標及傳輸元數據，run_inputs 僅由 accepted 寫入已受理關聯，不保留 message_agents。舊版資料庫、inputs 收據和控制收據不讀取、不轉換，也不保留升級兼容邏輯。升級時重建 Server 資料庫、清空 Client 本地工作目錄並重新初始化和註冊設備。
+Server 的資料庫從遷移基線 `0001_initial` 開始由 GORM/gormigrate 管理。消息及消息引用直接使用 UUID，messages.seq 保存順序；messages 保存固定目標及傳輸元數據，run_inputs 僅由 accepted 寫入已受理關聯，不保留 message_agents。首次切換不讀取或轉換此前未版本化資料庫與舊版 Client 收據；使用新庫並重新初始化和註冊設備。新基線之後的資料庫升級按遷移版本執行，不要求每次發布都刪庫，見[資料庫設計](server-database.md)。
 
 公開 HTTP 入口使用 /api/conversations，設備標識使用 device_id，不保留舊入口或字段別名。WebSocket 只支持本文的 /api/client/ws 和 agentuse-client/2，兩端需一起升級。
 

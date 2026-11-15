@@ -3,16 +3,17 @@ package conversation
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
+
+	"gorm.io/gorm"
 
 	"github.com/memory-co/agentuse/internal/attachment"
 	sdk "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
-func (s *Service) messageAttachments(ctx context.Context, q store.Querier, conversation string, ids []string) ([]sdk.Attachment, error) {
+func (s *Service) messageAttachments(ctx context.Context, q *gorm.DB, conversation string, ids []string) ([]sdk.Attachment, error) {
 	if len(ids) > 64 {
 		return nil, fmt.Errorf("一条消息最多包含 64 个附件")
 	}
@@ -26,7 +27,7 @@ func (s *Service) messageAttachments(ctx context.Context, q store.Querier, conve
 			continue
 		}
 		seen[id] = true
-		file, err := store.ScanAttachment(q.QueryRowContext(ctx, store.AttachmentCols+` WHERE conversation_id=? AND id=?`, conversation, id))
+		file, err := store.ScanAttachment(store.Row(ctx, q, store.AttachmentCols+` WHERE conversation_id=? AND id=?`, conversation, id))
 		if err != nil {
 			return nil, err
 		}
@@ -35,9 +36,9 @@ func (s *Service) messageAttachments(ctx context.Context, q store.Querier, conve
 	return files, nil
 }
 func mustAttachmentJSON(files []sdk.Attachment) []byte { data, _ := json.Marshal(files); return data }
-func (s *Service) attachRunOutputs(ctx context.Context, tx *sql.Tx, run sdk.Run, message string) error {
+func (s *Service) attachRunOutputs(ctx context.Context, tx *gorm.DB, run sdk.Run, message string) error {
 	files := []sdk.Attachment{}
-	rows, err := tx.QueryContext(ctx, store.AttachmentCols+` WHERE conversation_id=? AND created_by_run_id=? ORDER BY created_at,id`, run.ConversationID, run.ID)
+	rows, err := store.Rows(ctx, tx, store.AttachmentCols+` WHERE conversation_id=? AND created_by_run_id=? ORDER BY created_at,id`, run.ConversationID, run.ID)
 	if err != nil {
 		return err
 	}
@@ -54,6 +55,6 @@ func (s *Service) attachRunOutputs(ctx context.Context, tx *sql.Tx, run sdk.Run,
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE messages SET attachments=? WHERE id=?`, string(mustAttachmentJSON(files)), message)
+	_, err = store.Exec(ctx, tx, `UPDATE messages SET attachments=? WHERE id=?`, string(mustAttachmentJSON(files)), message)
 	return err
 }

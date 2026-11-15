@@ -19,7 +19,7 @@ func (s *Service) ReopenConversation(ctx context.Context, u agentuse.User, id st
 }
 
 func (s *Service) setResolved(ctx context.Context, u agentuse.User, id, from, to string) (agentuse.Conversation, error) {
-	tx, err := s.DB.BeginTx(ctx, nil)
+	tx, err := store.Begin(ctx, s.DB)
 	if err != nil {
 		return agentuse.Conversation{}, err
 	}
@@ -35,11 +35,11 @@ func (s *Service) setResolved(ctx context.Context, u agentuse.User, id, from, to
 		return agentuse.Conversation{}, fmt.Errorf("%w:现在是 %s", ErrConversationState, ss.Status)
 	}
 	now := s.Now().Unix()
-	if _, err := tx.ExecContext(ctx, store.SetResolvedUpdate, to, now, ss.ID); err != nil {
+	if _, err := store.Exec(ctx, tx, store.SetResolvedUpdate, to, now, ss.ID); err != nil {
 		return agentuse.Conversation{}, err
 	}
 	ss.Status, ss.UpdatedAt = to, now
-	err = tx.Commit()
+	err = tx.Commit().Error
 	if err == nil {
 		s.PublishConversationChange(ss, "conversations")
 	}

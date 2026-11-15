@@ -9,13 +9,15 @@ import (
 )
 
 func (s *Service) SkillForCredential(ctx context.Context, token, id, version string) (agentuse.SkillVersion, error) {
+	tq := store.MessageTargets(s.DB, "m", "t")
+
 	var count int
 	if len(token) > 3 && token[:3] == "dk_" {
 		d, err := s.DeviceService.DeviceByKey(ctx, token)
 		if err != nil {
 			return agentuse.SkillVersion{}, err
 		}
-		err = s.DB.QueryRowContext(ctx, `SELECT count(*) FROM `+store.MessageTargetsFrom+` JOIN agent_version_skills a ON a.agent_version_id=json_extract(t.value,'$.agent_version_id') WHERE json_extract(t.value,'$.device_id')=? AND `+store.MessageTargetDispatched+` AND a.skill_id=? AND a.skill_version_id=?`, d.ID, id, version).Scan(&count)
+		err = store.Row(ctx, s.DB, `SELECT count(*) FROM `+tq.From+` JOIN agent_version_skills a ON a.agent_version_id=`+tq.Version+` WHERE `+tq.Device+`=? AND `+tq.Dispatched+` AND a.skill_id=? AND a.skill_version_id=?`, d.ID, id, version).Scan(&count)
 		if err != nil {
 			return agentuse.SkillVersion{}, err
 		}
@@ -30,13 +32,15 @@ func (s *Service) SkillForCredential(ctx context.Context, token, id, version str
 
 // AgentVersionForCredential authorizes the fixed version before native acceptance.
 func (s *Service) AgentVersionForCredential(ctx context.Context, token, id, version string) (agentuse.AgentVersion, error) {
+	tq := store.MessageTargets(s.DB, "m", "t")
+
 	var count int
 	if strings.HasPrefix(token, "dk_") {
 		d, err := s.DeviceService.DeviceByKey(ctx, token)
 		if err != nil {
 			return agentuse.AgentVersion{}, err
 		}
-		err = s.DB.QueryRowContext(ctx, `SELECT count(*) FROM `+store.MessageTargetsFrom+` WHERE json_extract(t.value,'$.device_id')=? AND t.key=? AND json_extract(t.value,'$.agent_version_id')=? AND `+store.MessageTargetDispatched, d.ID, id, version).Scan(&count)
+		err = store.Row(ctx, s.DB, `SELECT count(*) FROM `+tq.From+` WHERE `+tq.Device+`=? AND `+tq.Key+`=? AND `+tq.Version+`=? AND `+tq.Dispatched, d.ID, id, version).Scan(&count)
 		if err != nil {
 			return agentuse.AgentVersion{}, err
 		}

@@ -2,15 +2,16 @@ package device
 
 import (
 	"context"
-	"database/sql"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/memory-co/agentuse/server/internal/notification"
 )
 
 // Service owns the device business operations. Peers are explicit contracts.
 type Service struct {
-	DB       *sql.DB
+	DB       *gorm.DB
 	Now      func() time.Time
 	Changes  *notification.Broker
 	Notifier interface {
@@ -21,7 +22,7 @@ type Service struct {
 }
 
 type conversationService interface {
-	DetachDeviceAttachments(ctx context.Context, tx *sql.Tx, device string) error
+	DetachDeviceAttachments(ctx context.Context, tx *gorm.DB, device string) error
 	NotifyDeviceConversations(context.Context, string)
-	RetireDeviceMessages(ctx context.Context, tx *sql.Tx, id, reason string) error
+	RetireDeviceMessages(ctx context.Context, tx *gorm.DB, id, reason string) error
 }

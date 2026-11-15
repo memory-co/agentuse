@@ -6,14 +6,16 @@ import (
 	"errors"
 	"fmt"
 
+	"gorm.io/gorm"
+
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // runtimeErr 检查运行时 (deviceID, harness) 现在能不能派活:这台 device 上报过这个 harness、最近一次上报里有、用户开启了。
 // 能派返回 nil,否则返回给用户看的原因。device 离线不算：上线后会接着派。
-func (s *Service) CheckRuntime(ctx context.Context, q store.Querier, deviceID, harness string) error {
+func (s *Service) CheckRuntime(ctx context.Context, q *gorm.DB, deviceID, harness string) error {
 	var available, enabled bool
-	err := q.QueryRowContext(ctx,
+	err := store.Row(ctx, q,
 		store.RuntimeErrSelect,
 		deviceID, harness).Scan(&available, &enabled)
 	switch {

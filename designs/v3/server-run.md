@@ -1,6 +1,6 @@
 # runService：實際執行與已受理輸入
 
-> 本稿對應 schema 10。嵌套 conversation 的消息回傳歸 conversationService，見 [父子 conversation 設計](server-conversation.md#父子對話)。
+> 本稿對應 遷移基線 `0001_initial`。嵌套 conversation 的消息回傳歸 conversationService，見 [父子 conversation 設計](server-conversation.md#父子對話)。
 
 Server 使用 [agentuse-client/2](protocol.md)，直接投遞既有 conversation message。只有 Client 上報的 accepted 才建立 runs 和 run_inputs；不預分配 run、input 或 task 身份。
 
@@ -34,7 +34,7 @@ Server 核對認證設備、來源消息、Agent 固定版本及 session 歸屬�
 
 accepted、run、run_inputs 和 conversation 狀態在同一事務提交，提交後才 ACK。run_inputs 在 accepted 時寫入，不等 result。result.input_ids 必須恰好覆蓋該 run 的所有受理輸入；結果與最終回覆仍原子提交，每個 run 只結算一次。終態不修改 run_inputs，也不複製回消息元數據。
 
-Run.model 是本次原生主執行實際確認的模型，直接從已持久保存的 runs.result.model 提取。用戶不聲明 model 時，同樣記錄 harness 回報的實際默認模型；聲明別名時則記錄原生解析或重路由後的模型。運行中尚未取得 result、或原生未回報時為 null，不從 Agent 配置或 session 初始化參數補填。成功、失敗和取消都保留 result 已確認的值；不匯總子 Agent 模型。不新增 SQL 列或改變 schema 10。
+Run.model 是本次原生主執行實際確認的模型，直接從已持久保存的 runs.result.model 提取。用戶不聲明 model 時，同樣記錄 harness 回報的實際默認模型；聲明別名時則記錄原生解析或重路由後的模型。運行中尚未取得 result、或原生未回報時為 null，不從 Agent 配置或 session 初始化參數補填。成功、失敗和取消都保留 result 已確認的值；不匯總子 Agent 模型。不為 model 額外增加 SQL 列。
 
 Run.usage 同樣從 runs.result.usage 提取，保留單次執行的 input_tokens、output_tokens、cache_read_tokens、cache_write_tokens。整體未回報時為 null，部分計量未回報時該字段為 null；明確的 0 必須保留，不能用零補齊未知值。計量為非負整數，非法 result 在提交前拒絕，不留下無法讀取的 run。失敗及取消也展示已回報的用量。
 
@@ -69,13 +69,13 @@ SDK 等待一條消息時逐一檢查它的 Agent 目標：明確拒絕視為收
 
 runService 讀取消息路由，由 conversationService 在共享事務內更新消息元數據。run 事件通過 ExecutionEventConsumer 交給 conversationService 保存回覆與輪次；任何一步失敗都整體回滾。
 
-只支持 schema 10；舊資料庫啟動時明確拒絕，不提供遷移或兼容字段。兩端與 SDK 一起更新，使用新 Server 資料庫重新註冊設備。Client session_id 是唯一的本地會話標識，Server 不生成另一個 session ID。
+Server 以 GORM/gormigrate 管理遷移基線 `0001_initial` 及後續版本；此前未版本化資料庫明確拒絕，不提供舊資料轉換或兼容字段。兩端與 SDK 一起更新，使用新 Server 資料庫重新註冊設備。Client session_id 是唯一的本地會話標識，Server 不生成另一個 session ID。
 
 [協議](protocol.md) · [conversationService](server-conversation.md) · [Agent 版本](server-agent.md) · [Client runService](client-run.md)
 
 ## 表結構
 
-以下 SQL 對應 [run_schema.go](../../server/internal/store/run_schema.go)，是五張執行表的唯一設計定義。時間為 Unix 秒，各表關聯由 service 在事務內校驗，不聲明數據庫外鍵。
+以下是 SQLite 表達的邏輯結構；各庫實際字段、索引與約束由 GORM/gormigrate 管理，對應 [models.go](../../server/internal/store/models.go)，是五張執行表的唯一設計定義。時間為 Unix 秒，各表關聯由 service 在事務內校驗，不聲明數據庫外鍵。
 
 ```sql
 -- IDs and terminal facts come exclusively from authenticated client reports.
@@ -109,11 +109,14 @@ CREATE TABLE run_requests (
  answered_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE TABLE run_controls (
- id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, session_id TEXT NOT NULL,
+ seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+ conversation_id TEXT NOT NULL, session_id TEXT NOT NULL,
  run_id TEXT NOT NULL, device_id TEXT NOT NULL, kind TEXT NOT NULL, request_id TEXT NOT NULL DEFAULT '',
  answer TEXT, state TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '',
  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 ```
+
+run_controls.seq 是資料庫生成的內部排序號，用於同秒控制記錄的穩定先後順序，取代 SQLite 隱式 rowid；公開控制仍使用 id。
 
 event_seq 保存 Client session 內完整 JSONL 行的來源位置，不是 Server 另外分配的執行序號。

@@ -51,6 +51,13 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 		"skills": "skill", "skill_versions": "skill",
 	}
 	writes := regexp.MustCompile(`(?i)\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+([a-z_]+)`)
+	models := map[string]string{
+		"User": "users", "Device": "devices", "DeviceHarness": "device_harnesses", "DeviceCapability": "device_capabilities",
+		"Agent": "agents", "AgentVersion": "agent_versions", "AgentVersionSkill": "agent_version_skills",
+		"Conversation": "conversations", "ConversationRound": "conversation_rounds", "Message": "messages", "Attachment": "attachments",
+		"Run": "runs", "RunInput": "run_inputs", "RunEvent": "run_events", "RunRequest": "run_requests", "RunControl": "run_controls",
+		"Skill": "skills", "SkillVersion": "skill_versions",
+	}
 	serviceRoot := filepath.Join(root, "service")
 	paths := []string{}
 	err = filepath.WalkDir(serviceRoot, func(path string, d fs.DirEntry, err error) error {
@@ -80,7 +87,68 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 			}
 			rel, _ := filepath.Rel(serviceRoot, path)
 			owner := strings.Split(filepath.ToSlash(rel), "/")[0]
+			variables := map[string]string{}
+			var modelTable func(ast.Expr) string
+			modelTable = func(expr ast.Expr) string {
+				switch value := expr.(type) {
+				case *ast.UnaryExpr:
+					return modelTable(value.X)
+				case *ast.CompositeLit:
+					return modelTable(value.Type)
+				case *ast.Ident:
+					return variables[value.Name]
+				case *ast.SelectorExpr:
+					if id, ok := value.X.(*ast.Ident); ok && id.Name == "store" {
+						return models[value.Sel.Name]
+					}
+				}
+				return ""
+			}
 			ast.Inspect(fn.Body, func(node ast.Node) bool {
+				if assignment, ok := node.(*ast.AssignStmt); ok {
+					for i, right := range assignment.Rhs {
+						if i < len(assignment.Lhs) {
+							if name, ok := assignment.Lhs[i].(*ast.Ident); ok {
+								variables[name.Name] = modelTable(right)
+							}
+						}
+					}
+				}
+				if call, ok := node.(*ast.CallExpr); ok {
+					if method, ok := call.Fun.(*ast.SelectorExpr); ok {
+						switch method.Sel.Name {
+						case "Create", "Save", "Delete", "Update", "Updates", "UpdateColumn", "UpdateColumns":
+							table := ""
+							for _, arg := range call.Args {
+								if candidate := modelTable(arg); candidate != "" {
+									table = candidate
+								}
+							}
+							for expr := method.X; expr != nil; {
+								chain, ok := expr.(*ast.CallExpr)
+								if !ok {
+									break
+								}
+								selector, ok := chain.Fun.(*ast.SelectorExpr)
+								if !ok {
+									break
+								}
+								if selector.Sel.Name == "Model" && len(chain.Args) > 0 {
+									table = modelTable(chain.Args[0])
+								}
+								if selector.Sel.Name == "Table" && len(chain.Args) > 0 {
+									if literal, ok := chain.Args[0].(*ast.BasicLit); ok {
+										table, _ = strconv.Unquote(literal.Value)
+									}
+								}
+								expr = selector.X
+							}
+							if domain, ok := owners[table]; ok && owner != domain {
+								t.Errorf("%s: %s.%s writes %s through GORM; delegate to %s", path, owner, fn.Name, table, domain)
+							}
+						}
+					}
+				}
 				var sql string
 				switch n := node.(type) {
 				case *ast.BasicLit:

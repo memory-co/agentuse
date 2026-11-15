@@ -2,7 +2,7 @@
 
 > 執行鏈路使用 [agentuse-client/2](protocol.md)：直接投遞 message，消息/Agent 關係見 [server-run.md](server-run.md)，不再有 task 或獨立輸入 ID。
 
-> 本稿對應 schema 10 的嵌套 conversation 實作。關聯不聲明數據庫外鍵，由 service 校驗與清理；不讀取或遷移舊數據庫。
+> 本稿對應 遷移基線 `0001_initial` 的嵌套 conversation 實作。關聯不聲明數據庫外鍵，由 service 校驗與清理；不轉換此前未版本化數據庫，後續結構按遷移版本升級。
 
 ## 職責
 
@@ -148,7 +148,7 @@ rounds 的 parent_delivery、parent_message_id、parent_delivery_error 是只讀
 
 GET /api/conversations/{id}?round=N 返回 [start_message_seq,end_message_seq] 內的消息、該區間輸入關聯的投遞與 run，以及這些 run 的事件和問題，rounds 僅含指定輪次。不存在的輪次返回 404；非法、重複或未知查詢參數返回 400。對話元數據與回傳狀態仍為當前投影，不宣稱整個 DTO 是歷史時點快照。已結束輪次的消息與執行範圍不受下一輪影響；活動輪次可讀取當前進度。
 
-Client 的 read CHILD_ID --round N 使用此接口。wait CHILD_ID --round N 等待該輪結束；省略 --round 時在開始等待時固定最新輪次，沒有任何輪次則立即返回 no_round。目標輪次結束即 settled，即使下一輪已開始也不繼續等。新父輸入、原生提問、父 run 結束及超時可以中斷等待；等待不是獲得自動通知的前提。
+Client 的 `read CHILD_ID --round N` 使用此接口。子會話整輪結束後，Server 自動生成父側通知；協調者按通知中的來源與輪次讀取固定結果，不依賴本機等待命令。
 
 前端父對話的子對話通知默認折疊，摘要只顯示展開箭頭、子對話圖標、來源標題、輪次和結束狀態，減少與協調者回覆的重複；展開後顯示通知詳情、收件人及指定輪次的連結，不展示為 @Agent 回覆。子對話歷史保留各 Agent 原始回覆，並顯示輪次及通知狀態。指定輪次頁面提供只讀消息與執行範圍，可返回完整對話。
 
@@ -156,13 +156,13 @@ Client 的 read CHILD_ID --round N 使用此接口。wait CHILD_ID --round N 等
 
 pending/running/waiting/idle 與 resolved 都只描述所選對話；子樹不另存總狀態。普通刪除遇到子對話時返回 409；顯式 recursive=true 才在同一事務確定整個子樹、校驗所有節點的權限與可刪除狀態並執行清理，任一節點忙碌則整體拒絕。有已結束但尚未送達的輪次，且其父對話不在刪除範圍內時，也拒絕刪除，避免丟掉待送通知。清理包含 conversation_rounds，文件前綴在數據庫提交後清理。單獨刪除可刪除的子對話不影響父對話及兄弟對話；已送達通知保留作者來源，來源已刪除時界面顯示來源不可用。
 
-Work 表、工作令牌、專用 API/CLI/SDK 和前端頁面均已移除。schema 10 不讀取、遷移舊數據，兩端、前端和 SDK 一起更新；使用新數據庫，不保留舊回傳入口或別名。
+Work 表、工作令牌、專用 API/CLI/SDK 和前端頁面均已移除。首次切換到遷移基線 `0001_initial` 時不讀取、轉換此前未版本化數據；後續結構升級由 gormigrate 管理，不保留舊回傳入口或別名。
 
 對話分工的提示詞由 Server 根據 mode 及真實 parent_conversation_id 生成，透過每次派發的 message.context 明確要求 collaborative 頂層協調、single 頂層直接執行、內層直接執行。完整模板及 CLI 能力表見 [嵌套對話設計](server-conversation-nest.md#兩層分工與提示詞)。該約束不改變 Agent 版本或原生執行身份。
 
 ## 標識和消息順序
 
-conversations.id 和 messages.id 均爲 server 生成的 UUID，SQLite 中使用 TEXT 保存。所有 conversation_id、message_id、reply_to_message_id 等關聯字段使用相同的 UUID 字符串。
+conversations.id 和 messages.id 均爲 server 生成的 UUID，數據庫以字符串保存，GORM 明確限定標識字段長度。所有 conversation_id、message_id、reply_to_message_id 等關聯字段使用相同的 UUID 字符串。
 
 UUID 只用於標識，不承擔消息排序。messages.seq 保存 conversation 內的遞增順序號。message 派發快照只包含本次正文、附件和必要業務說明，不把整份共享歷史放進 context。
 
@@ -174,7 +174,7 @@ Client 選定實際本地 session 後，向 Server 讀取 `complete_messages`：
 
 ## 已實現的消息模型與本次組織調整
 
-本文 SQL 對應當前 schema 10。共享對話使用 conversation_id，原生執行會話使用 Client 產生的 session_id；兩者保持獨立。消息正文仍為原始字符串，收件人、作者、附件及執行關係沿用既有模型。mode 是 conversation 創建參數，不是舊的消息執行包裝；不接受 input/defer_start 或其他舊別名。父子協作不增加執行身份或 service；conversation_rounds 只保存本對話內的輪次區間。
+本文 SQL 是 SQLite 表達的邏輯結構，實際各庫建表由 [GORM 模型](../../server/internal/store/models.go) 和 [版本遷移](../../server/internal/store/migrations.go) 管理，當前 遷移基線 `0001_initial`。共享對話使用 conversation_id，原生執行會話使用 Client 產生的 session_id；兩者保持獨立。消息正文仍為原始字符串，收件人、作者、附件及執行關係沿用既有模型。mode 是 conversation 創建參數，不是舊的消息執行包裝；不接受 input/defer_start 或其他舊別名。父子協作不增加執行身份或 service；conversation_rounds 只保存本對話內的輪次區間。
 
 ## 表結構
 
@@ -275,8 +275,7 @@ CREATE TABLE messages (
 CREATE UNIQUE INDEX messages_conversation ON messages(conversation_id,seq);
 CREATE INDEX messages_replies ON messages(conversation_id,reply_to_message_id,seq);
 CREATE UNIQUE INDEX messages_child_round
-    ON messages(conversation_id,author_conversation_id,author_round_seq)
-    WHERE author_role='child_conversation';
+    ON messages(conversation_id,author_conversation_id,author_round_seq);
 ```
 
 agent_targets 是以 agent_id 為鍵的內部 JSON 元數據：固定 agent_version_id/device_id/harness、首次 dispatch 快照及可選的否定回執 error。沒有 run/input ID 或執行 status；對外只暴露否定回執 Message.agent_errors。未確認目標通過 to_agent_ids 與 run_inputs 差集推導，明確拒絕不重投，uncertain=true 的錯誤仍等待確認。
@@ -293,14 +292,18 @@ CREATE TABLE conversation_rounds (
     end_message_seq INTEGER,
     created_at INTEGER NOT NULL,
     finished_at INTEGER,
+    active_marker SMALLINT GENERATED ALWAYS AS
+        (CASE WHEN finished_at IS NULL THEN 1 ELSE NULL END) STORED,
     PRIMARY KEY(conversation_id,seq),
     CHECK ((end_message_seq IS NULL AND finished_at IS NULL)
         OR (end_message_seq IS NOT NULL AND end_message_seq>=start_message_seq
             AND finished_at IS NOT NULL))
 );
-CREATE UNIQUE INDEX conversation_rounds_active ON conversation_rounds(conversation_id)
-    WHERE finished_at IS NULL;
+CREATE UNIQUE INDEX conversation_rounds_active
+    ON conversation_rounds(conversation_id,active_marker);
 ```
+
+active_marker 在活動輪次為 1，結束後為 NULL；聯合唯一索引在三種數據庫中均只允許一個活動輪次。
 
 輪次結束後不再改寫 start/end/finished_at。parent_delivery 等是從該區間、父通知與 Agent 是否存在計算的 DTO 字段，不另存一套回傳狀態機。表結構只在本稿維護，協作場景稿不重複定義。
 

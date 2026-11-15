@@ -132,11 +132,11 @@ Go 类型为 `Conversation`、`ConversationRound`、`ConversationDetail`、`Conv
 
 ## 存储与更新
 
-当前数据库 schema 10 使用 `conversations` 表；消息、附件、投递、run、事件、请求和控制记录使用 `conversation_id`。原生执行归属继续使用 `session_id`。
+数据库迁移基线 `0001_initial` 使用 `conversations` 表；消息、附件、投递、run、事件、请求和控制记录使用 `conversation_id`。原生执行归属继续使用 `session_id`。
 
 创建对话省略 prompt 即创建空对话。创建或发消息包含 Agent 收件人时，成功结果额外含 `round`，可保留 `round.seq` 用于固定读取/等待。mode 只接受 single/collaborative；不接受 input、defer_start 或旧消息字段；向原生 harness 投递的输入格式由 Client 负责。
 
-不迁移或读取旧数据库；更新时重建 Server 数据库，并一起更新 Client、前端和 SDK。附件总量配置使用 `--attachment-conversation-max-bytes` / `AGENTUSE_ATTACHMENT_CONVERSATION_MAX_BYTES`。设计约束见 [Server conversation 设计](../../designs/v3/server-conversation.md)。
+首次切换到 GORM 基线时使用新库，不迁移此前未版本化的数据；后续结构升级由 gormigrate 管理，见[数据库配置与升级](database.md)。附件总量配置使用 `--attachment-conversation-max-bytes` / `AGENTUSE_ATTACHMENT_CONVERSATION_MAX_BYTES`。设计约束见 [Server conversation 设计](../../designs/v3/server-conversation.md)。
 
 
 ## 执行与受理输入

@@ -8,19 +8,21 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"gorm.io/gorm"
+
 	"github.com/google/uuid"
 	sdk "github.com/memory-co/agentuse/sdk/golang"
 	runservice "github.com/memory-co/agentuse/server/internal/service/run"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
-func (s *Service) insertMessage(ctx context.Context, tx *sql.Tx, conversationID, role string, content string, now int64) (sdk.Message, error) {
+func (s *Service) insertMessage(ctx context.Context, tx *gorm.DB, conversationID, role string, content string, now int64) (sdk.Message, error) {
 	var seq int64
-	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(seq),0)+1 FROM messages WHERE conversation_id=?", conversationID).Scan(&seq); err != nil {
+	if err := store.Row(ctx, tx, "SELECT COALESCE(MAX(seq),0)+1 FROM messages WHERE conversation_id=?", conversationID).Scan(&seq); err != nil {
 		return sdk.Message{}, err
 	}
 	id := store.NewUUID()
-	_, err := tx.ExecContext(ctx, store.InsertMessageInsert, id, seq, conversationID, role, content, now)
+	_, err := store.Exec(ctx, tx, store.InsertMessageInsert, id, seq, conversationID, role, content, now)
 	if err != nil {
 		return sdk.Message{}, err
 	}
@@ -31,14 +33,14 @@ func (s *Service) scanConversation(row store.Scanner) (sdk.Conversation, error) 
 	return store.ScanConversation(row)
 }
 
-func (s *Service) LookupConversation(ctx context.Context, q store.Querier, u sdk.User, id string) (sdk.Conversation, error) {
+func (s *Service) LookupConversation(ctx context.Context, q *gorm.DB, u sdk.User, id string) (sdk.Conversation, error) {
 	query := store.ConversationCols + store.GetConversationClause
 	args := []any{id}
 	if !u.IsAdmin() {
 		query += store.GetConversationClause2
 		args = append(args, u.ID, u.ID)
 	}
-	return s.scanConversation(q.QueryRowContext(ctx, query, args...))
+	return s.scanConversation(store.Row(ctx, q, query, args...))
 }
 
 func (s *Service) GetConversation(ctx context.Context, u sdk.User, id string) (sdk.Conversation, error) {
@@ -67,7 +69,7 @@ func (s *Service) ListChildren(ctx context.Context, u sdk.User, parent string, l
 func (s *Service) listConversations(ctx context.Context, q string, limit int, args ...any) ([]sdk.Conversation, error) {
 	q += store.ListConversationsClause3
 	args = append(args, limit)
-	rows, err := s.DB.QueryContext(ctx, q, args...)
+	rows, err := store.Rows(ctx, s.DB, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +92,7 @@ func (s *Service) DeleteTree(ctx context.Context, u sdk.User, id string) error {
 	return s.deleteConversation(ctx, u, id, true)
 }
 func (s *Service) deleteConversation(ctx context.Context, u sdk.User, id string, recursive bool) error {
-	tx, err := s.DB.BeginTx(ctx, nil)
+	tx, err := store.Begin(ctx, s.DB)
 	if err != nil {
 		return err
 	}
@@ -100,7 +102,7 @@ func (s *Service) deleteConversation(ctx context.Context, u sdk.User, id string,
 		return err
 	}
 	children := []sdk.Conversation{}
-	rows, err := tx.QueryContext(ctx, store.ConversationCols+` WHERE parent_conversation_id=?`, id)
+	rows, err := store.Rows(ctx, tx, store.ConversationCols+` WHERE parent_conversation_id=?`, id)
 	if err != nil {
 		return err
 	}
@@ -130,7 +132,7 @@ func (s *Service) deleteConversation(ctx context.Context, u sdk.User, id string,
 		}
 		if v.ParentConversationID != "" && v.ParentConversationID != root.ID {
 			var pending int
-			if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM conversation_rounds r WHERE r.conversation_id=? AND r.finished_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id=? AND m.author_conversation_id=r.conversation_id AND m.author_round_seq=r.seq)`, v.ID, v.ParentConversationID).Scan(&pending); err != nil {
+			if err = store.Row(ctx, tx, `SELECT count(*) FROM conversation_rounds r WHERE r.conversation_id=? AND r.finished_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id=? AND m.author_conversation_id=r.conversation_id AND m.author_round_seq=r.seq)`, v.ID, v.ParentConversationID).Scan(&pending); err != nil {
 				return err
 			}
 			if pending > 0 {
@@ -142,11 +144,11 @@ func (s *Service) deleteConversation(ctx context.Context, u sdk.User, id string,
 		if err = s.deleteConversationContents(ctx, tx, v.ID); err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, store.DeleteConversationDelete, v.ID); err != nil {
+		if _, err = store.Exec(ctx, tx, store.DeleteConversationDelete, v.ID); err != nil {
 			return err
 		}
 	}
-	if err = tx.Commit(); err != nil {
+	if err = tx.Commit().Error; err != nil {
 		return err
 	}
 	for _, v := range nodes {
@@ -160,8 +162,8 @@ func (s *Service) Messages(ctx context.Context, conversationID string) ([]sdk.Me
 	return s.messages(ctx, s.DB, conversationID)
 }
 
-func (s *Service) messages(ctx context.Context, q store.QueryReader, conversationID string) ([]sdk.Message, error) {
-	rows, err := q.QueryContext(ctx, store.MessageCols+store.MessagesClause, conversationID)
+func (s *Service) messages(ctx context.Context, q *gorm.DB, conversationID string) ([]sdk.Message, error) {
+	rows, err := store.Rows(ctx, q, store.MessageCols+store.MessagesClause, conversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -182,8 +184,10 @@ func (s *Service) messages(ctx context.Context, q store.QueryReader, conversatio
 	return out, nil
 }
 
-func (s *Service) ProjectStatus(ctx context.Context, tx *sql.Tx, conversation string, now int64) error {
-	_, err := tx.ExecContext(ctx, `UPDATE conversations SET status=CASE WHEN EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status='waiting') THEN 'waiting' WHEN EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status='running') THEN 'running' WHEN EXISTS(SELECT 1 FROM `+store.MessageTargetsFrom+` WHERE m.conversation_id=? AND `+store.MessageTargetPending+`) THEN 'pending' WHEN status='resolved' THEN 'resolved' ELSE 'idle' END,updated_at=? WHERE id=?`, conversation, conversation, conversation, now, conversation)
+func (s *Service) ProjectStatus(ctx context.Context, tx *gorm.DB, conversation string, now int64) error {
+	tq := store.MessageTargets(s.DB, "m", "t")
+
+	_, err := store.Exec(ctx, tx, `UPDATE conversations SET status=CASE WHEN EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status='waiting') THEN 'waiting' WHEN EXISTS(SELECT 1 FROM runs WHERE conversation_id=? AND status='running') THEN 'running' WHEN EXISTS(SELECT 1 FROM `+tq.From+` WHERE m.conversation_id=? AND `+tq.Pending+`) THEN 'pending' WHEN status='resolved' THEN 'resolved' ELSE 'idle' END,updated_at=? WHERE id=?`, conversation, conversation, conversation, now, conversation)
 	if err != nil {
 		return err
 	}
@@ -191,7 +195,7 @@ func (s *Service) ProjectStatus(ctx context.Context, tx *sql.Tx, conversation st
 }
 
 func (s *Service) createConversation(ctx context.Context, u sdk.User, parent, title, input string, toAgentIDs, toUserIDs []string, mode string, source *runservice.AgentSource) (sdk.Conversation, *sdk.Reply, error) {
-	tx, err := s.DB.BeginTx(ctx, nil)
+	tx, err := store.Begin(ctx, s.DB)
 	if err != nil {
 		return sdk.Conversation{}, nil, err
 	}
@@ -220,7 +224,7 @@ func (s *Service) createConversation(ctx context.Context, u sdk.User, parent, ti
 	} else if parent != "" {
 		return v, nil, ErrConversationScope
 	}
-	if _, err = tx.ExecContext(ctx, store.InsertConversationInsert, v.ID, v.UserID, v.CreatedBy, store.NullIfEmpty(v.ParentConversationID), store.NullIfEmpty(v.ParentAgentID), mode, title, v.CreatedAt, v.UpdatedAt); err != nil {
+	if _, err = store.Exec(ctx, tx, store.InsertConversationInsert, v.ID, v.UserID, v.CreatedBy, store.NullIfEmpty(v.ParentConversationID), store.NullIfEmpty(v.ParentAgentID), mode, title, v.CreatedAt, v.UpdatedAt); err != nil {
 		return v, nil, err
 	}
 	if input == "" && (len(toAgentIDs) > 0 || len(toUserIDs) > 0) {
@@ -243,14 +247,14 @@ func (s *Service) createConversation(ctx context.Context, u sdk.User, parent, ti
 			return v, nil, e
 		}
 	}
-	return v, reply, tx.Commit()
+	return v, reply, tx.Commit().Error
 }
 
 // CheckAgentAccess confines a verified execution to its own metadata and direct children.
 func (s *Service) CheckAgentAccess(ctx context.Context, source runservice.AgentSource, target string, write bool) error {
 	return s.checkAgentAccessIn(ctx, s.DB, source, target, write)
 }
-func (s *Service) checkAgentAccessIn(ctx context.Context, q store.Querier, source runservice.AgentSource, target string, write bool) error {
+func (s *Service) checkAgentAccessIn(ctx context.Context, q *gorm.DB, source runservice.AgentSource, target string, write bool) error {
 	from, err := s.LookupConversation(ctx, q, source.User, source.ConversationID)
 	if err != nil {
 		return err
@@ -271,7 +275,7 @@ func (s *Service) checkAgentAccessIn(ctx context.Context, q store.Querier, sourc
 	return nil
 }
 func (s *Service) SendAgentMessage(ctx context.Context, source runservice.AgentSource, target, input string, agents, users, attachments []string, replyTo string) (sdk.Reply, error) {
-	tx, err := s.DB.BeginTx(ctx, nil)
+	tx, err := store.Begin(ctx, s.DB)
 	if err != nil {
 		return sdk.Reply{}, err
 	}
@@ -290,26 +294,26 @@ func (s *Service) SendAgentMessage(ctx context.Context, source runservice.AgentS
 	if err = s.setAgentAuthor(ctx, tx, r.Message, &source); err != nil {
 		return r, err
 	}
-	if err = tx.Commit(); err != nil {
+	if err = tx.Commit().Error; err != nil {
 		return r, err
 	}
 	s.NotifyConversation(ctx, target)
 	s.Notifier.KickAll()
 	return r, nil
 }
-func (s *Service) setAgentAuthor(ctx context.Context, tx *sql.Tx, m *sdk.Message, source *runservice.AgentSource) error {
-	if _, err := tx.ExecContext(ctx, `UPDATE messages SET author_role='agent',author_user_id=NULL,author_agent_id=?,author_agent_version_id=? WHERE id=?`, source.AgentID, source.AgentVersionID, m.ID); err != nil {
+func (s *Service) setAgentAuthor(ctx context.Context, tx *gorm.DB, m *sdk.Message, source *runservice.AgentSource) error {
+	if _, err := store.Exec(ctx, tx, `UPDATE messages SET author_role='agent',author_user_id=NULL,author_agent_id=?,author_agent_version_id=? WHERE id=?`, source.AgentID, source.AgentVersionID, m.ID); err != nil {
 		return err
 	}
 	m.AuthorRole = sdk.RoleAgentMsg
 	m.AuthorUserID = ""
 	m.AuthorAgentID = source.AgentID
 	m.AuthorAgentVersionID = source.AgentVersionID
-	return tx.QueryRowContext(ctx, `SELECT name FROM agent_versions WHERE id=? AND agent_id=?`, source.AgentVersionID, source.AgentID).Scan(&m.AuthorName)
+	return store.Row(ctx, tx, `SELECT name FROM agent_versions WHERE id=? AND agent_id=?`, source.AgentVersionID, source.AgentID).Scan(&m.AuthorName)
 }
 
 func (s *Service) sendMessage(ctx context.Context, u sdk.User, conversation string, input string, toAgentIDs, toUserIDs, attachmentIDs []string, replyToMessageID string) (sdk.Reply, error) {
-	tx, err := s.DB.BeginTx(ctx, nil)
+	tx, err := store.Begin(ctx, s.DB)
 	if err != nil {
 		return sdk.Reply{}, err
 	}
@@ -322,9 +326,9 @@ func (s *Service) sendMessage(ctx context.Context, u sdk.User, conversation stri
 	if err != nil {
 		return out, err
 	}
-	return out, tx.Commit()
+	return out, tx.Commit().Error
 }
-func (s *Service) SendMessageTx(ctx context.Context, tx *sql.Tx, u sdk.User, ss sdk.Conversation, input string, toAgentIDs, toUserIDs, attachmentIDs []string, replyToMessageID string) (sdk.Reply, error) {
+func (s *Service) SendMessageTx(ctx context.Context, tx *gorm.DB, u sdk.User, ss sdk.Conversation, input string, toAgentIDs, toUserIDs, attachmentIDs []string, replyToMessageID string) (sdk.Reply, error) {
 	if !utf8.ValidString(input) || (strings.TrimSpace(input) == "" && len(attachmentIDs) == 0) {
 		return sdk.Reply{}, fmt.Errorf("message text or attachments required")
 	}
@@ -333,7 +337,7 @@ func (s *Service) SendMessageTx(ctx context.Context, tx *sql.Tx, u sdk.User, ss 
 			return sdk.Reply{}, fmt.Errorf("invalid reply_to_message_id")
 		}
 		var found int
-		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM messages WHERE id=? AND conversation_id=?`, replyToMessageID, ss.ID).Scan(&found); err != nil {
+		if err := store.Row(ctx, tx, `SELECT 1 FROM messages WHERE id=? AND conversation_id=?`, replyToMessageID, ss.ID).Scan(&found); err != nil {
 			if err == sql.ErrNoRows {
 				return sdk.Reply{}, store.ErrNotFound
 			}
@@ -349,7 +353,7 @@ func (s *Service) SendMessageTx(ctx context.Context, tx *sql.Tx, u sdk.User, ss 
 		return sdk.Reply{}, err
 	}
 	for _, id := range toUserIDs {
-		recipient, err := store.ScanUser(tx.QueryRowContext(ctx, store.GetUserSelect, id))
+		recipient, err := store.ScanUser(store.Row(ctx, tx, store.GetUserSelect, id))
 		if err != nil {
 			return sdk.Reply{}, err
 		}
@@ -368,7 +372,7 @@ func (s *Service) SendMessageTx(ctx context.Context, tx *sql.Tx, u sdk.User, ss 
 	}
 	agentJSON, _ := json.Marshal(toAgentIDs)
 	userJSON, _ := json.Marshal(toUserIDs)
-	if _, err = tx.ExecContext(ctx, `UPDATE messages SET author_user_id=?,to_agent_ids=?,to_user_ids=?,attachments=?,reply_to_message_id=? WHERE id=?`, u.ID, string(agentJSON), string(userJSON), string(mustAttachmentJSON(files)), store.NullIfEmpty(replyToMessageID), m.ID); err != nil {
+	if _, err = store.Exec(ctx, tx, `UPDATE messages SET author_user_id=?,to_agent_ids=?,to_user_ids=?,attachments=?,reply_to_message_id=? WHERE id=?`, u.ID, string(agentJSON), string(userJSON), string(mustAttachmentJSON(files)), store.NullIfEmpty(replyToMessageID), m.ID); err != nil {
 		return sdk.Reply{}, err
 	}
 	m.AuthorUserID, m.ToAgentIDs, m.ToUserIDs, m.Attachments = u.ID, toAgentIDs, toUserIDs, files
@@ -384,7 +388,7 @@ func (s *Service) SendMessageTx(ctx context.Context, tx *sql.Tx, u sdk.User, ss 
 		title = title[:50]
 	}
 	if ss.Title == "" {
-		if _, err = tx.ExecContext(ctx, `UPDATE conversations SET title=? WHERE id=?`, string(title), ss.ID); err != nil {
+		if _, err = store.Exec(ctx, tx, `UPDATE conversations SET title=? WHERE id=?`, string(title), ss.ID); err != nil {
 			return sdk.Reply{}, err
 		}
 	}
@@ -402,12 +406,12 @@ func (s *Service) SendMessageTx(ctx context.Context, tx *sql.Tx, u sdk.User, ss 
 
 // recipientIDs preserves the explicit recipient order and stores omitted arrays as [].
 // deleteConversationContents coordinates each owner's cleanup in one transaction.
-func (s *Service) deleteConversationContents(ctx context.Context, tx *sql.Tx, id string) error {
+func (s *Service) deleteConversationContents(ctx context.Context, tx *gorm.DB, id string) error {
 	if err := s.RunService.DeleteConversationExecution(ctx, tx, id); err != nil {
 		return err
 	}
 	for _, query := range []string{`DELETE FROM conversation_rounds WHERE conversation_id=?`, `DELETE FROM attachments WHERE conversation_id=?`, `DELETE FROM messages WHERE conversation_id=?`} {
-		if _, err := tx.ExecContext(ctx, query, id); err != nil {
+		if _, err := store.Exec(ctx, tx, query, id); err != nil {
 			return err
 		}
 	}

@@ -3,9 +3,10 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"log"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/memory-co/agentuse/server/internal/notification"
 	"github.com/memory-co/agentuse/server/internal/service/agent"
@@ -20,7 +21,7 @@ import (
 
 type Service struct {
 	Repository          *store.Store
-	DB                  *sql.DB
+	DB                  *gorm.DB
 	Now                 func() time.Time
 	Log                 *log.Logger
 	BrowserChanges      *notification.Broker

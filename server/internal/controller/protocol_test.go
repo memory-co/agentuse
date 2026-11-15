@@ -3,12 +3,13 @@ package controller
 import (
 	"context"
 	"encoding/json"
-	"github.com/memory-co/agentuse/server/internal/hub"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/memory-co/agentuse/server/internal/hub"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"

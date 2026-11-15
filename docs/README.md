@@ -14,3 +14,5 @@ AgentUse 包含两个独立程序：
 两端运行后均提供 Huma 自动生成的 API 文档：登录对应服务，再访问其 `/api/docs`。OpenAPI 位于 `/api/openapi.json`、`/api/openapi.yaml`。
 
 接口与在线文档入口：[Server API](server/api.md) · [Client API](client/api.md)。
+
+Server 的数据库选择及升级方式见[数据库配置与升级](server/database.md)。

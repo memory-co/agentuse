@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/memory-co/agentuse/internal/testdb"
+
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
@@ -151,9 +153,7 @@ func TestFinishedRoundsSurviveNotificationFailureAndHaveFixedSnapshots(t *testin
 	ctx := context.Background()
 	s := f.s
 	reportNative(t, s, f.d, f.parentInput, "parent-native", 2, map[string]any{"type": "result", "run_id": f.parentRun, "input_ids": []string{"plan-input"}, "status": "completed", "output": "Delegated"})
-	if _, err := s.DB.Exec(`CREATE TRIGGER block_round_notice BEFORE INSERT ON messages WHEN NEW.author_role='child_conversation' BEGIN SELECT RAISE(FAIL,'parent unavailable'); END`); err != nil {
-		t.Fatal(err)
-	}
+	restore_block_round_notice := testdb.RejectWrite(t, s.DB, "messages", "INSERT", "NEW.author_role='child_conversation'", "parent unavailable")
 	f.result(t, f.executor.ID, "completed", "Round one result")
 	first, err := s.ConversationService.ReadRound(ctx, f.u, f.child.ID, 1)
 	if err != nil || first.Rounds[0].FinishedAt == nil || first.Rounds[0].ParentDelivery != "pending" || first.Runs[0].Status != "completed" {
@@ -174,9 +174,7 @@ func TestFinishedRoundsSurviveNotificationFailureAndHaveFixedSnapshots(t *testin
 	if err = s.ConversationService.ReportClientEvent(ctx, f.d.ID, envelope); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.DB.Exec(`DROP TRIGGER block_round_notice`); err != nil {
-		t.Fatal(err)
-	}
+	restore_block_round_notice()
 	restarted := service.New(s.Repository)
 	for i := 0; i < 3; i++ {
 		if err = restarted.ConversationService.ReconcileRoundNotifications(ctx); err != nil {
@@ -347,9 +345,7 @@ func TestConversationModesAndExecutionSourcesStillConstrainCreation(t *testing.T
 func TestRoundBoundaryFailureRollsBackTheWholeSourceResult(t *testing.T) {
 	f := roundSetup(t, false, true)
 	ctx := context.Background()
-	if _, err := f.s.DB.Exec(`CREATE TRIGGER block_round_end BEFORE UPDATE ON conversation_rounds WHEN NEW.finished_at IS NOT NULL BEGIN SELECT RAISE(FAIL,'source boundary unavailable'); END`); err != nil {
-		t.Fatal(err)
-	}
+	restore_block_round_end := testdb.RejectWrite(t, f.s.DB, "conversation_rounds", "UPDATE", "NEW.finished_at IS NOT NULL", "source boundary unavailable")
 	raw, _ := json.Marshal(map[string]any{"type": "result", "run_id": f.runs[f.executor.ID], "input_ids": []string{"initial"}, "status": "completed", "output": "durable result"})
 	envelope := reportEnvelope(f.inputs[f.executor.ID], "child-"+f.executor.ID, 2, raw)
 	if err := f.s.ConversationService.ReportClientEvent(ctx, f.d.ID, envelope); err == nil {
@@ -359,9 +355,7 @@ func TestRoundBoundaryFailureRollsBackTheWholeSourceResult(t *testing.T) {
 	if err != nil || len(detail.Messages) != 1 || len(detail.Events) != 1 || detail.Runs[0].Status != "running" || detail.Rounds[0].FinishedAt != nil || len(parentNotices(t, f)) != 0 {
 		t.Fatal(detail, err)
 	}
-	if _, err = f.s.DB.Exec(`DROP TRIGGER block_round_end`); err != nil {
-		t.Fatal(err)
-	}
+	restore_block_round_end()
 	if err = f.s.ConversationService.ReportClientEvent(ctx, f.d.ID, envelope); err != nil {
 		t.Fatal(err)
 	}

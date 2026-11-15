@@ -1,6 +1,6 @@
 # userService：用戶與訪問身份
 
-> 用戶身份與令牌模型已落實到 schema 10。嵌套 conversation 的組織能力已實作，見 [父子 conversation 設計](server-conversation.md#父子對話)。時間為 Unix 秒，關聯由所屬 service 校驗與清理，不聲明數據庫外鍵。
+> 用戶身份與令牌模型已落實到 遷移基線 `0001_initial`。嵌套 conversation 的組織能力已實作，見 [父子 conversation 設計](server-conversation.md#父子對話)。時間為 Unix 秒，關聯由所屬 service 校驗與清理，不聲明數據庫外鍵。
 
 ## 職責
 
@@ -27,6 +27,8 @@ userService 管理用戶身份、角色和訪問令牌。它回答“當前請�
 ## 表結構
 
 ### users
+
+用戶名稱為 1 至 191 個 Unicode 字符。名稱和 id 區分大小寫；MySQL 表使用 utf8mb4_bin，與 SQLite/PostgreSQL 的身份查詢保持一致。
 
 用戶主表。`id` 是穩定身份，`name` 是唯一顯示/登錄名稱，`role` 由 service 限定爲 admin/user；`token_hash` 唯一。重置令牌不改變用戶 ID，也不改變已有資源歸屬。
 

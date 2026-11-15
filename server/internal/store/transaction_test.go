@@ -2,9 +2,10 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"testing"
+
+	"gorm.io/gorm"
 )
 
 func TestTxRollback(t *testing.T) {
@@ -15,8 +16,8 @@ func TestTxRollback(t *testing.T) {
 	defer st.Close()
 	ctx := context.Background()
 	stop := errors.New("abort business operation")
-	err = st.Tx(ctx, func(tx *sql.Tx) error {
-		if _, e := tx.ExecContext(ctx, `INSERT INTO users(id,name,role,token_hash,created_at) VALUES('rollback','rollback','user','hash',1)`); e != nil {
+	err = st.Tx(ctx, func(tx *gorm.DB) error {
+		if _, e := Exec(ctx, tx, `INSERT INTO users(id,name,role,token_hash,created_at) VALUES('rollback','rollback','user','hash',1)`); e != nil {
 			return e
 		}
 		return stop
@@ -25,7 +26,7 @@ func TestTxRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err = st.Connection().QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE id='rollback'`).Scan(&count); err != nil || count != 0 {
+	if err = Row(ctx, st.Connection(), `SELECT COUNT(*) FROM users WHERE id='rollback'`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("rollback: count=%d err=%v", count, err)
 	}
 }

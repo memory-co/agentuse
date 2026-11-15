@@ -2,8 +2,10 @@ package conversation
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
+
+	"github.com/memory-co/agentuse/server/internal/store"
+	"gorm.io/gorm"
 
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
@@ -18,7 +20,7 @@ func (s *Service) ReportClientEvent(ctx context.Context, device string, envelope
 
 type conversationEvents struct{ service *Service }
 
-func (c conversationEvents) Applied(ctx context.Context, tx *sql.Tx, envelope protocol.ClientEvent, event run.ExecutionFacts, completed *agentuse.Run) error {
+func (c conversationEvents) Applied(ctx context.Context, tx *gorm.DB, envelope protocol.ClientEvent, event run.ExecutionFacts, completed *agentuse.Run) error {
 	s := c.service
 	if completed != nil {
 		conversation, err := s.LookupConversation(ctx, tx, agentuse.User{Role: agentuse.RoleAdmin}, completed.ConversationID)
@@ -29,7 +31,7 @@ func (c conversationEvents) Applied(ctx context.Context, tx *sql.Tx, envelope pr
 			return s.ProjectStatus(ctx, tx, envelope.ConversationID, s.Now().Unix())
 		}
 		var author string
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(author_user_id,'') FROM messages WHERE id=?`, completed.FirstMessageID).Scan(&author); err != nil {
+		if err := store.Row(ctx, tx, `SELECT COALESCE(author_user_id,'') FROM messages WHERE id=?`, completed.FirstMessageID).Scan(&author); err != nil {
 			return err
 		}
 		toUsers := []string{}
@@ -54,7 +56,7 @@ func (c conversationEvents) Applied(ctx context.Context, tx *sql.Tx, envelope pr
 		if err = s.attachRunOutputs(ctx, tx, *completed, message.ID); err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE messages SET author_agent_id=?,author_agent_version_id=?,reply_to_message_id=?,to_user_ids=? WHERE id=?`, completed.AgentID, completed.AgentVersionID, completed.FirstMessageID, string(recipients), message.ID); err != nil {
+		if _, err = store.Exec(ctx, tx, `UPDATE messages SET author_agent_id=?,author_agent_version_id=?,reply_to_message_id=?,to_user_ids=? WHERE id=?`, completed.AgentID, completed.AgentVersionID, completed.FirstMessageID, string(recipients), message.ID); err != nil {
 			return err
 		}
 		if err = s.RunService.LinkRunReply(ctx, tx, completed.ID, message.ID); err != nil {

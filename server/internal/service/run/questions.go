@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 
+	"gorm.io/gorm"
+
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/store"
@@ -16,8 +18,8 @@ func (s *Service) RunQuestions(ctx context.Context, conversation string) ([]agen
 	return s.QuestionsIn(ctx, s.DB, `conversation_id=?`, conversation)
 }
 
-func (s *Service) QuestionsIn(ctx context.Context, q store.RowsQuerier, where string, args ...any) ([]agentuse.Question, error) {
-	rows, err := q.QueryContext(ctx, `SELECT request_id,conversation_id,run_id,payload,state,answer,answered_by,created_at,COALESCE((SELECT error FROM run_controls c WHERE c.request_id=run_requests.request_id AND c.kind='answer' ORDER BY c.created_at DESC,c.rowid DESC LIMIT 1),'') FROM run_requests WHERE `+where+` ORDER BY created_at,request_id`, args...)
+func (s *Service) QuestionsIn(ctx context.Context, q *gorm.DB, where string, args ...any) ([]agentuse.Question, error) {
+	rows, err := store.Rows(ctx, q, `SELECT request_id,conversation_id,run_id,payload,state,answer,answered_by,created_at,COALESCE((SELECT error FROM run_controls c WHERE c.request_id=run_requests.request_id AND c.kind='answer' ORDER BY c.created_at DESC,c.seq DESC LIMIT 1),'') FROM run_requests WHERE `+where+` ORDER BY created_at,request_id`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +54,7 @@ func (s *Service) ReplyRequest(ctx context.Context, u agentuse.User, conversatio
 		return fmt.Errorf("answer must be JSON")
 	}
 	var state string
-	if err = s.DB.QueryRowContext(ctx, `SELECT state FROM run_requests WHERE request_id=? AND run_id=?`, request, run).Scan(&state); err != nil {
+	if err = store.Row(ctx, s.DB, `SELECT state FROM run_requests WHERE request_id=? AND run_id=?`, request, run).Scan(&state); err != nil {
 		return err
 	}
 	if state != "pending" {

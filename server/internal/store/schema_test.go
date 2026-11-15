@@ -13,7 +13,7 @@ func TestOpenRejectsOtherDatabaseSchemas(t *testing.T) {
 		for _, table := range []string{"sessions", "conversations"} {
 			t.Run(fmt.Sprintf("%d/%s", revision, table), func(t *testing.T) {
 				path := filepath.Join(t.TempDir(), "unsupported.db")
-				db, err := sql.Open("sqlite", path)
+				db, err := sql.Open("sqlite3", path)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -42,11 +42,12 @@ func TestConversationSchemaSeparatesConversationsAndNativeSessions(t *testing.T)
 		t.Fatal(err)
 	}
 	defer st.Close()
-	var revision, oldTables int
-	if err := st.db.QueryRow("PRAGMA user_version").Scan(&revision); err != nil || revision != 10 {
-		t.Fatal(revision, err)
+	var oldTables int
+	var versions int64
+	if err := st.db.Table("schema_migrations").Where("id=?", InitialMigration).Count(&versions).Error; err != nil || versions != 1 {
+		t.Fatal(versions, err)
 	}
-	if err := st.db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('sessions','works','work_run_tokens','run_notifications','message_agents')").Scan(&oldTables); err != nil || oldTables != 0 {
+	if err := st.db.Raw("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('sessions','works','work_run_tokens','run_notifications','message_agents')").Row().Scan(&oldTables); err != nil || oldTables != 0 {
 		t.Fatal("old Server table exists", oldTables, err)
 	}
 	for _, table := range []string{"messages", "attachments", "run_inputs", "runs", "run_events", "run_requests", "run_controls"} {
@@ -55,17 +56,17 @@ func TestConversationSchemaSeparatesConversationsAndNativeSessions(t *testing.T)
 		if table == "run_inputs" {
 			wantOwnership = 0
 		}
-		if err := st.db.QueryRow("SELECT count(*) FROM pragma_table_info(?) WHERE name='conversation_id'", table).Scan(&ownership); err != nil || ownership != wantOwnership {
+		if err := st.db.Raw("SELECT count(*) FROM pragma_table_info(?) WHERE name='conversation_id'", table).Row().Scan(&ownership); err != nil || ownership != wantOwnership {
 			t.Fatal("missing conversation ownership", table, err)
 		}
-		if err := st.db.QueryRow("SELECT count(*) FROM pragma_table_info(?) WHERE name='client_session_id'", table).Scan(&legacy); err != nil || legacy != 0 {
+		if err := st.db.Raw("SELECT count(*) FROM pragma_table_info(?) WHERE name='client_session_id'", table).Row().Scan(&legacy); err != nil || legacy != 0 {
 			t.Fatal("old native session alias exists", table, err)
 		}
 		wantNative := 1
 		if table == "messages" || table == "attachments" || table == "run_inputs" {
 			wantNative = 0
 		}
-		if err := st.db.QueryRow("SELECT count(*) FROM pragma_table_info(?) WHERE name='session_id'", table).Scan(&native); err != nil || native != wantNative {
+		if err := st.db.Raw("SELECT count(*) FROM pragma_table_info(?) WHERE name='session_id'", table).Row().Scan(&native); err != nil || native != wantNative {
 			t.Fatal("incorrect Client session reference", table, err)
 		}
 	}

@@ -51,7 +51,7 @@ skillService 擁有 skill 的業務身份、版本與包生命週期；agentServ
 
 S3 使用相同的相對 key，前面可加部署配置的 prefix。Skill 包不屬於任何 conversation；刪除某個 conversation 不刪除 skill 包。SHA-256、包大小和 package_path 保存在 skill_versions，是業務版本的一部分；fileService 仍無 files/attachments 元數據表。
 
-發佈順序是：校驗壓縮包 → 通過 fileService 寫入本次新版本的獨立路徑並確認完整落盤 → 事務寫入 skill_versions、推進 skill 當前指針 → 對外返回版本。對象寫入失敗不發佈版本；事務失敗刪除本次未發佈對象。SQLite 與本地/S3 存儲不是分佈式事務，異常遺留對象由清理流程處理。
+發佈順序是：校驗壓縮包 → 通過 fileService 寫入本次新版本的獨立路徑並確認完整落盤 → 事務寫入 skill_versions、推進 skill 當前指針 → 對外返回版本。對象寫入失敗不發佈版本；事務失敗刪除本次未發佈對象。資料庫與本地/S3 存儲不是分佈式事務，異常遺留對象由清理流程處理。
 
 版本路徑不提供覆蓋上傳 API。清理必須檢查**所有歷史版本**的引用，不能只看當前版本，也不能按 conversation 的生命週期回收。
 

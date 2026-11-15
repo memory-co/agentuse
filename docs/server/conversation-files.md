@@ -48,7 +48,7 @@ AI 使用 `context attachment upload` 上傳產物。在 workspace 內上傳 `re
 
 省略或空數組表示本條消息沒有附件。附件必須屬於當前 conversation，最多 64 個；重複 ID 去重。沒有文本時可以只提供附件。Message 的 `attachments` 保存所選文件的元數據快照，最終 AI 回覆同樣記錄該 run 的輸出文件。
 
-當前使用數據庫 schema 10。不提供舊數據遷移或兼容讀取；升級時按項目約定重建數據庫，兩端一起更新。
+當前結構基線為 `0001_initial`，由 GORM 和 gormigrate 管理。首次切換不遷移此前 schema 10 等未版本化資料；後續按遷移版本升級，詳見[資料庫配置與升級](database.md)。
 
 目錄創建、移動、重命名等後續操作列在 [文件樹設計的 TODO](../../designs/v3/conversation-files.md#todo)。
 

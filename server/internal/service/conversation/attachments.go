@@ -8,16 +8,20 @@ import (
 	"encoding/json"
 	"errors"
 
+	"gorm.io/gorm"
+
 	"github.com/memory-co/agentuse/internal/attachment"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/store"
 )
 
-func (s *Service) attachmentConversation(ctx context.Context, q store.Querier, a AttachmentAccess, id string, upload bool) (agentuse.Conversation, error) {
+func (s *Service) attachmentConversation(ctx context.Context, q *gorm.DB, a AttachmentAccess, id string, upload bool) (agentuse.Conversation, error) {
+	tq := store.MessageTargets(s.DB, "m", "t")
+
 	u := a.User
 	if a.DeviceID != "" {
 		var owner string
-		if err := q.QueryRowContext(ctx, store.AttachmentConversationSelect, a.DeviceID, store.HashSecret(a.Token)).Scan(&owner); err != nil {
+		if err := store.Row(ctx, q, store.AttachmentConversationSelect, a.DeviceID, store.HashSecret(a.Token)).Scan(&owner); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return agentuse.Conversation{}, ErrAttachmentUnauthorized
 			}
@@ -27,7 +31,7 @@ func (s *Service) attachmentConversation(ctx context.Context, q store.Querier, a
 	}
 	if a.DeviceID == "" {
 		var authID, role string
-		if err := q.QueryRowContext(ctx, store.AttachmentConversationSelect3, store.HashSecret(a.Token)).Scan(&authID, &role); err != nil {
+		if err := store.Row(ctx, q, store.AttachmentConversationSelect3, store.HashSecret(a.Token)).Scan(&authID, &role); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return agentuse.Conversation{}, ErrAttachmentUnauthorized
 			}
@@ -46,7 +50,7 @@ func (s *Service) attachmentConversation(ctx context.Context, q store.Querier, a
 	}
 	if a.DeviceID != "" {
 		var allowed int
-		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM `+store.MessageTargetsFrom+` WHERE json_extract(t.value,'$.device_id')=? AND m.conversation_id=? AND `+store.MessageTargetDispatched, a.DeviceID, ss.ID).Scan(&allowed); err != nil {
+		if err := store.Row(ctx, q, `SELECT count(*) FROM `+tq.From+` WHERE `+tq.Device+`=? AND m.conversation_id=? AND `+tq.Dispatched, a.DeviceID, ss.ID).Scan(&allowed); err != nil {
 			return ss, err
 		}
 		// An explicit execution source narrows even a device that also executes
@@ -59,7 +63,7 @@ func (s *Service) attachmentConversation(ctx context.Context, q store.Querier, a
 				return ss, store.ErrNotFound
 			}
 			var valid int
-			err := q.QueryRowContext(ctx, `SELECT count(*) FROM conversations c JOIN runs r ON r.conversation_id=c.id WHERE c.id=? AND c.user_id=? AND r.device_id=? AND r.agent_id=? AND ((c.mode='collaborative' AND c.parent_conversation_id IS NULL AND c.id=?) OR c.parent_conversation_id=?)`, a.SourceConversationID, ss.UserID, a.DeviceID, a.SourceAgentID, ss.ParentConversationID, ss.ID).Scan(&valid)
+			err := store.Row(ctx, q, `SELECT count(*) FROM conversations c JOIN runs r ON r.conversation_id=c.id WHERE c.id=? AND c.user_id=? AND r.device_id=? AND r.agent_id=? AND ((c.mode='collaborative' AND c.parent_conversation_id IS NULL AND c.id=?) OR c.parent_conversation_id=?)`, a.SourceConversationID, ss.UserID, a.DeviceID, a.SourceAgentID, ss.ParentConversationID, ss.ID).Scan(&valid)
 			if err != nil {
 				return ss, err
 			}
@@ -86,7 +90,7 @@ func (s *Service) AttachmentConversation(ctx context.Context, a AttachmentAccess
 
 // CommitAttachment serializes authorization, quota and metadata with publishing the file.
 func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v *attachment.Attachment, max int64, publish func() error) error {
-	tx, err := s.DB.BeginTx(ctx, nil)
+	tx, err := store.Begin(ctx, s.DB)
 	if err != nil {
 		return err
 	}
@@ -98,7 +102,7 @@ func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v *a
 		return err
 	}
 	var used int64
-	if err = tx.QueryRowContext(ctx, store.CommitAttachmentSelect, v.ConversationID).Scan(&used); err != nil {
+	if err = store.Row(ctx, tx, store.CommitAttachmentSelect, v.ConversationID).Scan(&used); err != nil {
 		return err
 	}
 	if v.SizeBytes > max || used > max-v.SizeBytes {
@@ -107,11 +111,11 @@ func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v *a
 	if err = publish(); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, store.CommitAttachmentInsert, v.ID, v.ConversationID, v.Filename, v.ContentType, v.SizeBytes, v.SHA256, v.CreatedBy, v.Source, store.NullIfEmpty(v.DeviceID), v.CreatedAt, store.NullIfEmpty(v.CreatedByRunID), v.RelativePath)
+	_, err = store.Exec(ctx, tx, store.CommitAttachmentInsert, v.ID, v.ConversationID, v.Filename, v.ContentType, v.SizeBytes, v.SHA256, v.CreatedBy, v.Source, store.NullIfEmpty(v.DeviceID), v.CreatedAt, store.NullIfEmpty(v.CreatedByRunID), v.RelativePath, store.HashSecret(v.RelativePath))
 	if err != nil {
 		return err
 	}
-	err = tx.Commit()
+	err = tx.Commit().Error
 	if err == nil {
 		if ss, e := s.GetConversation(ctx, agentuse.User{Role: agentuse.RoleAdmin}, v.ConversationID); e == nil {
 			s.PublishConversationChange(ss, "attachments")
@@ -123,7 +127,7 @@ func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v *a
 func (s *Service) NewAttachmentID() string { return store.RandomID("at_") }
 
 func (s *Service) GetAttachment(ctx context.Context, conversation, id string) (attachment.Attachment, error) {
-	return store.ScanAttachment(s.DB.QueryRowContext(ctx, store.AttachmentCols+store.GetAttachmentClause, conversation, id))
+	return store.ScanAttachment(store.Row(ctx, s.DB, store.AttachmentCols+store.GetAttachmentClause, conversation, id))
 }
 
 func (s *Service) ListAttachments(ctx context.Context, conversation, cursor string, limit int, run string) (attachment.Page, error) {
@@ -140,7 +144,7 @@ func (s *Service) ListAttachments(ctx context.Context, conversation, cursor stri
 			return out, ErrAttachmentCursor
 		}
 	}
-	rows, err := s.DB.QueryContext(ctx, store.AttachmentCols+store.ListAttachmentsClause, conversation, run, run, after.Time, after.Time, after.ID, limit+1)
+	rows, err := store.Rows(ctx, s.DB, store.AttachmentCols+store.ListAttachmentsClause, conversation, run, run, after.Time, after.Time, after.ID, limit+1)
 	if err != nil {
 		return out, err
 	}
@@ -171,7 +175,7 @@ func (s *Service) ListAttachments(ctx context.Context, conversation, cursor stri
 }
 
 func (s *Service) deleteAttachment(ctx context.Context, a AttachmentAccess, conversation, id string) error {
-	tx, err := s.DB.BeginTx(ctx, nil)
+	tx, err := store.Begin(ctx, s.DB)
 	if err != nil {
 		return err
 	}
@@ -180,22 +184,21 @@ func (s *Service) deleteAttachment(ctx context.Context, a AttachmentAccess, conv
 		return err
 	}
 	var referenced int
-	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM messages m,json_each(m.attachments) f WHERE m.conversation_id=? AND json_extract(f.value,'$.id')=?`, conversation, id).Scan(&referenced); err != nil {
+	if err = store.Row(ctx, tx, store.AttachmentReferences(s.DB), conversation, id).Scan(&referenced); err != nil {
 		return err
 	}
 	if referenced > 0 {
 		return ErrAttachmentReferenced
 	}
 
-	r, err := tx.ExecContext(ctx, store.DeleteAttachmentDelete, conversation, id)
+	r, err := store.Exec(ctx, tx, store.DeleteAttachmentDelete, conversation, id)
 	if err != nil {
 		return err
 	}
-	n, _ := r.RowsAffected()
-	if n == 0 {
+	if r == 0 {
 		return store.ErrNotFound
 	}
-	err = tx.Commit()
+	err = tx.Commit().Error
 	if err == nil {
 		if ss, e := s.GetConversation(ctx, agentuse.User{Role: agentuse.RoleAdmin}, conversation); e == nil {
 			s.PublishConversationChange(ss, "attachments")
@@ -206,7 +209,7 @@ func (s *Service) deleteAttachment(ctx context.Context, a AttachmentAccess, conv
 
 func (s *Service) AttachmentExists(ctx context.Context, conversation, id string) (bool, error) {
 	var n int
-	err := s.DB.QueryRowContext(ctx, store.AttachmentExistsSelect, conversation, id).Scan(&n)
+	err := store.Row(ctx, s.DB, store.AttachmentExistsSelect, conversation, id).Scan(&n)
 	return n > 0, err
 }
 
@@ -214,9 +217,9 @@ func (s *Service) AttachmentExists(ctx context.Context, conversation, id string)
 func (s *Service) AttachmentRun(ctx context.Context, a AttachmentAccess, conversation, run string) error {
 	return s.attachmentRun(ctx, s.DB, a, conversation, run, false)
 }
-func (s *Service) attachmentRun(ctx context.Context, q store.Querier, a AttachmentAccess, conversation, run string, active bool) error {
+func (s *Service) attachmentRun(ctx context.Context, q *gorm.DB, a AttachmentAccess, conversation, run string, active bool) error {
 	var count int
-	err := q.QueryRowContext(ctx, `SELECT count(*) FROM runs WHERE id=? AND conversation_id=? AND (?='' OR device_id=?) AND (?=0 OR status IN ('running','waiting'))`, run, conversation, a.DeviceID, a.DeviceID, active).Scan(&count)
+	err := store.Row(ctx, q, `SELECT count(*) FROM runs WHERE id=? AND conversation_id=? AND (?='' OR device_id=?) AND (?=0 OR status IN ('running','waiting'))`, run, conversation, a.DeviceID, a.DeviceID, active).Scan(&count)
 	if err != nil {
 		return err
 	}

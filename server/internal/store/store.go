@@ -1,4 +1,4 @@
-// Package store 是 agentuse 服务的 SQLite 存储，表结构见 designs/v3/。
+// Package store owns the Server metadata database, ORM models and migrations.
 package store
 
 import (
@@ -11,138 +11,121 @@ import (
 	"fmt"
 	"time"
 
-	_ "modernc.org/sqlite" // 纯 Go 的 SQLite 驱动，不需要 cgo
+	"net/url"
+	"path/filepath"
+
+	mysqldriver "github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5"
+	sqlite3 "github.com/ncruces/go-sqlite3"
+	"github.com/ncruces/go-sqlite3/gormlite"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // ErrNotFound 表示要找的行不存在(或不属于当前用户)。
 var ErrNotFound = errors.New("store: not found")
 
-const schema = `
-CREATE TABLE IF NOT EXISTS users (
-  id         TEXT PRIMARY KEY,
-  name       TEXT NOT NULL UNIQUE,
-  role       TEXT NOT NULL DEFAULT 'user',
-  token_hash TEXT NOT NULL,
-  created_at INTEGER NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS users_token ON users(token_hash);
+// Config selects the metadata backend. SQLite is the default; DSN is its file
+// path or a MySQL/PostgreSQL connection string, depending on Driver.
+type Config struct {
+	Driver string
+	DSN    string
+}
 
-CREATE TABLE IF NOT EXISTS devices (
-  id           TEXT PRIMARY KEY,
-  user_id      TEXT NOT NULL,
-  name         TEXT NOT NULL,
-  key_hash     TEXT,
-  setup_token  TEXT,
-  status       TEXT NOT NULL DEFAULT 'pending',
-  last_seen_at INTEGER,
-  created_at   INTEGER NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS devices_key ON devices(key_hash);
-CREATE UNIQUE INDEX IF NOT EXISTS devices_setup_token ON devices(setup_token);
-
-CREATE TABLE IF NOT EXISTS device_harnesses (
-  device_id  TEXT NOT NULL,
-  user_id    TEXT NOT NULL,
-  harness    TEXT NOT NULL,
-  version    TEXT,
-  harness_revision TEXT NOT NULL DEFAULT '',
-  capabilities TEXT NOT NULL DEFAULT '[]',
-  available  INTEGER NOT NULL DEFAULT 0,
-  enabled    INTEGER NOT NULL DEFAULT 0,
-  updated_at INTEGER NOT NULL,
-  PRIMARY KEY (device_id, harness)
-);
-CREATE INDEX IF NOT EXISTS device_harnesses_user_harness ON device_harnesses(user_id, harness);
-
-CREATE TABLE IF NOT EXISTS conversations (
-  id                 TEXT PRIMARY KEY,
-  user_id            TEXT NOT NULL,
-  created_by         TEXT NOT NULL,
-  parent_conversation_id TEXT,
-  parent_agent_id TEXT,
-  mode TEXT NOT NULL DEFAULT 'single' CHECK(mode IN ('single','collaborative')),
-  title              TEXT NOT NULL DEFAULT '',
-  status             TEXT NOT NULL DEFAULT 'idle',
-  created_at         INTEGER NOT NULL,
-  updated_at         INTEGER NOT NULL,
-  CHECK (parent_conversation_id IS NULL OR mode='single'),
-  CHECK ((parent_conversation_id IS NULL AND parent_agent_id IS NULL) OR (parent_conversation_id IS NOT NULL AND parent_agent_id IS NOT NULL))
-);
-CREATE INDEX IF NOT EXISTS conversations_parent ON conversations(parent_conversation_id,updated_at,id);
-CREATE INDEX IF NOT EXISTS conversations_status ON conversations(status, updated_at);
-CREATE INDEX IF NOT EXISTS conversations_user ON conversations(user_id, updated_at);
-CREATE INDEX IF NOT EXISTS conversations_created_by ON conversations(created_by, updated_at);
-
-CREATE TABLE IF NOT EXISTS messages (
-  id         TEXT PRIMARY KEY,
-  seq        INTEGER NOT NULL,
-  conversation_id TEXT NOT NULL,
-  author_role TEXT NOT NULL CHECK(author_role IN ('user','agent','child_conversation')),
-  content    TEXT NOT NULL,
-  attachments TEXT NOT NULL DEFAULT '[]', author_user_id TEXT, author_agent_id TEXT, to_agent_ids TEXT NOT NULL DEFAULT '[]', to_user_ids TEXT NOT NULL DEFAULT '[]', reply_to_message_id TEXT, author_agent_version_id TEXT,
-  author_conversation_id TEXT, author_round_seq INTEGER,
-  agent_targets TEXT NOT NULL DEFAULT '{}',
-  created_at INTEGER NOT NULL,
-  CHECK ((author_role='child_conversation' AND author_conversation_id IS NOT NULL AND author_round_seq IS NOT NULL AND author_round_seq>0 AND author_user_id IS NULL AND author_agent_id IS NULL AND author_agent_version_id IS NULL) OR (author_role IN ('user','agent') AND author_conversation_id IS NULL AND author_round_seq IS NULL))
-);
-CREATE UNIQUE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id, seq);
-CREATE INDEX IF NOT EXISTS messages_replies ON messages(conversation_id,reply_to_message_id,seq);
-CREATE UNIQUE INDEX IF NOT EXISTS messages_child_round ON messages(conversation_id,author_conversation_id,author_round_seq) WHERE author_role='child_conversation';
-
-CREATE TABLE IF NOT EXISTS conversation_rounds (
- conversation_id TEXT NOT NULL,
- seq INTEGER NOT NULL CHECK(seq>0),
- start_message_seq INTEGER NOT NULL CHECK(start_message_seq>0),
- end_message_seq INTEGER,
- created_at INTEGER NOT NULL,
- finished_at INTEGER,
- PRIMARY KEY(conversation_id,seq),
- CHECK ((end_message_seq IS NULL AND finished_at IS NULL) OR (end_message_seq IS NOT NULL AND end_message_seq>=start_message_seq AND finished_at IS NOT NULL))
-);
-CREATE UNIQUE INDEX IF NOT EXISTS conversation_rounds_active ON conversation_rounds(conversation_id) WHERE finished_at IS NULL;
-
-`
-
-// Store 包一个 SQLite 连接。单连接 + BEGIN IMMEDIATE,所有写串行，领活的「挑一条再改」是原子的。
 type Store struct {
-	db  *sql.DB
+	db  *gorm.DB
 	now func() time.Time
 }
 
-// Open 打开(必要时创建)数据库文件。path 为 ":memory:" 时是临时库。
-func Open(path string) (*Store, error) {
-	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_txlock=immediate"
-	if path == ":memory:" {
-		dsn = "file::memory:?_pragma=foreign_keys(1)&_txlock=immediate"
+func Open(path string) (*Store, error) { return OpenConfig(Config{Driver: "sqlite", DSN: path}) }
+
+func OpenConfig(config Config) (*Store, error) {
+	if config.Driver == "" {
+		config.Driver = "sqlite"
 	}
-	db, err := sql.Open("sqlite", dsn)
+	var dialector gorm.Dialector
+	switch config.Driver {
+	case "sqlite":
+		path := config.DSN
+		if path == "" {
+			return nil, errors.New("sqlite database path is required")
+		}
+		dsn := "file::memory:"
+		if path != ":memory:" {
+			absolute, err := filepath.Abs(path)
+			if err != nil {
+				return nil, err
+			}
+			dsn = (&url.URL{Scheme: "file", Path: filepath.ToSlash(absolute)}).String()
+		}
+		dsn += "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_txlock=immediate"
+		dialector = gormlite.Open(dsn)
+	case "mysql":
+		parsed, err := mysqldriver.ParseDSN(config.DSN)
+		if err != nil || parsed.DBName == "" {
+			return nil, errors.New("invalid MySQL DSN: a database name is required")
+		}
+		parsed.ClientFoundRows = true
+		dialector = mysql.Open(parsed.FormatDSN())
+	case "postgres":
+		if config.DSN == "" {
+			return nil, errors.New("PostgreSQL DSN is required")
+		}
+		if _, err := pgx.ParseConfig(config.DSN); err != nil {
+			return nil, errors.New("invalid PostgreSQL DSN")
+		}
+		dialector = postgres.Open(config.DSN)
+	default:
+		return nil, fmt.Errorf("unsupported database driver %q (use sqlite, mysql, or postgres)", config.Driver)
+	}
+	var db *gorm.DB
+	var err error
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		db, err = gorm.Open(dialector, &gorm.Config{Logger: logger.Default.LogMode(logger.Silent), SkipDefaultTransaction: true, TranslateError: true, DisableForeignKeyConstraintWhenMigrating: true})
+		if err == nil {
+			break
+		}
+		if db != nil {
+			if pool, e := db.DB(); e == nil {
+				pool.Close()
+			}
+		}
+		// SQLite cannot run its busy handler for every journal-mode transition.
+		// Concurrent first opens may therefore fail before migration can lock.
+		if config.Driver != "sqlite" || !(errors.Is(err, sqlite3.BUSY) || errors.Is(err, sqlite3.LOCKED)) || time.Now().After(deadline) {
+			return nil, fmt.Errorf("store: connect %s: %w", config.Driver, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	pool, err := db.DB()
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
-	var revision int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&revision); err != nil {
-		db.Close()
-		return nil, err
+	pool.SetMaxOpenConns(16)
+	pool.SetMaxIdleConns(4)
+	pool.SetConnMaxLifetime(30 * time.Minute)
+	if config.Driver == "sqlite" {
+		pool.SetMaxOpenConns(1)
+		pool.SetMaxIdleConns(1)
+		pool.SetConnMaxLifetime(0)
 	}
-	var existing int
-	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&existing); err != nil {
-		db.Close()
-		return nil, err
+	if err = migrate(db); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("store: migrate: %w", err)
 	}
-	if revision != 10 && (existing > 0 || revision != 0) {
-		db.Close()
-		return nil, errors.New("unsupported database schema: reset the database before starting this version")
-	}
-	if _, err := db.Exec(schema + versionSchema + attachmentSchema + runSchema + "PRAGMA user_version=10;"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("store: initialize: %w", err)
-	}
-	s := &Store{db: db, now: time.Now}
-	return s, nil
+	return &Store{db: db, now: time.Now}, nil
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	pool, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+	return pool.Close()
+}
 
 func (s *Store) unix() int64 { return s.now().Unix() }
 
@@ -189,18 +172,17 @@ func nullInt(v sql.NullInt64) *int64 {
 
 func nullStr(v sql.NullString) string { return v.String }
 
-// Connection supplies the persistence executor for service-owned transactions.
-func (s *Store) Connection() *sql.DB { return s.db }
+// Connection supplies the ORM executor for service-owned transactions.
+func (s *Store) Connection() *gorm.DB { return s.db }
 
-// Tx keeps transaction creation and rollback semantics in the persistence layer.
-func (s *Store) Tx(ctx context.Context, fn func(*sql.Tx) error) error {
-	tx, e := s.db.BeginTx(ctx, nil)
-	if e != nil {
-		return e
+func (s *Store) Tx(ctx context.Context, fn func(*gorm.DB) error) error {
+	tx, err := Begin(ctx, s.db)
+	if err != nil {
+		return err
 	}
 	defer tx.Rollback()
-	if e = fn(tx); e != nil {
-		return e
+	if err = fn(tx); err != nil {
+		return err
 	}
-	return tx.Commit()
+	return tx.Commit().Error
 }

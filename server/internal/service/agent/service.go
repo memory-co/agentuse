@@ -2,17 +2,17 @@ package agent
 
 import (
 	"context"
-	"database/sql"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/memory-co/agentuse/server/internal/notification"
 	skillservice "github.com/memory-co/agentuse/server/internal/service/skill"
-	"github.com/memory-co/agentuse/server/internal/store"
 )
 
 // Service owns the agent business operations. Peers are explicit contracts.
 type Service struct {
-	DB                  *sql.DB
+	DB                  *gorm.DB
 	Now                 func() time.Time
 	Changes             *notification.Broker
 	ConversationService interface{ ParentAgentDeleted(context.Context, string) }
@@ -21,5 +21,5 @@ type Service struct {
 }
 
 type deviceService interface {
-	CheckRuntime(ctx context.Context, q store.Querier, deviceID, harness string) error
+	CheckRuntime(ctx context.Context, q *gorm.DB, deviceID, harness string) error
 }

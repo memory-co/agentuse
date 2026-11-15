@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/memory-co/agentuse/internal/testdb"
+
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/service"
 	deviceservice "github.com/memory-co/agentuse/server/internal/service/device"
@@ -15,7 +17,12 @@ import (
 // newStore 开一个内存库，测试结束时关掉。时钟每读一次走一秒，按时间排序的结果是确定的。
 func newStore(t *testing.T) *service.Service {
 	t.Helper()
-	s, err := service.Open(":memory:")
+	driver, dsn := testdb.Config(t)
+	repository, err := store.OpenConfig(store.Config{Driver: driver, DSN: dsn})
+	var s *service.Service
+	if err == nil {
+		s = service.New(repository)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

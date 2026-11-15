@@ -23,3 +23,5 @@
 網頁使用 `/api/browser/ws` 接收資源變更通知，並透過 HTTP 取得具體內容，不再固定輪詢。登入與 Acting as 沿用既有權限，斷線重連會補讀目前頁面。Agent 回覆與 Run details 的輸出支援 Markdown；使用者消息保留原文。
 
 Server 按 v3 的 user/device/agent/skill/conversation/run/file 职责实现。设备管理统一 `/api/devices`，Client 注册和身份查询为 `/api/client/register`、`/api/client/me`；旧 daemon 接口已移除。消息正文与执行结果分开保存，文件字节共享 fileService 本地/S3 后端。
+
+数据库默认使用 SQLite，也支持 MySQL、PostgreSQL，均无需 CGO。连接配置、首次切换和后续版本迁移见[数据库配置与升级](database.md)。

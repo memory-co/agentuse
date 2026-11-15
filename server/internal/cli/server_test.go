@@ -13,6 +13,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/memory-co/agentuse/internal/testdb"
+	"github.com/memory-co/agentuse/server/internal/store"
+
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	server "github.com/memory-co/agentuse/server/internal/controller"
 	"github.com/memory-co/agentuse/server/internal/service"
@@ -186,7 +189,7 @@ func TestBindFailureLeavesRunningServerDeviceStateUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = st.DB.ExecContext(ctx, `UPDATE devices SET status='online' WHERE id=?`, d.ID); err != nil {
+	if _, err = store.Exec(ctx, st.DB, `UPDATE devices SET status='online' WHERE id=?`, d.ID); err != nil {
 		t.Fatal(err)
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -198,7 +201,7 @@ func TestBindFailureLeavesRunningServerDeviceStateUntouched(t *testing.T) {
 		t.Fatal("second Server acquired occupied port")
 	}
 	var status string
-	if err = st.DB.QueryRowContext(ctx, `SELECT status FROM devices WHERE id=?`, d.ID).Scan(&status); err != nil || status != "online" {
+	if err = store.Row(ctx, st.DB, `SELECT status FROM devices WHERE id=?`, d.ID).Scan(&status); err != nil || status != "online" {
 		t.Fatal("failed startup changed live device state", status, err)
 	}
 }
@@ -211,5 +214,29 @@ func TestServerUsageErrors(t *testing.T) {
 		if code := Main(args); code != 2 {
 			t.Errorf("%v: %d", args, code)
 		}
+	}
+}
+
+func TestStartUsesSelectedBackendAndMigratesBeforeListening(t *testing.T) {
+	driver, dsn := testdb.Config(t)
+	if driver == "sqlite" {
+		dsn = filepath.Join(t.TempDir(), "server.db")
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	err = runStart([]string{"--addr", listener.Addr().String(), "--db-driver", driver, "--db", dsn, "--files-dir", t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "address already in use") {
+		t.Fatal("expected listener failure after database initialization", err)
+	}
+	repository, err := store.OpenConfig(store.Config{Driver: driver, DSN: dsn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repository.Close()
+	if !repository.Connection().Migrator().HasTable("schema_migrations") {
+		t.Fatal("CLI did not initialize the selected database")
 	}
 }

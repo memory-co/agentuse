@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/memory-co/agentuse/server/internal/store"
+
 	"github.com/memory-co/agentuse/internal/protocol"
 	"github.com/memory-co/agentuse/server/internal/notification"
 )
@@ -24,7 +26,7 @@ func TestInputWakeupRunsAfterCommit(t *testing.T) {
 	calls := 0
 	s.SetNotifier(committedNotifier{kick: func() {
 		var count int
-		if err := s.DB.QueryRowContext(ctx, `SELECT count(*) FROM messages WHERE json_array_length(to_agent_ids)>0`).Scan(&count); err != nil || count == 0 {
+		if err := store.Row(ctx, s.DB, `SELECT count(*) FROM messages`).Scan(&count); err != nil || count == 0 {
 			t.Fatalf("input not committed: %d %v", count, err)
 		}
 		calls++
@@ -59,9 +61,10 @@ func TestReconnectKeepsPreparedConversationPolicy(t *testing.T) {
 	if err != nil || len(recovered) != 1 || !reflect.DeepEqual(original, recovered[0]) {
 		t.Fatalf("reconnect changed prompt: %v %v", recovered, err)
 	}
-	var tables int
-	if err := s.DB.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('works','work_run_tokens','run_notifications')`).Scan(&tables); err != nil || tables != 0 {
-		t.Fatal(tables, err)
+	for _, table := range []string{"works", "work_run_tokens", "run_notifications"} {
+		if s.DB.Migrator().HasTable(table) {
+			t.Fatal("legacy table", table)
+		}
 	}
 	if err = s.RunService.RejectMessage(ctx, d.ID, original.Key(), protocol.AckError, "adapter unavailable"); err != nil {
 		t.Fatal(err)
@@ -88,7 +91,7 @@ func TestCompletedConversationDeletesExecutionRows(t *testing.T) {
 	}
 	for _, table := range []string{"run_inputs", "runs", "run_events", "run_requests", "run_controls"} {
 		var n int
-		if err = s.DB.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 0 {
+		if err = store.Row(ctx, s.DB, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 0 {
 			t.Fatalf("orphan %s: %d %v", table, n, err)
 		}
 	}

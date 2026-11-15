@@ -2,9 +2,10 @@ package conversation
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
+
+	"gorm.io/gorm"
 
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
@@ -14,10 +15,10 @@ import (
 
 // setMessageTargets freezes recipient routes on the message itself. It does not
 // allocate a run or input, or create a second delivery business object.
-func (s *Service) setMessageTargets(ctx context.Context, tx *sql.Tx, conversation agentuse.Conversation, message string, agents []string) error {
+func (s *Service) setMessageTargets(ctx context.Context, tx *gorm.DB, conversation agentuse.Conversation, message string, agents []string) error {
 	targets := map[string]run.MessageTarget{}
 	for _, id := range agents {
-		a, err := store.ScanAgent(tx.QueryRowContext(ctx, store.AgentCols+` WHERE id=?`, id))
+		a, err := store.ScanAgent(store.Row(ctx, tx, store.AgentCols+` WHERE id=?`, id))
 		if err != nil {
 			return err
 		}
@@ -32,9 +33,9 @@ func (s *Service) setMessageTargets(ctx context.Context, tx *sql.Tx, conversatio
 	return s.saveMessageTargets(ctx, tx, message, targets)
 }
 
-func (s *Service) messageTargets(ctx context.Context, tx *sql.Tx, message string) (map[string]run.MessageTarget, error) {
+func (s *Service) messageTargets(ctx context.Context, tx *gorm.DB, message string) (map[string]run.MessageTarget, error) {
 	var raw string
-	if err := tx.QueryRowContext(ctx, `SELECT agent_targets FROM messages WHERE id=?`, message).Scan(&raw); err != nil {
+	if err := store.Row(ctx, tx, `SELECT agent_targets FROM messages WHERE id=?`, message).Scan(&raw); err != nil {
 		return nil, err
 	}
 	targets := map[string]run.MessageTarget{}
@@ -42,17 +43,17 @@ func (s *Service) messageTargets(ctx context.Context, tx *sql.Tx, message string
 	return targets, err
 }
 
-func (s *Service) saveMessageTargets(ctx context.Context, tx *sql.Tx, message string, targets map[string]run.MessageTarget) error {
+func (s *Service) saveMessageTargets(ctx context.Context, tx *gorm.DB, message string, targets map[string]run.MessageTarget) error {
 	raw, err := json.Marshal(targets)
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE messages SET agent_targets=? WHERE id=?`, string(raw), message)
+	_, err = store.Exec(ctx, tx, `UPDATE messages SET agent_targets=? WHERE id=?`, string(raw), message)
 	return err
 }
 
 // SaveMessageDispatch freezes the first transmitted envelope for identical replay.
-func (s *Service) SaveMessageDispatch(ctx context.Context, tx *sql.Tx, message, agent string, dispatch protocol.ConversationMessage) error {
+func (s *Service) SaveMessageDispatch(ctx context.Context, tx *gorm.DB, message, agent string, dispatch protocol.ConversationMessage) error {
 	targets, err := s.messageTargets(ctx, tx, message)
 	if err != nil {
 		return err
@@ -71,7 +72,7 @@ func (s *Service) SaveMessageDispatch(ctx context.Context, tx *sql.Tx, message, 
 
 // SaveMessageError stores only a negative receipt. Successful acceptance is
 // represented by run_inputs and clears any earlier uncertainty on the message.
-func (s *Service) SaveMessageError(ctx context.Context, tx *sql.Tx, message, agent string, receipt *agentuse.MessageError) error {
+func (s *Service) SaveMessageError(ctx context.Context, tx *gorm.DB, message, agent string, receipt *agentuse.MessageError) error {
 	targets, err := s.messageTargets(ctx, tx, message)
 	if err != nil {
 		return err
@@ -88,8 +89,10 @@ func (s *Service) SaveMessageError(ctx context.Context, tx *sql.Tx, message, age
 	return s.saveMessageTargets(ctx, tx, message, targets)
 }
 
-func (s *Service) RetireDeviceMessages(ctx context.Context, tx *sql.Tx, device, reason string) error {
-	rows, err := tx.QueryContext(ctx, `SELECT m.id,m.conversation_id,t.key,`+store.MessageTargetDispatched+` FROM `+store.MessageTargetsFrom+` WHERE json_extract(t.value,'$.device_id')=? AND `+store.MessageTargetPending, device)
+func (s *Service) RetireDeviceMessages(ctx context.Context, tx *gorm.DB, device, reason string) error {
+	tq := store.MessageTargets(s.DB, "m", "t")
+
+	rows, err := store.Rows(ctx, tx, `SELECT m.id,m.conversation_id,`+tq.Key+`,`+tq.Dispatched+` FROM `+tq.From+` WHERE `+tq.Device+`=? AND `+tq.Pending, device)
 	if err != nil {
 		return err
 	}
@@ -128,7 +131,9 @@ func (s *Service) RetireDeviceMessages(ctx context.Context, tx *sql.Tx, device, 
 
 // NotifyDeviceConversations resolves execution ownership before publishing hints.
 func (s *Service) NotifyDeviceConversations(ctx context.Context, id string) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT DISTINCT m.conversation_id FROM `+store.MessageTargetsFrom+` WHERE json_extract(t.value,'$.device_id')=?`, id)
+	tq := store.MessageTargets(s.DB, "m", "t")
+
+	rows, err := store.Rows(ctx, s.DB, `SELECT DISTINCT m.conversation_id FROM `+tq.From+` WHERE `+tq.Device+`=?`, id)
 	if err != nil {
 		return
 	}

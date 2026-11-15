@@ -12,6 +12,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/memory-co/agentuse/internal/testdb"
+
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/service"
 	conversationservice "github.com/memory-co/agentuse/server/internal/service/conversation"
@@ -28,7 +30,12 @@ type env struct {
 
 func newEnv(t *testing.T, cfg Config) *env {
 	t.Helper()
-	st, err := service.Open(":memory:")
+	driver, dsn := testdb.Config(t)
+	repository, err := store.OpenConfig(store.Config{Driver: driver, DSN: dsn})
+	var st *service.Service
+	if err == nil {
+		st = service.New(repository)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,7 +15,7 @@ func (s *Service) CompleteMessages(ctx context.Context, device, conversation, me
 	if localSession == "" || len(localSession) > 128 {
 		return out, fmt.Errorf("session_id required")
 	}
-	tx, err := s.DB.BeginTx(ctx, nil)
+	tx, err := store.Begin(ctx, s.DB)
 	if err != nil {
 		return out, err
 	}
@@ -26,7 +26,7 @@ func (s *Service) CompleteMessages(ctx context.Context, device, conversation, me
 	}
 	// A known local address cannot be borrowed from another conversation/version.
 	var conflicts int
-	err = tx.QueryRowContext(ctx, `SELECT count(*) FROM run_events WHERE device_id=? AND session_id=? AND (conversation_id<>? OR agent_id<>? OR agent_version_id<>?)`, device, localSession, conversation, agent, p.AgentVersionID).Scan(&conflicts)
+	err = store.Row(ctx, tx, `SELECT count(*) FROM run_events WHERE device_id=? AND session_id=? AND (conversation_id<>? OR agent_id<>? OR agent_version_id<>?)`, device, localSession, conversation, agent, p.AgentVersionID).Scan(&conflicts)
 	if err != nil {
 		return out, err
 	}
@@ -34,14 +34,14 @@ func (s *Service) CompleteMessages(ctx context.Context, device, conversation, me
 		return out, fmt.Errorf("client session route conflict")
 	}
 	var current, after int64
-	if err = tx.QueryRowContext(ctx, `SELECT seq FROM messages WHERE id=? AND conversation_id=?`, message, conversation).Scan(&current); err != nil {
+	if err = store.Row(ctx, tx, `SELECT seq FROM messages WHERE id=? AND conversation_id=?`, message, conversation).Scan(&current); err != nil {
 		return out, err
 	}
-	err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(m.seq),0) FROM run_inputs i JOIN runs r ON r.id=i.run_id JOIN messages m ON m.id=i.message_id WHERE r.conversation_id=? AND r.agent_id=? AND r.agent_version_id=? AND r.device_id=? AND r.session_id=? AND m.seq<?`, conversation, agent, p.AgentVersionID, device, localSession, current).Scan(&after)
+	err = store.Row(ctx, tx, `SELECT COALESCE(MAX(m.seq),0) FROM run_inputs i JOIN runs r ON r.id=i.run_id JOIN messages m ON m.id=i.message_id WHERE r.conversation_id=? AND r.agent_id=? AND r.agent_version_id=? AND r.device_id=? AND r.session_id=? AND m.seq<?`, conversation, agent, p.AgentVersionID, device, localSession, current).Scan(&after)
 	if err != nil {
 		return out, err
 	}
-	rows, err := tx.QueryContext(ctx, store.MessageCols+` WHERE conversation_id=? AND seq>? AND seq<? AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.result_message_id=messages.id AND r.device_id=? AND r.session_id=?) ORDER BY seq`, conversation, after, current, device, localSession)
+	rows, err := store.Rows(ctx, tx, store.MessageCols+` WHERE conversation_id=? AND seq>? AND seq<? AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.result_message_id=messages.id AND r.device_id=? AND r.session_id=?) ORDER BY seq`, conversation, after, current, device, localSession)
 	if err != nil {
 		return out, err
 	}

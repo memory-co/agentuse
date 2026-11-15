@@ -1,6 +1,6 @@
 # Conversation 文件树与消息附件
 
-每个 conversation 是一个独立文件命名空间。attachments.relative_path 保存规范化的相对文件路径，(conversation_id, relative_path) 唯一；实际字节通过 fileService 保存在 conversations/<conversation_id>/<relative_path>，与通用 conversation 文件共用本地或 S3 后端。附件 ID 只标识消息引用的业务元数据。文件树从路径派生，不读取或暴露 Server/Client 的主机目录。
+每个 conversation 是一个独立文件命名空间。attachments.relative_path 保存规范化的相对文件路径，完整规范化路径的 SHA-256 保存在 path_hash，(conversation_id, path_hash) 唯一；实际字节通过 fileService 保存在 conversations/<conversation_id>/<relative_path>，与通用 conversation 文件共用本地或 S3 后端。附件 ID 只标识消息引用的业务元数据。文件树从路径派生，不读取或暴露 Server/Client 的主机目录。
 
 ## 路径
 
@@ -31,9 +31,11 @@ Server 首次投递该消息时直接使用已保存快照。随后上传到文�
 
 ## 存储与版本
 
-schema 10 使用 conversations 表和 conversation_id；attachments 保存 relative_path，messages 保存 attachments JSON 快照。附件 API 和内容地址均位于 /api/conversations 下。无旧数据迁移、旧字段别名或旧路由回退。
+遷移基線 `0001_initial` 使用 conversations 表和 conversation_id；attachments 保存 relative_path，messages 保存 attachments JSON 快照。附件 API 和内容地址均位于 /api/conversations 下。无旧数据迁移、旧字段别名或旧路由回退。
 
 ## attachments 表
+
+下列 SQL 是 SQLite 表达的逻辑结构；GORM 在 MySQL/PostgreSQL 中映射相应字段类型。path_hash 避免 MySQL 索引长度限制，真实路径保持最长 4096 字节且不截短。
 
 附件元数据属于 conversationService；只在本稿定义，messages 与 conversation 的 SQL 见 [conversation 设计](server-conversation.md#表結構)。created_by_run_id 记录设备产物的执行来源，created_by_agent_id 由 run 关联读取，是 DTO 投影，不重复存入表。
 
@@ -42,6 +44,7 @@ CREATE TABLE attachments (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     relative_path TEXT NOT NULL,
+    path_hash TEXT NOT NULL,
     filename TEXT NOT NULL,
     content_type TEXT NOT NULL,
     size_bytes INTEGER NOT NULL CHECK(size_bytes>=0),
@@ -52,7 +55,7 @@ CREATE TABLE attachments (
     created_by_run_id TEXT,
     created_at INTEGER NOT NULL
 );
-CREATE UNIQUE INDEX attachments_path ON attachments(conversation_id,relative_path);
+CREATE UNIQUE INDEX attachments_path ON attachments(conversation_id,path_hash);
 CREATE INDEX attachments_conversation ON attachments(conversation_id,created_at,id);
 ```
 

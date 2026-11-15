@@ -64,7 +64,8 @@ agentuse-server start [参数]
 | 参数 | 环境变量 | 默认值 | 说明 |
 |---|---|---|---|
 | `--addr` | `AGENTUSE_ADDR` | `:8080` | HTTP 监听地址，兼用于 WebSocket |
-| `--db` | `AGENTUSE_DB` | `~/.agentuse/server.db` | SQLite 数据库文件；`:memory:` 使用临时数据库 |
+| `--db-driver` | `AGENTUSE_DB_DRIVER` | `sqlite` | 数据库类型：`sqlite`、`mysql`、`postgres` |
+| `--db` | `AGENTUSE_DB` | `~/.agentuse/server.db` | SQLite 文件路径或所选数据库 DSN；SQLite 的 `:memory:` 为临时库 |
 | `--public-url` | `AGENTUSE_PUBLIC_URL` | 空 | 用户和 Client 访问 Server 的地址，用于生成登录链接和安装命令；省略时按监听地址或请求推导 |
 | `--dist` | `AGENTUSE_DIST` | `~/.agentuse/dist` | 各平台 Client 二进制所在目录 |
 | `--attachment-max-bytes` | `AGENTUSE_ATTACHMENT_MAX_BYTES` | `104857600`，100 MiB | 单个附件的最大字节数 |
@@ -123,7 +124,7 @@ agentuse-server start \
 
 `start` 在前台运行，通过 `Ctrl+C` 或 `SIGTERM` 停止。长期部署可由 systemd、容器或其他进程管理器托管。
 
-当前 Server 使用 schema 10。若启动报 `unsupported database schema: reset the database before starting this version`，需使用新的数据库文件启动，再重新创建资源和注册设备；程序不迁移旧数据库。
+Server 默认使用 SQLite，也支持 MySQL、PostgreSQL，均无需 CGO。启动时通过 gormigrate 执行未完成的结构迁移，当前基线为 `0001_initial`。此前 schema 10 等未版本化数据库不迁移；若报 `unsupported database schema: reset the database before starting this version`，需使用新库并重新创建资源和注册设备。新基线之后的正常版本升级保留数据，详见[数据库配置与升级](database.md)。
 
 数据库与会话文件、Skill 包需一起规划备份；文件后端位于 `--files-dir` 或配置的 S3 空间。仅备份 SQLite 不包含文件字节。
 

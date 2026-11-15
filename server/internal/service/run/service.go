@@ -2,8 +2,9 @@ package run
 
 import (
 	"context"
-	"database/sql"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
@@ -13,7 +14,7 @@ import (
 
 // Service owns the run business operations. Peers are explicit contracts.
 type Service struct {
-	DB         *sql.DB
+	DB         *gorm.DB
 	Repository *store.Store
 	Now        func() time.Time
 	Notifier   interface {
@@ -26,17 +27,17 @@ type Service struct {
 }
 
 type agentService interface {
-	ReadVersion(ctx context.Context, q store.QueryReader, id string) (agentuse.AgentVersion, error)
+	ReadVersion(ctx context.Context, q *gorm.DB, id string) (agentuse.AgentVersion, error)
 }
 
 type conversationService interface {
 	NotifyConversation(context.Context, string)
 	GetConversation(ctx context.Context, u agentuse.User, id string) (agentuse.Conversation, error)
 	DeliveryChanged(ctx context.Context, conversation string)
-	PrepareMessage(ctx context.Context, tx *sql.Tx, p MessageTarget) (protocol.ConversationMessage, error)
-	SaveMessageDispatch(context.Context, *sql.Tx, string, string, protocol.ConversationMessage) error
-	SaveMessageError(context.Context, *sql.Tx, string, string, *agentuse.MessageError) error
-	ProjectStatus(ctx context.Context, tx *sql.Tx, conversation string, now int64) error
+	PrepareMessage(ctx context.Context, tx *gorm.DB, p MessageTarget) (protocol.ConversationMessage, error)
+	SaveMessageDispatch(context.Context, *gorm.DB, string, string, protocol.ConversationMessage) error
+	SaveMessageError(context.Context, *gorm.DB, string, string, *agentuse.MessageError) error
+	ProjectStatus(ctx context.Context, tx *gorm.DB, conversation string, now int64) error
 }
 
 type deviceService interface {

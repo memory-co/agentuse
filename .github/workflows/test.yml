@@ -25,6 +25,46 @@ jobs:
       - name: Unit tests
         run: go test -short -race ./...
 
+  databases:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        driver: [sqlite, mysql, postgres]
+    name: metadata database (${{ matrix.driver }}, no CGO)
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: agentuse_test_password
+          MYSQL_DATABASE: agentuse
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -pagentuse_test_password"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: agentuse_test_password
+          POSTGRES_DB: agentuse
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U postgres -d agentuse"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    env:
+      CGO_ENABLED: '0'
+      AGENTUSE_TEST_DB_DRIVER: ${{ matrix.driver }}
+      AGENTUSE_TEST_DB_DSN: ${{ matrix.driver == 'mysql' && 'root:agentuse_test_password@tcp(127.0.0.1:3306)/agentuse' || 'postgres://postgres:agentuse_test_password@127.0.0.1:5432/agentuse?sslmode=disable' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Shared schema, service and HTTP tests
+        run: go test -count=1 ./server/internal/store ./server/internal/service/test ./server/internal/controller ./server/internal/cli ./test/architecture
+      - name: Build without CGO
+        run: go build ./server/cmd/agentuse-server ./client/cmd/agentuse
+
   e2e:
     runs-on: ubuntu-latest
     strategy:

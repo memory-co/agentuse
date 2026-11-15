@@ -3,10 +3,12 @@ package conversation
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/memory-co/agentuse/server/internal/store"
+	"gorm.io/gorm"
 
 	"github.com/memory-co/agentuse/internal/attachment"
 )
@@ -45,12 +47,12 @@ func (s *Service) PutConversationFile(ctx context.Context, access AttachmentAcce
 	}
 	s.conversationFilesMu.Lock()
 	defer s.conversationFilesMu.Unlock()
-	return s.Repository.Tx(ctx, func(tx *sql.Tx) error {
+	return s.Repository.Tx(ctx, func(tx *gorm.DB) error {
 		if _, err := s.attachmentConversation(ctx, tx, access, conversation, true); err != nil {
 			return err
 		}
 		var registered int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM attachments WHERE conversation_id=? AND relative_path=?`, conversation, path).Scan(&registered); err != nil {
+		if err := store.Row(ctx, tx, `SELECT count(*) FROM attachments WHERE conversation_id=? AND relative_path=?`, conversation, path).Scan(&registered); err != nil {
 			return err
 		}
 		if registered != 0 {

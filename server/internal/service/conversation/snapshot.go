@@ -20,7 +20,7 @@ func (s *Service) ReadRound(ctx context.Context, u agentuse.User, id string, seq
 }
 func (s *Service) readConversation(ctx context.Context, u agentuse.User, id string, roundSeq int64) (agentuse.ConversationDetail, error) {
 	var detail agentuse.ConversationDetail
-	tx, err := s.DB.BeginTx(ctx, nil)
+	tx, err := store.Begin(ctx, s.DB)
 	if err != nil {
 		return detail, err
 	}
@@ -102,5 +102,5 @@ func (s *Service) readConversation(ctx context.Context, u agentuse.User, id stri
 	for _, run := range detail.Runs {
 		detail.RunCounts[run.Status]++
 	}
-	return detail, tx.Commit()
+	return detail, tx.Commit().Error
 }

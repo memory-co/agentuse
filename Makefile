@@ -12,8 +12,8 @@ web:
 
 # bin/agentuse(用户电脑)和 bin/agentuse-server(服务端，带网页)
 build: web
-	go build -ldflags "$(LDFLAGS)" -o bin/agentuse ./client/cmd/agentuse
-	go build -ldflags "$(LDFLAGS)" -o bin/agentuse-server ./server/cmd/agentuse-server
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/agentuse ./client/cmd/agentuse
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/agentuse-server ./server/cmd/agentuse-server
 
 # 交叉编译各平台的 agentuse 到 dist/,服务的 setup.sh 从这里下载
 dist:

@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Service) deviceCapabilities(ctx context.Context, id string) ([]string, error) {
-	rows, err := s.DB.QueryContext(ctx, store.DeviceCapabilitiesSelect, id)
+	rows, err := store.Rows(ctx, s.DB, store.DeviceCapabilitiesSelect, id)
 	if err != nil {
 		return nil, err
 	}

@@ -1,16 +1,11 @@
 // SQL used by the server metadata services. Native execution facts are client-owned.
 package store
 
-import (
-	"context"
-	"database/sql"
-)
-
 const CheckRuntimeSelect = `SELECT 1 FROM device_harnesses WHERE device_id = ? AND harness = ? AND user_id = ?`
 
 const RuntimeErrSelect = `SELECT available, enabled FROM device_harnesses WHERE device_id = ? AND harness = ?`
 
-const AgentCols = `SELECT id,user_id,name,device_id,harness,description,created_at,updated_at,current_version_id,version,COALESCE(model,''),instructions FROM (SELECT a.id,a.user_id,v.name,v.device_id AS device_id,v.harness,v.description,a.created_at,a.updated_at,a.current_version_id,v.version,v.model,v.instructions FROM agents a JOIN agent_versions v ON v.id=a.current_version_id WHERE a.deleted_at IS NULL)`
+const AgentCols = `SELECT id,user_id,name,device_id,harness,description,created_at,updated_at,current_version_id,version,COALESCE(model,''),instructions FROM (SELECT a.id,a.user_id,v.name,v.device_id AS device_id,v.harness,v.description,a.created_at,a.updated_at,a.current_version_id,v.version,v.model,v.instructions FROM agents a JOIN agent_versions v ON v.id=a.current_version_id WHERE a.deleted_at IS NULL) AS agent_snapshot`
 const GetAgentClause = ` WHERE id = ?`
 const GetAgentClause2 = ` AND user_id = ?`
 const ListAgentsClause = ` WHERE user_id = ?`
@@ -22,7 +17,7 @@ const AttachmentConversationSelect3 = `SELECT id,role FROM users WHERE token_has
 
 const CommitAttachmentSelect = `SELECT COALESCE(SUM(size_bytes),0) FROM attachments WHERE conversation_id=?`
 
-const CommitAttachmentInsert = `INSERT INTO attachments(id,conversation_id,filename,content_type,size_bytes,sha256,created_by,source,device_id,created_at,created_by_run_id,relative_path) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`
+const CommitAttachmentInsert = `INSERT INTO attachments(id,conversation_id,filename,content_type,size_bytes,sha256,created_by,source,device_id,created_at,created_by_run_id,relative_path,path_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`
 
 const AttachmentCols = `SELECT id,conversation_id,filename,content_type,size_bytes,sha256,created_by,source,COALESCE(device_id,''),created_at,COALESCE(created_by_run_id,''),COALESCE((SELECT agent_id FROM runs r WHERE r.id=attachments.created_by_run_id),''),relative_path FROM attachments`
 
@@ -78,13 +73,9 @@ const DeleteDeviceSelect = "SELECT 1 FROM"
 
 const DeviceConnectedDelete = `DELETE FROM device_capabilities WHERE device_id=?`
 
-const DeviceConnectedInsert = `INSERT OR IGNORE INTO device_capabilities VALUES(?,?)`
-
 const DeviceConnectedUpdate = `UPDATE devices SET status = ?, last_seen_at = ? WHERE id = ?`
 
 const DeviceConnectedUpdate2 = `UPDATE device_harnesses SET available = 0, updated_at = ? WHERE device_id = ?`
-
-const DeviceConnectedInsert2 = `INSERT INTO device_harnesses (device_id,user_id,harness,version,harness_revision,capabilities,available,enabled,updated_at) VALUES(?,?,?,?,?,?,1,0,?) ON CONFLICT(device_id,harness) DO UPDATE SET version=excluded.version,harness_revision=excluded.harness_revision,capabilities=excluded.capabilities,available=1,updated_at=excluded.updated_at`
 
 const DeviceDisconnectedUpdate = `UPDATE devices SET status = ?, last_seen_at = ? WHERE id = ? AND status = ?`
 
@@ -104,13 +95,6 @@ const ConversationCols = `SELECT id,user_id,created_by,COALESCE(parent_conversat
 
 const MessageCols = `SELECT id,conversation_id,author_role,content,created_at,COALESCE(author_agent_id,''),CASE WHEN author_role='agent' THEN COALESCE((SELECT name FROM agent_versions WHERE id=messages.author_agent_version_id),'') WHEN author_role='child_conversation' THEN COALESCE((SELECT title FROM conversations WHERE id=messages.author_conversation_id),'') ELSE COALESCE((SELECT name FROM users WHERE id=messages.author_user_id),'') END,to_agent_ids,to_user_ids,COALESCE(author_user_id,''),COALESCE(reply_to_message_id,''),COALESCE(author_agent_version_id,''),seq,attachments,COALESCE(author_conversation_id,''),COALESCE(author_round_seq,0),agent_targets FROM messages`
 
-// Message targets are metadata on the original message, not execution records.
-// The m/t aliases are shared by readers in the conversation and run services.
-const MessageTargetsFrom = `messages m JOIN json_each(m.agent_targets) t`
-const MessageTargetAccepted = `EXISTS(SELECT 1 FROM run_inputs i JOIN runs r ON r.id=i.run_id WHERE i.message_id=m.id AND r.agent_id=t.key)`
-const MessageTargetPending = `NOT ` + MessageTargetAccepted + ` AND (json_type(t.value,'$.error') IS NULL OR json_extract(t.value,'$.error.uncertain')=1)`
-const MessageTargetDispatched = `COALESCE(json_type(t.value,'$.dispatch')='object',0)`
-
 const GetConversationClause = ` WHERE id = ?`
 
 const GetConversationClause2 = ` AND (user_id = ? OR created_by = ?)`
@@ -124,8 +108,6 @@ const ListConversationsClause3 = ` ORDER BY updated_at DESC, id DESC LIMIT ?`
 const DeleteConversationDelete = `DELETE FROM conversations WHERE id = ?`
 
 const MessagesClause = ` WHERE conversation_id = ? ORDER BY seq`
-
-const CreateUserInsert = `INSERT INTO users (id, name, role, token_hash, created_at) VALUES (?, ?, ?, ?, ?)`
 
 const ResetUserTokenUpdate = `UPDATE users SET token_hash = ? WHERE id = ?`
 
@@ -143,18 +125,7 @@ const RenameConversationUpdate = `UPDATE conversations SET title = ? WHERE id = 
 
 const SetResolvedUpdate = `UPDATE conversations SET status = ?, updated_at = ? WHERE id = ?`
 
-// Query contracts accept both *sql.DB and a caller-owned *sql.Tx.
 type Scanner interface{ Scan(...any) error }
-type Querier interface {
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}
-type RowsQuerier interface {
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-}
-type QueryReader interface {
-	Querier
-	RowsQuerier
-}
 
 func NullIfEmpty(value string) any {
 	if value == "" {

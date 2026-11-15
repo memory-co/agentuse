@@ -61,7 +61,8 @@ func defaultDist() string {
 func runStart(args []string) error {
 	fs := command.NewFlags("agentuse-server start")
 	addr := fs.String("addr", command.EnvOr("AGENTUSE_ADDR", ":8080"), "监听地址")
-	dbPath := fs.String("db", command.EnvOr("AGENTUSE_DB", defaultDB()), "SQLite 数据库文件")
+	dbDriver := fs.String("db-driver", command.EnvOr("AGENTUSE_DB_DRIVER", "sqlite"), "元数据数据库：sqlite、mysql 或 postgres")
+	dbPath := fs.String("db", command.EnvOr("AGENTUSE_DB", defaultDB()), "SQLite 文件路径，或 MySQL/PostgreSQL DSN")
 	publicURL := fs.String("public-url", os.Getenv("AGENTUSE_PUBLIC_URL"), "用户电脑访问服务的地址(写进安装命令),空 = 按请求推断")
 	dist := fs.String("dist", command.EnvOr("AGENTUSE_DIST", defaultDist()), "各平台 agentuse 二进制所在目录(agentuse-<os>-<arch>)")
 	home, _ := os.UserHomeDir()
@@ -118,12 +119,12 @@ func runStart(args []string) error {
 		return errors.New("附件容量必须是有效正整数")
 	}
 
-	if *dbPath != ":memory:" {
+	if *dbDriver == "sqlite" && *dbPath != ":memory:" {
 		if err := os.MkdirAll(filepath.Dir(*dbPath), 0o700); err != nil {
 			return err
 		}
 	}
-	repository, err := store.Open(*dbPath)
+	repository, err := store.OpenConfig(store.Config{Driver: *dbDriver, DSN: *dbPath})
 	if err != nil {
 		return err
 	}

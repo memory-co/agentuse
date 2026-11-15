@@ -11,6 +11,7 @@ v1/v2 是历史存档，其中旧接口和类型不代表当前支持的入口�
 | 入口 | 内容 |
 |---|---|
 | [Server 设计](v3/server-main.md) | 服务端业务划分及各 service 的设计 |
+| [Server 数据库](v3/server-database.md) | GORM、gormigrate、三种数据库、事务与无 CGO 构建 |
 | [Client 设计](v3/client-main.md) | 本机配置、endpoint、session、run 和 harness 的设计 |
 | [嵌套对话设计](v3/server-conversation-nest.md) | context CLI、子对话派发、按轮次通知及澄清后续轮次；表结构规范由 conversation 稿维护 |
 | [Conversation 文件树](v3/conversation-files.md) | 独立路径空间、消息附件快照与目录操作 TODO |

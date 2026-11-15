@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/memory-co/agentuse/server/internal/store"
+
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
@@ -52,7 +54,7 @@ func TestRunsComeFromClientAcceptedAndKeepSupplementMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	var allocated int
-	if err := s.DB.QueryRowContext(ctx, `SELECT count(*) FROM run_inputs`).Scan(&allocated); err != nil || allocated != 0 {
+	if err := store.Row(ctx, s.DB, `SELECT count(*) FROM run_inputs`).Scan(&allocated); err != nil || allocated != 0 {
 		t.Fatal("dispatch allocated an input before accepted", allocated, err)
 	}
 	id := uuid.NewString()

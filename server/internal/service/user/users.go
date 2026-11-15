@@ -12,6 +12,7 @@ import (
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/notification"
 	"github.com/memory-co/agentuse/server/internal/store"
+	"gorm.io/gorm"
 )
 
 var userIDRe = regexp.MustCompile(`^[A-Za-z0-9._:@-]{1,128}$`)
@@ -20,8 +21,8 @@ var userIDRe = regexp.MustCompile(`^[A-Za-z0-9._:@-]{1,128}$`)
 // id 由调用方给(接入方自己的 user id);为空时生成一个 UUID。
 func (s *Service) CreateUser(ctx context.Context, id, name, role string) (agentuse.User, string, error) {
 	name = strings.TrimSpace(name)
-	if name == "" {
-		return agentuse.User{}, "", errors.New("用户名不能为空")
+	if name == "" || utf8.RuneCountInString(name) > 191 {
+		return agentuse.User{}, "", errors.New("用户名须为 1 到 191 个字符")
 	}
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -34,15 +35,14 @@ func (s *Service) CreateUser(ctx context.Context, id, name, role string) (agentu
 	}
 	u := agentuse.User{ID: id, Name: name, Role: role, CreatedAt: s.Now().Unix()}
 	token := store.RandomToken("ut_")
-	_, err := s.DB.ExecContext(ctx,
-		store.CreateUserInsert,
-		u.ID, u.Name, u.Role, store.HashSecret(token), u.CreatedAt)
+	err := s.DB.WithContext(ctx).Create(&store.User{ID: u.ID, Name: u.Name, Role: u.Role, TokenHash: store.HashSecret(token), CreatedAt: u.CreatedAt}).Error
 	if err != nil {
-		if strings.Contains(err.Error(), "users.name") {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			var existing int64
+			if s.DB.WithContext(ctx).Model(&store.User{}).Where("id=?", id).Count(&existing).Error == nil && existing > 0 {
+				return agentuse.User{}, "", fmt.Errorf("用户 id %q 已存在", id)
+			}
 			return agentuse.User{}, "", fmt.Errorf("用户名 %q 已存在", name)
-		}
-		if strings.Contains(err.Error(), "users.id") {
-			return agentuse.User{}, "", fmt.Errorf("用户 id %q 已存在", id)
 		}
 		return agentuse.User{}, "", err
 	}
@@ -69,7 +69,7 @@ func (s *Service) SetUserToken(ctx context.Context, id, token string) (agentuse.
 	if err != nil {
 		return agentuse.User{}, err
 	}
-	if _, err := s.DB.ExecContext(ctx, store.ResetUserTokenUpdate, store.HashSecret(token), id); err != nil {
+	if _, err := store.Exec(ctx, s.DB, store.ResetUserTokenUpdate, store.HashSecret(token), id); err != nil {
 		return agentuse.User{}, err
 	}
 	s.Changes.Publish(notification.Change{Resource: "users", ID: u.ID})
@@ -87,28 +87,28 @@ func ValidateUserToken(token string) error {
 }
 
 func (s *Service) GetUser(ctx context.Context, id string) (agentuse.User, error) {
-	return store.ScanUser(s.DB.QueryRowContext(ctx, store.GetUserSelect, id))
+	return store.ScanUser(store.Row(ctx, s.DB, store.GetUserSelect, id))
 }
 
 // FirstAdmin 是最早建的管理员，服务第一次启动自动建的 admin 一般就是它。
 func (s *Service) FirstAdmin(ctx context.Context) (agentuse.User, error) {
-	return store.ScanUser(s.DB.QueryRowContext(ctx,
+	return store.ScanUser(store.Row(ctx, s.DB,
 		store.FirstAdminSelect, agentuse.RoleAdmin))
 }
 
 func (s *Service) UserByToken(ctx context.Context, token string) (agentuse.User, error) {
-	return store.ScanUser(s.DB.QueryRowContext(ctx,
+	return store.ScanUser(store.Row(ctx, s.DB,
 		store.UserByTokenSelect, store.HashSecret(token)))
 }
 
 func (s *Service) CountUsers(ctx context.Context) (int, error) {
 	var n int
-	err := s.DB.QueryRowContext(ctx, store.CountUsersSelect).Scan(&n)
+	err := store.Row(ctx, s.DB, store.CountUsersSelect).Scan(&n)
 	return n, err
 }
 
 func (s *Service) ListUsers(ctx context.Context) ([]agentuse.User, error) {
-	rows, err := s.DB.QueryContext(ctx, store.ListUsersSelect)
+	rows, err := store.Rows(ctx, s.DB, store.ListUsersSelect)
 	if err != nil {
 		return nil, err
 	}

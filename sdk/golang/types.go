@@ -15,7 +15,7 @@ type User struct {
 
 type CreateUserRequest struct {
 	ID   string `json:"id,omitempty"`
-	Name string `json:"name,omitempty" required:"true" minLength:"1"`
+	Name string `json:"name,omitempty" required:"true" minLength:"1" maxLength:"191"`
 	Role string `json:"role,omitempty"`
 }
 

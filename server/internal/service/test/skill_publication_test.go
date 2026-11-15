@@ -8,6 +8,10 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/memory-co/agentuse/internal/testdb"
+
+	"github.com/memory-co/agentuse/server/internal/store"
+
 	"github.com/memory-co/agentuse/server/internal/service/file"
 	skillservice "github.com/memory-co/agentuse/server/internal/service/skill"
 )
@@ -32,9 +36,7 @@ func TestFailedSkillPublicationRemovesCandidateObject(t *testing.T) {
 		t.Fatal(e)
 	}
 	s.ConfigureFiles(files)
-	if _, e = s.DB.Exec(`CREATE TRIGGER fail_skill BEFORE INSERT ON skill_versions BEGIN SELECT RAISE(ABORT,'forced publication failure'); END`); e != nil {
-		t.Fatal(e)
-	}
+	_ = testdb.RejectWrite(t, s.DB, "skill_versions", "INSERT", "true", "forced publication failure")
 	if _, e = s.Skills.Publish(ctx, u, "", "", bytes.NewReader(skillZIP(t, "test", "body"))); e == nil {
 		t.Fatal("database failure ignored")
 	}
@@ -43,7 +45,7 @@ func TestFailedSkillPublicationRemovesCandidateObject(t *testing.T) {
 		t.Fatal("unpublished package leaked", rows, e)
 	}
 	var count int
-	if e = s.DB.QueryRow(`SELECT count(*) FROM skills`).Scan(&count); e != nil || count != 0 {
+	if e = store.Row(context.Background(), s.DB, `SELECT count(*) FROM skills`).Scan(&count); e != nil || count != 0 {
 		t.Fatal(count, e)
 	}
 }

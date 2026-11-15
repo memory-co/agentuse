@@ -2,9 +2,10 @@ package conversation
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
+
+	"gorm.io/gorm"
 
 	"github.com/memory-co/agentuse/internal/attachment"
 	"github.com/memory-co/agentuse/internal/protocol"
@@ -14,14 +15,14 @@ import (
 )
 
 // prepareMessage assembles conversation context for a fixed delivery assignment.
-func (s *Service) PrepareMessage(ctx context.Context, tx *sql.Tx, p run.MessageTarget) (protocol.ConversationMessage, error) {
+func (s *Service) PrepareMessage(ctx context.Context, tx *gorm.DB, p run.MessageTarget) (protocol.ConversationMessage, error) {
 	ss, err := s.LookupConversation(ctx, tx, agentuse.User{Role: agentuse.RoleAdmin}, p.ConversationID)
 	if err != nil {
 		return protocol.ConversationMessage{}, err
 	}
 	out := protocol.ConversationMessage{ConversationID: p.ConversationID, MessageID: p.MessageID, AgentID: p.AgentID, AgentVersionID: p.AgentVersionID, Content: p.Content, Attachments: []attachment.Attachment{}}
 	instructions := executionPolicy(ss)
-	source, err := store.ScanMessage(tx.QueryRowContext(ctx, store.MessageCols+` WHERE id=? AND conversation_id=?`, p.MessageID, p.ConversationID))
+	source, err := store.ScanMessage(store.Row(ctx, tx, store.MessageCols+` WHERE id=? AND conversation_id=?`, p.MessageID, p.ConversationID))
 	if err != nil {
 		return out, err
 	}

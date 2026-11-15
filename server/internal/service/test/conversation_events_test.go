@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/memory-co/agentuse/internal/testdb"
+
 	"github.com/google/uuid"
 )
 
@@ -21,9 +23,7 @@ func TestResultAndReplyRollbackTogether(t *testing.T) {
 	}
 	run := uuid.NewString()
 	reportNative(t, s, d, delivery, "native", 1, acceptedEvent(run, "one", "work"))
-	if _, err = s.DB.Exec(`CREATE TRIGGER reject_agent_reply BEFORE INSERT ON messages WHEN NEW.author_role='agent' BEGIN SELECT RAISE(FAIL,'forced reply failure'); END`); err != nil {
-		t.Fatal(err)
-	}
+	restore_reject_agent_reply := testdb.RejectWrite(t, s.DB, "messages", "INSERT", "NEW.author_role='agent'", "forced reply failure")
 	data, _ := json.Marshal(map[string]any{"type": "result", "run_id": run, "status": "completed", "input_ids": []string{"one"}, "output": "done"})
 	envelope := reportEnvelope(delivery, "native", 2, data)
 	if err = s.ConversationService.ReportClientEvent(ctx, d.ID, envelope); err == nil {
@@ -33,9 +33,7 @@ func TestResultAndReplyRollbackTogether(t *testing.T) {
 	if err != nil || actual.Status != "running" || actual.ResultMessageID != nil {
 		t.Fatal(actual, err)
 	}
-	if _, err = s.DB.Exec(`DROP TRIGGER reject_agent_reply`); err != nil {
-		t.Fatal(err)
-	}
+	restore_reject_agent_reply()
 	for i := 0; i < 2; i++ {
 		if err = s.ConversationService.ReportClientEvent(ctx, d.ID, envelope); err != nil {
 			t.Fatal(err)

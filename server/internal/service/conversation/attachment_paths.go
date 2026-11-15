@@ -3,18 +3,20 @@ package conversation
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"path"
 	"strings"
 
+	"github.com/memory-co/agentuse/server/internal/store"
+	"gorm.io/gorm"
+
 	"github.com/memory-co/agentuse/internal/attachment"
 )
 
 // Assign a unique path without replacing bytes already referenced by a message.
-func (s *Service) assignAttachmentPath(ctx context.Context, tx *sql.Tx, file *attachment.Attachment) error {
+func (s *Service) assignAttachmentPath(ctx context.Context, tx *gorm.DB, file *attachment.Attachment) error {
 	requested, err := attachment.RelativePath(file.RelativePath)
 	if err != nil {
 		return err
@@ -26,28 +28,27 @@ func (s *Service) assignAttachmentPath(ctx context.Context, tx *sql.Tx, file *at
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	var occupiedPaths []string
+	if err = tx.WithContext(ctx).Model(&store.Attachment{}).Where("conversation_id=?", file.ConversationID).Pluck("relative_path", &occupiedPaths).Error; err != nil {
+		return err
+	}
+	for _, entry := range stored {
+		occupiedPaths = append(occupiedPaths, strings.TrimPrefix(entry.Path, file.ConversationID+"/"))
+	}
 	for version := 2; version < 10000; version++ {
 		if _, err = attachment.RelativePath(candidate); err != nil {
 			return ErrAttachmentPathConflict
 		}
-		var existing string
-		err = tx.QueryRowContext(ctx, `SELECT relative_path FROM attachments WHERE conversation_id=? AND (relative_path=? OR substr(relative_path,1,length(?)+1)=?||'/' OR substr(?,1,length(relative_path)+1)=relative_path||'/') LIMIT 1`, file.ConversationID, candidate, candidate, candidate, candidate).Scan(&existing)
-		if errors.Is(err, sql.ErrNoRows) {
-			for _, entry := range stored {
-				occupied := strings.TrimPrefix(entry.Path, file.ConversationID+"/")
-				if candidate == occupied || strings.HasPrefix(occupied, candidate+"/") || strings.HasPrefix(candidate, occupied+"/") {
-					existing = occupied
-					err = nil
-					break
-				}
+		existing := ""
+		for _, occupied := range occupiedPaths {
+			if candidate == occupied || strings.HasPrefix(occupied, candidate+"/") || strings.HasPrefix(candidate, occupied+"/") {
+				existing = occupied
+				break
 			}
 		}
-		if errors.Is(err, sql.ErrNoRows) {
+		if existing == "" {
 			file.RelativePath = candidate
 			return nil
-		}
-		if err != nil {
-			return err
 		}
 		if strings.HasPrefix(candidate, existing+"/") {
 			return ErrAttachmentPathConflict

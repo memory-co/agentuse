@@ -1,6 +1,6 @@
 # agentService：不可變 Agent 版本與 Skill 版本關聯
 
-> 版本化鏈路已實現，使用數據庫 schema 10 和 agentuse-client/2。表之間不聲明數據庫外鍵。HTTP、DTO 和 agent_versions 統一使用 device_id。
+> 版本化鏈路已實現，使用數據庫 遷移基線 `0001_initial` 和 agentuse-client/2。表之間不聲明數據庫外鍵。HTTP、DTO 和 agent_versions 統一使用 device_id。
 
 ## 職責與對象關係
 
@@ -18,7 +18,7 @@ agentService 只管理 agent 身份、不可變配置版本及其固定的 skill
 
 ## Agent 的版本規則
 
-創建 agent 時同時創建 v1。後續每次保存有效配置變更，都新增一份完整 agent_version，並在同一 SQLite 事務中推進 agents.current_version_id；不 UPDATE 已發佈版本。名稱、說明、設備、harness、模型、指令及 skill 集合/順序都屬於版本內容。完全相同的配置不新增版本。
+創建 agent 時同時創建 v1。後續每次保存有效配置變更，都新增一份完整 agent_version，並在同一 資料庫事務中推進 agents.current_version_id；不 UPDATE 已發佈版本。名稱、說明、設備、harness、模型、指令及 skill 集合/順序都屬於版本內容。完全相同的配置不新增版本。
 
 更新請求帶 base_version_id，必須等於當前版本；併發編輯衝突返回 409，避免後保存的內容覆蓋別人剛發佈的配置。它是版本衝突檢查，不是消息發送的冪等鍵。版本號在事務中遞增；UUID 用於穩定引用，數字 version 用於顯示 v1、v2 等。
 
