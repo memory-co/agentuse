@@ -14,7 +14,7 @@ agentuse-server start
 
 如果安装时输入并确认了密码，脚本会直接在后台启动 Server；再次安装并输入新密码时，会先正常停止该脚本管理的进程，再设置新密码并启动，旧登录凭据失效。网页登录框直接输入所设密码即可。密码不回显、不进入进程参数或日志，也不写入明文文件；数据库保存凭据摘要。
 
-脚本管理的 PID 位于 `~/.agentuse/server.pid`，日志位于 `~/.agentuse/server.log`，上次日志保留为 `server.log.previous`。后台进程使用当前 `AGENTUSE_*` 环境配置；它不是开机自启服务。由 systemd、容器或其他方式启动的既有 Server，需要先通过原管理方式停止，再选择脚本后台启动；脚本不通过端口号或进程名强行终止其他服务。
+脚本管理的 PID 位于 `~/.agentuse/server.pid`，日志位于 `~/.agentuse/server.log`，上次日志保留为 `server.log.previous`。后台进程读取 `~/.agentuse/settings.yaml` 和当前 `AGENTUSE_*` 环境配置；它不是开机自启服务。由 systemd、容器或其他方式启动的既有 Server，需要先通过原管理方式停止，再选择脚本后台启动；脚本不通过端口号或进程名强行终止其他服务。
 
 密码需为 1–1024 字节，不含首尾空白或控制字符，不能使用设备密钥保留前缀 `dk_`。安装脚本与 Server 二进制需包含同一功能；指定旧 Release 时，输入密码会在停止原 Server 前明确报版本不支持，空输入仍照常安装。
 
@@ -59,14 +59,22 @@ agentuse-server start \
 agentuse-server start [参数]
 ```
 
-命令行参数优先于对应环境变量，环境变量优先于默认值。
+Server 启动时自动读取 `~/.agentuse/settings.yaml`，目前支持 `public_url`。文件可按需创建，填写用户和 Client 实际访问的地址，例如 HTTPS 反向代理的域名：
+
+```yaml
+public_url: https://agentuse.example.com
+```
+
+修改后重启 Server 生效。公开地址的优先级为：`--public-url` → `AGENTUSE_PUBLIC_URL` → `settings.yaml` 的 `public_url` → 本机监听地址。参数和环境变量只覆盖本次启动，不改写文件。文件不存在时使用默认值；YAML 格式错误或出现未知字段时会报错并指出文件路径。
+
+其余启动参数的优先级仍为命令行参数 → 对应环境变量 → 默认值。
 
 | 参数 | 环境变量 | 默认值 | 说明 |
 |---|---|---|---|
 | `--addr` | `AGENTUSE_ADDR` | `:8080` | HTTP 监听地址，兼用于 WebSocket |
 | `--db-driver` | `AGENTUSE_DB_DRIVER` | `sqlite` | 数据库类型：`sqlite`、`mysql`、`postgres` |
 | `--db` | `AGENTUSE_DB` | `~/.agentuse/server.db` | SQLite 文件路径或所选数据库 DSN；SQLite 的 `:memory:` 为临时库 |
-| `--public-url` | `AGENTUSE_PUBLIC_URL` | 本机监听地址 | 用户和 Client 访问 Server 的公开地址，反向代理部署时填代理的完整地址，如 `https://agentuse.example.com` |
+| `--public-url` | `AGENTUSE_PUBLIC_URL` | `settings.yaml` 中的 `public_url`，否则本机监听地址 | 用户和 Client 访问 Server 的公开地址，反向代理部署时填代理的完整地址，如 `https://agentuse.example.com` |
 | `--dist` | `AGENTUSE_DIST` | `~/.agentuse/dist` | 各平台 Client 二进制所在目录 |
 | `--attachment-max-bytes` | `AGENTUSE_ATTACHMENT_MAX_BYTES` | `104857600`，100 MiB | 单个附件的最大字节数 |
 | `--attachment-conversation-max-bytes` | `AGENTUSE_ATTACHMENT_CONVERSATION_MAX_BYTES` | `1073741824`，1 GiB | 每个会话全部附件的最大总字节数 |
@@ -82,7 +90,7 @@ agentuse-server start [参数]
 
 两个附件容量参数必须是正整数，单位为字节。
 
-公开地址由后端启动配置统一决定。`--public-url`（或 `AGENTUSE_PUBLIC_URL`）控制登录链接、设备安装命令、`setup.sh` 中的下载和注册地址，以及登录 cookie 的 HTTPS 属性。前端直接展示后端返回的安装命令；Host、Origin、Referer 和代理转发头不会改变公开地址。未配置时固定使用启动时的本机监听地址，例如 `http://localhost:8080`；使用域名、局域网地址或 HTTPS 反向代理时应显式配置公开地址。
+公开地址由后端启动配置统一决定，控制登录链接、设备安装命令、`setup.sh` 中的下载和注册地址，以及登录 cookie 的 HTTPS 属性。前端直接展示后端返回的安装命令；Host、Origin、Referer 和代理转发头不会改变公开地址。未配置时固定使用启动时的本机监听地址，例如 `http://localhost:8080`；使用域名、局域网地址或 HTTPS 反向代理时应在 `settings.yaml` 中配置公开地址，也可通过参数或环境变量提供。
 
 也可以在启动时交互设置密码，标准输入仅用于这次设置，后续普通启动保留数据库中的凭据：
 

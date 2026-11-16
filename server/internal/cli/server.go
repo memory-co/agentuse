@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -36,6 +37,7 @@ const serverUsage = `agentuse-server —— agentuse 服务端
 
 start 是服务进程，只有它读写数据库。其余命令带用户令牌调 HTTP API，用户管理需要管理员权限,
 服务地址和令牌按 -server/-token 参数 → AGENTUSE_SERVER/AGENTUSE_TOKEN → login 存的配置 的顺序找。
+start 从 ~/.agentuse/settings.yaml 读取 public_url；-public-url 和 AGENTUSE_PUBLIC_URL 可覆盖文件。
 `
 
 // Main 是服务端的 agentuse-server。
@@ -63,7 +65,7 @@ func runStart(args []string) error {
 	addr := fs.String("addr", command.EnvOr("AGENTUSE_ADDR", ":8080"), "监听地址")
 	dbDriver := fs.String("db-driver", command.EnvOr("AGENTUSE_DB_DRIVER", "sqlite"), "元数据数据库：sqlite、mysql 或 postgres")
 	dbPath := fs.String("db", command.EnvOr("AGENTUSE_DB", defaultDB()), "SQLite 文件路径，或 MySQL/PostgreSQL DSN")
-	publicURL := fs.String("public-url", os.Getenv("AGENTUSE_PUBLIC_URL"), "公开访问地址或反向代理地址；省略时使用本机监听地址")
+	publicURL := fs.String("public-url", os.Getenv("AGENTUSE_PUBLIC_URL"), "公开访问地址或反向代理地址；覆盖 ~/.agentuse/settings.yaml 的 public_url")
 	dist := fs.String("dist", command.EnvOr("AGENTUSE_DIST", defaultDist()), "各平台 agentuse 二进制所在目录(agentuse-<os>-<arch>)")
 	home, _ := os.UserHomeDir()
 	filesDir := fs.String("files-dir", command.EnvOr("AGENTUSE_FILES_DIR", filepath.Join(home, ".agentuse", "files")), "fileService 本地存储目录")
@@ -90,6 +92,19 @@ func runStart(args []string) error {
 	pidFile := fs.String("pid-file", "", "将本进程 PID 保存到指定文件，正常退出时删除")
 	if err := command.Parse(fs, args); err != nil {
 		return err
+	}
+	settings, err := loadStartSettings(filepath.Join(home, ".agentuse", "settings.yaml"))
+	if err != nil {
+		return err
+	}
+	publicURLFlag := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "public-url" {
+			publicURLFlag = true
+		}
+	})
+	if !publicURLFlag && os.Getenv("AGENTUSE_PUBLIC_URL") == "" {
+		*publicURL = settings.PublicURL
 	}
 	var adminToken string
 	if *adminTokenStdin {

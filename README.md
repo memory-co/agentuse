@@ -54,7 +54,13 @@ agentuse-server start                    # 默认监听 :8080,数据在 ~/.agent
 登录链接: http://localhost:8080/login?token=ut_…
 ```
 
-放到公网 / 反向代理后面时，用 `--public-url https://agentuse.example.com` 指定用户电脑访问服务的地址。登录链接、设备安装命令和安装脚本统一使用这个地址；不指定时使用启动时确定的本机监听地址。
+放到公网 / 反向代理后面时，在 Server 主机的 `~/.agentuse/settings.yaml` 配置公开地址：
+
+```yaml
+public_url: https://agentuse.example.com
+```
+
+保存后重启 Server。登录链接、设备安装命令和安装脚本统一使用这个地址；未配置时使用本机监听地址。可用 `--public-url` 或 `AGENTUSE_PUBLIC_URL` 临时覆盖，详见 [Server CLI](docs/server/cli.md)。
 
 ### 2. 接入一台电脑
 

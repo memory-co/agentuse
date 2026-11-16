@@ -177,6 +177,7 @@ func TestChosenAdminPasswordAndStdin(t *testing.T) {
 func TestBindFailureLeavesRunningServerDeviceStateUntouched(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
+	t.Setenv("HOME", root)
 	path := filepath.Join(root, "server.db")
 	st, err := service.Open(path)
 	if err != nil {
@@ -220,6 +221,7 @@ func TestServerUsageErrors(t *testing.T) {
 }
 
 func TestStartUsesSelectedBackendAndMigratesBeforeListening(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	driver, dsn := testdb.Config(t)
 	if driver == "sqlite" {
 		dsn = filepath.Join(t.TempDir(), "server.db")

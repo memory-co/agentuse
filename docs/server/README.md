@@ -4,6 +4,8 @@
 
 使用 [Server CLI 手册](cli.md) 启动服务、设置存储、保存管理员登录信息、管理用户。`start` 在服务主机上运行；`login` 和 `user` 命令通过 HTTP 访问服务，可以在其他能连通 Server 的机器上运行。
 
+在 Server 主机的 `~/.agentuse/settings.yaml` 写入 `public_url: https://agentuse.example.com` 并重启，即可固定登录链接和安装命令使用的公开地址。`--public-url`、`AGENTUSE_PUBLIC_URL` 可临时覆盖文件值。
+
 服务默认监听 `:8080`。安装脚本支持可选的管理员密码设置，输入密码后后台启动或重启脚本管理的 Server；回车跳过则保持手动启动。未设置密码时，首次启动会创建管理员，并在日志中显示登录令牌和登录链接。登录管理页面后，访问 `/api/docs` 查看并调试 API；也可使用用户 Bearer token 读取 `/api/openapi.json` 或 `/api/openapi.yaml`。
 
 [API 手册](api.md)集中说明鉴权、设备、Agent、Skill、用户和 WebSocket 入口；消息和文件接口由对应专题说明。
