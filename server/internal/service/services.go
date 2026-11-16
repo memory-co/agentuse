@@ -16,6 +16,7 @@ import (
 	"github.com/memory-co/agentuse/server/internal/service/file"
 	"github.com/memory-co/agentuse/server/internal/service/run"
 	"github.com/memory-co/agentuse/server/internal/service/skill"
+	"github.com/memory-co/agentuse/server/internal/service/upgrade"
 	"github.com/memory-co/agentuse/server/internal/service/user"
 )
 
@@ -31,6 +32,7 @@ type Service struct {
 	AgentService        *agent.Service
 	ConversationService *conversation.Service
 	RunService          *run.Service
+	UpgradeService      *upgrade.Service
 	Files               *file.Service
 	Skills              *skill.Service
 }
@@ -43,6 +45,7 @@ func New(db *database.DB) *Service {
 	s.AgentService = &agent.Service{DB: s.DB, Now: now, Changes: s.BrowserChanges}
 	s.ConversationService = &conversation.Service{DB: s.DB, Database: db, Now: now, Log: s.Log, Changes: s.BrowserChanges}
 	s.RunService = &run.Service{DB: s.DB, Database: db, Now: now}
+	s.UpgradeService = upgrade.New(s.DB, upgrade.Config{Now: now, Changes: s.BrowserChanges})
 	s.DeviceService.ConversationService = s.ConversationService
 	s.AgentService.DeviceService, s.AgentService.ConversationService = s.DeviceService, s.ConversationService
 	s.ConversationService.RunService = s.RunService
@@ -62,7 +65,15 @@ func Open(path string) (*Service, error) {
 	}
 	return New(db), nil
 }
-func (s *Service) Close() error { return s.Database.Close() }
+func (s *Service) Close() error { s.UpgradeService.Close(); return s.Database.Close() }
+
+func (s *Service) ConfigureUpgrade(config upgrade.Config) error {
+	s.UpgradeService.Close()
+	config.Now = func() time.Time { return s.Now() }
+	config.Changes = s.BrowserChanges
+	s.UpgradeService = upgrade.New(s.DB, config)
+	return s.UpgradeService.Recover(context.Background())
+}
 func (s *Service) SetNotifier(n notification.Client) {
 	if n != nil {
 		s.notifier = n

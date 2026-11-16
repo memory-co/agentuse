@@ -1,5 +1,7 @@
 # Server API
 
+管理员自升级入口为 `/api/upgrades`，包括查询版本、异步开始、进度及历史，见[自升级 API](upgrades.md#异步-api)。
+
 Server 提供用户、设备、Agent、Skill、conversation 和文件接口。网站后端可通过 [SDK](../../sdk/README.md) 调用；接口权限由请求身份和资源归属共同决定。
 
 ## 在线接口文档

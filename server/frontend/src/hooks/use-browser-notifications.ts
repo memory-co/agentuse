@@ -27,6 +27,7 @@ function refresh(changes: Change[], stillCurrent: () => boolean) {
         break;
       case 'devices': add(['devices']); break;
       case 'users': add(['users']); break;
+      case 'upgrades': for (const query of queryClient.getQueryCache().findAll({ queryKey: ['upgrades'] })) add(query.queryKey); break;
     }
   }
   const predicate = (query: { queryKey: readonly unknown[] }) => reset

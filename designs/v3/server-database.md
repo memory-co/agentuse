@@ -46,3 +46,5 @@ SQLite 的 IMMEDIATE 事务覆盖版本检查、建表及版本写入。PostgreS
 ## 验证
 
 同一套 schema、service 和 HTTP 测试分别运行于 SQLite、MySQL 8.4、PostgreSQL 17，测试各自创建并清理独立数据库。数据库失败注入通过各自的真实触发器完成，不跳过回滚场景。覆盖并发初始化、迁移重入、数据保留、未知版本、空值与大小写、活动轮次唯一性、消息与执行、父通知、文件路径和并发配额。构建与业务测试均在无 CGO 模式下验证；竞态检测使用 Go race 所需的构建环境。
+
+升级记录由迁移 `0002_server_upgrades` 新增，`0001_initial` 保持不变，已有数据继续保留；表结构及约束见 [upgradeService](server-upgrade.md)。

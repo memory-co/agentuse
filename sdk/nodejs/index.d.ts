@@ -144,6 +144,10 @@ export declare class Client {
   listUsers(): Promise<User[]>;
   createUser(user?: { id?: string; name?: string; role?: "admin" | "user" }): Promise<UserToken>;
   resetUserToken(userId: string): Promise<UserToken>;
+  serverUpgrades(options?: {cursor?:string;limit?:number}): Promise<ServerUpgradeState>;
+  latestServerRelease(): Promise<ServerRelease>;
+  startServerUpgrade(): Promise<ServerUpgrade>;
+  getServerUpgrade(id:string): Promise<ServerUpgrade>;
 
   listHarnesses(user: UserId): Promise<Harness[]>;
 
@@ -184,6 +188,10 @@ export declare class Client {
 }
 
 export interface SkillRef {skill_id:string;skill_version_id:string}
+export type ServerUpgradeStatus = "checking"|"downloading"|"prepared"|"installing"|"restarting"|"succeeded"|"failed"|"unchanged";
+export interface ServerUpgrade {id:string;from_version:string;target_version:string;status:ServerUpgradeStatus;release_url:string;downloaded_bytes:number;total_bytes:number;error:string;requested_by:string;created_at:number;updated_at:number;completed_at:number|null}
+export interface ServerUpgradeState {current_version:string;platform:string;supported:boolean;reason:string;active:ServerUpgrade|null;upgrades:ServerUpgrade[];next_cursor:string|null}
+export interface ServerRelease {version:string;current_version:string;available:boolean;url:string;notes:string;published_at:string}
 export interface AgentConfig {name:string;description:string;device_id:string;harness:string;model?:string;instructions:string;skills:SkillRef[]}
 export interface AgentVersion extends AgentConfig {id:string;agent_id:string;version:number;created_at:number}
 export interface SkillVersion {id:string;skill_id:string;version:number;name:string;description:string;sha256:string;size_bytes:number;download_path:string;created_at:number}

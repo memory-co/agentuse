@@ -97,6 +97,8 @@ agentuse conversation read CONVERSATION_ID              # 远端会话管理
 agentuse context --path /绝对路径/context.json --run RUN_UUID enter  # 进入本机执行上下文
 ```
 
+Server 支持通过 CLI 或管理页面进行[异步自升级](docs/server/upgrades.md)，并保留升级历史。
+
 两个 CLI 的完整说明见 [Server CLI](docs/server/cli.md) 和 [Client CLI](docs/client/cli.md)。`start` 的参数也能用环境变量给:`AGENTUSE_ADDR`、`AGENTUSE_DB`、`AGENTUSE_PUBLIC_URL`、`AGENTUSE_DIST`。
 
 ## 文档

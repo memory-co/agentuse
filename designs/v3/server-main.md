@@ -52,6 +52,7 @@ Server 分爲三層：
 
 | Service | 負責什麼 | 主要擁有的表或數據 |
 |---|---|---|
+| [upgradeService](server-upgrade.md) | Server 版本查询、下载校验、文件替换、重启及版本历史 | `server_upgrades` |
 | [userService](server-user.md) | 用戶、角色、訪問令牌和身份校驗 | `users` |
 | [deviceService](server-device.md) | 執行設備的登記、憑據、在線狀態、可用 harness 和執行能力 | `devices`、`device_harnesses`、`device_capabilities` |
 | [agentService](server-agent.md) | Agent 身份、不可變配置版本，以及具體 Skill 版本的固定關聯 | `agents`、`agent_versions`、`agent_version_skills` |

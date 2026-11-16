@@ -50,10 +50,14 @@ agentuse-server start \
 | `agentuse-server user token USER_ID` | 重置用户登录令牌 |
 | `agentuse-server help` | 查看命令一览 |
 | `agentuse-server version` | 显示版本 |
+| `agentuse-server upgrade` | 异步升级 Server 到 GitHub 最新正式版；`--wait` 等待结果 |
+| `agentuse-server upgrade check / status / history` | 查询最新版本、升级进度及历史记录 |
 
 参数支持 `--flag value`、`-flag value` 和 `--flag=value`。布尔参数直接写 `--json`、`--reset-admin-token` 即可。`user create` 和 `user token` 的主对象放在参数之前，其他命令按下文示例使用。
 
 ## start
+
+Server 升级操作见[自升级文档](upgrades.md)，复用 `login` 保存的管理员凭据。
 
 ```bash
 agentuse-server start [参数]

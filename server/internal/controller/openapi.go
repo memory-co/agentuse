@@ -64,6 +64,7 @@ func (s *Server) registerAPI() {
 	api := humago.New(&documentationRouter{server: s}, config)
 	// Huma cannot mark an object reference nullable via a field tag.
 	api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(agentuse.RunUsage{}), false, "").Nullable = true
+	api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(agentuse.ServerUpgrade{}), false, "").Nullable = true
 	schema := func(v any) *huma.Schema { return api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(v), true, "") }
 	jsonResponse := func(status int, v any) *huma.Response {
 		r := &huma.Response{Description: http.StatusText(status)}
@@ -149,6 +150,12 @@ func (s *Server) registerAPI() {
 	bind("POST", "/api/logout", "logout", "清除登录 cookie", "auth", public, nil, nil, 204, s.handleLogout)
 	bind("GET", "/api/browser/ws", "browser-notifications", "Browser change notifications over WebSocket; fetch data through HTTP APIs", "browser", apiAccess{security: config.Security}, nil, nil, 101, s.handleBrowserWS, query("as", "Acting user ID; administrators only. Authentication uses the login cookie."))
 	bind("GET", "/api/me", "get-current-user", "读取当前用户", "auth", user, nil, agentuse.User{}, 200, s.handleMe)
+	bind("GET", "/api/upgrades", "list-server-upgrades", "查看 Server 版本、当前升级及历史记录", "upgrade", admin, nil, agentuse.ServerUpgradeState{}, 200, s.handleUpgradeState, query("cursor", "上一页的 next_cursor"), query("limit", "每页记录数，1–100，默认 20"))
+	bind("GET", "/api/upgrades/latest", "latest-server-release", "查询 GitHub 最新正式版本", "upgrade", admin, nil, agentuse.ServerRelease{}, 200, s.handleLatestUpgrade)
+	bind("GET", "/api/upgrades/{id}", "get-server-upgrade", "查看异步升级进度和结果", "upgrade", admin, nil, agentuse.ServerUpgrade{}, 200, s.handleGetUpgrade)
+	startUpgrade := bind("POST", "/api/upgrades", "start-server-upgrade", "异步下载、校验、替换并重启 Server", "upgrade", admin, nil, agentuse.ServerUpgrade{}, 202, s.handleStartUpgrade)
+	startUpgrade.Responses["503"] = jsonResponse(503, apiErrorBody{})
+	startUpgrade.Description = "仅管理员可调用。立即返回升级记录；升级独立于请求运行，同一实例同时只执行一个升级。轮询记录查看状态，新版本成功启动后确认成功。"
 	bind("GET", "/api/users", "list-users", "列出用户", "user", admin, nil, []agentuse.User{}, 200, s.handleListUsers)
 	bind("POST", "/api/users", "create-user", "创建用户并返回登录令牌", "user", admin, agentuse.CreateUserRequest{}, agentuse.UserToken{}, 201, s.handleCreateUser)
 	bind("POST", "/api/users/{id}/token", "reset-user-token", "重置用户登录令牌", "user", admin, nil, agentuse.UserToken{}, 200, s.handleResetUserToken)

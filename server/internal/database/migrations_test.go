@@ -70,7 +70,7 @@ func TestConcurrentOpenMigratesOnceAndReopenPreservesData(t *testing.T) {
 	if err = db.db.Model(&User{}).Count(&records).Error; err != nil || records != 1 {
 		t.Fatal(records, err)
 	}
-	if err = db.db.Table("schema_migrations").Count(&versions).Error; err != nil || versions != 1 {
+	if err = db.db.Table("schema_migrations").Count(&versions).Error; err != nil || versions != int64(len(migrations())) {
 		t.Fatal(versions, err)
 	}
 }
@@ -84,7 +84,7 @@ func TestVersionedMigrationPreservesDataAndRejectsUnknownVersions(t *testing.T) 
 	if err = db.db.Create(&User{ID: "u", Name: "original", TokenHash: identity.HashSecret("token"), CreatedAt: 1}).Error; err != nil {
 		t.Fatal(err)
 	}
-	steps := append(migrations(), &gormigrate.Migration{ID: "0002_test_column", Migrate: func(tx *gorm.DB) error {
+	steps := append(migrations(), &gormigrate.Migration{ID: "0003_test_column", Migrate: func(tx *gorm.DB) error {
 		return tx.Exec("ALTER TABLE users ADD COLUMN migration_test_value INTEGER NOT NULL DEFAULT 0").Error
 	}})
 	options := *gormigrate.DefaultOptions

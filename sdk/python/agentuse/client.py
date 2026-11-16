@@ -40,6 +40,40 @@ class RunUsage(TypedDict):
     cache_write_tokens: Optional[int]
 
 
+class ServerUpgrade(TypedDict):
+    id: str
+    from_version: str
+    target_version: str
+    status: Literal["checking", "downloading", "prepared", "installing", "restarting", "succeeded", "failed", "unchanged"]
+    release_url: str
+    downloaded_bytes: int
+    total_bytes: int
+    error: str
+    requested_by: str
+    created_at: int
+    updated_at: int
+    completed_at: Optional[int]
+
+
+class ServerUpgradeState(TypedDict):
+    current_version: str
+    platform: str
+    supported: bool
+    reason: str
+    active: Optional[ServerUpgrade]
+    upgrades: List[ServerUpgrade]
+    next_cursor: Optional[str]
+
+
+class ServerRelease(TypedDict):
+    version: str
+    current_version: str
+    available: bool
+    url: str
+    notes: str
+    published_at: str
+
+
 class Run(TypedDict, total=False):
     id: str
     conversation_id: str
@@ -152,6 +186,19 @@ class Client:
 
     def reset_user_token(self, user_id):
         return self._request("POST", f"/api/users/{_q(user_id)}/token")
+
+    def server_upgrades(self, cursor=None, limit=None) -> ServerUpgradeState:
+        query = urllib.parse.urlencode(_drop_none(cursor=cursor, limit=limit))
+        return self._request("GET", "/api/upgrades" + ("?" + query if query else ""))
+
+    def latest_server_release(self) -> ServerRelease:
+        return self._request("GET", "/api/upgrades/latest")
+
+    def start_server_upgrade(self) -> ServerUpgrade:
+        return self._request("POST", "/api/upgrades")
+
+    def get_server_upgrade(self, upgrade_id) -> ServerUpgrade:
+        return self._request("GET", f"/api/upgrades/{_q(upgrade_id)}")
 
     # harnesses
 

@@ -49,6 +49,7 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 		"conversations": "conversation", "conversation_rounds": "conversation", "messages": "conversation", "attachments": "conversation",
 		"run_inputs": "run", "runs": "run", "run_events": "run", "run_requests": "run", "run_controls": "run",
 		"skills": "skill", "skill_versions": "skill",
+		"server_upgrades": "upgrade",
 	}
 	writes := regexp.MustCompile(`(?i)\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+([a-z_]+)`)
 	models := map[string]string{
@@ -57,6 +58,7 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 		"Conversation": "conversations", "ConversationRound": "conversation_rounds", "Message": "messages", "Attachment": "attachments",
 		"Run": "runs", "RunInput": "run_inputs", "RunEvent": "run_events", "RunRequest": "run_requests", "RunControl": "run_controls",
 		"Skill": "skills", "SkillVersion": "skill_versions",
+		"ServerUpgrade": "server_upgrades",
 	}
 	serviceRoot := filepath.Join(root, "service")
 	paths := []string{}
@@ -180,7 +182,7 @@ func TestServerServicePackageDependencies(t *testing.T) {
 	allowed := map[string]map[string]bool{
 		"user": {}, "device": {}, "agent": {"skill": true},
 		"conversation": {"run": true, "file": true, "device": true}, "run": {"skill": true},
-		"skill": {"file": true}, "file": {},
+		"skill": {"file": true}, "file": {}, "upgrade": {},
 	}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -238,7 +240,7 @@ func TestServerServicePackageDependencies(t *testing.T) {
 // dependency container would recreate the removed core layer under another name.
 func TestServerServicesUseDirectModelsAndExplicitDependencies(t *testing.T) {
 	root := filepath.Join("..", "..", "server", "internal")
-	business := map[string]bool{"user": true, "device": true, "agent": true, "conversation": true, "run": true}
+	business := map[string]bool{"user": true, "device": true, "agent": true, "conversation": true, "run": true, "upgrade": true}
 	for _, directory := range []string{"service", "database"} {
 		err := filepath.WalkDir(filepath.Join(root, directory), func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {

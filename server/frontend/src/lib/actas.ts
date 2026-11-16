@@ -18,5 +18,5 @@ export function setActAs(id: string) {
 }
 export const useActAs = () => useSyncExternalStore(l => { listeners.add(l); return () => listeners.delete(l); }, getActAs);
 
-const SELF = /^\/api\/(me|users|login|logout)(\/|$)/;
+const SELF = /^\/api\/(me|users|upgrades|login|logout)(\/|$)/;
 export const actAsHeaders = (path: string): Record<string, string> => (current && !SELF.test(path) ? { 'X-Agentuse-User': current } : {});

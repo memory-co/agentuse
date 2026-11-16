@@ -22,6 +22,7 @@ import (
 	"github.com/memory-co/agentuse/server/internal/hub"
 	"github.com/memory-co/agentuse/server/internal/service"
 	fileservice "github.com/memory-co/agentuse/server/internal/service/file"
+	upgradeservice "github.com/memory-co/agentuse/server/internal/service/upgrade"
 	userservice "github.com/memory-co/agentuse/server/internal/service/user"
 )
 
@@ -33,6 +34,8 @@ const serverUsage = `agentuse-server —— agentuse 服务端
   agentuse-server user create 用户名 [-id 用户id] [-role user|admin]
   agentuse-server user list [-json]
   agentuse-server user token 用户id
+  agentuse-server upgrade [--wait] [-json]
+  agentuse-server upgrade check|status|history [-json]
   agentuse-server version
 
 start 是服务进程，只有它读写数据库。其余命令带用户令牌调 HTTP API，用户管理需要管理员权限,
@@ -46,6 +49,7 @@ func Main(args []string) int {
 		{Name: "start", Run: runStart},
 		{Name: "login", Run: runLogin},
 		{Name: "user", Run: runUser},
+		{Name: "upgrade", Run: runUpgrade},
 	})
 }
 
@@ -61,6 +65,36 @@ func defaultDist() string {
 }
 
 func runStart(args []string) error {
+	var pending *upgradeservice.Restart
+	var restartArgs []string
+	err := serveServer(args, func(plan upgradeservice.Restart, argv []string) { pending = &plan; restartArgs = argv })
+	if err != nil || pending == nil {
+		return err
+	}
+	if err = execServer(pending.Executable, restartArgs, os.Environ()); err == nil {
+		return nil
+	}
+	pending.RecordFailure(err)
+	if restoreErr := pending.Rollback(); restoreErr != nil {
+		return fmt.Errorf("重启失败: %v; 恢复原版本失败: %w", err, restoreErr)
+	}
+	if restoreErr := execServer(pending.Executable, restartArgs, os.Environ()); restoreErr != nil {
+		return fmt.Errorf("重启新版失败: %v; 启动恢复版本失败: %w", err, restoreErr)
+	}
+	return nil
+}
+
+func serverRestartArgs(fs *flag.FlagSet) []string {
+	args := []string{"start"}
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name != "admin-token-stdin" && f.Name != "reset-admin-token" {
+			args = append(args, "--"+f.Name+"="+f.Value.String())
+		}
+	})
+	return args
+}
+
+func serveServer(args []string, onRestart func(upgradeservice.Restart, []string)) error {
 	fs := command.NewFlags("agentuse-server start")
 	addr := fs.String("addr", command.EnvOr("AGENTUSE_ADDR", ":8080"), "监听地址")
 	dbDriver := fs.String("db-driver", command.EnvOr("AGENTUSE_DB_DRIVER", "sqlite"), "元数据数据库：sqlite、mysql 或 postgres")
@@ -184,17 +218,56 @@ func runStart(args []string) error {
 	svc := st
 	transport := hub.New(svc, log.Default())
 	svc.SetNotifier(transport)
+	executable, exeErr := os.Executable()
+	if exeErr == nil {
+		executable, exeErr = filepath.EvalSymlinks(strings.TrimSuffix(executable, " (deleted)"))
+	}
+	if exeErr != nil {
+		executable = ""
+	}
+	hostname, _ := os.Hostname()
+	restartRequests := make(chan upgradeservice.Restart)
+	if err = svc.ConfigureUpgrade(upgradeservice.Config{Context: ctx, Root: filepath.Join(home, ".agentuse", "upgrades"), Executable: executable, DistDir: *dist, Instance: hostname, Log: log.Default(), Restart: func(callCtx context.Context, plan upgradeservice.Restart) error {
+		select {
+		case restartRequests <- plan:
+			return nil
+		case <-callCtx.Done():
+			return callCtx.Err()
+		}
+	}}); err != nil {
+		return err
+	}
 	srv := server.New(st, server.Config{FileStore: files, ClientHandler: transport, PublicURL: base, DistDir: *dist, AttachmentMaxBytes: *maxBytes, AttachmentConversationMaxBytes: *conversationMax})
 	go svc.Run(ctx)
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
+	shutdownDone := make(chan struct{})
 	go func() {
-		<-ctx.Done()
+		var plan *upgradeservice.Restart
+		select {
+		case request := <-restartRequests:
+			plan = &request
+			stop()
+		case <-ctx.Done():
+		}
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = hs.Shutdown(sctx)
+		if err := hs.Shutdown(sctx); err != nil {
+			_ = hs.Close()
+		}
+		if plan != nil {
+			argv := serverRestartArgs(fs)
+			if _, port, _ := net.SplitHostPort(*addr); port == "0" {
+				argv = append(argv, "--addr="+ln.Addr().String())
+			}
+			onRestart(*plan, argv)
+		}
+		close(shutdownDone)
 	}()
 	log.Printf("agentuse 服务已启动: %s (数据库 %s)", base, *dbPath)
-	if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	err = hs.Serve(ln)
+	stop()
+	<-shutdownDone
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil

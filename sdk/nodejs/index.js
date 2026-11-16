@@ -57,6 +57,17 @@ export class Client {
   createUser(user = {}) { return this._request("POST", "/api/users", null, user); }
   resetUserToken(userId) { return this._request("POST", `/api/users/${q(userId)}/token`); }
 
+  serverUpgrades({ cursor, limit } = {}) {
+    const params = new URLSearchParams();
+    if (cursor) params.set("cursor", cursor);
+    if (limit) params.set("limit", String(limit));
+    const query = params.toString();
+    return this._request("GET", `/api/upgrades${query ? `?${query}` : ""}`);
+  }
+  latestServerRelease() { return this._request("GET", "/api/upgrades/latest"); }
+  startServerUpgrade() { return this._request("POST", "/api/upgrades"); }
+  getServerUpgrade(id) { return this._request("GET", `/api/upgrades/${q(id)}`); }
+
   // harnesses
   listHarnesses(user) { return this._request("GET", "/api/harnesses", user); }
 

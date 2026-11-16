@@ -11,6 +11,7 @@ import (
 )
 
 const InitialMigration = "0001_initial"
+const UpgradeMigration = "0002_server_upgrades"
 
 func migrations() []*gormigrate.Migration {
 	return []*gormigrate.Migration{{ID: InitialMigration, Migrate: func(db *gorm.DB) error {
@@ -26,6 +27,11 @@ func migrations() []*gormigrate.Migration {
 			}
 		}
 		return db.Create(&TransactionLock{ID: 1}).Error
+	}}, {ID: UpgradeMigration, Migrate: func(db *gorm.DB) error {
+		if db.Dialector.Name() == "mysql" {
+			db = db.Set("gorm:table_options", "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin")
+		}
+		return db.Migrator().CreateTable(&ServerUpgrade{})
 	}}}
 }
 

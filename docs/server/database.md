@@ -81,3 +81,5 @@ CGO_ENABLED=0 go test -count=1 ./server/internal/database ./server/internal/serv
 ```
 
 测试覆盖并发初始化、迁移重入与未知版本、约束、消息派发、accepted、最终结果、失败回滚、父子会话、文件路径和并发配额。CI 对三种数据库分别执行这些用例及无 CGO 构建。
+
+升级记录由迁移 `0002_server_upgrades` 新增，`0001_initial` 保持不变，已有数据继续保留；表结构及约束见 [自升级文档](upgrades.md)。

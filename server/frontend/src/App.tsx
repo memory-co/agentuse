@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ArrowLeftRight, Bot, Boxes, Check, ChevronRight, Languages, LogOut, Menu, MonitorSmartphone, Plus, Users as UsersIcon, X } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, ArrowUpCircle, Bot, Boxes, Check, ChevronRight, Languages, LogOut, Menu, MonitorSmartphone, Plus, Users as UsersIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Loading, StatusBadge } from '@/components/Shared';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
@@ -24,6 +24,7 @@ import { Agents } from '@/pages/Agents';
 import { Skills } from '@/pages/Skills';
 import { Harnesses } from '@/pages/Harnesses';
 import { Users } from '@/pages/Users';
+import { Upgrades } from '@/pages/Upgrades';
 import { getLocale, setLocale, useT } from '@/lib/i18n';
 
 // 进门先问 GET /api/me:401 显示登录页，否则是壳。admin 和普通用户共用这一套，只是导航项不同。
@@ -38,13 +39,14 @@ export function App() {
   return <ShellProvider><Shell me={me.data} /></ShellProvider>;
 }
 
-type PageKey = 'skills' | 'agents' | 'devices' | 'harnesses' | 'users';
+type PageKey = 'skills' | 'agents' | 'devices' | 'harnesses' | 'users' | 'upgrades';
 const PAGES: { key: PageKey; label: `nav.${PageKey}`; icon: ComponentType; Page: ComponentType<{ me: User }>; admin?: boolean }[] = [
   { key: 'agents', label: 'nav.agents', icon: Bot, Page: Agents },
   { key: 'skills', label: 'nav.skills', icon: Boxes, Page: Skills },
   { key: 'devices', label: 'nav.devices', icon: MonitorSmartphone, Page: Devices },
   { key: 'harnesses', label: 'nav.harnesses', icon: Boxes, Page: Harnesses, admin: true },
   { key: 'users', label: 'nav.users', icon: UsersIcon, Page: Users, admin: true },
+  { key: 'upgrades', label: 'nav.upgrades', icon: ArrowUpCircle, Page: Upgrades, admin: true },
 ];
 
 // 路由放在 hash 里:#/ 新会话,#/conversations/<id> 某个会话,#/agents 等是管理页;
