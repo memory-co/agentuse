@@ -2,6 +2,8 @@
 
 Server/client WebSocket 報文、字段和恢復規則見 [protocol.md](protocol.md)。GORM、gormigrate、三庫約束和無 CGO 驅動見 [數據庫設計](server-database.md)。
 
+Client–Server WS 加密开关、设备证书及消息投递期间的 HTTP 访问授权，见[安全通道与执行期授权草案](client-server-security.md)。该草案待实现；浏览器和用户 API 的认证方式不在其改造范围内。
+
 啟動配置由 CLI 讀取 `~/.agentuse/settings.yaml`，目前支持 `public_url`。公開地址按啟動參數、環境變量、YAML 文件、本機監聽地址的順序確定，固定供登錄鏈接、設備安裝命令和 `setup.sh` 使用，不從瀏覽器或請求頭推斷；修改文件後重啟生效。
 
 Server HTTP API 通過 Huma 註冊，從共用的請求和響應 Go 類型自動生成 OpenAPI。用戶登錄後可打開 `/api/docs` 交互文檔，或讀取 `/api/openapi.json`、`/api/openapi.yaml` 和 `/api/schemas/{schema}.json`。文檔入口沿用用戶 cookie / Bearer 鑒權；每個操作分別標明用戶與設備身份的適用範圍。文件接口使用 multipart 或二進制格式，WebSocket 入口僅描述 HTTP 握手。

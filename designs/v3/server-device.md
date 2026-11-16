@@ -1,5 +1,7 @@
 # deviceService：執行設備
 
+> 设备证书、注册信任及长期身份与执行期访问分离的待实现方案，见[安全通道与执行期授权草案](client-server-security.md)。下文仍描述当前 setup token / device key 行为，不表示已支持证书认证。
+
 > 本文規則已落實到 遷移基線 `0001_initial`、Server API 與業務 service。使用 device/conversation 命名；session_id 只引用 Client 本地執行會話。時間為 Unix 秒，JSON 在 SQLite 使用 TEXT、MySQL 使用 JSON、PostgreSQL 使用 JSONB，關聯由 service 在事務內校驗與清理，不聲明數據庫外鍵。
 
 ## 職責

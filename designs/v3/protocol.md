@@ -2,6 +2,8 @@
 
 > Client/Server 使用 agentuse-client/2，直接投遞 conversation message；本地適配器繼續使用 harnessctl/3。舊版 hello/claim/prompt 協議不再兼容。
 
+> 下一版安全握手、可关闭且默认开启的 WS 内层加密，以及按投递发放的 HTTP 访问令牌，见[安全通道与执行期授权草案](client-server-security.md)。草案目标为 `agentuse-client/3`，尚未实现；本稿下述 `/2` 报文和当前认证行为保持不变。
+
 ## 一、業務只有 message、Agent 和實際 run
 
 Server 保存 conversation message，決定哪些 Agent 要處理它，直接把 message 發給對應 Client。Client 負責找到或準備本地 session，再把消息交給 Agent；適配器受理後返回真正的 run_id，Server 才記錄執行關係。

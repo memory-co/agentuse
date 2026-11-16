@@ -1,5 +1,7 @@
 # Client endpointService：啓動時固定的輸入來源
 
+> 设备私钥与证书的目标存储方式，以及 Server 控制的默认开启 WS 内层加密，见[安全通道与执行期授权草案](client-server-security.md)。该草案待实现；当前 endpoints.yaml 仍按下文保存 device key。
+
 endpointService 管理 endpoints.yaml，向 client 提供已註冊來源的身份。它不創建連接、不領取任務、不選擇 native run_id，也不維護在線狀態或執行嘗試。
 
 ## 文件

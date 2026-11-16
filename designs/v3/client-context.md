@@ -1,5 +1,7 @@
 # Client 執行上下文工具
 
+> [安全通道与执行期授权草案](client-server-security.md)另行定义待实现的授权收敛：context 经 Client 使用当前投递令牌，run 结束后不能凭设备长期身份重新拉取远端内容，本地历史和缓存仍可读取。下文描述当前已实现行为，不代表该草案已经生效。
+
 AI 在執行中直接使用 `context`；人類通過 `agentuse context` 選擇或進入相同上下文。它提供執行身份、狀態與文件能力，遠端 conversation 管理使用 `agentuse conversation`。操作文檔見 [執行上下文手冊](../../docs/client/context.md)。
 
 ## 與 harnessctl 的邊界
