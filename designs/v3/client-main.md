@@ -2,7 +2,7 @@
 
 Server/client WebSocket 報文、字段和恢復規則見 [protocol.md](protocol.md)。
 
-默认开启且可关闭的 Client–Server WS 内层加密、设备证书和执行期访问令牌，见[安全通道与执行期授权草案](client-server-security.md)；该方案待实现，不涉及浏览器连接。
+默认开启且可关闭的 Client–Server WS 内层加密、设备证书和每个 run 的访问令牌，见[安全通道与执行期授权草案](client-server-security.md)；该方案待实现，不涉及浏览器连接。
 
 Client 從輸入來源接收文本，選擇本機 session，調用 harnessctl，並讀取該 session 的 events.jsonl。執行身份只有適配器公佈的 run_id；client 不預分配 run_id，也沒有執行 attempt。Server 的業務編排和調度設計不在本文擴展。
 

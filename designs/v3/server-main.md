@@ -2,7 +2,7 @@
 
 Server/client WebSocket 報文、字段和恢復規則見 [protocol.md](protocol.md)。GORM、gormigrate、三庫約束和無 CGO 驅動見 [數據庫設計](server-database.md)。
 
-Client–Server WS 加密开关、设备证书及消息投递期间的 HTTP 访问授权，见[安全通道与执行期授权草案](client-server-security.md)。该草案待实现；浏览器和用户 API 的认证方式不在其改造范围内。
+Client–Server WS 加密开关、设备证书及基于 HMAC 票据与 run 记录的 HTTP 访问授权，见[安全通道与执行期授权草案](client-server-security.md)。该草案待实现；浏览器和用户 API 的认证方式不在其改造范围内。
 
 啟動配置由 CLI 讀取 `~/.agentuse/settings.yaml`，目前支持 `public_url`。公開地址按啟動參數、環境變量、YAML 文件、本機監聽地址的順序確定，固定供登錄鏈接、設備安裝命令和 `setup.sh` 使用，不從瀏覽器或請求頭推斷；修改文件後重啟生效。
 

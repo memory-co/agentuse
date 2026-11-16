@@ -2,7 +2,7 @@
 
 > Client/Server 使用 agentuse-client/2，直接投遞 conversation message；本地適配器繼續使用 harnessctl/3。舊版 hello/claim/prompt 協議不再兼容。
 
-> 下一版安全握手、可关闭且默认开启的 WS 内层加密，以及按投递发放的 HTTP 访问令牌，见[安全通道与执行期授权草案](client-server-security.md)。草案目标为 `agentuse-client/3`，尚未实现；本稿下述 `/2` 报文和当前认证行为保持不变。
+> 下一版安全握手、可关闭且默认开启的 WS 内层加密，以及投递准备票据与 accepted 后绑定的 run 访问令牌，见[安全通道与执行期授权草案](client-server-security.md)。草案目标为 `agentuse-client/3`，尚未实现；本稿下述 `/2` 报文和当前认证行为保持不变。
 
 ## 一、業務只有 message、Agent 和實際 run
 

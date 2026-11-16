@@ -17,7 +17,7 @@ v1/v2 是历史存档，其中旧接口和类型不代表当前支持的入口�
 | [Conversation 文件树](v3/conversation-files.md) | 独立路径空间、消息附件快照与目录操作 TODO |
 | [Client 执行上下文](v3/client-context.md) | AI 的 context 工具、run 归属、附件快照和人类入口 |
 | [Client ↔ Server 协议](v3/protocol.md) | `agentuse-client/2` 报文、受理、控制及恢复规则 |
-| [Client–Server 安全通道与执行期授权（草案）](v3/client-server-security.md) | 默认开启的 WS 内层加密开关、设备证书、投递令牌及终态撤销；待实现 |
+| [Client–Server 安全通道与执行期授权（草案）](v3/client-server-security.md) | 默认开启的 WS 内层加密开关、设备证书、HMAC 准备票据及 run 令牌失效；待实现 |
 | [v2 资料](v2/designs/main.md) | 早期架构、接口、表结构和 CLI 说明 |
 | [v1 资料](v1/README.md) | 第一版设计与接口说明 |
 

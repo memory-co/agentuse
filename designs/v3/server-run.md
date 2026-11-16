@@ -2,6 +2,8 @@
 
 > 本稿對應 遷移基線 `0001_initial`。嵌套 conversation 的消息回傳歸 conversationService，見 [父子 conversation 設計](server-conversation.md#父子對話)。
 
+> 待实现的 [执行期授权草案](client-server-security.md)保留 accepted 创建实际 run 的时机：init 只使用投递时的 HMAC 准备票据，accepted 后在 runs 保存 access_token_hash 与 access_expires_at，不新增独立 grant 表。下文仍描述当前已实现的字段和认证方式。
+
 Server 使用 [agentuse-client/2](protocol.md)，直接投遞既有 conversation message。只有 Client 上報的 accepted 才建立 runs 和 run_inputs；不預分配 run、input 或 task 身份。
 
 ## 消息到執行的關係
