@@ -13,7 +13,9 @@ const (
 	WSPath            = "/api/client/ws"
 	MePath            = "/api/client/me"
 	ProtocolHeader    = "AgentUse-Protocol"
-	ExecutionProtocol = "agentuse-client/2"
+	ExecutionProtocol = "agentuse-client/3"
+	TypeAccess        = "access"
+	TypeCredential    = "credential"
 	TypeHeartbeat     = "heartbeat"
 	TypeMessage       = "message"
 	TypeEvent         = "event"
@@ -28,11 +30,6 @@ const (
 type RegisterRequest struct {
 	Token    string `json:"token"`
 	Hostname string `json:"hostname"`
-}
-type RegisterResponse struct {
-	DeviceID string `json:"device_id"`
-	Name     string `json:"name"`
-	Key      string `json:"key"`
 }
 type MeResponse struct {
 	DeviceID string `json:"device_id"`
@@ -50,6 +47,11 @@ type Harness struct {
 // Message is a flat WebSocket envelope. The pointers are typed in-memory views,
 // not additional wire envelopes or independent delivery identities.
 type Message struct {
+	CSR           []byte               `json:"csr,omitempty"`
+	Certificate   []byte               `json:"certificate,omitempty"`
+	Access        *Access              `json:"access,omitempty"`
+	RunID         string               `json:"run_id,omitempty"`
+	Operation     string               `json:"op,omitempty"`
 	Type          string               `json:"type"`
 	ID            string               `json:"id"`
 	Status        string               `json:"status,omitempty"`
@@ -106,6 +108,14 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("message id required")
 	}
 	switch m.Type {
+	case TypeCredential:
+		if m.Operation != "renew" {
+			return fmt.Errorf("unsupported credential operation")
+		}
+	case TypeAccess:
+		if m.RunID == "" {
+			return fmt.Errorf("access recovery requires run")
+		}
 	case TypeHeartbeat:
 		if m.FreeSessions < 0 {
 			return fmt.Errorf("negative capacity")
@@ -150,6 +160,15 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	}
 	return nil
 }
+
+// Access is ephemeral transport metadata and must never enter a dispatch,
+// execution event, receipt, adapter input or public API response.
+type Access struct {
+	Token      string `json:"token"`
+	BindBefore int64  `json:"bind_before,omitempty"`
+	ExpiresAt  int64  `json:"expires_at,omitempty"`
+}
+
 func DeliveryFrame(m ConversationMessage) Message {
 	return Message{Type: TypeMessage, ID: m.Key(), Delivery: &m}
 }

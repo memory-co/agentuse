@@ -2,36 +2,34 @@ package endpoint
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"github.com/memory-co/agentuse/internal/protocol"
-	"net/http"
-	"strings"
+	"github.com/memory-co/agentuse/internal/securews"
 	"time"
 )
 
-// CheckKey 用密钥问服务「我是谁」,验证密钥还有效。不建 WebSocket,不影响正在跑的 daemon。
-func CheckKey(ctx context.Context, cfg Endpoint) (protocol.MeResponse, error) {
-	var me protocol.MeResponse
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.ServerURL, "/")+protocol.MePath, nil)
-	if err != nil {
-		return me, err
+var ErrUnauthorized = errors.New("device certificate is unavailable or expired; register this endpoint again")
+
+func (e Endpoint) Credentials() (*securews.Credentials, error) {
+	if e.CredentialsFile == "" {
+		return nil, ErrUnauthorized
 	}
-	req.Header.Set("Authorization", "Bearer "+cfg.DeviceKey)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return me, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUnauthorized {
-		return me, ErrUnauthorized
-	}
-	if resp.StatusCode != http.StatusOK {
-		return me, errors.New(resp.Status)
-	}
-	return me, json.NewDecoder(resp.Body).Decode(&me)
+	return securews.LoadCredentials(e.CredentialsFile)
 }
 
-var ErrUnauthorized = errors.New("device 密钥无效，请重新注册 endpoint")
+// CheckKey validates the certificate without publishing a heartbeat or replacing
+// a running device connection.
+func CheckKey(ctx context.Context, cfg Endpoint) (protocol.MeResponse, error) {
+	credentials, err := cfg.Credentials()
+	if err != nil {
+		return protocol.MeResponse{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	channel, result, err := securews.Authenticate(ctx, cfg.ServerURL, credentials)
+	if err != nil {
+		return protocol.MeResponse{}, err
+	}
+	defer channel.Close()
+	return protocol.MeResponse{DeviceID: result.DeviceID, UserID: result.UserID, Name: result.Name}, nil
+}

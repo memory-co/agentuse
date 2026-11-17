@@ -1,25 +1,23 @@
 package controller
 
-import (
-	"net/http"
-	"strings"
-)
+import "net/http"
 
 func (s *Server) handleMessageContext(w http.ResponseWriter, r *http.Request) {
-	if !strings.HasPrefix(requestToken(r), "dk_") {
-		writeErr(w, 401, "device credential required")
+	if !resourceCredential(r) {
+		writeErr(w, 401, "input credential required")
 		return
 	}
-	if r.Header.Get(actAsHeader) != "" {
-		writeErr(w, 403, "device cannot impersonate users")
-		return
-	}
-	d, err := s.service.DeviceService.DeviceByKey(r.Context(), requestToken(r))
+	r, err := s.executionRequest(r)
 	if err != nil {
-		writeErr(w, 401, "invalid device credential")
+		writeErr(w, 403, "execution access unavailable")
 		return
 	}
-	result, err := s.service.ConversationService.CompleteMessages(r.Context(), d.ID, r.PathValue("id"), r.PathValue("message_id"), r.PathValue("agent_id"), r.URL.Query().Get("session_id"))
+	p := currentExecution(r)
+	if r.PathValue("id") != p.Claims.ConversationID || r.PathValue("message_id") != p.Claims.MessageID || r.PathValue("agent_id") != p.Claims.AgentID {
+		writeErr(w, 403, "input is outside credential scope")
+		return
+	}
+	result, err := s.service.ConversationService.CompleteMessages(r.Context(), p.DeviceID, p.Claims.ConversationID, p.Claims.MessageID, p.Claims.AgentID, r.URL.Query().Get("session_id"))
 	if err != nil {
 		s.serviceErr(w, err)
 		return

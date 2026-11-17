@@ -14,8 +14,8 @@ const InitialMigration = "0001_initial"
 const UpgradeMigration = "0002_server_upgrades"
 
 func migrations() []*gormigrate.Migration {
-	return []*gormigrate.Migration{{ID: InitialMigration, Migrate: func(db *gorm.DB) error {
-		models := []any{&User{}, &Device{}, &DeviceHarness{}, &DeviceCapability{}, &Conversation{}, &Message{}, &ConversationRound{}, &Agent{}, &AgentVersion{}, &AgentVersionSkill{}, &Skill{}, &SkillVersion{}, &Attachment{}, &Run{}, &RunInput{}, &RunEvent{}, &RunRequest{}, &RunControl{}, &TransactionLock{}}
+	return append([]*gormigrate.Migration{{ID: InitialMigration, Migrate: func(db *gorm.DB) error {
+		models := []any{&User{}, &initialDevice{}, &DeviceHarness{}, &DeviceCapability{}, &Conversation{}, &Message{}, &ConversationRound{}, &Agent{}, &AgentVersion{}, &AgentVersionSkill{}, &Skill{}, &SkillVersion{}, &Attachment{}, &initialRun{}, &RunInput{}, &RunEvent{}, &RunRequest{}, &RunControl{}, &TransactionLock{}}
 		db = db.Session(&gorm.Session{NewDB: true})
 		for _, model := range models {
 			query := db.Session(&gorm.Session{NewDB: true})
@@ -32,7 +32,7 @@ func migrations() []*gormigrate.Migration {
 			db = db.Set("gorm:table_options", "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin")
 		}
 		return db.Migrator().CreateTable(&ServerUpgrade{})
-	}}}
+	}}}, securityMigration())
 }
 
 func migrate(db *gorm.DB) error {

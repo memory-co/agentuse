@@ -23,7 +23,7 @@ Server 和 Client 分别用 Huma 生成各自的接口文档。启动并登录�
 | 身份 | 适用范围 |
 |---|---|
 | 用户令牌 `ut_…` | 按用户权限管理资源、发送消息和读写文件；管理员可管理用户及代用户操作 |
-| 设备密钥 `dk_…` | Client 连接、事件上报，以及已派发输入允许的固定版本资源和文件读取 |
+| 输入／run 票据 `at1.…` | 仅由安全设备 WS 发放；准备期只读固定配置和源消息，accepted 后受 run、期限和会话关系限制 |
 
 管理员可带 `X-Agentuse-User: USER_ID` 代指定用户操作。设备不能使用该头冒充用户；Agent 的协作操作必须携带已验证的执行来源，具体范围见 [conversation 权限](conversations.md#模式与嵌套)。
 
@@ -44,7 +44,7 @@ curl -H "Authorization: Bearer $AGENTUSE_TOKEN" \
 | DELETE | `/api/devices/{id}` | 删除设备并断开连接 |
 | GET | `/api/harnesses` | 读取设备上报的执行器视图 |
 
-Client 用 `POST /api/client/register` 消费一次性安装令牌，换取设备密钥；用 `GET /api/client/me` 查询设备身份。设备、执行器及 Agent 的配置顺序见 [快速开始](../client/cli.md#接入-server)。
+Client 使用页面返回的可信 `ar1.` 安装码，在安全 WS 内提交本地生成的 CSR，领取设备证书；私钥不离开 Client。长期设备证书只用于连接和续签，业务 HTTP 使用短期输入／run 票据。旧 `POST /api/client/register`、`GET /api/client/me` 返回 426，旧 `dk_` 不再可用。设备、执行器及 Agent 的配置顺序见 [快速开始](../client/cli.md#接入-server)。
 
 ## Agent 与固定版本
 
@@ -94,3 +94,5 @@ Client 用 `POST /api/client/register` 消费一次性安装令牌，换取设�
 ## WebSocket
 
 `/api/client/ws` 用于 Client 连接和执行协议，Huma 文档描述握手，连接后的报文及恢复规则见 [通信协议](../../designs/v3/protocol.md)。网页通过 `/api/browser/ws` 接收变更提示，再以 HTTP 读取内容，见 [浏览器通知设计](../../designs/v3/server-browser.md)。
+
+设备授权在 run 终态、固定期限到达或设备重置后失效；已受理输入不能退回准备期。历史文件由用户身份读取。WS 内层加密不保护独立 HTTP 下载；需要文件和访问令牌的链路保密时，部署 HTTPS。

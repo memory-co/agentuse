@@ -197,26 +197,17 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 			if err = json.Unmarshal([]byte(e2eutil.MustRun(t, inspect)), &selected); err != nil || selected.RunID != run.ID {
 				t.Fatal("human context selection failed", selected, err)
 			}
-			// File commands use conversation paths and the bound workspace, even
-			// from another working directory and after this run has completed.
+			// Status remains local, while terminal context credentials cannot fetch new bytes.
 			if err = os.Remove(proof.File.LocalPath); err != nil {
 				t.Fatal(err)
 			}
-			fetch := exec.Command(cli, "context", "--path", path, "attachment", "download", attachment.RelativePath)
+			fetch := exec.Command(cli, "context", "--path", path, "--run", run.ID, "attachment", "download", attachment.RelativePath)
 			fetch.Env = e2eutil.Env(home)
 			fetch.Dir = t.TempDir()
-			var downloaded struct {
-				LocalPath string `json:"local_path"`
+			if output, e := fetch.CombinedOutput(); e == nil || !strings.Contains(string(output), "403") {
+				t.Fatal("terminal context retained download access", string(output), e)
 			}
-			if err = json.Unmarshal([]byte(e2eutil.MustRun(t, fetch)), &downloaded); err != nil || downloaded.LocalPath != proof.File.LocalPath {
-				t.Fatal("download ignored context workspace", downloaded, err)
-			}
-			if data, e := os.ReadFile(downloaded.LocalPath); e != nil || !bytes.Equal(data, image) {
-				t.Fatal("downloaded image differs", e)
-			}
-			if _, e := os.Stat(filepath.Join(fetch.Dir, filepath.FromSlash(attachment.RelativePath))); !os.IsNotExist(e) {
-				t.Fatal("download wrote to caller directory", e)
-			}
+
 			shell := filepath.Join(t.TempDir(), "shell")
 			if err = os.WriteFile(shell, []byte("#!/bin/sh\ncontext status\n"), 0700); err != nil {
 				t.Fatal(err)

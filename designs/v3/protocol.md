@@ -1,8 +1,8 @@
 # Client ↔ Server：直接投遞 conversation message
 
-> Client/Server 使用 agentuse-client/2，直接投遞 conversation message；本地適配器繼續使用 harnessctl/3。舊版 hello/claim/prompt 協議不再兼容。
+> Client/Server 使用 agentuse-client/3，直接投遞 conversation message；本地適配器繼續使用 harnessctl/3。舊版 hello/claim/prompt 協議不再兼容。
 
-> 下一版安全握手、可关闭且默认开启的 WS 内层加密，以及投递准备票据与 accepted 后绑定的 run 访问令牌，见[安全通道与执行期授权草案](client-server-security.md)。草案目标为 `agentuse-client/3`，尚未实现；本稿下述 `/2` 报文和当前认证行为保持不变。
+> 安全握手、默认开启的 WS 内层 TLS、准备票据与 accepted 后绑定的 run 访问令牌均已实现，见[安全通道与执行期授权](client-server-security.md)。设备协议仅支持 /3，两端协同升级；旧设备需要重置后重新注册。
 
 ## 一、業務只有 message、Agent 和實際 run
 
@@ -98,9 +98,9 @@ Client 缺少配置時，讀取已有 Agent 版本 API；按其 skills 引用讀
 
 配置與包可以按不可變版本緩存；已有可驗證資源或有效的 session 快照時，不必每條消息重新下載。Client 始終讀取 message 指定的版本，不能改讀 Agent 的 current/latest。相同名稱或本地存在某個 skill，不足以證明它就是所需版本。
 
-配置和 Skill 版本描述的 API 支持按消息分配範圍讀取：device key 只能讀取已投遞給本設備的 message 所固定的 Agent 版本及其 Skill 依賴。Server 必須在發送 message 前提交這項關係，不能等 accepted/run 建立後才允許下載，否則首次 init 無法完成。設備憑據不能枚舉 Agent/Skill 清單，也不能冒用用戶身份。
+配置和 Skill 版本描述的 API 支持按消息分配範圍讀取：输入／run 访问票据 只能讀取已投遞給本設備的 message 所固定的 Agent 版本及其 Skill 依賴。Server 必須在發送 message 前提交這項關係，不能等 accepted/run 建立後才允許下載，否則首次 init 無法完成。設備憑據不能枚舉 Agent/Skill 清單，也不能冒用用戶身份。
 
-權限沿用對應消息/執行的有效範圍，重連不丟失；軟刪除不破壞已有消息的固定版本引用。下載地址只使用同一 endpoint 的 API 路徑，不向其他域傳送 device key。附件仍走既有 conversation 檔案 API。
+權限沿用對應消息/執行的有效範圍，重連不丟失；軟刪除不破壞已有消息的固定版本引用。下載地址只使用同一 endpoint 的 API 路徑，不向其他域傳送访问票据。附件仍走既有 conversation 檔案 API。
 
 ### 本地執行順序
 
@@ -227,7 +227,7 @@ Server 的錯誤 ACK 不表示事件已保存；Client 只有收到 ok 才解除
 
 ## 十一、連接與實作邊界
 
-WebSocket 地址為 `/api/client/ws`，升級請求使用 device key 與 `AgentUse-Protocol: agentuse-client/2`。認證及版本在升級階段檢查，成功後直接發 heartbeat，不另做業務握手；不相容時明確要求升級。不兼容舊版 task、prompt 以及 log/result 外層設計。
+WebSocket 地址為 `/api/client/ws`，升級請求使用 `AgentUse-Protocol: agentuse-client/3`，不携带设备 Bearer。升级后先进行双向挑战、固定 CA 的签名策略、默认 TLS 1.3 通道和私钥持有证明；关闭内层 TLS 只允许 Client 实际连接 WSS。认证成功后发送 heartbeat，业务使用 4 字节大端长度加 JSON。详细握手见[安全通道与执行期授权](client-server-security.md)；不相容时明确要求升级。不兼容舊版 task、prompt 以及 log/result 外層設計。
 
 Server 發送 message、回答和取消控制，管理固定版本與消息/run 關係；不傳 shell、argv、原生 RPC 或 YAML，不指揮本地 init。Client 的 sessionService/harnessService 負責資源準備、快照、init、send 和恢復，適配器負責原生上下文及交互歸屬。
 
@@ -239,7 +239,7 @@ Local 與遠端共用相同的資源校驗、session 綁定和 harnessctl 執行
 
 Server 的資料庫從遷移基線 `0001_initial` 開始由 GORM/gormigrate 管理。消息及消息引用直接使用 UUID，messages.seq 保存順序；messages 保存固定目標及傳輸元數據，run_inputs 僅由 accepted 寫入已受理關聯，不保留 message_agents。首次切換不讀取或轉換此前未版本化資料庫與舊版 Client 收據；使用新庫並重新初始化和註冊設備。新基線之後的資料庫升級按遷移版本執行，不要求每次發布都刪庫，見[資料庫設計](server-database.md)。
 
-公開 HTTP 入口使用 /api/conversations，設備標識使用 device_id，不保留舊入口或字段別名。WebSocket 只支持本文的 /api/client/ws 和 agentuse-client/2，兩端需一起升級。
+公開 HTTP 入口使用 /api/conversations，設備標識使用 device_id，不保留舊入口或字段別名。WebSocket 只支持本文的 /api/client/ws 和 agentuse-client/3，兩端需一起升級。
 
 ## 嵌套 conversation 的業務邊界
 
@@ -252,3 +252,10 @@ Server 的資料庫從遷移基線 `0001_initial` 開始由 GORM/gormigrate 管�
 Client 的 `context attachment list/download` 直接讀取 Server 的 conversation 附件，不按 run 篩選，無須活躍 run。message 只攜帶本次所選附件元資料，移除額外本地 path；relative_path 統一為 conversation 相對路徑。Client 不提前下載，download 才保存到 workspace/<relative_path>。upload 保留 workspace 相對路徑；若 Server 改名則同步保存在返回路徑。設備發布仍提供 X-Agentuse-Run，Server 校驗活動 run 歸屬。提示詞要求 AI 上傳產物並引用 download_path，不以本地路徑作為交付連結。不新增文件 WebSocket 事件。
 
 送入模型的 `complete_messages` 使用可讀的對話文字，按順序標示作者、@收件人、引用的消息正文及附件路徑；不把 API JSON、消息 UUID、序號、雜湊或執行資料直接拼入提示詞。子會話通知保留 context conversation read CHILD_ID --round N 這類可操作的來源導航。API 維持結構化資料，Client 只負責排版。程式產生的標題、工具說明與提示詞統一使用英文，使用者和 Agent 的原始正文保留原文；既有 native session 的初始化快照不改寫。
+
+
+## 安全传输字段
+
+`message.access = {token, bind_before}` 只存在于安全 WS 投递，固定配置 API 和 complete_messages 使用该准备票据。原始消息快照、本地收据、context.json 和原生输入都不保存该字段。accepted 的外层 ClientEvent 携带 `access_token`，native event 本身保持原样；Server 首次绑定后在 ACK 加入 `run_id` 和 `access = {token, expires_at}`，补充输入 ACK 返回同一 run 的原令牌。
+
+凭据恢复请求为 `{type:"access", id:"a:…", run_id:"实际 UUID"}`，响应同 type/id/run_id，并给出 status 和可用时的 access；不创建 run、不改变截止时间。证书续签发生在设备认证完成、首个 heartbeat 之前：`{type:"credential", op:"renew", id:"renew:…", csr:BASE64_PEM}`，响应携带 certificate PEM 的 Base64 字节和 status，Client 原子保存后重连。CSR 的编码为 PEM 字节；它与 Go 的 []byte JSON 编码一致。

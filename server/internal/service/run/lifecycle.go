@@ -60,6 +60,9 @@ func (s *Service) DispatchMessage(ctx context.Context, d agentuse.Device, capaci
 	}
 	err = tx.Commit().Error
 	if err == nil {
+		if err = s.AttachAccess(ctx, &out); err != nil {
+			return out, err
+		}
 		s.ConversationService.NotifyConversation(ctx, out.ConversationID)
 	}
 	return out, err
@@ -87,7 +90,17 @@ func (s *Service) PendingMessages(ctx context.Context, device string) ([]protoco
 		}
 		out = append(out, message)
 	}
-	return out, rows.Err()
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if err = s.AttachAccess(ctx, &out[i]); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func (s *Service) RejectMessage(ctx context.Context, device, id, status, reason string) error {

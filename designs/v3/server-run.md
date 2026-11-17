@@ -2,9 +2,9 @@
 
 > 本稿對應 遷移基線 `0001_initial`。嵌套 conversation 的消息回傳歸 conversationService，見 [父子 conversation 設計](server-conversation.md#父子對話)。
 
-> 待实现的 [执行期授权草案](client-server-security.md)保留 accepted 创建实际 run 的时机：init 只使用投递时的 HMAC 准备票据，accepted 后在 runs 保存 access_token_hash 与 access_expires_at，不新增独立 grant 表。下文仍描述当前已实现的字段和认证方式。
+> [执行期授权](client-server-security.md)已实现：init 使用投递时的 HMAC 准备票据，accepted 后在 runs 保存 access_token_hash 与 access_expires_at，不新增独立 grant 表。来源已受理后不能退回准备期权限；终态、超时和设备重置均阻断访问。
 
-Server 使用 [agentuse-client/2](protocol.md)，直接投遞既有 conversation message。只有 Client 上報的 accepted 才建立 runs 和 run_inputs；不預分配 run、input 或 task 身份。
+Server 使用 [agentuse-client/3](protocol.md)，直接投遞既有 conversation message。只有 Client 上報的 accepted 才建立 runs 和 run_inputs；不預分配 run、input 或 task 身份。
 
 ## 消息到執行的關係
 
@@ -82,6 +82,8 @@ Server 以 GORM/gormigrate 管理遷移基線 `0001_initial` 及後續版本；�
 ```sql
 -- IDs and terminal facts come exclusively from authenticated client reports.
 CREATE TABLE runs (
+    access_token_hash TEXT,
+    access_expires_at INTEGER,
  id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, first_message_id TEXT NOT NULL,
  agent_id TEXT NOT NULL, agent_version_id TEXT NOT NULL, device_id TEXT NOT NULL, session_id TEXT NOT NULL,
  harness TEXT NOT NULL, harness_revision TEXT NOT NULL,
@@ -122,3 +124,5 @@ CREATE TABLE run_controls (
 run_controls.seq 是資料庫生成的內部排序號，用於同秒控制記錄的穩定先後順序，取代 SQLite 隱式 rowid；公開控制仍使用 id。
 
 event_seq 保存 Client session 內完整 JSONL 行的來源位置，不是 Server 另外分配的執行序號。
+
+授权字段由 `0003_device_security` 增加，旧 run 保持 NULL；哈希有唯一索引。补充输入加入同一 run 时保留首次令牌及期限，accepted ACK 通过安全 WS 返回原 run 的令牌；Client 不将令牌写入公开事件或本地收据。

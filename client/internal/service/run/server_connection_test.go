@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
 	"github.com/memory-co/agentuse/client/internal/fileutil"
 	"github.com/memory-co/agentuse/internal/protocol"
+	"github.com/memory-co/agentuse/internal/securews"
 )
 
 func TestRemoteOutboxWaitsForCommitAckAndReplaysSource(t *testing.T) {
@@ -28,7 +28,7 @@ func TestRemoteOutboxWaitsForCommitAckAndReplaysSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connection, err := newConnection(Config{Server: "http://example.com", Key: "test", EndpointID: metadata.EndpointID, RunService: files}, nil)
+	connection, err := newConnection(Config{Server: "http://example.com", Credentials: &securews.Credentials{}, EndpointID: metadata.EndpointID, RunService: files}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,6 +44,7 @@ func TestRemoteOutboxWaitsForCommitAckAndReplaysSource(t *testing.T) {
 	if err = fileutil.WriteJSON(connection.receiptPath(metadata, "m:m7:agent"), receipt); err != nil {
 		t.Fatal(err)
 	}
+	id, _ := securews.NewIdentity(time.Now())
 	received := make(chan protocol.Message, 3)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, e := websocket.Accept(w, r, nil)
@@ -51,21 +52,26 @@ func TestRemoteOutboxWaitsForCommitAckAndReplaysSource(t *testing.T) {
 			return
 		}
 		defer c.CloseNow()
+		channel, _, e := securews.Accept(ctx, c, id, true)
+		if e != nil {
+			return
+		}
 		for {
 			var m protocol.Message
-			if wsjson.Read(ctx, c, &m) != nil {
+			if channel.Read(ctx, &m) != nil {
 				return
 			}
 			received <- m
 		}
 	}))
 	defer server.Close()
-	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	channel, _, err := securews.Connect(ctx, server.URL, &securews.Credentials{CA: id.CA})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.CloseNow()
-	connection.conn = conn
+	defer channel.Close()
+	connection.conn = channel.WS
+	connection.channel = channel
 	if err = connection.flushEvents(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +127,7 @@ func TestRecoverRemoteReceiptUsesOnlyCompleteAcceptedRecords(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			d, _ := newConnection(Config{Server: "http://example.com", Key: "test", EndpointID: metadata.EndpointID, RunService: files}, nil)
+			d, _ := newConnection(Config{Server: "http://example.com", Credentials: &securews.Credentials{}, EndpointID: metadata.EndpointID, RunService: files}, nil)
 			dir := d.sessionDir(metadata)
 			path := d.receiptPath(metadata, "m:m1:agent")
 			if err = fileutil.WriteJSON(path, messageReceipt{Message: protocol.ConversationMessage{MessageID: "m1", AgentID: "agent", ConversationID: metadata.ConversationID, Content: "hello"}, SessionID: metadata.ID, State: "submitting"}); err != nil {
@@ -165,7 +171,7 @@ func TestMessageReceiptSurvivesConversationReclamation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := newConnection(Config{Server: "http://example.com", Key: "test", EndpointID: "remote", RunService: files}, nil)
+	d, err := newConnection(Config{Server: "http://example.com", Credentials: &securews.Credentials{}, EndpointID: "remote", RunService: files}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +208,7 @@ func TestLateAcceptedResolvesUncertainMessageWithoutReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := newConnection(Config{Server: "http://example.com", Key: "test", EndpointID: "remote", RunService: files}, nil)
+	d, err := newConnection(Config{Server: "http://example.com", Credentials: &securews.Credentials{}, EndpointID: "remote", RunService: files}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

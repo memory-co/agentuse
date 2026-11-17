@@ -83,8 +83,8 @@ func ValidateUserToken(token string) error {
 	if token == "" || len(token) > 1024 || !utf8.ValidString(token) || strings.TrimSpace(token) != token || strings.ContainsFunc(token, unicode.IsControl) {
 		return errors.New("登录密码需为 1–1024 字节，不能包含首尾空白或控制字符")
 	}
-	if strings.HasPrefix(token, "dk_") {
-		return errors.New("登录密码不能使用设备密钥保留前缀 dk_")
+	if strings.HasPrefix(token, "dk_") || strings.HasPrefix(token, "at1.") {
+		return errors.New("登录密码不能使用设备凭据保留前缀 dk_ 或 at1.")
 	}
 	return nil
 }

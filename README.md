@@ -67,7 +67,7 @@ public_url: https://agentuse.example.com
 打开网页 →「机器」→「添加设备」,页面会给出一条命令，在要跑 harness 的电脑上执行:
 
 ```bash
-curl -fsSL "https://agentuse.example.com/setup.sh" -o setup.sh && TOKEN="st_…" bash setup.sh
+curl -fsSL "https://agentuse.example.com/setup.sh" -o setup.sh && TOKEN="ar1.…" bash setup.sh
 ```
 
 它会下载 agentuse、注册这台电脑、装成后台服务(macOS launchd / Linux systemd --user,都没有就 nohup)。几秒后页面上这台电脑变成「在线」,并列出本机检测到的 harness。

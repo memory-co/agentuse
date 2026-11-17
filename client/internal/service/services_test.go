@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
+	"github.com/memory-co/agentuse/internal/securews/securewstest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +12,6 @@ import (
 	"github.com/memory-co/agentuse/client/internal/service/harness"
 	"github.com/memory-co/agentuse/client/internal/service/run"
 	"github.com/memory-co/agentuse/client/internal/service/session"
-	"github.com/memory-co/agentuse/internal/protocol"
 )
 
 func TestConfigRoundTrip(t *testing.T) {
@@ -22,7 +19,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	if _, err := LoadConfig(path); !os.IsNotExist(err) {
 		t.Fatalf("missing: %v", err)
 	}
-	c := run.Config{Server: "http://x", DeviceID: "dm_1", Key: "dk_1",
+	c := run.Config{Server: "http://x", DeviceID: "dm_1", CredentialsFile: "device.json",
 		Harnesses: map[string]harness.HarnessConfig{"mine": {Command: "/bin/mine", Args: []string{"-v"}}, "codex": {Disabled: true}}}
 	if err := saveExecutionConfig(path, c); err != nil {
 		t.Fatal(err)
@@ -32,7 +29,7 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 	c.ConfigPath = path
 	got, err := LoadConfig(path)
-	if err != nil || got.Server != c.Server || got.DeviceID != c.DeviceID || got.Key != c.Key || got.EndpointID != "http---x" {
+	if err != nil || got.Server != c.Server || got.DeviceID != c.DeviceID || got.CredentialsFile != c.CredentialsFile || got.EndpointID != "http---x" {
 		t.Fatalf("%v %+v", err, got)
 	}
 	os.WriteFile(path, []byte("{"), 0o600)
@@ -42,42 +39,18 @@ func TestConfigRoundTrip(t *testing.T) {
 }
 
 func TestRegister(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req protocol.RegisterRequest
-		json.NewDecoder(r.Body).Decode(&req)
-		switch {
-		case r.URL.Path != protocol.RegisterPath || r.Method != http.MethodPost:
-			http.NotFound(w, r)
-		case req.Token == "st_ok" && req.Hostname != "":
-			json.NewEncoder(w).Encode(protocol.RegisterResponse{DeviceID: "dm_1", Name: req.Hostname, Key: "dk_1"})
-		case req.Token == "st_text":
-			http.Error(w, "boom", http.StatusInternalServerError)
-		default:
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": "安装令牌无效"})
-		}
-	}))
-	defer ts.Close()
-	ctx := context.Background()
+	peer := securewstest.New(t)
 	path := filepath.Join(t.TempDir(), "endpoints.yaml")
-	// 已有的 harnesses 配置注册后保留
-	saveExecutionConfig(path, run.Config{Harnesses: map[string]harness.HarnessConfig{"mine": {Command: "m"}}})
-
-	cfg, err := Register(ctx, ts.URL+"/", "st_ok", path)
-	if err != nil || cfg.Server != ts.URL || cfg.DeviceID != "dm_1" || cfg.Key != "dk_1" {
-		t.Fatalf("register: %v %+v", err, cfg)
+	cfg, err := Register(context.Background(), peer.URL, peer.Code, path)
+	if err != nil || cfg.DeviceID != "dm_test" || cfg.CredentialsFile == "" {
+		t.Fatal(cfg, err)
 	}
-	if saved, _ := LoadConfig(path); saved.Server != cfg.Server || saved.Key != cfg.Key {
-		t.Fatalf("saved: %+v", saved)
+	saved, err := LoadConfig(path)
+	if err != nil || saved.CredentialsFile != cfg.CredentialsFile {
+		t.Fatal(saved, err)
 	}
-	if _, err := Register(ctx, ts.URL, "st_bad", path); err == nil || err.Error() != "安装令牌无效" {
-		t.Fatalf("server error message: %v", err)
-	}
-	if _, err := Register(ctx, ts.URL, "st_text", path); err == nil || !strings.Contains(err.Error(), "500") {
-		t.Fatalf("non-JSON error: %v", err)
-	}
-	if _, err := Register(ctx, "http://127.0.0.1:1", "st_ok", path); err == nil {
-		t.Fatal("unreachable server should fail")
+	if _, err = Register(context.Background(), peer.URL, "st_legacy", path); err == nil {
+		t.Fatal("legacy token accepted")
 	}
 }
 
@@ -88,14 +61,14 @@ func saveExecutionConfig(path string, c run.Config) error {
 	if c.Server == "" {
 		return nil
 	}
-	return (endpoint.Service{Path: path}).Save(endpoint.Endpoint{Name: c.Server, ServerURL: c.Server, Enabled: true, DeviceID: c.DeviceID, DeviceKey: c.Key})
+	return (endpoint.Service{Path: path}).Save(endpoint.Endpoint{Name: c.Server, ServerURL: c.Server, Enabled: true, DeviceID: c.DeviceID, CredentialsFile: c.CredentialsFile})
 }
 
 func TestUnknownServerNeverFallsBackToAnotherEndpointsKey(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	path := filepath.Join(home, ".agentuse", "endpoints.yaml")
-	if e := (endpoint.Service{Path: path}).Save(endpoint.Endpoint{ServerURL: "https://one.example", Enabled: true, DeviceID: "d1", DeviceKey: "key1"}); e != nil {
+	if e := (endpoint.Service{Path: path}).Save(endpoint.Endpoint{ServerURL: "https://one.example", Enabled: true, DeviceID: "d1", CredentialsFile: "key1"}); e != nil {
 		t.Fatal(e)
 	}
 	t.Setenv("AGENTUSE_SERVER", "https://other.example")
@@ -139,7 +112,7 @@ func TestRunningClientUsesStartupConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	writer := endpoint.Service{Path: path}
-	if err = writer.Save(endpoint.Endpoint{Name: "new", ServerURL: "https://new.example", Enabled: true, DeviceID: "device", DeviceKey: "key"}); err != nil {
+	if err = writer.Save(endpoint.Endpoint{Name: "new", ServerURL: "https://new.example", Enabled: true, DeviceID: "device", CredentialsFile: "key"}); err != nil {
 		t.Fatal(err)
 	}
 	if err = harness.SaveCommandAdapters(adapterRoot, map[string]harness.HarnessConfig{"custom": {Command: "/bin/false"}, "added": {Command: "/bin/true"}}); err != nil {

@@ -102,13 +102,10 @@ func TestDeviceRoutesUseOnlyV3ResourceNames(t *testing.T) {
 	if code := e.req(token, "POST", "/api/devices", map[string]string{"name": "Worker"}, &device).StatusCode; code != 201 {
 		t.Fatal(code)
 	}
-	var registered map[string]json.RawMessage
-	if code := e.req("", "POST", "/api/client/register", map[string]string{"token": device.SetupToken, "hostname": "machine"}, &registered).StatusCode; code != 200 {
-		t.Fatal(code)
+	if code := e.code("", "POST", "/api/client/register", map[string]string{"token": device.SetupToken}); code != 426 {
+		t.Fatal("legacy plaintext exchange enabled", code)
 	}
-	if registered["device_id"] == nil || registered["daemon_id"] != nil {
-		t.Fatal("obsolete registration identity", registered)
-	}
+
 	for path, method := range map[string]string{"/api/daemons": "GET", "/api/daemons/" + device.ID: "DELETE", "/api/daemon/register": "POST", "/api/daemon/me": "GET"} {
 		if code := e.code(token, method, path, nil); code != 404 {
 			t.Fatal("legacy device route exists", method, path, code)

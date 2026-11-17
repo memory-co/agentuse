@@ -12,9 +12,9 @@ import (
 	"github.com/memory-co/agentuse/server/internal/hub"
 
 	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/internal/protocol"
+	"github.com/memory-co/agentuse/internal/securews"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
@@ -29,28 +29,29 @@ func TestMessageProtocolPushAcceptanceAndReplay(t *testing.T) {
 	url := "ws" + strings.TrimPrefix(endpoint.URL, "http") + protocol.WSPath
 	// Authentication and incompatible protocols are rejected before upgrading.
 	_, response, err := websocket.Dial(ctx, url, nil)
-	if err == nil || response == nil || response.StatusCode != 401 {
+	if err == nil || response == nil || response.StatusCode != 426 {
 		t.Fatal("unauthenticated upgrade accepted", response, err)
 	}
 	_, response, err = websocket.Dial(ctx, url, &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer " + f.key}}})
 	if err == nil || response == nil || response.StatusCode != 426 {
 		t.Fatal("old protocol accepted", response, err)
 	}
-	conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer " + f.key}, protocol.ProtocolHeader: []string{protocol.ExecutionProtocol}}})
+	channel, _, err := securews.Authenticate(ctx, endpoint.URL, f.credentials)
 	if err != nil {
 		t.Fatal(err)
 	}
+	conn := channel.WS
 	defer conn.CloseNow()
 	send := func(m protocol.Message) {
 		t.Helper()
-		if e := wsjson.Write(ctx, conn, m); e != nil {
+		if e := channel.Write(ctx, m); e != nil {
 			t.Fatal(e)
 		}
 	}
 	read := func() protocol.Message {
 		t.Helper()
 		var m protocol.Message
-		if e := wsjson.Read(ctx, conn, &m); e != nil {
+		if e := channel.Read(ctx, &m); e != nil {
 			t.Fatal(e)
 		}
 		return m
@@ -80,7 +81,7 @@ func TestMessageProtocolPushAcceptanceAndReplay(t *testing.T) {
 		}
 	}
 	// Configuration is authorized before any accepted/run exists.
-	device := agentuse.New(f.e.ts.URL, f.key)
+	device := agentuse.New(f.e.ts.URL, delivery.Delivery.Access.Token)
 	version, e := device.GetAgentVersion(ctx, "", f.agent, delivery.Delivery.AgentVersionID)
 	if e != nil || version.AgentID != f.agent {
 		t.Fatal(version, e)
@@ -91,7 +92,7 @@ func TestMessageProtocolPushAcceptanceAndReplay(t *testing.T) {
 	}
 	run := uuid.NewString()
 	public, _ := json.Marshal(map[string]any{"type": "accepted", "run_id": run, "input_id": "in-1", "text": delivery.Delivery.Text()})
-	accepted := protocol.EventFrame(protocol.ClientEvent{SessionID: "native-conversation", Seq: 10, MessageID: first.Message.ID, AgentID: f.agent, Event: public})
+	accepted := protocol.EventFrame(protocol.ClientEvent{AccessToken: delivery.Delivery.Access.Token, SessionID: "native-conversation", Seq: 10, MessageID: first.Message.ID, AgentID: f.agent, Event: public})
 	send(accepted)
 	// The next message can be pushed once acceptance is committed, even though
 	// no additional conversation capacity or claim request was sent.

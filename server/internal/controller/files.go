@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"io"
 	"net/http"
 	"strconv"
 )
@@ -31,6 +30,6 @@ func (s *Server) handleConversationFile(w http.ResponseWriter, r *http.Request) 
 		defer stream.Close()
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
-		_, _ = io.Copy(w, stream)
+		_, _ = s.copyResource(w, r, stream)
 	}
 }

@@ -12,6 +12,11 @@ import (
 
 type startSettings struct {
 	PublicURL string `yaml:"public_url"`
+	Security  struct {
+		WSEncryption   *bool  `yaml:"ws_encryption"`
+		PrepareTimeout string `yaml:"prepare_timeout"`
+		RunTimeout     string `yaml:"run_timeout"`
+	} `yaml:"security"`
 }
 
 func loadStartSettings(path string) (startSettings, error) {

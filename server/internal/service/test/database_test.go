@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"github.com/memory-co/agentuse/internal/securews"
 	"path/filepath"
 	"testing"
 	"time"
@@ -29,6 +30,9 @@ func newService(t *testing.T) *service.Service {
 	t.Cleanup(func() { s.Close() })
 	now := time.Unix(1_000_000, 0)
 	s.Now = func() time.Time { now = now.Add(time.Second); return now }
+	if err := s.ConfigureSecurity(service.SecurityConfig{}); err != nil {
+		t.Fatal(err)
+	}
 	return s
 }
 
@@ -40,7 +44,11 @@ func registered(t *testing.T, s *service.Service, u agentuse.User, name string, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d, _, err = s.DeviceService.RegisterDevice(ctx, d.SetupToken, name); err != nil {
+	_, csr, err := securews.NewCredentials(s.Security.Identity.CA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, _, err = s.DeviceService.Enroll(ctx, d.SetupToken, name, csr); err != nil {
 		t.Fatal(err)
 	}
 	var rep []deviceservice.ReportedHarness

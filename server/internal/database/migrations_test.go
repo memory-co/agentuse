@@ -248,3 +248,60 @@ func TestRoutingJSONProjectionHandlesAliasesAndReceiptFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestSecurityMigrationUpgradesPublishedBaselineWithoutMintingAccess(t *testing.T) {
+	db, err := OpenConfig(backendConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tables, err := db.db.Migrator().GetTables()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range tables {
+		if strings.HasPrefix(table, "sqlite_") {
+			continue
+		}
+		if err = db.db.Migrator().DropTable(table); err != nil {
+			t.Fatal(err)
+		}
+	}
+	options := *gormigrate.DefaultOptions
+	options.TableName = "schema_migrations"
+	if err = gormigrate.New(db.db, &options, migrations()[:2]).Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	if db.db.Migrator().HasColumn(&Run{}, "AccessTokenHash") || db.db.Migrator().HasColumn(&Device{}, "CredentialGeneration") {
+		t.Fatal("published baseline changed")
+	}
+	key, setup := "old-hash", "st_old"
+	if err = db.db.Create(&initialDevice{ID: "device", UserID: "user", Name: "retained", KeyHash: &key, SetupToken: &setup, Status: "offline", CreatedAt: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = db.db.Create(&initialRun{ID: "run", ConversationID: "conversation", FirstMessageID: "message", AgentID: "agent", AgentVersionID: "version", DeviceID: "device", SessionID: "native", Harness: "test", HarnessRevision: "revision", Status: "running", CreatedAt: 1, UpdatedAt: 1}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err = migrate(db.db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var d Device
+	var r Run
+	if err = db.db.Where("id=?", "device").Take(&d).Error; err != nil || d.CredentialGeneration != 1 || string(d.Name) != "retained" {
+		t.Fatal(d, err)
+	}
+	if err = db.db.Where("id=?", "run").Take(&r).Error; err != nil || r.AccessTokenHash != nil || r.AccessExpiresAt != nil || r.Status != "running" {
+		t.Fatal("migration fabricated authorization", r, err)
+	}
+	tables, err = db.db.Migrator().GetTables()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range tables {
+		if strings.Contains(name, "grant") || strings.Contains(name, "ticket") {
+			t.Fatal("independent authorization table created", name)
+		}
+	}
+}

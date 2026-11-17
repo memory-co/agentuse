@@ -145,10 +145,10 @@ func runStatus(args []string) error {
 	if err != nil {
 		return err
 	}
-	conn := "正常(密钥有效)"
-	if cfg.Key == "" {
+	conn := "正常(证书有效)"
+	if cfg.CredentialsFile == "" {
 		conn = "未注册"
-	} else if _, err := endpointservice.CheckKey(context.Background(), endpointservice.Endpoint{ServerURL: cfg.Server, DeviceKey: cfg.Key}); err != nil {
+	} else if _, err := endpointservice.CheckKey(context.Background(), endpointservice.Endpoint{ServerURL: cfg.Server, CredentialsFile: cfg.CredentialsFile}); err != nil {
 		conn = "失败: " + err.Error()
 	}
 	command.PrintTable(os.Stdout, [][]string{

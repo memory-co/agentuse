@@ -99,7 +99,7 @@ func (s *Service) prepareResources(ctx context.Context, m session.Session, r Req
 			data = r.localPackages[index]
 		} else {
 			var e error
-			data, e = s.cachedSkill(ctx, m, resource)
+			data, e = s.cachedSkill(ctx, m, resource, r.resourceToken)
 			if e != nil {
 				return fail(e)
 			}
@@ -129,7 +129,7 @@ func (s *Service) prepareResources(ctx context.Context, m session.Session, r Req
 
 // The cache is local to the endpoint/conversation and is checked against the
 // immutable version descriptor before reuse, including after interrupted writes.
-func (s *Service) cachedSkill(ctx context.Context, m session.Session, resource protocol.SkillResource) ([]byte, error) {
+func (s *Service) cachedSkill(ctx context.Context, m session.Session, resource protocol.SkillResource, tokens ...string) ([]byte, error) {
 	if resource.SizeBytes <= 0 || resource.SizeBytes > skillbundle.MaxArchive || uuid.Validate(resource.SkillID) != nil || uuid.Validate(resource.SkillVersionID) != nil {
 		return nil, fmt.Errorf("invalid skill package descriptor")
 	}
@@ -162,7 +162,10 @@ func (s *Service) cachedSkill(ctx context.Context, m session.Session, resource p
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("Authorization", "Bearer "+ep.DeviceKey)
+	if len(tokens) != 1 || tokens[0] == "" {
+		return nil, fmt.Errorf("preparation credential unavailable")
+	}
+	request.Header.Set("Authorization", "Bearer "+tokens[0])
 	response, err := (&http.Client{Timeout: time.Minute, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}).Do(request)
 	if err != nil {
 		return nil, err

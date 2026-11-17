@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/memory-co/agentuse/internal/protocol"
+	"github.com/memory-co/agentuse/internal/securews"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/database"
 )
@@ -233,7 +234,13 @@ type deviceView struct {
 func (s *Server) view(d agentuse.Device) deviceView {
 	v := deviceView{Device: d}
 	if d.SetupToken != "" {
-		v.SetupCommand = setupCommand(s.cfg.PublicURL, d.SetupToken)
+		invitation, err := securews.EncodeInvitation(s.cfg.PublicURL, s.service.Security.Identity.CA, d.SetupToken)
+		if err != nil {
+			s.log.Printf("device installation code: %v", err)
+			return v
+		}
+		v.SetupToken = invitation
+		v.SetupCommand = setupCommand(s.cfg.PublicURL, invitation)
 	}
 	return v
 }
@@ -381,6 +388,15 @@ func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 201, reply)
 }
 func (s *Server) handleGetConversation(w http.ResponseWriter, r *http.Request) {
+	if p := currentExecution(r); p != nil && p.Preparing {
+		v, err := s.service.ConversationService.GetConversation(r.Context(), currentUser(r), p.Claims.ConversationID)
+		if err != nil {
+			s.serviceErr(w, err)
+			return
+		}
+		writeJSON(w, 200, agentuse.ConversationDetail{Conversation: v})
+		return
+	}
 	if !s.conversationInScope(w, r, r.PathValue("id"), false) {
 		return
 	}
@@ -464,32 +480,12 @@ func firstRunes(s string, n int) string {
 	return string(r[:n])
 }
 
-// handleDeviceMe:device 用密钥查自己，验证密钥是否还有效。
+// handleDeviceMe retires the old device HTTP bearer identity exchange.
 func (s *Server) handleDeviceMe(w http.ResponseWriter, r *http.Request) {
-	key := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	d, err := s.service.DeviceService.DeviceByKey(r.Context(), key)
-	if key == "" || err != nil {
-		writeErr(w, http.StatusUnauthorized, "device 密钥无效，请重新运行安装命令")
-		return
-	}
-	writeJSON(w, http.StatusOK, protocol.MeResponse{DeviceID: d.ID, Name: d.Name, UserID: d.UserID, Status: d.Status})
+	writeErr(w, http.StatusUpgradeRequired, "device authentication requires the secure WebSocket protocol")
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
-	var req protocol.RegisterRequest
-	if err := readJSON(r, &req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	d, key, err := s.service.DeviceService.RegisterDevice(r.Context(), strings.TrimSpace(req.Token), req.Hostname)
-	if errors.Is(err, database.ErrNotFound) {
-		writeErr(w, http.StatusUnauthorized, "安装令牌无效或已用过，请在页面上重新生成安装命令")
-		return
-	}
-	if err != nil {
-		s.serviceErr(w, err)
-		return
-	}
-	s.log.Printf("device %s (%s) 注册成功", d.ID, d.Name)
-	writeJSON(w, http.StatusOK, protocol.RegisterResponse{DeviceID: d.ID, Name: d.Name, Key: key})
+	w.Header().Set(protocol.ProtocolHeader, protocol.ExecutionProtocol)
+	writeErr(w, http.StatusUpgradeRequired, "register using a trusted installation code and the authenticated device WebSocket")
 }

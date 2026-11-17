@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"errors"
+	"github.com/memory-co/agentuse/internal/securews"
 	"testing"
 
 	"github.com/google/uuid"
@@ -21,18 +22,26 @@ func TestDeviceSetup(t *testing.T) {
 	if err != nil || d.Status != agentuse.DevicePending || d.SetupToken == "" || d.Name != "" {
 		t.Fatalf("create: %v %+v", err, d)
 	}
-	if _, _, err := s.DeviceService.RegisterDevice(ctx, "st_nope", "h"); !errors.Is(err, database.ErrNotFound) {
+	_, csr, err := securews.NewCredentials(s.Security.Identity.CA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.DeviceService.Enroll(ctx, "st_nope", "h", csr); !errors.Is(err, database.ErrNotFound) {
 		t.Fatalf("bad setup token: %v", err)
 	}
 	// 没起名字：用主机名;主机名也没有就用 id
-	reg, key, err := s.DeviceService.RegisterDevice(ctx, d.SetupToken, "")
+	reg, cert, err := s.DeviceService.Enroll(ctx, d.SetupToken, "", csr)
 	if err != nil || reg.Name != d.ID || reg.Status != agentuse.DeviceOffline {
 		t.Fatalf("register: %v %+v", err, reg)
 	}
-	if _, _, err := s.DeviceService.RegisterDevice(ctx, d.SetupToken, "h"); !errors.Is(err, database.ErrNotFound) {
+	if _, _, err := s.DeviceService.Enroll(ctx, d.SetupToken, "h", csr); !errors.Is(err, database.ErrNotFound) {
 		t.Fatal("setup token is single-use")
 	}
-	if got, err := s.DeviceService.DeviceByKey(ctx, key); err != nil || got.ID != d.ID || got.SetupToken != "" {
+	peer, err := securews.VerifyDevice(s.Security.Identity.CA, cert, s.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.DeviceService.AuthenticateCertificate(ctx, peer); err != nil || got.ID != d.ID || got.SetupToken != "" {
 		t.Fatalf("by key: %v %+v", err, got)
 	}
 
@@ -44,10 +53,10 @@ func TestDeviceSetup(t *testing.T) {
 	if err != nil || reset.Status != agentuse.DevicePending || reset.SetupToken == "" || reset.SetupToken == d.SetupToken {
 		t.Fatalf("reset: %v %+v", err, reset)
 	}
-	if _, err := s.DeviceService.DeviceByKey(ctx, key); !errors.Is(err, database.ErrNotFound) {
+	if _, err := s.DeviceService.AuthenticateCertificate(ctx, peer); err == nil {
 		t.Fatal("old key should be invalid after reset")
 	}
-	if again, _, err := s.DeviceService.RegisterDevice(ctx, reset.SetupToken, "other-host"); err != nil || again.Name != d.ID {
+	if again, _, err := s.DeviceService.Enroll(ctx, reset.SetupToken, "other-host", csr); err != nil || again.Name != d.ID {
 		t.Fatalf("re-register keeps name: %v %+v", err, again)
 	}
 }

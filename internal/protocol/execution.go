@@ -18,6 +18,7 @@ type SkillResource struct {
 // ConversationMessage refers directly to one saved message and its target Agent.
 // Agent configuration is read separately through the immutable version API.
 type ConversationMessage struct {
+	Access         *Access                 `json:"access,omitempty"`
 	ConversationID string                  `json:"conversation_id"`
 	MessageID      string                  `json:"message_id"`
 	AgentID        string                  `json:"agent_id"`
@@ -39,6 +40,7 @@ func (m ConversationMessage) Text() string {
 }
 
 type ClientEvent struct {
+	AccessToken    string          `json:"access_token,omitempty"`
 	AgentVersionID string          `json:"agent_version_id,omitempty"`
 	ConversationID string          `json:"conversation_id,omitempty"`
 	AgentID        string          `json:"agent_id,omitempty"`

@@ -2,11 +2,12 @@ package controller
 
 import (
 	"context"
+	"github.com/memory-co/agentuse/internal/securews"
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
-	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	deviceservice "github.com/memory-co/agentuse/server/internal/service/device"
 )
@@ -202,7 +203,8 @@ func (e *env) deviceWith(u agentuse.User, harnesses ...string) agentuse.Device {
 	e.t.Helper()
 	ctx := context.Background()
 	d, _ := e.st.DeviceService.CreateDevice(ctx, u.ID, "laptop")
-	d, _, _ = e.st.DeviceService.RegisterDevice(ctx, d.SetupToken, "")
+	_, csr, _ := securews.NewCredentials(e.st.Security.Identity.CA)
+	d, _, _ = e.st.DeviceService.Enroll(ctx, d.SetupToken, "", csr)
 	var rep []deviceservice.ReportedHarness
 	for _, h := range harnesses {
 		rep = append(rep, deviceservice.ReportedHarness{Name: h})
@@ -287,24 +289,44 @@ func TestDevicesAPI(t *testing.T) {
 	}
 
 	// 注册后不再有安装命令
-	var reg protocol.RegisterResponse
-	if r := e.req("", "POST", "/api/client/register", map[string]string{"token": v.SetupToken, "hostname": "host"}, &reg); r.StatusCode != 200 || reg.DeviceID != v.ID {
-		t.Fatalf("register: %d %+v", r.StatusCode, reg)
+	invitation, err := securews.DecodeInvitation(v.SetupToken)
+	if err != nil {
+		t.Fatal(err)
 	}
+	credentials, csr, err := securews.NewCredentials(invitation.CA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	channel, _, err := securews.Connect(context.Background(), e.ts.URL, credentials)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = channel.Write(context.Background(), securews.Authentication{Type: "enroll", Token: invitation.Token, CSR: csr, Hostname: "host"}); err != nil {
+		t.Fatal(err)
+	}
+	var reg securews.AuthResult
+	if err = channel.Read(context.Background(), &reg); err != nil || reg.Type != "enrolled" || reg.DeviceID != v.ID {
+		t.Fatal(reg, err)
+	}
+	channel.Close()
+	if _, err = credentials.SetCertificate(reg.Certificate, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
 	var after []deviceView
 	if e.req(aliceTok, "GET", "/api/devices", nil, &after); after[0].SetupCommand != "" || after[0].SetupToken != "" || after[0].Name != "host" {
 		t.Fatalf("after register: %+v", after)
 	}
-	if c := e.code("", "POST", "/api/client/register", map[string]string{"token": v.SetupToken}); c != http.StatusUnauthorized {
+	if c := e.code("", "POST", "/api/client/register", map[string]string{"token": v.SetupToken}); c != http.StatusUpgradeRequired {
 		t.Fatalf("reuse setup token: %d", c)
 	}
-	if c := e.code("", "POST", "/api/client/register", "x"); c != http.StatusBadRequest {
+	if c := e.code("", "POST", "/api/client/register", "x"); c != http.StatusUpgradeRequired {
 		t.Fatalf("register bad json: %d", c)
 	}
-	if c := e.code(reg.Key, "GET", "/api/client/me", nil); c != http.StatusOK {
+	if c := e.code("dk_retired", "GET", "/api/client/me", nil); c != http.StatusUpgradeRequired {
 		t.Fatalf("device me: %d", c)
 	}
-	if c := e.code("", "GET", "/api/client/me", nil); c != http.StatusUnauthorized {
+	if c := e.code("", "GET", "/api/client/me", nil); c != http.StatusUpgradeRequired {
 		t.Fatalf("device me without key: %d", c)
 	}
 
@@ -315,7 +337,7 @@ func TestDevicesAPI(t *testing.T) {
 	if c := e.code(aliceTok, "PUT", "/api/devices/"+v.ID+"/harnesses/claude", "x"); c != http.StatusBadRequest {
 		t.Fatalf("toggle bad json: %d", c)
 	}
-	d, _ := e.st.DeviceService.DeviceByKey(context.Background(), reg.Key)
+	d, _ := e.st.DeviceService.GetDevice(context.Background(), agentuse.User{Role: agentuse.RoleAdmin}, reg.DeviceID)
 	e.st.DeviceService.DeviceConnected(context.Background(), d, []deviceservice.ReportedHarness{{Name: "claude"}})
 	if r := e.req(aliceTok, "PUT", "/api/devices/"+v.ID+"/harnesses/claude", map[string]bool{"enabled": true}, &v); r.StatusCode != 200 || !v.Harnesses[0].Enabled {
 		t.Fatalf("toggle: %d %+v", r.StatusCode, v)
@@ -328,7 +350,7 @@ func TestDevicesAPI(t *testing.T) {
 	if r := e.req(aliceTok, "POST", "/api/devices/"+v.ID+"/reset", nil, &v); r.StatusCode != 200 || v.SetupCommand == "" || v.Status != agentuse.DevicePending {
 		t.Fatalf("reset: %d %+v", r.StatusCode, v)
 	}
-	if c := e.code(reg.Key, "GET", "/api/client/me", nil); c != http.StatusUnauthorized {
+	if c := e.code("dk_retired", "GET", "/api/client/me", nil); c != http.StatusUpgradeRequired {
 		t.Fatalf("old key after reset: %d", c)
 	}
 

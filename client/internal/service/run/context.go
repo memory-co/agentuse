@@ -32,6 +32,7 @@ Call context directly; no Server, conversation or session ID is needed:
 `
 
 type contextManifest struct {
+	IPCAddress  string          `json:"ipc_address,omitempty"`
 	Version     int             `json:"version"`
 	Root        string          `json:"root"`
 	ConfigPath  string          `json:"config_path"`
@@ -69,6 +70,7 @@ type ContextAttachment struct {
 }
 
 func (s *Service) prepareContext(m session.Session, a *harness.Adapter) error {
+	s.contextAdapters.Store(m.EndpointID+"/"+m.ConversationID+"/"+m.ID, a.Path)
 	root, err := fileutil.SafePath(s.Sessions.Root)
 	if err != nil {
 		return err
@@ -84,7 +86,11 @@ func (s *Service) prepareContext(m session.Session, a *harness.Adapter) error {
 			return err
 		}
 	}
-	manifest := contextManifest{Version: 1, Root: root, ConfigPath: config, Session: m, AdapterPath: a.Path}
+	address, err := s.ensureContextIPC()
+	if err != nil {
+		return err
+	}
+	manifest := contextManifest{IPCAddress: address, Version: 1, Root: root, ConfigPath: config, Session: m, AdapterPath: a.Path}
 	if err = fileutil.WriteJSON(path, manifest); err != nil {
 		return err
 	}

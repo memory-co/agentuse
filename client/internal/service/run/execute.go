@@ -18,6 +18,7 @@ import (
 var ErrLocalBusy = errors.New("session execution is busy or no longer active")
 
 type Request struct {
+	resourceToken     string
 	Model             string   `json:"model,omitempty"`
 	AgentInstructions string   `json:"agent_instructions,omitempty"`
 	SkillPackages     []string `json:"skill_packages,omitempty"`
@@ -42,7 +43,15 @@ type localExecution struct {
 	result  harness.DriveResult
 }
 
-func (s *Service) Close() { s.localMu.Lock(); s.localCancel(); s.localMu.Unlock(); s.localWG.Wait() }
+func (s *Service) Close() {
+	s.localMu.Lock()
+	if s.localCancel != nil {
+		s.localCancel()
+	}
+	s.localMu.Unlock()
+	s.closeContextIPC()
+	s.localWG.Wait()
+}
 func (s *Service) CreateConversation(ctx context.Context, id, title string) (session.Conversation, error) {
 	ep, err := s.Endpoints.GetByID(id)
 	if err != nil {

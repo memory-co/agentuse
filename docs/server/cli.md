@@ -16,7 +16,7 @@ agentuse-server start
 
 脚本管理的 PID 位于 `~/.agentuse/server.pid`，日志位于 `~/.agentuse/server.log`，上次日志保留为 `server.log.previous`。后台进程读取 `~/.agentuse/settings.yaml` 和当前 `AGENTUSE_*` 环境配置；它不是开机自启服务。由 systemd、容器或其他方式启动的既有 Server，需要先通过原管理方式停止，再选择脚本后台启动；脚本不通过端口号或进程名强行终止其他服务。
 
-密码需为 1–1024 字节，不含首尾空白或控制字符，不能使用设备密钥保留前缀 `dk_`。安装脚本与 Server 二进制需包含同一功能；指定旧 Release 时，输入密码会在停止原 Server 前明确报版本不支持，空输入仍照常安装。
+密码需为 1–1024 字节，不含首尾空白或控制字符，不能使用设备密钥保留前缀 `dk_` 或 `at1.`。安装脚本与 Server 二进制需包含同一功能；指定旧 Release 时，输入密码会在停止原 Server 前明确报版本不支持，空输入仍照常安装。
 
 `start` 在前台持续运行。另开终端，保存管理命令使用的地址和管理员令牌：
 
@@ -63,11 +63,19 @@ Server 升级操作见[自升级文档](upgrades.md)，复用 `login` 保存的�
 agentuse-server start [参数]
 ```
 
-Server 启动时自动读取 `~/.agentuse/settings.yaml`，目前支持 `public_url`。文件可按需创建，填写用户和 Client 实际访问的地址，例如 HTTPS 反向代理的域名：
+Server 启动时自动读取 `~/.agentuse/settings.yaml`，支持 `public_url` 和设备通信的 `security` 设置。文件可按需创建，填写用户和 Client 实际访问的地址，例如 HTTPS 反向代理的域名：
 
 ```yaml
 public_url: https://agentuse.example.com
+security:
+  ws_encryption: true
+  prepare_timeout: 30m
+  run_timeout: 24h
 ```
+
+设备 WS 内层 TLS 1.3 默认开启，外层为 HTTP 或 HTTPS 都可使用。已有 HTTPS/WSS 的部署可设 `ws_encryption: false`；此时公开地址必须为 HTTPS，Client 仍校验实际 WSS。准备窗口默认 30 分钟，run 授权默认 24 小时；期限不会因心跳、补充输入或重连延长。浏览器不使用设备证书。
+
+Server 的私有 CA、通道身份及 HMAC 签名材料持久保存在 `~/.agentuse/security/`；备份和多实例部署必须同时保留或共享该目录及数据库。旧设备升级后在页面重置并复制新的 `ar1.` 安装码重新注册，无需删除版本化数据库。
 
 修改后重启 Server 生效。公开地址的优先级为：`--public-url` → `AGENTUSE_PUBLIC_URL` → `settings.yaml` 的 `public_url` → 本机监听地址。参数和环境变量只覆盖本次启动，不改写文件。文件不存在时使用默认值；YAML 格式错误或出现未知字段时会报错并指出文件路径。
 

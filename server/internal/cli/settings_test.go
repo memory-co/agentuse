@@ -17,6 +17,8 @@ func TestStartSettingsFile(t *testing.T) {
 		invalid               bool
 	}{
 		{name: "empty"},
+		{name: "security defaults", yaml: "security:\n  ws_encryption: true\n  prepare_timeout: 30m\n  run_timeout: 24h\n"},
+		{name: "unknown security field", yaml: "security:\n  encrypted: true\n", invalid: true},
 		{name: "proxy address", yaml: "public_url: https://agentuse.example.com\n", publicURL: "https://agentuse.example.com"},
 		{name: "port and path", yaml: "public_url: https://agentuse.example.com:8443/agentuse/\n", publicURL: "https://agentuse.example.com:8443/agentuse/"},
 		{name: "unknown field", yaml: "public_uri: https://agentuse.example.com\n", invalid: true},

@@ -29,7 +29,7 @@ func TestContextOutputAttributionFilteringAndUploadLifetime(t *testing.T) {
 		t.Helper()
 		seq++
 		data, _ := json.Marshal(event)
-		err := f.e.st.ConversationService.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: p.AgentVersionID, Revision: "test", MessageID: p.MessageID, Seq: seq, Event: data})
+		err := f.e.st.ConversationService.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{AccessToken: p.Access.Token, ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: p.AgentVersionID, Revision: "test", MessageID: p.MessageID, Seq: seq, Event: data})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -49,10 +49,11 @@ func TestContextOutputAttributionFilteringAndUploadLifetime(t *testing.T) {
 		return p, run
 	}
 	first, one := start("first", "one")
+	device.Token = first.Access.Token
 	second, two := start("queued", "two")
-	for _, run := range []string{"", uuid.NewString()} {
+	for _, run := range []string{uuid.NewString()} {
 		device.RunID = run
-		if _, err := device.UploadAttachment(ctx, "", f.conversation.ID, "bad.txt", strings.NewReader("invalid")); !sdk.IsStatus(err, 409) {
+		if _, err := device.UploadAttachment(ctx, "", f.conversation.ID, "bad.txt", strings.NewReader("invalid")); !sdk.IsStatus(err, 403) {
 			t.Fatal("unattributed output accepted", err)
 		}
 	}
@@ -63,6 +64,7 @@ func TestContextOutputAttributionFilteringAndUploadLifetime(t *testing.T) {
 			t.Fatal(output, err)
 		}
 	}
+	device.Token = second.Access.Token
 	device.RunID = two
 	if _, err := device.UploadAttachment(ctx, "", f.conversation.ID, "other.txt", strings.NewReader("other run")); err != nil {
 		t.Fatal(err)
@@ -86,11 +88,12 @@ func TestContextOutputAttributionFilteringAndUploadLifetime(t *testing.T) {
 		t.Fatal(outputs, err)
 	}
 	report(first, map[string]any{"type": "result", "run_id": one, "status": "completed", "input_ids": []string{"one"}, "output": "done"})
+	device.Token = first.Access.Token
 	device.RunID = one
-	if _, err := device.UploadAttachment(ctx, "", f.conversation.ID, "late.txt", strings.NewReader("late")); !sdk.IsStatus(err, 409) {
+	if _, err := device.UploadAttachment(ctx, "", f.conversation.ID, "late.txt", strings.NewReader("late")); !sdk.IsStatus(err, 403) {
 		t.Fatal("terminal run uploaded", err)
 	}
-	if outputs, err = device.AllRunAttachments(ctx, "", f.conversation.ID, one); err != nil || len(outputs) != 2 {
+	if outputs, err = user.AllRunAttachments(ctx, "", f.conversation.ID, one); err != nil || len(outputs) != 2 {
 		t.Fatal("historical outputs unreadable", outputs, err)
 	}
 	foreign, _, err := f.e.st.ConversationService.CreateConversation(ctx, f.u, "", "elsewhere", "", nil, nil, "", nil)
@@ -105,7 +108,7 @@ func TestContextOutputAttributionFilteringAndUploadLifetime(t *testing.T) {
 	reader, writer := io.Pipe()
 	multipartWriter := multipart.NewWriter(writer)
 	req, _ := http.NewRequest("POST", f.e.ts.URL+f.path(), reader)
-	req.Header.Set("Authorization", "Bearer "+f.key)
+	req.Header.Set("Authorization", "Bearer "+second.Access.Token)
 	req.Header.Set("X-Agentuse-Run", two)
 	req.Header.Set("Content-Type", multipartWriter.FormDataContentType())
 	done := make(chan int, 1)
@@ -145,7 +148,7 @@ func TestContextOutputAttributionFilteringAndUploadLifetime(t *testing.T) {
 	report(second, map[string]any{"type": "result", "run_id": two, "status": "completed", "input_ids": []string{"two"}, "output": "done"})
 	multipartWriter.Close()
 	writer.Close()
-	if status := <-done; status != 409 {
+	if status := <-done; status != 401 {
 		t.Fatal("upload did not recheck run at commit", status)
 	}
 	files, err := user.AllAttachments(ctx, "", f.conversation.ID)
@@ -154,7 +157,7 @@ func TestContextOutputAttributionFilteringAndUploadLifetime(t *testing.T) {
 	}
 }
 
-func TestDeviceReadsItsOutputsAfterAnyTerminalResult(t *testing.T) {
+func TestOnlyUserReadsOutputsAfterTerminalResult(t *testing.T) {
 	for _, status := range []string{"completed", "failed", "cancelled"} {
 		t.Run(status, func(t *testing.T) {
 			fixture := attachmentEnv(t, 4096, 16384)
@@ -170,19 +173,22 @@ func TestDeviceReadsItsOutputsAfterAnyTerminalResult(t *testing.T) {
 			run := uuid.NewString()
 			send := func(seq int64, event any) {
 				data, _ := json.Marshal(event)
-				err := fixture.e.st.ConversationService.ReportClientEvent(ctx, fixture.d.ID, protocol.ClientEvent{ConversationID: fixture.conversation.ID, SessionID: "native", AgentID: fixture.agent, AgentVersionID: message.AgentVersionID, Revision: "test", MessageID: message.MessageID, Seq: seq, Event: data})
+				err := fixture.e.st.ConversationService.ReportClientEvent(ctx, fixture.d.ID, protocol.ClientEvent{AccessToken: message.Access.Token, ConversationID: fixture.conversation.ID, SessionID: "native", AgentID: fixture.agent, AgentVersionID: message.AgentVersionID, Revision: "test", MessageID: message.MessageID, Seq: seq, Event: data})
 				if err != nil {
 					t.Fatal(err)
 				}
 			}
 			send(1, map[string]any{"type": "accepted", "run_id": run, "input_id": "one", "text": "output"})
-			client := sdk.New(fixture.e.ts.URL, fixture.key)
+			client := sdk.New(fixture.e.ts.URL, message.Access.Token)
 			client.RunID = run
 			if _, err := client.UploadAttachment(ctx, "", fixture.conversation.ID, "output.txt", strings.NewReader("bytes")); err != nil {
 				t.Fatal(err)
 			}
 			send(2, map[string]any{"type": "result", "run_id": run, "status": status, "input_ids": []string{"one"}, "output": "done", "error": ""})
-			files, err := client.AllRunAttachments(ctx, "", fixture.conversation.ID, run)
+			if _, err := client.AllRunAttachments(ctx, "", fixture.conversation.ID, run); !sdk.IsStatus(err, 403) {
+				t.Fatal("terminal credential stayed usable", err)
+			}
+			files, err := sdk.New(fixture.e.ts.URL, fixture.token).AllRunAttachments(ctx, "", fixture.conversation.ID, run)
 			if err != nil || len(files) != 1 {
 				t.Fatal("terminal output unreadable", files, err)
 			}

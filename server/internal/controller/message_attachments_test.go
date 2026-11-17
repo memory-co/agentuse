@@ -32,7 +32,7 @@ func TestMessagesKeepOnlyTheirSelectedAttachments(t *testing.T) {
 		seq++
 		run := uuid.NewString()
 		event, _ := json.Marshal(map[string]any{"type": "accepted", "run_id": run, "input_id": run, "text": message.Content})
-		if err := f.e.st.ConversationService.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: message.AgentVersionID, Revision: "test", MessageID: message.MessageID, Seq: seq, Event: event}); err != nil {
+		if err := f.e.st.ConversationService.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{AccessToken: message.Access.Token, ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: message.AgentVersionID, Revision: "test", MessageID: message.MessageID, Seq: seq, Event: event}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -108,12 +108,12 @@ func TestConversationPathsAndAgentReplyFiles(t *testing.T) {
 	run := uuid.NewString()
 	report := func(seq int64, event any) {
 		data, _ := json.Marshal(event)
-		if err := f.e.st.ConversationService.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: message.AgentVersionID, Revision: "test", MessageID: message.MessageID, Seq: seq, Event: data}); err != nil {
+		if err := f.e.st.ConversationService.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{AccessToken: message.Access.Token, ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: message.AgentVersionID, Revision: "test", MessageID: message.MessageID, Seq: seq, Event: data}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	report(1, map[string]any{"type": "accepted", "run_id": run, "input_id": "one", "text": message.Content})
-	device := sdk.New(f.e.ts.URL, f.key)
+	device := sdk.New(f.e.ts.URL, message.Access.Token)
 	device.RunID = run
 	output, err := device.UploadAttachmentAt(ctx, "", f.conversation.ID, "reports/2026/result.txt", strings.NewReader("report"))
 	if err != nil || output.RelativePath != "reports/2026/result.txt" {

@@ -126,7 +126,11 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 			if reused > 0 {
 				return fmt.Errorf("input identity belongs to another message")
 			}
-			if err = tx.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(&database.Run{ID: event.RunID, ConversationID: envelope.ConversationID, FirstMessageID: prompt.MessageID, AgentID: envelope.AgentID, AgentVersionID: envelope.AgentVersionID, DeviceID: device, SessionID: envelope.SessionID, Harness: envelope.Harness, HarnessRevision: database.Text(envelope.Revision), CreatedAt: now, UpdatedAt: now}).Error; err != nil {
+			accessHash, accessExpiry, err := s.newRunAccess(ctx, tx, device, envelope)
+			if err != nil {
+				return err
+			}
+			if err = tx.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(&database.Run{AccessTokenHash: accessHash, AccessExpiresAt: accessExpiry, ID: event.RunID, ConversationID: envelope.ConversationID, FirstMessageID: prompt.MessageID, AgentID: envelope.AgentID, AgentVersionID: envelope.AgentVersionID, DeviceID: device, SessionID: envelope.SessionID, Harness: envelope.Harness, HarnessRevision: database.Text(envelope.Revision), CreatedAt: now, UpdatedAt: now}).Error; err != nil {
 				return err
 			}
 			r, err := database.ScanRun(database.Row(ctx, tx, nativeRunCols+` WHERE id=?`, event.RunID))

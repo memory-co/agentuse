@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
 	"github.com/memory-co/agentuse/internal/protocol"
+	"github.com/memory-co/agentuse/internal/securews"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/database"
 	"github.com/memory-co/agentuse/server/internal/service"
@@ -21,14 +21,19 @@ import (
 )
 
 type Hub struct {
-	service *service.Service
-	log     *log.Logger
-	mu      sync.Mutex
-	conns   map[string]*deviceConn
+	authBudget     float64
+	authUpdated    time.Time
+	service        *service.Service
+	log            *log.Logger
+	mu             sync.Mutex
+	conns          map[string]*deviceConn
+	authenticating chan struct{}
 }
 type deviceConn struct {
 	d        agentuse.Device
 	ws       *websocket.Conn
+	channel  *securews.Channel
+	peer     securews.Peer
 	cancel   context.CancelFunc
 	sendMu   sync.Mutex
 	wake     chan struct{}
@@ -39,28 +44,99 @@ func New(s *service.Service, logger *log.Logger) *Hub {
 	if logger == nil {
 		logger = log.Default()
 	}
-	return &Hub{service: s, log: logger, conns: map[string]*deviceConn{}}
+	return &Hub{service: s, log: logger, authBudget: 128, authUpdated: time.Now(), conns: map[string]*deviceConn{}, authenticating: make(chan struct{}, 64)}
 }
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	key := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	d, err := h.service.DeviceService.DeviceByKey(r.Context(), key)
-	if err != nil || key == "" {
-		http.Error(w, "invalid device credential", 401)
-		return
-	}
 	if r.Header.Get(protocol.ProtocolHeader) != protocol.ExecutionProtocol {
 		w.Header().Set(protocol.ProtocolHeader, protocol.ExecutionProtocol)
 		http.Error(w, "client protocol upgrade required", http.StatusUpgradeRequired)
 		return
 	}
+	if !h.allowAuthentication() {
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "device authentication rate exceeded", http.StatusTooManyRequests)
+		return
+	}
+	select {
+	case h.authenticating <- struct{}{}:
+	default:
+		http.Error(w, "device authentication busy", http.StatusTooManyRequests)
+		return
+	}
+	authSlot := true
+	defer func() {
+		if authSlot {
+			<-h.authenticating
+		}
+	}()
 	ws, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}
-	ws.SetReadLimit(8 << 20)
+	defer ws.CloseNow()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	c := &deviceConn{d: d, ws: ws, cancel: cancel, wake: make(chan struct{}, 1)}
+	channel, policy, err := securews.Accept(ctx, ws, h.service.Security.Identity, h.service.Security.WSEncryption)
+	if err != nil {
+		return
+	}
+	authCtx, authCancel := context.WithTimeout(ctx, 15*time.Second)
+	var auth securews.Authentication
+	channel.Limit = 64 << 10
+	err = channel.Read(authCtx, &auth)
+	authCancel()
+	if err != nil {
+		return
+	}
+	if auth.Type == "enroll" {
+		d, cert, e := h.service.DeviceService.Enroll(ctx, auth.Token, auth.Hostname, auth.CSR)
+		if e != nil {
+			_ = channel.Write(ctx, securews.AuthResult{Type: "rejected", Error: "installation code is invalid or already used"})
+			return
+		}
+		_ = channel.Write(ctx, securews.AuthResult{Type: "enrolled", DeviceID: d.ID, Name: d.Name, UserID: d.UserID, Certificate: cert})
+		return
+	}
+	peer, err := securews.VerifyProof(h.service.Security.Identity.CA, policy, auth, h.service.Now())
+	if err != nil {
+		return
+	}
+	if policy.Encryption && (channel.TLSPeer == nil || channel.TLSPeer.SerialNumber.Cmp(peer.Certificate.SerialNumber) != 0) {
+		return
+	}
+	d, err := h.service.DeviceService.AuthenticateCertificate(ctx, peer)
+	if err != nil {
+		_ = channel.Write(ctx, securews.AuthResult{Type: "rejected", Error: "device credential is revoked or expired"})
+		return
+	}
+	if err = channel.Write(ctx, securews.AuthResult{Type: "authenticated", DeviceID: d.ID, Name: d.Name, UserID: d.UserID}); err != nil {
+		return
+	}
+	deadlineCtx, deadlineCancel := context.WithDeadline(ctx, peer.NotAfter)
+	defer deadlineCancel()
+	ctx = deadlineCtx
+	c := &deviceConn{d: d, ws: ws, channel: channel, peer: peer, cancel: cancel, wake: make(chan struct{}, 1)}
+	go func() { <-ctx.Done(); ws.CloseNow() }()
+	firstCtx, firstCancel := context.WithTimeout(ctx, 15*time.Second)
+	var first protocol.Message
+	err = channel.Read(firstCtx, &first)
+	firstCancel()
+	if err == nil && first.Type == protocol.TypeCredential && first.Operation == "renew" {
+		raw, e := h.service.DeviceService.RenewCertificate(ctx, peer, first.CSR)
+		response := protocol.Message{Type: protocol.TypeCredential, Operation: "renew", ID: first.ID, Certificate: raw, Status: protocol.AckOK}
+		if e != nil {
+			response.Status = protocol.AckError
+			response.Error = "credential renewal failed"
+		}
+		_ = c.send(ctx, response)
+		return
+	}
+	if err != nil || first.Type != protocol.TypeHeartbeat {
+		return
+	}
+	channel.Limit = securews.MaxMessage
+	<-h.authenticating
+	authSlot = false
 	h.mu.Lock()
 	old := h.conns[d.ID]
 	h.conns[d.ID] = c
@@ -78,18 +154,11 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 		ws.Close(websocket.StatusNormalClosure, "")
 	}()
-	if err = h.serve(ctx, c); err != nil {
+	if err = h.serve(ctx, c, first); err != nil {
 		h.log.Printf("device %s disconnected: %v", d.ID, err)
 	}
 }
-func (h *Hub) serve(ctx context.Context, c *deviceConn) error {
-	var first protocol.Message
-	if err := wsjson.Read(ctx, c.ws, &first); err != nil {
-		return err
-	}
-	if first.Type != protocol.TypeHeartbeat {
-		return errors.New("heartbeat required")
-	}
+func (h *Hub) serve(ctx context.Context, c *deviceConn, first protocol.Message) error {
 	reported := []deviceservice.ReportedHarness{}
 	for _, a := range first.Harnesses {
 		reported = append(reported, deviceservice.ReportedHarness{Name: a.Name, Version: a.Version, Revision: a.Revision, Capabilities: a.Capabilities})
@@ -125,7 +194,7 @@ func (h *Hub) serve(ctx context.Context, c *deviceConn) error {
 	go func() {
 		for {
 			var m protocol.Message
-			if err := wsjson.Read(ctx, c.ws, &m); err != nil {
+			if err := c.channel.Read(ctx, &m); err != nil {
 				select {
 				case readError <- err:
 				case <-ctx.Done():
@@ -152,6 +221,9 @@ func (h *Hub) serve(ctx context.Context, c *deviceConn) error {
 			return err
 		case <-c.wake:
 		case <-tick.C:
+			if _, e := h.service.DeviceService.AuthenticateCertificate(ctx, c.peer); e != nil {
+				return e
+			}
 		case m := <-incoming:
 			switch m.Type {
 			case protocol.TypeHeartbeat:
@@ -191,7 +263,25 @@ func (h *Hub) serve(ctx context.Context, c *deviceConn) error {
 					ack.Status = protocol.AckError
 					ack.Error = err.Error()
 				}
+				if ack.Status == protocol.AckOK {
+					runID, credential, e := h.service.RunService.AccessForEvent(ctx, c.d.ID, *m.ClientEvent)
+					if e != nil {
+						return e
+					}
+					ack.RunID = runID
+					ack.Access = credential
+				}
 				if err = c.send(ctx, ack); err != nil {
+					return err
+				}
+			case protocol.TypeAccess:
+				credential, e := h.service.RunService.RecoverAccess(ctx, c.d.ID, m.RunID)
+				response := protocol.Message{Type: protocol.TypeAccess, ID: m.ID, RunID: m.RunID, Access: credential, Status: protocol.AckOK}
+				if e != nil {
+					response.Status = protocol.AckError
+					response.Error = "execution access unavailable"
+				}
+				if err = c.send(ctx, response); err != nil {
 					return err
 				}
 			case protocol.TypeAck:
@@ -246,7 +336,7 @@ func (c *deviceConn) send(ctx context.Context, m protocol.Message) error {
 	defer c.sendMu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	return wsjson.Write(ctx, c.ws, m)
+	return c.channel.Write(ctx, m)
 }
 func (h *Hub) PushRun(id string, m protocol.Message) {
 	h.mu.Lock()
@@ -279,4 +369,19 @@ func (h *Hub) Disconnect(id string) {
 		c.cancel()
 		c.ws.Close(websocket.StatusPolicyViolation, "device credential revoked")
 	}
+}
+
+// A bounded global bucket limits unauthenticated cryptographic and registration
+// work without retaining an unbounded map of attacker-controlled source IPs.
+func (h *Hub) allowAuthentication() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	now := time.Now()
+	h.authBudget = min(128, h.authBudget+now.Sub(h.authUpdated).Seconds()*16)
+	h.authUpdated = now
+	if h.authBudget < 1 {
+		return false
+	}
+	h.authBudget--
+	return true
 }

@@ -1,6 +1,6 @@
 # conversationService：共享對話與消息編排
 
-> 執行鏈路使用 [agentuse-client/2](protocol.md)：直接投遞 message，消息/Agent 關係見 [server-run.md](server-run.md)，不再有 task 或獨立輸入 ID。
+> 執行鏈路使用 [agentuse-client/3](protocol.md)：直接投遞 message，消息/Agent 關係見 [server-run.md](server-run.md)，不再有 task 或獨立輸入 ID。
 
 > 本稿對應 遷移基線 `0001_initial` 的嵌套 conversation 實作。關聯不聲明數據庫外鍵，由 service 校驗與清理；不轉換此前未版本化數據庫，後續結構按遷移版本升級。
 

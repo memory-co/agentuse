@@ -10,7 +10,7 @@ Client 爲每個執行環境提供 `context`。AI 用它查詢執行身份與狀
 |---|---|
 | Client | 準備 endpoint、conversation、Agent、本機 session、共享 workspace 及 Server 訪問配置，提供 `context` 命令入口 |
 | harnessctl | 管理原生執行會話、run、輸入受理、插話、排隊和執行事件；通過公共 status 和事件確認執行事實 |
-| context | 讀取 Client 提供的業務綁定，需要執行身份時查詢適配器，再調用對應 Server 的附件及 conversation API |
+| context | 讀取 Client 提供的業務綁定，需要執行身份時查詢適配器，经 Client 守护进程代理调用对应 Server 的附件及 conversation API |
 | Server | 校驗業務歸屬及訪問權限，保存 conversation、消息和文件 |
 
 ```mermaid
@@ -19,7 +19,8 @@ flowchart LR
     H -->|原生協議| N[Codex / Claude Code]
     N -->|AI 通過 shell 調用| T[context]
     T -->|需要當前 run 時查詢 status| H
-    T -->|附件 / conversation API| S[Server]
+    T -->|私有 socket / named pipe| D[Client 守护进程]
+    D -->|run 票据 HTTP| S[Server]
 ```
 
 ### 為甚麼 AI 不需要傳入各種 ID
@@ -32,7 +33,7 @@ context attachment download user_input/截图.png
 context attachment upload reports/result.pdf
 ```
 
-Server 地址、憑據和業務 ID 由 Client 的綁定提供，AI 只需指定文件路徑。這些業務信息不屬於 harnessctl 的原生協議；單獨使用 harnessctl 時不會自動獲得 AgentUse 的 `context` 工具。
+Server 地址与业务绑定由 Client 提供；证书私钥和 run 票据只在守护进程中使用，不写入 context.json、模型环境或原生文件，AI 只需指定文件路徑。這些業務信息不屬於 harnessctl 的原生協議；單獨使用 harnessctl 時不會自動獲得 AgentUse 的 `context` 工具。
 
 `endpoint_id + conversation_id` 定位共享文件空間。同一 conversation 可以同時由多個 Agent 或不同本機 session 執行，因此描述文件還會綁定本機 session 和適配器，供需要執行身份的命令定位實際 run。這些內部定位信息不需要 AI 作為命令參數傳入，也不通過當前工作目錄猜測。
 
@@ -40,7 +41,7 @@ Server 地址、憑據和業務 ID 由 Client 的綁定提供，AI 只需指定�
 
 | 命令 | 使用範圍 |
 |---|---|
-| `attachment list/download` | 綁定的 endpoint 和整個 conversation；不要求活動 run |
+| `attachment list/download` | 绑定的 endpoint 和整个 conversation；守护进程确认当前活动 run 和授权，列表仍包含历史文件 |
 | `status` | 查詢所選 run 的身份和狀態 |
 | `conversation …` | 來源必須有可核對的實際 run；按 Server 的 mode 和父子關係限定操作 |
 | `attachment list/download --conversation ID 或 parent` | 同樣校驗實際來源，只讀取直接相關的父/子文件樹 |
@@ -138,7 +139,7 @@ context attachment upload ./report.pdf
 
 產物必須先 upload，再在最終回覆中引用返回的 `download_path`；本地相對路徑不是瀏覽器下載連結。人類可在 Server 頁面查看、下載該附件。上傳只保存文件，不自動發消息或結束執行；AI 繼續按原流程回覆用戶。
 
-Server 在接收和發佈文件時檢查 run 的設備、conversation 和活動狀態。已結束的 run 無法繼續上傳。連接中斷時 Server 可能已經保存，先用 `list` 覈對再決定是否重傳；工具不會自動重複上傳。輸出列表以 Server 記錄爲準，不依賴本機另存一份上傳清單。
+Server 在接收和發佈文件時檢查 run 的設備、conversation 和活動狀態。已结束、超时或撤销的 run 无法继续读写远端内容。連接中斷時 Server 可能已經保存，先用 `list` 覈對再決定是否重傳；工具不會自動重複上傳。輸出列表以 Server 記錄爲準，不依賴本機另存一份上傳清單。
 
 ## 人類調試上下文
 
@@ -163,7 +164,7 @@ exit
 
 `--path` 默認讀取 `AGENTUSE_CONTEXT`；省略 `--run` 時詢問適配器當前執行。`enter` 使用 `$SHELL`，未設置時使用 `/bin/sh`，工作目錄切換到 conversation workspace，並通過 `AGENTUSE_CONTEXT_RUN` 固定所選 run。裸 `context` 不提供切換 Server、session 或 run 的參數。
 
-文件保留期間可以顯式查詢歷史 run 的狀態；附件查詢及下載需要 Server 可用。歷史 run 的上傳會被拒絕。上下文文件和緩存隨 conversation quota 回收。本地調試支持執行狀態查詢，沒有 Server 上傳目標。
+文件保留期間可以顯式查詢歷史 run 的狀態；远端附件查询、下载、上传及协作操作需要 Client 守护进程、Server 和当前活动 run 的有效授权；历史、超时或被撤销 run 均不能继续获取新内容。历史文件可通过用户 API 读取。上下文文件和緩存隨 conversation quota 回收。本地調試支持執行狀態查詢，沒有 Server 上傳目標。
 
 ## 對話協作
 
@@ -192,3 +193,5 @@ create/send 有 Agent 輸入時會返回 round.seq；空對話、備註、上傳
 各對話文件樹獨立。協調者用 `context attachment list/download --conversation CHILD_ID` 讀子產物，子 Agent 用 `--conversation parent` 讀父輸入。跨對話文件下載到 `workspace/.context/conversations/ID/`；上傳仍僅限當前對話，不支持跨分支讀取。
 
 人類可用 `agentuse context --path CONTEXT_JSON --run RUN_UUID conversation …` 調試同一命令組。Server 地址和執行來源由綁定取得；沒有獨立工具下載或工作授權流程。詳細接口見 [Conversation](../server/conversations.md#模式与嵌套)。
+
+本地 IPC 独立于 Web UI；关闭本机页面不会关闭 context。守护进程每次查询适配器的真实 status，不根据最新 accepted 猜测当前 run；指定其他排队或历史 run 不会取得其权限。准备期仅允许源 conversation 元数据与固定资源初始化，不开放普通附件。

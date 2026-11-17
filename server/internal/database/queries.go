@@ -11,8 +11,6 @@ const GetAgentClause2 = ` AND user_id = ?`
 const ListAgentsClause = ` WHERE user_id = ?`
 const ListAgentsClause2 = ` ORDER BY name, id`
 
-const AttachmentConversationSelect = `SELECT user_id FROM devices WHERE id=? AND key_hash=?`
-
 const AttachmentConversationSelect3 = `SELECT id,role FROM users WHERE token_hash=?`
 
 const CommitAttachmentSelect = `SELECT COALESCE(SUM(size_bytes),0) FROM attachments WHERE conversation_id=?`
@@ -33,17 +31,11 @@ const DeviceCapabilitiesSelect = `SELECT capability FROM device_capabilities WHE
 
 const CreateDeviceInsert = `INSERT INTO devices (id, user_id, name, setup_token, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`
 
-const RegisterDeviceSelect = `SELECT id, user_id, name FROM devices WHERE setup_token = ?`
-
-const RegisterDeviceUpdate = `UPDATE devices SET name = ?, key_hash = ?, setup_token = NULL, status = ? WHERE id = ?`
-
 const ResetDeviceSetupSelect = `SELECT 1 FROM devices WHERE id=?`
 
 const ResetDeviceSetupClause = ` AND user_id=?`
 
 const ResetDeviceSetupUpdate = `UPDATE devices SET setup_token=?,key_hash=NULL,status=? WHERE id=?`
-
-const DeviceByKeyClause = ` WHERE key_hash = ?`
 
 const DeviceCols = `SELECT id, user_id, name, setup_token, status, last_seen_at, created_at FROM devices`
 

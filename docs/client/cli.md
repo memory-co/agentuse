@@ -121,7 +121,7 @@ agentuse register --server https://server-b.example.com --token 替换为B的安
 agentuse start
 ```
 
-`start` 连接配置中所有 `enabled: true` 的来源。可以在 `endpoints.yaml` 中修改显示名称和 `enabled`，再重启 Client。注册写入的字段为 `name`、`server_url`、`enabled`、`device_id`、`device_key`；本地调试入口自动存在。
+`start` 连接配置中所有 `enabled: true` 的来源。可以在 `endpoints.yaml` 中修改显示名称和 `enabled`，再重启 Client。注册写入的字段为 `name`、`server_url`、`enabled`、`device_id`、`credentials_file`；本地调试入口自动存在。
 
 `status` 默认检查第一个启用的注册来源；设置 `AGENTUSE_SERVER` 可选择另一个已注册的来源：
 
@@ -205,7 +205,7 @@ context --help
 
 `context` 由 Client 提供给原生程序及其工具子进程使用，业务绑定随执行环境继承；harnessctl 负责原生执行和实际 run，context 在需要时通过它的公共 status 确认当前执行。context 不属于 harnessctl 的五个命令，也不接管消息投递。职责、调用链及各命令的作用范围见 [与 harnessctl 的关系](context.md#與-harnessctl-的關係)。
 
-`status` 只输出执行身份、状态和工作目录，不包含输入正文或输入列表。`attachment list` 直接查詢整個 conversation 的 Server 附件；`download` 按 `relative_path` 選擇文件，下載、校驗並保存到 workspace/<relative_path>，返回本地路徑和 MIME 類型；兩者不需要活躍 run。下載不使用附件 ID，從其他目錄調用時也保存到 context 綁定的 workspace。圖片再用原生工具讀取。`upload` 自动关联当前 conversation/run，返回附件元数据和可在回复中引用的 `download_path`，Server 用户可直接查看或下载。所有结果为 JSON。
+`status` 只输出执行身份、状态和工作目录，不包含输入正文或输入列表。`attachment list` 直接查詢整個 conversation 的 Server 附件；`download` 按 `relative_path` 選擇文件，下載、校驗並保存到 workspace/<relative_path>，返回本地路徑和 MIME 類型；两者由守护进程解析当前活动 run 并使用其有效授权。下載不使用附件 ID，從其他目錄調用時也保存到 context 綁定的 workspace。圖片再用原生工具讀取。`upload` 自动关联当前 conversation/run，返回附件元数据和可在回复中引用的 `download_path`，Server 用户可直接查看或下载。所有结果为 JSON。
 
 上传只接受普通文件，不自动发消息或结束执行。Server 在接收及落库时检查 run 的归属与活动状态，已结束 run 无法继续上传。连接中断时可能已经保存；先 `list` 核对，工具不自动重试上传。人类在 Server 页面或通过 API/SDK 上传输入文件，Client AI 通过 context 读取；输出由 AI 上传后在 Server 展示。
 
@@ -225,9 +225,9 @@ context status
 | 参数 | 默认值 | 说明 |
 |---|---|---|
 | `--path` | `AGENTUSE_CONTEXT` | 本机 session 下 Client 生成的 `context.json` |
-| `--run` | 绑定环境中的 run，否则询问适配器当前 run | 该 session 中实际 accepted 的 run UUID；读取历史时显式指定 |
+| `--run` | 绑定环境中的 run，否则询问适配器当前 run | 该 session 中实际 accepted 的 run UUID；读取本机历史 status 时显式指定 |
 
-文件位于 `<session.work_root>/<endpoint_id>/<conversation_id>/sessions/<session_id>/context.json`。`enter` 将工作目录切换到该 conversation 的 workspace，并为 shell 固定所选 run；退出 shell 即退出上下文。记录尚未回收且文件完整时，停止 Client 后也可以显式读取历史 run。
+文件位于 `<session.work_root>/<endpoint_id>/<conversation_id>/sessions/<session_id>/context.json`。`enter` 将工作目录切换到该 conversation 的 workspace，并为 shell 固定所选 run；退出 shell 即退出上下文。记录尚未回收且文件完整时，停止 Client 后也可以显式读取本机历史 run 的 status；远端文件和协作操作需要守护进程及当前活动 run 的有效授权。
 
 裸 `context` 使用已经绑定的上下文，不接受 `--path`、`--run`、`--server`、`--token` 或管理命令。对话拆分与回传使用下文的 [context conversation](#对话协作)，能力由 Server 保存的 mode 和父子关系决定。
 
@@ -244,12 +244,12 @@ context status
 | 注册配置文件 | `--config` → `AGENTUSE_CONFIG` → `~/.agentuse/endpoints.yaml` |
 | conversation ID | `--conversation` → `AGENTUSE_CONVERSATION`；`conversation` 命令的显式位置参数优先 |
 
-当地址或令牌仍需从配置补全时，会读取注册配置；显式提供地址时选择对应的注册来源。如果同时提供 Server 地址和用户令牌，则无需本机注册即可调用相应的远端命令。
+地址可从注册配置补全；远端人类管理命令必须显式提供用户令牌或 `AGENTUSE_TOKEN`，不会使用设备证书或 run 票据兜底。如果同时提供 Server 地址和用户令牌，则无需本机注册即可调用相应的远端命令。
 
 | 凭据 | 可用于哪些操作 |
 |---|---|
 | 用户令牌 `ut_…` | 按用户权限读取、发送、取消及操作附件 |
-| 设备密钥 `dk_…` | 读取已投递给本设备的会话及其附件；发送消息和取消 run 需要用户令牌 |
+| 设备证书／run 票据 | 由 Client 守护进程管理；Agent 通过 `context` 调用，不作为人类 CLI 凭据 |
 
 手动操作远端会话的常见配置：
 
@@ -363,7 +363,7 @@ Client 为远端 Agent 的命令准备相应上下文，便于在执行中调用
 | 环境变量 | 用途 |
 |---|---|
 | `AGENTUSE_SERVER` | 当前 Server 地址 |
-| `AGENTUSE_CONFIG` | 当前 Client 注册配置文件 |
+| `AGENTUSE_CONFIG` | 人类 CLI 可选择的注册配置；不向原生模型注入设备凭据 |
 | `AGENTUSE_ENDPOINT` | 当前来源标识；本地调试为 `local` |
 | `AGENTUSE_CONVERSATION` | Server conversation ID；远端管理命令的默认目标 |
 | `AGENTUSE_SESSION` | Client 本机 session ID，与 conversation ID 不同 |
@@ -397,3 +397,5 @@ agentuse version
 | `2` | 命令或参数用法错误 |
 
 命令结果写入 stdout，错误和运行日志写入 stderr。`status` 展示检查结果，自动化判断具体连接情况时应读取相应检查信息。
+
+设备注册使用页面生成的 `ar1.` 可信安装码，包含 Server 地址、公开 CA 和一次性注册令牌。Client 本机生成私钥，保存到独立的 0600 证书文件；旧 `device_key` 配置需重新注册。context 的 HTTP 请求通过 Client 的私有本地 socket／named pipe 代理，独立于可选 Web UI；context.json 和模型环境不含证书私钥或访问票据。

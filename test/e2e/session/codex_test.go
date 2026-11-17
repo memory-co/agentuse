@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"github.com/memory-co/agentuse/internal/protocol"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -66,7 +67,7 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 			return false
 		}
 		for _, cap := range ds[0].Capabilities {
-			if cap == "agentuse-client/2" {
+			if cap == protocol.ExecutionProtocol {
 				return true
 			}
 		}

@@ -2,11 +2,9 @@ package controller
 
 import (
 	"errors"
-	"io"
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 
 	"github.com/memory-co/agentuse/internal/skillbundle"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
@@ -100,10 +98,10 @@ func (s *Server) handleSkillPackage(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", `attachment; filename="skill.zip"`)
 		w.Header().Set("Cache-Control", "private, no-cache")
 		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
-		_, _ = io.Copy(w, stream)
+		_, _ = s.copyResource(w, r, stream)
 	}
 	token := requestToken(r)
-	if strings.HasPrefix(token, "dk_") {
+	if resourceCredential(r) {
 		if r.Header.Get(actAsHeader) != "" {
 			writeErr(w, 403, "device credentials cannot impersonate users")
 			return

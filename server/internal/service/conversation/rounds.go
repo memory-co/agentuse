@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/memory-co/agentuse/internal/access"
 
 	"github.com/google/uuid"
 
@@ -154,6 +155,47 @@ func (s *Service) notifyFinishedRound(ctx context.Context, childID string, seq i
 		_, err = database.Exec(ctx, tx, `INSERT INTO messages(id,seq,conversation_id,author_role,author_conversation_id,author_round_seq,to_agent_ids,content,created_at) VALUES(?,?,?,'child_conversation',?,?,?,?,?)`, id, messageSeq, parent.ID, childID, seq, string(targets), text, s.Now().Unix())
 		if err != nil {
 			return err
+		}
+		// Carry the originating round's authorization ceiling through delayed
+		// notifications. A background reconciler must not mint a fresh root budget.
+		rows, e := database.Rows(ctx, tx, "SELECT agent_targets FROM messages WHERE conversation_id=? AND seq>=? AND seq<=?", childID, r.StartMessageSeq, *r.EndMessageSeq)
+		if e != nil {
+			return e
+		}
+		var limit int64
+		for rows.Next() {
+			var raw string
+			if e = rows.Scan(&raw); e != nil {
+				rows.Close()
+				return e
+			}
+			var entries map[string]struct {
+				AccessLimit int64 `json:"access_limit"`
+				Claims      *struct {
+					Limit int64 `json:"access_limit"`
+				} `json:"access_claims"`
+			}
+			if e = json.Unmarshal([]byte(raw), &entries); e != nil {
+				rows.Close()
+				return e
+			}
+			for _, entry := range entries {
+				ceiling := entry.AccessLimit
+				if entry.Claims != nil && (ceiling == 0 || entry.Claims.Limit < ceiling) {
+					ceiling = entry.Claims.Limit
+				}
+				if ceiling > 0 && (limit == 0 || ceiling < limit) {
+					limit = ceiling
+				}
+			}
+		}
+		e = rows.Err()
+		rows.Close()
+		if e != nil {
+			return e
+		}
+		if limit > 0 {
+			ctx = access.WithLimit(ctx, limit)
 		}
 		if err = s.setMessageTargets(ctx, tx, parent, id, []string{child.ParentAgentID}); err != nil {
 			return err

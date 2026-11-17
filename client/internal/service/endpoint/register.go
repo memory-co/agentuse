@@ -1,51 +1,71 @@
 package endpoint
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
-	"github.com/memory-co/agentuse/internal/protocol"
-	"net/http"
+	"fmt"
+	"github.com/memory-co/agentuse/internal/securews"
 	"os"
-	"strings"
+	"path/filepath"
 	"time"
 )
 
-// Register exchanges a setup token for a device identity and saves only its endpoint registration.
+// Register consumes a trusted installation code inside the authenticated channel.
+// The generated device private key never leaves this process or its private file.
 func (s Service) Register(ctx context.Context, server, token string) (Endpoint, error) {
-	server = strings.TrimRight(server, "/")
-	host, _ := os.Hostname()
-	body, _ := json.Marshal(protocol.RegisterRequest{Token: token, Hostname: host})
+	invitation, err := securews.DecodeInvitation(token)
+	if err != nil {
+		return Endpoint{}, err
+	}
+	if server == "" {
+		server = invitation.Server
+	}
+	server, id, err := NormalizeEndpoint(server)
+	if err != nil {
+		return Endpoint{}, err
+	}
+	expected, _, err := NormalizeEndpoint(invitation.Server)
+	if err != nil || expected != server {
+		return Endpoint{}, fmt.Errorf("installation code belongs to another Server address")
+	}
+	credentials, csr, err := securews.NewCredentials(invitation.CA)
+	if err != nil {
+		return Endpoint{}, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, server+protocol.RegisterPath, bytes.NewReader(body))
+	channel, _, err := securews.Connect(ctx, server, credentials)
 	if err != nil {
 		return Endpoint{}, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	defer channel.Close()
+	host, _ := os.Hostname()
+	if err = channel.Write(ctx, securews.Authentication{Type: "enroll", Token: invitation.Token, CSR: csr, Hostname: host}); err != nil {
+		return Endpoint{}, err
+	}
+	var reply securews.AuthResult
+	if err = channel.Read(ctx, &reply); err != nil {
+		return Endpoint{}, err
+	}
+	if reply.Type != "enrolled" || reply.Error != "" || reply.DeviceID == "" {
+		return Endpoint{}, fmt.Errorf("installation code is invalid or already used")
+	}
+	peer, err := credentials.SetCertificate(reply.Certificate, time.Now())
 	if err != nil {
 		return Endpoint{}, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		var e struct {
-			Error string `json:"error"`
-		}
-		_ = json.NewDecoder(resp.Body).Decode(&e)
-		if e.Error == "" {
-			e.Error = resp.Status
-		}
-		return Endpoint{}, errors.New(e.Error)
+	if peer.DeviceID != reply.DeviceID {
+		return Endpoint{}, fmt.Errorf("registered device identity mismatch")
 	}
-	var rr protocol.RegisterResponse
-	if err := json.NewDecoder(resp.Body).Decode(&rr); err != nil {
+	path, err := filepath.Abs(filepath.Join(filepath.Dir(s.Path), "credentials", id, "device.json"))
+	if err != nil {
 		return Endpoint{}, err
 	}
-	ep := Endpoint{Name: server, ServerURL: server, Enabled: true, DeviceID: rr.DeviceID, DeviceKey: rr.Key, Mode: ModeServer}
-	if err := s.Save(ep); err != nil {
+	if err = credentials.Save(path); err != nil {
 		return Endpoint{}, err
 	}
-	return s.Get(server)
+	ep := Endpoint{Name: server, ServerURL: server, Enabled: true, DeviceID: reply.DeviceID, CredentialsFile: path, Mode: ModeServer}
+	if err = s.Save(ep); err != nil {
+		return Endpoint{}, err
+	}
+	return ep, nil
 }

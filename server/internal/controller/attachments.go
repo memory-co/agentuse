@@ -28,43 +28,28 @@ func attachmentAccess(r *http.Request) conversationservice.AttachmentAccess {
 func (s *Server) attachmentAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := requestToken(r)
-		finish := func(w http.ResponseWriter, r *http.Request) {
-			a := conversationservice.AttachmentAccess{User: currentUser(r), Token: token}
-			h(w, r.WithContext(context.WithValue(r.Context(), attachmentKey{}, a)))
-		}
-		if !strings.HasPrefix(token, "dk_") {
-			s.auth(finish)(w, r)
+		if !resourceCredential(r) {
+			s.auth(func(w http.ResponseWriter, r *http.Request) {
+				a := conversationservice.AttachmentAccess{User: currentUser(r), Token: token}
+				h(w, r.WithContext(context.WithValue(r.Context(), attachmentKey{}, a)))
+			})(w, r)
 			return
 		}
-		d, err := s.service.DeviceService.DeviceByKey(r.Context(), token)
+		var err error
+		r, err = s.executionRequest(r)
 		if err != nil {
-			writeErr(w, 401, "device 密钥无效")
+			writeErr(w, 403, "execution access unavailable")
 			return
 		}
-		if r.Header.Get(actAsHeader) != "" {
-			writeErr(w, 403, "device 不能代为用户")
+		p := currentExecution(r)
+		if p.Preparing || r.Method == http.MethodDelete {
+			writeErr(w, 403, "run credential required")
 			return
 		}
-		if r.Method == http.MethodDelete {
-			writeErr(w, 403, "device 不能删除附件")
-			return
-		}
-		u, err := s.service.UserService.GetUser(r.Context(), d.UserID)
-		if err != nil {
-			s.attachmentErr(w, err)
-			return
-		}
-		a := conversationservice.AttachmentAccess{User: u, DeviceID: d.ID, Token: token, RunID: r.Header.Get("X-Agentuse-Run")}
-		if r.Header.Get("X-Agentuse-Conversation") != "" {
-			source, err := s.deviceSource(r)
-			if err != nil {
-				writeErr(w, 403, "invalid execution source")
-				return
-			}
-			a.SourceConversationID = source.ConversationID
-			a.SourceAgentID = source.AgentID
-		}
-		h(w, r.WithContext(context.WithValue(r.Context(), attachmentKey{}, a)))
+		a := conversationservice.AttachmentAccess{User: currentUser(r), Token: token, DeviceID: p.DeviceID, RunID: p.RunID, SourceConversationID: p.Claims.ConversationID, SourceAgentID: p.Claims.AgentID}
+		ctx, cancel := context.WithDeadline(r.Context(), time.Unix(p.ExpiresAt, 0))
+		defer cancel()
+		h(w, r.WithContext(context.WithValue(ctx, attachmentKey{}, a)))
 	}
 }
 func (s *Server) attachmentErr(w http.ResponseWriter, err error) {
@@ -344,7 +329,7 @@ func (s *Server) handleAttachmentContent(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(200)
-	if _, err = io.Copy(w, f); err != nil {
+	if _, err = s.copyResource(w, r, f); err != nil {
 		s.log.Printf("attachment download: %v", err)
 	}
 }

@@ -41,14 +41,15 @@ type User struct {
 }
 
 type Device struct {
-	ID         string  `gorm:"size:128;primaryKey"`
-	UserID     string  `gorm:"size:128;not null"`
-	Name       Text    `gorm:"not null"`
-	KeyHash    *string `gorm:"size:64;uniqueIndex:devices_key"`
-	SetupToken *string `gorm:"size:64;uniqueIndex:devices_setup_token"`
-	Status     string  `gorm:"size:16;not null;default:pending"`
-	LastSeenAt *int64
-	CreatedAt  int64 `gorm:"autoCreateTime:false;not null"`
+	CredentialGeneration int64   `gorm:"not null;default:1"`
+	ID                   string  `gorm:"size:128;primaryKey"`
+	UserID               string  `gorm:"size:128;not null"`
+	Name                 Text    `gorm:"not null"`
+	KeyHash              *string `gorm:"size:64;uniqueIndex:devices_key"`
+	SetupToken           *string `gorm:"size:64;uniqueIndex:devices_setup_token"`
+	Status               string  `gorm:"size:16;not null;default:pending"`
+	LastSeenAt           *int64
+	CreatedAt            int64 `gorm:"autoCreateTime:false;not null"`
 }
 
 type DeviceHarness struct {
@@ -179,6 +180,8 @@ type Attachment struct {
 }
 
 type Run struct {
+	AccessTokenHash *string `gorm:"size:64;uniqueIndex:runs_access_token"`
+	AccessExpiresAt *int64
 	ID              string  `gorm:"size:128;primaryKey;index:runs_conversation,priority:3"`
 	ConversationID  string  `gorm:"size:128;not null;index:runs_conversation,priority:1"`
 	FirstMessageID  string  `gorm:"size:128;not null"`

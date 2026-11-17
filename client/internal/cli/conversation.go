@@ -81,17 +81,13 @@ func runConversation(args []string) error {
 		if *server == "" {
 			*server = cfg.Server
 		}
-		if *token == "" {
-			*token = cfg.Key
-		}
+
 	}
 	if *server == "" || *token == "" {
-		return errors.New("缺少服务地址或凭据")
+		return errors.New("缺少服务地址或用户 token；Agent 执行中请使用 context conversation")
 	}
 	c := &agentuse.Client{BaseURL: strings.TrimRight(*server, "/"), Token: *token}
-	if strings.HasPrefix(*token, "dk_") {
-		c.RunID = os.Getenv("AGENTUSE_RUN")
-	}
+
 	need := 0
 	if action == "send" || action == "cancel" {
 		need = 1

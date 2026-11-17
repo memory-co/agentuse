@@ -2,79 +2,81 @@ package controller
 
 import (
 	"context"
-	"net/http"
-	"strings"
-
+	"github.com/memory-co/agentuse/internal/access"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	runservice "github.com/memory-co/agentuse/server/internal/service/run"
+	"net/http"
+	"time"
 )
 
 type sourceKey struct{}
+type executionKey struct{}
 
 func currentSource(r *http.Request) *runservice.AgentSource {
 	v, _ := r.Context().Value(sourceKey{}).(*runservice.AgentSource)
 	return v
 }
-
+func currentExecution(r *http.Request) *runservice.AccessPrincipal {
+	v, _ := r.Context().Value(executionKey{}).(*runservice.AccessPrincipal)
+	return v
+}
+func (s *Server) executionRequest(r *http.Request) (*http.Request, error) {
+	if r.Header.Get(actAsHeader) != "" {
+		return r, runservice.ErrAccess
+	}
+	p, err := s.service.RunService.AccessForRequest(r.Context(), requestToken(r))
+	if err != nil {
+		return r, err
+	}
+	for header, want := range map[string]string{"X-Agentuse-Conversation": p.Claims.ConversationID, "X-Agentuse-Agent": p.Claims.AgentID, "X-Agentuse-Session": p.SessionID, "X-Agentuse-Run": p.RunID} {
+		if got := r.Header.Get(header); got != "" && got != want {
+			return r, runservice.ErrAccess
+		}
+	}
+	u, err := s.service.UserService.GetUser(r.Context(), p.UserID)
+	if err != nil {
+		return r, err
+	}
+	u.Role = agentuse.RoleUser
+	ctx := access.WithLimit(access.WithCredential(r.Context(), requestToken(r)), p.ExpiresAt)
+	ctx = context.WithValue(ctx, userKey{}, u)
+	ctx = context.WithValue(ctx, executionKey{}, &p)
+	if !p.Preparing {
+		source := &runservice.AgentSource{User: u, DeviceID: p.DeviceID, ConversationID: p.Claims.ConversationID, AgentID: p.Claims.AgentID, AgentVersionID: p.Claims.AgentVersionID, SessionID: p.SessionID, RunID: p.RunID}
+		ctx = context.WithValue(ctx, sourceKey{}, source)
+	}
+	return r.WithContext(ctx), nil
+}
 func (s *Server) deviceSource(r *http.Request) (runservice.AgentSource, error) {
-	d, err := s.service.DeviceService.DeviceByKey(r.Context(), requestToken(r))
+	r, err := s.executionRequest(r)
 	if err != nil {
 		return runservice.AgentSource{}, err
 	}
-	v, err := s.service.RunService.ExecutionSource(r.Context(), d.ID, r.Header.Get("X-Agentuse-Conversation"), r.Header.Get("X-Agentuse-Agent"), r.Header.Get("X-Agentuse-Session"), r.Header.Get("X-Agentuse-Run"))
-	if err != nil {
-		return v, err
+	v := currentSource(r)
+	if v == nil {
+		return runservice.AgentSource{}, runservice.ErrAccess
 	}
-	u, err := s.service.UserService.GetUser(r.Context(), d.UserID)
-	if err != nil {
-		return v, err
-	}
-	u.Role = agentuse.RoleUser
-	v.User = u
-	if _, err = s.service.ConversationService.GetConversation(r.Context(), u, v.ConversationID); err != nil {
-		return v, err
-	}
-	return v, nil
+	return *v, nil
 }
-
 func (s *Server) conversationAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(requestToken(r), "dk_") {
+		if !resourceCredential(r) {
 			s.auth(h)(w, r)
 			return
 		}
-		if r.Header.Get(actAsHeader) != "" {
-			writeErr(w, 403, "device credentials cannot impersonate users")
-			return
-		}
-		// Read-only access to a conversation actually delivered to this device also
-		// supports metadata/resource preparation before native acceptance exists.
-		if r.Method == "GET" && r.PathValue("id") != "" && r.Header.Get("X-Agentuse-Conversation") == "" {
-			d, err := s.service.DeviceService.DeviceByKey(r.Context(), requestToken(r))
-			if err != nil {
-				writeErr(w, 401, "invalid device key")
-				return
-			}
-			if err = s.service.RunService.DeviceConversationAccess(r.Context(), d.ID, r.PathValue("id")); err != nil {
-				s.serviceErr(w, err)
-				return
-			}
-			u, err := s.service.UserService.GetUser(r.Context(), d.UserID)
-			if err != nil {
-				s.serviceErr(w, err)
-				return
-			}
-			u.Role = agentuse.RoleUser
-			h(w, r.WithContext(context.WithValue(r.Context(), userKey{}, u)))
-			return
-		}
-		source, err := s.deviceSource(r)
+		var err error
+		r, err = s.executionRequest(r)
 		if err != nil {
-			writeErr(w, 403, "execution source is not yet reported or is outside this device scope")
+			writeErr(w, 403, "execution access unavailable")
 			return
 		}
-		ctx := context.WithValue(r.Context(), userKey{}, source.User)
-		ctx = context.WithValue(ctx, sourceKey{}, &source)
+		p := currentExecution(r)
+		if p.Preparing && (r.Method != http.MethodGet || r.PathValue("id") != p.Claims.ConversationID || r.URL.RawQuery != "" || r.URL.Path != "/api/conversations/"+p.Claims.ConversationID) {
+			writeErr(w, 403, "preparation access is limited to source conversation metadata")
+			return
+		}
+		ctx, cancel := context.WithDeadline(r.Context(), time.Unix(p.ExpiresAt, 0))
+		defer cancel()
 		h(w, r.WithContext(ctx))
 	}
 }

@@ -6,12 +6,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/memory-co/agentuse/internal/protocol"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/client/internal/fileutil"
@@ -46,10 +49,11 @@ func newContextFixture(t *testing.T, ep string) contextFixture {
 	first, next := uuid.NewString(), uuid.NewString()
 	status := fmt.Sprintf(`{"state":"running","run_id":%q,"queued":1,"requests":[]}`, first)
 	adapter := harness.Adapter{Path: fakeBin(t, t.TempDir(), "harnessctl", fmt.Sprintf("printf '%%s\\n' '%s'\n", status))}
-	svc := &Service{Sessions: sessions, Path: filepath.Join(root, "endpoints.yaml")}
+	svc := &Service{workers: map[string]*endpointWorker{}, Sessions: sessions, Path: filepath.Join(root, "endpoints.yaml")}
 	if err = svc.prepareContext(m, &adapter); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(svc.closeContextIPC)
 	path := filepath.Join(root, ep, m.ConversationID, "sessions", m.ID, "context.json")
 	return contextFixture{svc, m, adapter, path, filepath.Join(filepath.Dir(path), "events.jsonl"), workspace, first, next}
 }
@@ -141,9 +145,7 @@ func TestContextAttachmentsComeFromConversationAndDownloadOnDemand(t *testing.T)
 	defer ts.Close()
 	ep := endpoint.Endpoint{ServerURL: ts.URL, DeviceID: "device", DeviceKey: "dk_private", Enabled: true}
 	f := newContextFixture(t, ep.ID())
-	if err := (&endpoint.Service{Path: f.service.Path}).Save(ep); err != nil {
-		t.Fatal(err)
-	}
+	f.bindEndpoint(t, ep, "dk_private")
 	image = sdk.Attachment{ID: "at_image", ConversationID: f.metadata.ConversationID, Filename: "截图.png", RelativePath: "user_input/截图.png", ContentType: "image/png", SizeBytes: int64(len(content)), SHA256: hex.EncodeToString(digest[:])}
 	other = image
 	other.ID = "at_other"
@@ -151,7 +153,7 @@ func TestContextAttachmentsComeFromConversationAndDownloadOnDemand(t *testing.T)
 	other.CreatedByRunID = f.first
 	f.eventsFile(t, acceptedContextEvent(f.first, "one"), acceptedContextEvent(f.next, "next"))
 	// A later run sees all conversation files without input receipts.
-	view, err := OpenExecutionContext(context.Background(), f.path, f.next)
+	view, err := OpenExecutionContext(context.Background(), f.path, f.first)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,29 +214,64 @@ func TestContextDoesNotExposeCredentialsOrServerBusinessPolicy(t *testing.T) {
 	}
 }
 
-func TestConversationFileContextDoesNotRequireAnActiveRun(t *testing.T) {
-	var conversation string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/conversations/"+conversation+"/attachments" || r.Header.Get("X-Agentuse-Run") != "" || r.URL.Query().Get("run_id") != "" {
-			t.Error("file listing unexpectedly bound to a run", r.URL)
-			w.WriteHeader(400)
-			return
-		}
-		json.NewEncoder(w).Encode(sdk.AttachmentPage{Attachments: []sdk.Attachment{}})
-	}))
-	defer server.Close()
-	ep := endpoint.Endpoint{ServerURL: server.URL, DeviceID: "device", DeviceKey: "dk_private", Enabled: true}
-	fixture := newContextFixture(t, ep.ID())
-	conversation = fixture.metadata.ConversationID
-	if err := (&endpoint.Service{Path: fixture.service.Path}).Save(ep); err != nil {
+func TestConversationFileContextRequiresActiveRun(t *testing.T) {
+	f := newContextFixture(t, "platform")
+	view, err := OpenConversationContext(context.Background(), f.path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	// No accepted events, run receipts or native process are needed for file access.
-	view, err := OpenConversationContext(context.Background(), fixture.path)
-	if err != nil || view.RunID != "" {
-		t.Fatal(view, err)
+	if _, err = view.Attachments(context.Background()); err == nil {
+		t.Fatal("no run authorization required for file access")
 	}
-	if files, e := view.Attachments(context.Background()); e != nil || len(files) != 0 {
-		t.Fatal(files, e)
+}
+
+func (f contextFixture) bindEndpoint(t *testing.T, ep endpoint.Endpoint, token string) {
+	t.Helper()
+	ep.DeviceKey = ""
+	ep.CredentialsFile = "private-device.json"
+	endpoints := &endpoint.Service{Path: f.service.Path}
+	if err := endpoints.Save(ep); err != nil {
+		t.Fatal(err)
+	}
+	f.service.Endpoints = endpoints
+	d := &endpointConnection{cfg: Config{EndpointID: ep.ID(), RunService: f.service}, grants: map[string]*protocol.Access{f.first: {Token: token, ExpiresAt: time.Now().Add(time.Hour).Unix()}, f.next: {Token: token, ExpiresAt: time.Now().Add(time.Hour).Unix()}}, accessPending: map[string]chan protocol.Message{}, tickets: map[string]*protocol.Access{}, preparing: map[string]string{}}
+	f.service.workers[ep.ID()] = &endpointWorker{run: d}
+}
+
+func TestContextIPCRejectsQueuedAndTerminalRunsBeforeProxying(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.Write([]byte(`{"attachments":[]}`)) }))
+	defer server.Close()
+	ep := endpoint.Endpoint{ServerURL: server.URL, DeviceID: "device", Enabled: true}
+	f := newContextFixture(t, ep.ID())
+	f.bindEndpoint(t, ep, "memory-only-test-grant")
+	f.eventsFile(t, acceptedContextEvent(f.first, "one"), acceptedContextEvent(f.next, "queued"))
+	queued, err := OpenExecutionContext(context.Background(), f.path, f.next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = queued.Attachments(context.Background()); !sdk.IsStatus(err, 403) {
+		t.Fatal("queued run borrowed active run authorization", err)
+	}
+	if calls.Load() != 0 {
+		t.Fatal("queued request reached Server")
+	}
+	active, err := OpenExecutionContext(context.Background(), f.path, f.first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = active.Attachments(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(f.path)
+	if err != nil || strings.Contains(string(raw), "memory-only-test-grant") {
+		t.Fatal("credential leaked into context manifest", err)
+	}
+	f.eventsFile(t, acceptedContextEvent(f.first, "one"), map[string]any{"type": "result", "run_id": f.first, "status": "completed", "input_ids": []string{"one"}, "output": "done"})
+	if _, err = active.Attachments(context.Background()); !sdk.IsStatus(err, 403) {
+		t.Fatal("terminal native run retained HTTP access", err)
+	}
+	if calls.Load() != 1 {
+		t.Fatal("terminal request reached Server")
 	}
 }

@@ -2,7 +2,7 @@
 
 Server/client WebSocket 報文、字段和恢復規則見 [protocol.md](protocol.md)。
 
-默认开启且可关闭的 Client–Server WS 内层加密、设备证书和每个 run 的访问令牌，见[安全通道与执行期授权草案](client-server-security.md)；该方案待实现，不涉及浏览器连接。
+默认开启且可关闭的 Client–Server WS 内层加密、设备证书和每个 run 的访问令牌，见[安全通道与执行期授权](client-server-security.md)；已实现，不涉及浏览器连接。
 
 Client 從輸入來源接收文本，選擇本機 session，調用 harnessctl，並讀取該 session 的 events.jsonl。執行身份只有適配器公佈的 run_id；client 不預分配 run_id，也沒有執行 attempt。Server 的業務編排和調度設計不在本文擴展。
 
@@ -133,7 +133,7 @@ runs 文件名必須來自 accepted.run_id。文件內 reference 記錄 session�
 
 ## Server 事件傳輸
 
-Server 與 client 使用 agentuse-client/2。Server 直接下發 message 和目標 Agent，client 用同一 harnessctl 執行路徑處理；accepted 回報實際 run UUID，五種公共事件原樣上傳。Server 準備來源 conversation 的消息上下文，Client 對主、子對話使用同一執行鏈路，不推斷 Work 角色。
+Server 與 client 使用 agentuse-client/3。Server 直接下發 message 和目標 Agent，client 用同一 harnessctl 執行路徑處理；accepted 回報實際 run UUID，五種公共事件原樣上傳。Server 準備來源 conversation 的消息上下文，Client 對主、子對話使用同一執行鏈路，不推斷 Work 角色。
 
 完整消息收據及版本資源緩存在 conversation/.server/，源 ACK 遊標和控制收據在 sessions/<session_id>/.server/；endpoint/.server/messages 保留不隨 quota 回收的精簡提交收據。執行事實仍只在 events.jsonl，不再有舊版 run/attempt、租約或結果彙總層。詳見 client-run.md。
 

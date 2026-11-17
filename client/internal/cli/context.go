@@ -33,7 +33,7 @@ const humanContextUsage = `agentuse context —— 访问或进入本机执行�
   agentuse context [--path CONTEXT_JSON] [--run RUN_UUID] conversation COMMAND
   agentuse context [--path CONTEXT_JSON] [--run RUN_UUID] enter
 
---path 默认读取 AGENTUSE_CONTEXT。attachment list/download 不需要活跃 run。
+--path 默认读取 AGENTUSE_CONTEXT。远端 attachment/conversation 操作由 Client 守护进程使用当前活动 run 的授权；历史 status 可离线查看。
 status/upload/enter 未指定 run 时由原生适配器的 status 确认当前执行；历史 run 需要显式 --run。
 enter 打开已绑定该 run 的 shell，里面可直接使用 context。
 `
@@ -162,7 +162,7 @@ func contextCommand(args []string, bound bool) error {
 	defer stop()
 	var selected *runservice.ExecutionContext
 	var err error
-	if rest[0] == "attachment" && (rest[1] == "list" || rest[1] == "download") && attachmentConversation == "" {
+	if rest[0] == "attachment" && (rest[1] == "list" || rest[1] == "download") && attachmentConversation == "" && run == "" {
 		selected, err = runservice.OpenConversationContext(ctx, path)
 	} else {
 		selected, err = runservice.OpenExecutionContext(ctx, path, run)

@@ -44,7 +44,7 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 	}
 	owners := map[string]string{
 		"users":   "user",
-		"devices": "device", "device_harnesses": "device", "device_capabilities": "device",
+		"devices": "device", "device_certificates": "device", "device_harnesses": "device", "device_capabilities": "device",
 		"agents": "agent", "agent_versions": "agent", "agent_version_skills": "agent",
 		"conversations": "conversation", "conversation_rounds": "conversation", "messages": "conversation", "attachments": "conversation",
 		"run_inputs": "run", "runs": "run", "run_events": "run", "run_requests": "run", "run_controls": "run",
@@ -53,7 +53,7 @@ func TestServerServicesWriteTheirOwnTables(t *testing.T) {
 	}
 	writes := regexp.MustCompile(`(?i)\b(?:INSERT(?:\s+OR\s+\w+)?\s+INTO|UPDATE|DELETE\s+FROM)\s+([a-z_]+)`)
 	models := map[string]string{
-		"User": "users", "Device": "devices", "DeviceHarness": "device_harnesses", "DeviceCapability": "device_capabilities",
+		"DeviceCertificate": "device_certificates", "User": "users", "Device": "devices", "DeviceHarness": "device_harnesses", "DeviceCapability": "device_capabilities",
 		"Agent": "agents", "AgentVersion": "agent_versions", "AgentVersionSkill": "agent_version_skills",
 		"Conversation": "conversations", "ConversationRound": "conversation_rounds", "Message": "messages", "Attachment": "attachments",
 		"Run": "runs", "RunInput": "run_inputs", "RunEvent": "run_events", "RunRequest": "run_requests", "RunControl": "run_controls",

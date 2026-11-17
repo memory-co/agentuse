@@ -1,6 +1,7 @@
 package run
 
 import (
+	"github.com/memory-co/agentuse/internal/securews"
 	"os"
 	"time"
 
@@ -11,18 +12,19 @@ import (
 
 // Config is an in-memory endpoint execution context, loaded from YAML files.
 type Config struct {
-	Harness    *harness.Service `json:"-"`
-	EndpointID string           `json:"-"`
-	Enabled    bool             `json:"-"`
-	Settings   setting.Settings `json:"-"`
-	Slots      chan struct{}    `json:"-"`
-	Sessions   *session.Service `json:"-"`
-	RunService *Service         `json:"-"`
-	UIAddr     *string          `json:"ui_addr,omitempty"`
-	ConfigPath string           `json:"-"`
-	Server     string           `json:"server"`
-	DeviceID   string           `json:"device_id"`
-	Key        string           `json:"key"`
+	Harness         *harness.Service      `json:"-"`
+	EndpointID      string                `json:"-"`
+	Enabled         bool                  `json:"-"`
+	Settings        setting.Settings      `json:"-"`
+	Slots           chan struct{}         `json:"-"`
+	Sessions        *session.Service      `json:"-"`
+	RunService      *Service              `json:"-"`
+	UIAddr          *string               `json:"ui_addr,omitempty"`
+	ConfigPath      string                `json:"-"`
+	Server          string                `json:"server"`
+	DeviceID        string                `json:"device_id"`
+	Credentials     *securews.Credentials `json:"-"`
+	CredentialsFile string                `json:"-"`
 	// Harnesses provides in-memory harnessctl executable overrides for embedding/tests.
 	// Normal installations load manifest packages from the local harness directory.
 	Harnesses map[string]harness.HarnessConfig `json:"harnesses,omitempty"`

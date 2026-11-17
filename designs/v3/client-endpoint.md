@@ -1,6 +1,6 @@
 # Client endpointService：啓動時固定的輸入來源
 
-> 设备私钥与证书的目标存储方式，以及 Server 控制的默认开启 WS 内层加密，见[安全通道与执行期授权草案](client-server-security.md)。该草案待实现；当前 endpoints.yaml 仍按下文保存 device key。
+> 设备私钥、证书、可信安装码及默认开启的 WS 内层加密已实现，见[安全通道与执行期授权](client-server-security.md)。
 
 endpointService 管理 endpoints.yaml，向 client 提供已註冊來源的身份。它不創建連接、不領取任務、不選擇 native run_id，也不維護在線狀態或執行嘗試。
 
@@ -12,12 +12,14 @@ endpoints:
     server_url: https://company.example.com
     enabled: true
     device_id: registered-device
-    device_key: device-credential
+    credentials_file: /home/user/.agentuse/credentials/https---company.example.com/device.json
 ```
 
 endpoint_id 從規範化地址推導，不寫入 YAML：例如 https://company.example.com 對應 https---company.example.com。:// 使用 ---，其他不安全路徑字節編碼，端口、路徑等均參與標識，不能只按 host 區分。
 
 來源地址和設備憑據在啓動時校驗並固定。運行中修改、註冊、啓停、移除或換憑據不改變當前進程；必須重啓。不發送重讀通知或定期掃描，不根據磁盤差異動態創建/銷燬連接。
+
+安装码包含 Server 地址、公开 CA 和一次性注册令牌；Client 在本机生成私钥和 CSR，经安全 WS 注册。证书文件是 0600 的独立私有文件，YAML 只保存引用。设备证书续签不改变启动来源；run 访问票据由守护进程仅在内存中保存。
 
 註冊 CLI 可以原子更新文件，但不會修改已運行 client 的快照。文件缺失表示沒有遠端註冊，仍可使用 local。保存前檢查地址合法、憑據完整及規範化地址不重複。
 
@@ -31,7 +33,7 @@ local conversation 的任意標題保存在 conversation.yaml，目錄使用 UUI
 
 | 接口 | 行爲 |
 |---|---|
-| List / Views | 返回啓動快照及 local；Views 不含 device_key |
+| List / Views | 返回啓動快照及 local；Views 不含私钥、证书文件引用或访问票据 |
 | GetByID | 解析本機來源，不切換執行中任務的身份 |
 | 註冊 / 保存 / 移除 | 更新 YAML，重啓後生效 |
 

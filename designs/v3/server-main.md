@@ -2,7 +2,7 @@
 
 Server/client WebSocket 報文、字段和恢復規則見 [protocol.md](protocol.md)。GORM、gormigrate、三庫約束和無 CGO 驅動見 [數據庫設計](server-database.md)。
 
-Client–Server WS 加密开关、设备证书及基于 HMAC 票据与 run 记录的 HTTP 访问授权，见[安全通道与执行期授权草案](client-server-security.md)。该草案待实现；浏览器和用户 API 的认证方式不在其改造范围内。
+Client–Server WS 加密开关、设备证书及基于 HMAC 票据与 run 记录的 HTTP 访问授权，见[安全通道与执行期授权](client-server-security.md)。已实现；浏览器和用户 API 保持原有用户认证。
 
 啟動配置由 CLI 讀取 `~/.agentuse/settings.yaml`，目前支持 `public_url`。公開地址按啟動參數、環境變量、YAML 文件、本機監聽地址的順序確定，固定供登錄鏈接、設備安裝命令和 `setup.sh` 使用，不從瀏覽器或請求頭推斷；修改文件後重啟生效。
 
@@ -18,7 +18,7 @@ Server 保存對話、組織任務並跟蹤執行。用戶的一臺執行設備�
 
 ## 實現約束
 
-執行協議已採用 agentuse-client/2：server 不預創建 run，只有 client 的 accepted 創建實際 UUID；五種公共事件原樣入庫，沒有 attempt、租約、原生能力分支或 server harnessService。詳細協議、實際 SQL、重連規則及遷移基線 `0001_initial` 升級約束見 [server-run.md](server-run.md)。
+執行協議已採用 agentuse-client/3：server 不預創建 run，只有 client 的 accepted 創建實際 UUID；五種公共事件原樣入庫，沒有 attempt、租約、原生能力分支或 server harnessService。詳細協議、實際 SQL、重連規則及遷移基線 `0001_initial` 升級約束見 [server-run.md](server-run.md)。
 
 Server 的對話 HTTP 入口、SDK 模型、響應字段和存儲均使用 conversation：`/api/conversations`、`conversation`、`conversations` 表及 `conversation_id`。Client 生成唯一的 `session_id`，Server 只記錄這個值以關聯原生執行，不生成另一套會話 ID，也不提供 `client_session_id` 別名。設備管理入口為 `/api/devices`，Client 註冊與身份查詢為 `/api/client/register`、`/api/client/me`。消息 UUID、兩組收件人和消息附件快照均在遷移基線 `0001_initial` 實現。附件存儲提供按 conversation 隔離的文件樹，見 [conversation-files.md](conversation-files.md)；通用 fileService 的本地/S3 後端仍獨立處理其他資源文件。
 

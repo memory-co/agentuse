@@ -208,6 +208,9 @@ func (s *Service) createConversation(ctx context.Context, u sdk.User, parent, ti
 	}
 	v := sdk.Conversation{Mode: mode, ID: uuid.NewString(), UserID: u.ID, CreatedBy: u.ID, Title: title, Status: sdk.ConversationIdle, CreatedAt: s.Now().Unix(), UpdatedAt: s.Now().Unix()}
 	if source != nil {
+		if err := s.checkExecutionCredential(ctx, tx); err != nil {
+			return v, nil, err
+		}
 		if parent == "" || parent != source.ConversationID || source.User.ID != u.ID {
 			return v, nil, ErrConversationScope
 		}
@@ -255,6 +258,9 @@ func (s *Service) CheckAgentAccess(ctx context.Context, source runservice.AgentS
 	return s.checkAgentAccessIn(ctx, s.DB, source, target, write)
 }
 func (s *Service) checkAgentAccessIn(ctx context.Context, q *gorm.DB, source runservice.AgentSource, target string, write bool) error {
+	if err := s.checkExecutionCredential(ctx, q); err != nil {
+		return err
+	}
 	from, err := s.LookupConversation(ctx, q, source.User, source.ConversationID)
 	if err != nil {
 		return err

@@ -146,7 +146,7 @@ func TestEndpointModeControlsRunSubmission(t *testing.T) {
 	runs, home := localFixture(t)
 	installDebugHarness(t, home, "exit 0\n")
 	ctx := context.Background()
-	remote := endpoint.Endpoint{Name: "server", ServerURL: "https://server.example", Enabled: true, DeviceID: "device", DeviceKey: "key"}
+	remote := endpoint.Endpoint{Name: "server", ServerURL: "https://server.example", Enabled: true, DeviceID: "device", CredentialsFile: "key"}
 	if e := runs.Endpoints.Save(remote); e != nil {
 		t.Fatal(e)
 	}

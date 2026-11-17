@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/memory-co/agentuse/internal/securews"
 	"io"
 	"testing"
 
@@ -23,7 +24,12 @@ func TestNestedConversationAPISourceScopesAndIndependentFiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		d, key, err := e.st.DeviceService.RegisterDevice(ctx, d.SetupToken, "")
+		_, csr, err := securews.NewCredentials(e.st.Security.Identity.CA)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, _, err = e.st.DeviceService.Enroll(ctx, d.SetupToken, "", csr)
+		key := "dk_retired"
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -49,7 +55,7 @@ func TestNestedConversationAPISourceScopesAndIndependentFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = parentClient.CreateConversation(ctx, "", sdk.CreateConversationRequest{ParentConversationID: parent.Conversation.ID}); !sdk.IsStatus(err, 403) {
+	if _, err = parentClient.CreateConversation(ctx, "", sdk.CreateConversationRequest{ParentConversationID: parent.Conversation.ID}); !sdk.IsStatus(err, 401) {
 		t.Fatal("unreported source allowed", err)
 	}
 	accept := func(d sdk.Device, c *sdk.Client, session string) {
@@ -59,9 +65,10 @@ func TestNestedConversationAPISourceScopesAndIndependentFiles(t *testing.T) {
 		}
 		run := uuid.NewString()
 		event, _ := json.Marshal(map[string]any{"type": "accepted", "run_id": run, "input_id": "initial", "text": input.Content})
-		if err = e.st.ConversationService.ReportClientEvent(ctx, d.ID, protocol.ClientEvent{ConversationID: input.ConversationID, MessageID: input.MessageID, AgentID: input.AgentID, AgentVersionID: input.AgentVersionID, Revision: "test", SessionID: session, Seq: 1, Event: event}); err != nil {
+		if err = e.st.ConversationService.ReportClientEvent(ctx, d.ID, protocol.ClientEvent{AccessToken: input.Access.Token, ConversationID: input.ConversationID, MessageID: input.MessageID, AgentID: input.AgentID, AgentVersionID: input.AgentVersionID, Revision: "test", SessionID: session, Seq: 1, Event: event}); err != nil {
 			t.Fatal(err)
 		}
+		c.Token = input.Access.Token
 		c.Source = &sdk.ConversationSource{ConversationID: input.ConversationID, AgentID: input.AgentID, SessionID: session, RunID: run}
 	}
 	accept(d, parentClient, "parent-session")

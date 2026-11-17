@@ -120,9 +120,7 @@ func TestContextUploadsOutputsAndRecoversLostResponseFromServer(t *testing.T) {
 	ep := endpoint.Endpoint{ServerURL: server.URL, DeviceID: "device", DeviceKey: "dk_context", Enabled: true}
 	fixture := newContextFixture(t, ep.ID())
 	conversation, run = fixture.metadata.ConversationID, fixture.first
-	if err := (&endpoint.Service{Path: fixture.service.Path}).Save(ep); err != nil {
-		t.Fatal(err)
-	}
+	fixture.bindEndpoint(t, ep, "dk_context")
 	fixture.eventsFile(t, acceptedContextEvent(run, "one"))
 	view, err := OpenExecutionContext(context.Background(), fixture.path, run)
 	if err != nil {

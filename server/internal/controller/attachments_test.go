@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/memory-co/agentuse/internal/securews"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/memory-co/agentuse/internal/attachment"
 	"github.com/memory-co/agentuse/internal/protocol"
@@ -27,6 +29,7 @@ type attachmentFixture struct {
 	d            agentuse.Device
 	conversation agentuse.Conversation
 	agent        string
+	credentials  *securews.Credentials
 }
 
 func attachmentEnv(t *testing.T, max, total int64) *attachmentFixture {
@@ -38,7 +41,15 @@ func attachmentEnv(t *testing.T, max, total int64) *attachmentFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, key, err := e.st.DeviceService.RegisterDevice(ctx, d.SetupToken, "")
+	credentials, csr, err := securews.NewCredentials(e.st.Security.Identity.CA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, certificate, err := e.st.DeviceService.Enroll(ctx, d.SetupToken, "", csr)
+	if err == nil {
+		_, err = credentials.SetCertificate(certificate, time.Now())
+	}
+	key := "dk_retired"
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +69,7 @@ func attachmentEnv(t *testing.T, max, total int64) *attachmentFixture {
 	if r.StatusCode != 201 || res.Conversation.Status != "idle" || res.Message != nil {
 		t.Fatalf("deferred: %d %+v", r.StatusCode, res)
 	}
-	return &attachmentFixture{e, u, tok, key, d, res.Conversation, agent.ID}
+	return &attachmentFixture{e: e, u: u, token: tok, key: key, d: d, conversation: res.Conversation, agent: agent.ID, credentials: credentials}
 }
 func (f *attachmentFixture) path() string { return attachment.Path(f.conversation.ID) }
 func uploadBody(t *testing.T, filename, data string, fields map[string]string) ([]byte, string) {
@@ -158,7 +169,7 @@ func TestAttachmentsLifecycle(t *testing.T) {
 	if e.code(f.token, "GET", attachment.Path(ss.ID)+"/"+first.ID+"/content", nil) != 404 {
 		t.Fatal("cross-conversation")
 	}
-	if e.code(f.key, "DELETE", f.path()+"/"+first.ID, nil) != 403 {
+	if e.code(f.key, "DELETE", f.path()+"/"+first.ID, nil) != 401 {
 		t.Fatal("device delete")
 	}
 	if e.code(f.token, "DELETE", f.path()+"/"+first.ID, nil) != 204 || e.code(f.token, "GET", first.DownloadPath, nil) != 404 {

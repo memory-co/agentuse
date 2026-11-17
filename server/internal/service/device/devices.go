@@ -35,42 +35,6 @@ func (s *Service) CreateDevice(ctx context.Context, userID, name string) (agentu
 	return d, err
 }
 
-// RegisterDevice 用安装令牌换长期密钥。令牌用一次就作废。
-func (s *Service) RegisterDevice(ctx context.Context, setupToken, hostname string) (agentuse.Device, string, error) {
-	tx, err := database.Begin(ctx, s.DB)
-	if err != nil {
-		return agentuse.Device{}, "", err
-	}
-	defer tx.Rollback()
-	var d agentuse.Device
-	err = database.Row(ctx, tx, database.RegisterDeviceSelect, setupToken).
-		Scan(&d.ID, &d.UserID, &d.Name)
-	if errors.Is(err, sql.ErrNoRows) {
-		return agentuse.Device{}, "", database.ErrNotFound
-	}
-	if err != nil {
-		return agentuse.Device{}, "", err
-	}
-	if d.Name == "" {
-		d.Name = strings.TrimSpace(hostname)
-	}
-	if d.Name == "" {
-		d.Name = d.ID
-	}
-	key := identity.NewToken("dk_")
-	if _, err := database.Exec(ctx, tx,
-		database.RegisterDeviceUpdate,
-		d.Name, identity.HashSecret(key), agentuse.DeviceOffline, d.ID); err != nil {
-		return agentuse.Device{}, "", err
-	}
-	d.Status = agentuse.DeviceOffline
-	err = tx.Commit().Error
-	if err == nil {
-		s.Changes.Publish(notification.Change{Resource: "devices", ID: d.ID}, d.UserID)
-	}
-	return d, key, err
-}
-
 // ResetDeviceSetup 重新生成安装令牌(用于换电脑 / 重装),旧密钥立即失效。
 func (s *Service) resetDeviceSetup(ctx context.Context, u agentuse.User, id string) (agentuse.Device, error) {
 	tx, err := database.Begin(ctx, s.DB)
@@ -90,6 +54,9 @@ func (s *Service) resetDeviceSetup(ctx context.Context, u agentuse.User, id stri
 	} else if err != nil {
 		return agentuse.Device{}, err
 	}
+	if err := s.revokeCertificates(ctx, tx, id); err != nil {
+		return agentuse.Device{}, err
+	}
 	if err = s.ConversationService.RetireDeviceMessages(ctx, tx, id, "device 已重置，请重新发送任务"); err != nil {
 		return agentuse.Device{}, err
 	}
@@ -100,10 +67,6 @@ func (s *Service) resetDeviceSetup(ctx context.Context, u agentuse.User, id stri
 		return agentuse.Device{}, err
 	}
 	return s.GetDevice(ctx, u, id)
-}
-
-func (s *Service) DeviceByKey(ctx context.Context, key string) (agentuse.Device, error) {
-	return s.scanDevice(database.Row(ctx, s.DB, database.DeviceCols+database.DeviceByKeyClause, identity.HashSecret(key)))
 }
 
 func (s *Service) scanDevice(row database.Scanner) (agentuse.Device, error) {
@@ -222,6 +185,9 @@ func (s *Service) deleteDevice(ctx context.Context, u agentuse.User, id string) 
 	if err := database.Row(ctx, tx, check, args...).Scan(&one); errors.Is(err, sql.ErrNoRows) {
 		return database.ErrNotFound
 	} else if err != nil {
+		return err
+	}
+	if err := s.revokeCertificates(ctx, tx, id); err != nil {
 		return err
 	}
 	if err := s.ConversationService.RetireDeviceMessages(ctx, tx, id, "device 已删除"); err != nil {

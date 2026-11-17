@@ -56,9 +56,9 @@ func (s *Server) registerAPI() {
 	config.SchemasPath = "/api/schemas"
 	config.Info.Description = "AgentUse Server API。登录管理页面后可使用 cookie 在文档中调试，也可通过 Authorize 输入 Bearer token。Server 对话统一使用 /api/conversations 和 conversation_id；session_id 表示 Client 本地执行会话。设备入口使用 device 命名。消息用 to_agent_ids 和 to_user_ids 指定收件人；只有 Agent 收件人触发执行，实际 run_id 由 Client accepted 返回。"
 	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
-		"cookieAuth": {Type: "apiKey", In: "cookie", Name: cookieName, Description: "POST /api/login 或登录链接设置的 HttpOnly cookie"},
-		"bearerAuth": {Type: "http", Scheme: "bearer", Description: "用户令牌 ut_…，或安装时设置的管理员密码"},
-		"deviceKey":  {Type: "http", Scheme: "bearer", Description: "注册设备返回的 dk_…，只能访问授权的会话及固定资源版本"},
+		"cookieAuth":      {Type: "apiKey", In: "cookie", Name: cookieName, Description: "POST /api/login 或登录链接设置的 HttpOnly cookie"},
+		"bearerAuth":      {Type: "http", Scheme: "bearer", Description: "用户令牌 ut_…，或安装时设置的管理员密码"},
+		"executionAccess": {Type: "http", Scheme: "bearer", Description: "Server 经认证 WS 下发的 at1 输入／run 票据；准备期仅固定配置和源消息，accepted 后限活动 run，终态或超时失效"},
 	}
 	config.Security = []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}}
 	api := humago.New(&documentationRouter{server: s}, config)
@@ -76,11 +76,10 @@ func (s *Server) registerAPI() {
 	public := apiAccess{security: []map[string][]string{}}
 	user := apiAccess{wrap: s.auth, security: config.Security}
 	admin := apiAccess{wrap: s.admin, security: config.Security, description: "仅管理员可调用。"}
-	resource := apiAccess{wrap: s.resourceAuth, security: []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}, {"deviceKey": {}}}, description: "设备只能读取分配给自己的固定资源版本。"}
+	resource := apiAccess{wrap: s.resourceAuth, security: []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}, {"executionAccess": {}}}, description: "设备只能读取分配给自己的固定资源版本。"}
 	conversation := apiAccess{wrap: s.conversationAuth, security: resource.security, description: "设备协作请求须携带已验证执行来源，仅顶层可创建直接子对话；parent_agent_id 由来源确定。"}
 	attachment := apiAccess{wrap: s.attachmentAuth, security: resource.security, description: "设备密钥只能访问已授权的会话文件。设备上传必须通过 X-Agentuse-Run 指定本设备在该会话的活动 run。"}
 	attachmentDelete := apiAccess{wrap: s.attachmentAuth, security: user.security, description: "仅用户可删除附件，设备密钥不能删除。"}
-	device := apiAccess{security: []map[string][]string{{"deviceKey": {}}}}
 
 	bind := func(method, path, id, summary, tag string, access apiAccess, input, output any, status int, handler http.HandlerFunc, params ...*huma.Param) *huma.Operation {
 		op := &huma.Operation{Method: method, Path: strings.ReplaceAll(path, "...}", "}"), OperationID: id, Summary: summary, Description: access.description, Tags: []string{tag}, Security: access.security, Parameters: append([]*huma.Param{}, params...), Responses: map[string]*huma.Response{}}
@@ -90,7 +89,7 @@ func (s *Server) registerAPI() {
 			}
 		}
 		for _, credentials := range access.security {
-			if _, ok := credentials["deviceKey"]; ok {
+			if _, ok := credentials["executionAccess"]; ok {
 				for _, header := range []string{"X-Agentuse-Conversation", "X-Agentuse-Agent", "X-Agentuse-Session", "X-Agentuse-Run"} {
 					exists := false
 					for _, p := range op.Parameters {
@@ -200,7 +199,7 @@ func (s *Server) registerAPI() {
 	bind("PUT", "/api/devices/{id}/harnesses/{harness}", "toggle-device-harness", "启用或禁用设备的 harness", "device", user, toggleHarnessBody{}, deviceView{}, 200, s.handleToggleHarness)
 	bind("GET", "/api/conversations", "list-conversations", "列出顶层对话或指定父对话的直接子对话", "conversation", conversation, nil, []agentuse.Conversation{}, 200, s.handleListConversations, query("parent_conversation_id", "父对话 ID；由 Agent 创建子对话，返回的 parent_agent_id 固定记录发起者"))
 	bind("POST", "/api/conversations", "create-conversation", "创建会话，可同时发送首条消息", "conversation", conversation, createConversationBody{}, agentuse.CreateConversationResponse{}, 201, s.handleCreateConversation)
-	contextRoute := bind("GET", "/api/conversations/{id}/messages/{message_id}/agents/{agent_id}/context", "get-message-context", "为本地 session 补齐尚未提供的共享消息", "conversation", apiAccess{security: []map[string][]string{{"deviceKey": {}}}}, nil, agentuse.MessageContext{}, 200, s.handleMessageContext)
+	contextRoute := bind("GET", "/api/conversations/{id}/messages/{message_id}/agents/{agent_id}/context", "get-message-context", "为本地 session 补齐尚未提供的共享消息", "conversation", apiAccess{security: []map[string][]string{{"executionAccess": {}}}}, nil, agentuse.MessageContext{}, 200, s.handleMessageContext)
 	contextRoute.Parameters = append(contextRoute.Parameters, query("session_id", "Client 实际选择的本地 session ID"))
 	bind("GET", "/api/conversations/{id}", "get-conversation", "读取消息、执行、投递、事件和问题的统一快照", "conversation", conversation, nil, agentuse.ConversationDetail{}, 200, s.handleGetConversation, query("round", "可选的正整数会话内轮次；固定返回该轮的消息范围、执行和结果，不混入后续轮次"))
 	bind("DELETE", "/api/conversations/{id}", "delete-conversation", "删除无活跃执行的会话", "conversation", user, nil, nil, 204, s.handleDeleteConversation, query("recursive", "true 时同时删除直接子对话；所有节点须无活跃执行及对外待通知轮次"))
@@ -221,10 +220,10 @@ func (s *Server) registerAPI() {
 	content := bind("GET", "/api/conversations/{id}/attachments/{attachment_id}/content", "download-attachment", "下载附件内容", "attachment", attachment, nil, nil, 200, s.handleAttachmentContent, runHeader)
 	binaryResponse(content, "*/*")
 	bind("DELETE", "/api/conversations/{id}/attachments/{attachment_id}", "delete-attachment", "删除附件", "attachment", attachmentDelete, nil, nil, 204, s.handleDeleteAttachment)
-	bind("POST", protocol.RegisterPath, "register-device", "用一次性安装令牌注册设备", "client", public, protocol.RegisterRequest{}, protocol.RegisterResponse{}, 200, s.handleRegister)
-	bind("GET", protocol.MePath, "get-device-identity", "使用设备密钥读取设备身份", "client", device, nil, protocol.MeResponse{}, 200, s.handleDeviceMe)
-	ws := bind("GET", protocol.WSPath, "connect-client", "升级为 Client 双向 WebSocket 连接", "client", device, nil, nil, 101, s.cfg.ClientHandler.ServeHTTP, &huma.Param{Name: protocol.ProtocolHeader, In: "header", Required: true, Schema: &huma.Schema{Type: "string", Enum: []any{protocol.ExecutionProtocol}}})
-	ws.Description = "HTTP 只负责握手；连接后使用 agentuse-client/2 的 heartbeat、message、event、answer、cancel、ack 报文。完整报文和恢复规则见仓库 designs/v3/protocol.md。"
+	bind("POST", protocol.RegisterPath, "register-device", "旧版注册入口已停用；使用可信安装码和安全 WS", "client", public, protocol.RegisterRequest{}, apiErrorBody{}, 426, s.handleRegister)
+	bind("GET", protocol.MePath, "get-device-identity", "旧版设备 HTTP 身份接口已停用", "client", public, nil, apiErrorBody{}, 426, s.handleDeviceMe)
+	ws := bind("GET", protocol.WSPath, "connect-client", "升级为 Client 双向 WebSocket 连接", "client", public, nil, nil, 101, s.cfg.ClientHandler.ServeHTTP, &huma.Param{Name: protocol.ProtocolHeader, In: "header", Required: true, Schema: &huma.Schema{Type: "string", Enum: []any{protocol.ExecutionProtocol}}})
+	ws.Description = "HTTP 升级不携带 bearer；随后进行固定 CA、双向挑战、签名策略和默认 TLS 1.3 握手，以本地私钥证明设备身份。注册、证书续签和 run 授权恢复均走安全通道，业务报文为 agentuse-client/3 的长度前缀 JSON。完整报文和恢复规则见仓库 designs/v3/protocol.md。"
 	ws.Extensions = map[string]any{"x-websocket-protocol": protocol.ExecutionProtocol}
 	ws.Responses = map[string]*huma.Response{"101": {Description: "Switching Protocols"}, "503": jsonResponse(503, apiErrorBody{})}
 	for _, code := range []int{400, 401, 403, 426} {

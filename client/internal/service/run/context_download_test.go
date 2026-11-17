@@ -17,14 +17,14 @@ import (
 	sdk "github.com/memory-co/agentuse/sdk/golang"
 )
 
-func TestContextDownloadResolvesConversationPathsAcrossPagesWithoutRun(t *testing.T) {
+func TestContextDownloadResolvesConversationPathsAcrossPagesViaDaemon(t *testing.T) {
 	content := []byte("the selected report")
 	digest := sha256.Sum256(content)
 	var selected, sameName sdk.Attachment
 	var requests, downloads atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		if r.Header.Get("Authorization") != "Bearer dk_download" || r.Header.Get("X-Agentuse-Run") != "" || r.URL.Query().Get("run_id") != "" {
+		if r.Header.Get("Authorization") != "Bearer dk_download" || r.Header.Get("X-Agentuse-Run") == "" || r.URL.Query().Get("run_id") != "" {
 			t.Error("download unexpectedly required a run or used the wrong identity")
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -47,14 +47,12 @@ func TestContextDownloadResolvesConversationPathsAcrossPagesWithoutRun(t *testin
 	defer server.Close()
 	ep := endpoint.Endpoint{ServerURL: server.URL, DeviceID: "device", DeviceKey: "dk_download", Enabled: true}
 	fixture := newContextFixture(t, ep.ID())
-	if err := (&endpoint.Service{Path: fixture.service.Path}).Save(ep); err != nil {
-		t.Fatal(err)
-	}
+	fixture.bindEndpoint(t, ep, "dk_download")
 	selected = sdk.Attachment{ID: "at_report", ConversationID: fixture.metadata.ConversationID, Filename: "notes 1.txt", RelativePath: "reports/每日/notes 1.txt", ContentType: "text/plain", SizeBytes: int64(len(content)), SHA256: hex.EncodeToString(digest[:])}
 	sameName = selected
 	sameName.ID = "at_input"
 	sameName.RelativePath = "user_input/notes 1.txt"
-	// No accepted events or run receipts exist for this context.
+	fixture.eventsFile(t, acceptedContextEvent(fixture.first, "one"))
 	view, err := OpenConversationContext(context.Background(), fixture.path)
 	if err != nil {
 		t.Fatal(err)

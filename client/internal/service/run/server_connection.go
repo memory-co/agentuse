@@ -19,16 +19,16 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/coder/websocket/wsjson"
 	"github.com/google/uuid"
 	"github.com/memory-co/agentuse/client/internal/fileutil"
 	"github.com/memory-co/agentuse/client/internal/service/harness"
 	"github.com/memory-co/agentuse/client/internal/service/session"
 	"github.com/memory-co/agentuse/internal/protocol"
+	"github.com/memory-co/agentuse/internal/securews"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
-var errEndpointCredential = errors.New("设备密钥无效，请重新注册")
+var errEndpointCredential = errors.New("设备凭据无效，请重新注册")
 var errEndpointProtocol = errors.New("client/server protocol upgrade required")
 
 type endpointConnection struct {
@@ -38,6 +38,11 @@ type endpointConnection struct {
 	writeMu       sync.Mutex
 	controlMu     sync.Mutex
 	conn          *websocket.Conn
+	channel       *securews.Channel
+	tickets       map[string]*protocol.Access
+	grants        map[string]*protocol.Access
+	accessPending map[string]chan protocol.Message
+	preparing     map[string]string
 	active        map[string]bool
 	queues        map[string][]protocol.ConversationMessage
 	streamPending map[string]int64
@@ -58,13 +63,13 @@ type streamReceipt struct {
 }
 
 func newConnection(cfg Config, logger *log.Logger) (*endpointConnection, error) {
-	if cfg.Server == "" || cfg.Key == "" || cfg.RunService == nil {
+	if cfg.Server == "" || cfg.Credentials == nil || cfg.RunService == nil {
 		return nil, errors.New("registered endpoint and run service required")
 	}
 	if logger == nil {
 		logger = log.Default()
 	}
-	return &endpointConnection{cfg: cfg, log: logger, active: map[string]bool{}, queues: map[string][]protocol.ConversationMessage{}, streamPending: map[string]int64{}, replayPending: map[string]bool{}}, nil
+	return &endpointConnection{cfg: cfg, log: logger, active: map[string]bool{}, queues: map[string][]protocol.ConversationMessage{}, streamPending: map[string]int64{}, replayPending: map[string]bool{}, tickets: map[string]*protocol.Access{}, grants: map[string]*protocol.Access{}, accessPending: map[string]chan protocol.Message{}, preparing: map[string]string{}}, nil
 }
 func (d *endpointConnection) Run(ctx context.Context) error {
 	hs, err := d.cfg.Harness.Probe()
@@ -97,14 +102,14 @@ func (d *endpointConnection) send(ctx context.Context, m protocol.Message) error
 	d.writeMu.Lock()
 	defer d.writeMu.Unlock()
 	d.mu.Lock()
-	c := d.conn
+	c := d.channel
 	d.mu.Unlock()
 	if c == nil {
 		return errors.New("endpoint offline")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	return wsjson.Write(ctx, c, m)
+	return c.Write(ctx, m)
 }
 func (d *endpointConnection) heartbeat() protocol.Message {
 	m := protocol.Message{Type: protocol.TypeHeartbeat, ID: "h:" + uuid.NewString(), FreeSessions: cap(d.cfg.RunService.slots) - len(d.cfg.RunService.slots), Harnesses: d.harnesses, ActiveStreams: []protocol.StreamRef{}}
@@ -122,23 +127,58 @@ func (d *endpointConnection) heartbeat() protocol.Message {
 	return m
 }
 func (d *endpointConnection) session(ctx context.Context) error {
-	url := strings.Replace(strings.Replace(d.cfg.Server, "https://", "wss://", 1), "http://", "ws://", 1) + protocol.WSPath
-	conn, response, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer " + d.cfg.Key}, protocol.ProtocolHeader: []string{protocol.ExecutionProtocol}}})
+	if _, e := securews.VerifyDevice(d.cfg.Credentials.CA, d.cfg.Credentials.Certificate, time.Now()); e != nil {
+		return errEndpointCredential
+	}
+	channel, result, err := securews.Authenticate(ctx, d.cfg.Server, d.cfg.Credentials)
+	if errors.Is(err, securews.ErrProtocol) {
+		return errEndpointProtocol
+	}
+	if errors.Is(err, securews.ErrCredential) {
+		return errEndpointCredential
+	}
 	if err != nil {
-		if response != nil {
-			if response.StatusCode == 401 || response.StatusCode == 403 {
-				return fmt.Errorf("%w: %v", errEndpointCredential, err)
-			}
-			if response.StatusCode == 426 {
-				return errEndpointProtocol
-			}
-		}
 		return err
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "")
-	conn.SetReadLimit(8 << 20)
+	defer channel.Close()
+	if d.cfg.DeviceID != "" && result.DeviceID != d.cfg.DeviceID {
+		return errEndpointCredential
+	}
+	conn := channel.WS
+	peer, e := securews.VerifyDevice(d.cfg.Credentials.CA, d.cfg.Credentials.Certificate, time.Now())
+	if e != nil {
+		return errEndpointCredential
+	}
+	if time.Until(peer.NotAfter) < 30*24*time.Hour {
+		csr, e := d.cfg.Credentials.CSR()
+		if e != nil {
+			return e
+		}
+		renewCtx, stop := context.WithTimeout(ctx, 15*time.Second)
+		defer stop()
+		if e = channel.Write(renewCtx, protocol.Message{Type: protocol.TypeCredential, Operation: "renew", ID: "renew:" + uuid.NewString(), CSR: csr}); e != nil {
+			return e
+		}
+		var response protocol.Message
+		if e = channel.Read(renewCtx, &response); e != nil {
+			return e
+		}
+		if response.Type != protocol.TypeCredential || response.Status != protocol.AckOK {
+			return errEndpointCredential
+		}
+		renewed := *d.cfg.Credentials
+		if _, e = renewed.SetCertificate(response.Certificate, time.Now()); e != nil {
+			return e
+		}
+		if e = renewed.Save(d.cfg.CredentialsFile); e != nil {
+			return e
+		}
+		d.cfg.Credentials = &renewed
+		return errors.New("device certificate renewed; reconnecting")
+	}
 	d.mu.Lock()
 	d.conn = conn
+	d.channel = channel
 	d.streamPending = map[string]int64{}
 	d.replayPending = map[string]bool{}
 	d.mu.Unlock()
@@ -146,6 +186,7 @@ func (d *endpointConnection) session(ctx context.Context) error {
 		d.mu.Lock()
 		if d.conn == conn {
 			d.conn = nil
+			d.channel = nil
 		}
 		d.mu.Unlock()
 	}()
@@ -166,6 +207,17 @@ func (d *endpointConnection) session(ctx context.Context) error {
 			case <-runCtx.Done():
 				return
 			case <-tick.C:
+				if time.Until(peer.NotAfter) < 30*24*time.Hour {
+					conn.CloseNow()
+					return
+				}
+				d.mu.Lock()
+				for key, a := range d.tickets {
+					if a.BindBefore > 0 && time.Now().Unix() >= a.BindBefore {
+						delete(d.tickets, key)
+					}
+				}
+				d.mu.Unlock()
 				if err := d.flushEvents(runCtx); err != nil {
 					d.log.Printf("event synchronization: %v", err)
 					conn.Close(websocket.StatusInternalError, "event synchronization failed")
@@ -187,7 +239,7 @@ func (d *endpointConnection) session(ctx context.Context) error {
 	}()
 	for {
 		var m protocol.Message
-		if err = wsjson.Read(ctx, conn, &m); err != nil {
+		if err = channel.Read(ctx, &m); err != nil {
 			return err
 		}
 		switch m.Type {
@@ -195,7 +247,23 @@ func (d *endpointConnection) session(ctx context.Context) error {
 			if err = d.enqueue(*m.Delivery); err != nil {
 				return err
 			}
+		case protocol.TypeAccess:
+			d.mu.Lock()
+			if m.Access != nil && m.Status == protocol.AckOK {
+				d.grants[m.RunID] = m.Access
+			}
+			waiter := d.accessPending[m.ID]
+			delete(d.accessPending, m.ID)
+			d.mu.Unlock()
+			if waiter != nil {
+				waiter <- m
+			}
 		case protocol.TypeAck:
+			if m.RunID != "" && m.Access != nil {
+				d.mu.Lock()
+				d.grants[m.RunID] = m.Access
+				d.mu.Unlock()
+			}
 			if strings.HasPrefix(m.ID, "h:") {
 				if m.Status != protocol.AckOK {
 					return fmt.Errorf("heartbeat rejected: %s", m.Error)
@@ -232,6 +300,7 @@ func (d *endpointConnection) receiptPath(m session.Session, key string) string {
 	return filepath.Join(d.messageDir(m.ConversationID), receiptName(key))
 }
 func (d *endpointConnection) saveReceipt(r messageReceipt) error {
+	r.Message.Access = nil
 	return fileutil.WriteJSON(filepath.Join(d.messageDir(r.Message.ConversationID), receiptName(r.Message.Key())), r)
 }
 func (d *endpointConnection) findReceipt(ctx context.Context, p protocol.ConversationMessage) (messageReceipt, bool, error) {
@@ -252,6 +321,10 @@ func (d *endpointConnection) enqueue(p protocol.ConversationMessage) error {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if p.Access != nil {
+		d.tickets[p.Key()] = p.Access
+	}
+	p.Access = nil
 	if d.active[p.Key()] {
 		current, _ := json.Marshal(p)
 		for _, queue := range d.queues {
@@ -385,7 +458,7 @@ func (d *endpointConnection) receiveMessage(ctx context.Context, p protocol.Conv
 	request.Prompt = p.Text()
 	request.agentID = p.AgentID
 	request.agentVersionID = p.AgentVersionID
-	request.environment = []string{"AGENTUSE_SERVER=" + d.cfg.Server, "AGENTUSE_TOKEN=" + d.cfg.Key, "AGENTUSE_CONFIG=" + d.cfg.ConfigPath, "AGENTUSE_CONVERSATION=" + p.ConversationID, "AGENTUSE_AGENT=" + p.AgentID, "AGENTUSE_MESSAGE_ID=" + p.MessageID, "AGENTUSE_ENDPOINT=" + d.cfg.EndpointID, "AGENTUSE_RUN=", "AGENTUSE_ATTEMPT=", "AGENTUSE_PROMPT="}
+	request.environment = []string{"AGENTUSE_SERVER=" + d.cfg.Server, "AGENTUSE_TOKEN=", "AGENTUSE_CONFIG=" + d.cfg.ConfigPath, "AGENTUSE_CONVERSATION=" + p.ConversationID, "AGENTUSE_AGENT=" + p.AgentID, "AGENTUSE_MESSAGE_ID=" + p.MessageID, "AGENTUSE_ENDPOINT=" + d.cfg.EndpointID, "AGENTUSE_RUN=", "AGENTUSE_ATTEMPT=", "AGENTUSE_PROMPT="}
 	if exe, e := os.Executable(); e == nil {
 		request.environment = append(request.environment, "PATH="+filepath.Dir(exe)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
@@ -393,6 +466,9 @@ func (d *endpointConnection) receiveMessage(ctx context.Context, p protocol.Conv
 		receiptMu.Lock()
 		defer receiptMu.Unlock()
 		saved.SessionID = metadata.ID
+		d.mu.Lock()
+		d.preparing[metadata.ID] = p.Key()
+		d.mu.Unlock()
 		saved.State = "preparing"
 		events := filepath.Join(d.sessionDir(metadata), "events.jsonl")
 		if info, e := os.Stat(events); e == nil {
@@ -412,7 +488,7 @@ func (d *endpointConnection) receiveMessage(ctx context.Context, p protocol.Conv
 		return nil
 	}
 	request.preparePrompt = func(metadata session.Session) (string, error) {
-		client := agentuse.New(d.cfg.Server, d.cfg.Key)
+		client := agentuse.New(d.cfg.Server, d.ticket(p.Key()))
 		client.HTTPClient = &http.Client{Timeout: time.Minute, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 		view, err := client.GetMessageContext(ctx, p.ConversationID, p.MessageID, p.AgentID, metadata.ID)
 		if err != nil {
@@ -435,6 +511,9 @@ func (d *endpointConnection) receiveMessage(ctx context.Context, p protocol.Conv
 		receiptMu.Lock()
 		defer receiptMu.Unlock()
 		saved.State = "accepted"
+		d.mu.Lock()
+		delete(d.preparing, saved.SessionID)
+		d.mu.Unlock()
 		saved.RunID = a.RunID
 		saved.InputID = a.InputID
 		if err := d.saveReceipt(saved); err != nil {
@@ -572,7 +651,7 @@ func (d *endpointConnection) replayAccepted(ctx context.Context, r messageReceip
 			return e
 		}
 		if event.Type == "accepted" && event.RunID == r.RunID && event.InputID == r.InputID {
-			frame := protocol.EventFrame(protocol.ClientEvent{SessionID: m.ID, ConversationID: r.Message.ConversationID, AgentID: m.AgentID, AgentVersionID: m.AgentVersionID, Harness: m.Harness, Revision: m.HarnessRevision, MessageID: r.Message.MessageID, Seq: pos, Event: json.RawMessage(strings.TrimSpace(string(line)))})
+			frame := protocol.EventFrame(protocol.ClientEvent{AccessToken: d.ticket(r.Message.Key()), SessionID: m.ID, ConversationID: r.Message.ConversationID, AgentID: m.AgentID, AgentVersionID: m.AgentVersionID, Harness: m.Harness, Revision: m.HarnessRevision, MessageID: r.Message.MessageID, Seq: pos, Event: json.RawMessage(strings.TrimSpace(string(line)))})
 			d.mu.Lock()
 			if d.streamPending[m.ID] == pos {
 				d.mu.Unlock()
@@ -640,6 +719,16 @@ func (d *endpointConnection) flushEvents(ctx context.Context) error {
 			if e = json.Unmarshal(line, &event); e != nil {
 				return e
 			}
+			if event.Type == "result" {
+				d.mu.Lock()
+				delete(d.grants, event.RunID)
+				for _, receipt := range receipts {
+					if receipt.RunID == event.RunID {
+						delete(d.tickets, receipt.Message.Key())
+					}
+				}
+				d.mu.Unlock()
+			}
 			envelope := protocol.ClientEvent{ConversationID: c.ID, AgentID: m.AgentID, AgentVersionID: m.AgentVersionID, SessionID: m.ID, Harness: m.Harness, Revision: m.HarnessRevision, Seq: cursor.Offset + int64(len(line)), Event: json.RawMessage(strings.TrimSuffix(string(line), "\n"))}
 			if event.Type == "log" {
 				// Diagnostics are best effort and do not pin a directory or need ACK.
@@ -655,6 +744,7 @@ func (d *endpointConnection) flushEvents(ctx context.Context) error {
 				for _, r := range receipts {
 					if r.SessionID == m.ID && r.RunID == event.RunID && r.InputID == event.InputID {
 						envelope.MessageID = r.Message.MessageID
+						envelope.AccessToken = d.ticket(r.Message.Key())
 						break
 					}
 				}
@@ -664,6 +754,7 @@ func (d *endpointConnection) flushEvents(ctx context.Context) error {
 						return e
 					}
 					envelope.MessageID = id
+					envelope.AccessToken = d.ticket(protocol.ConversationMessage{ConversationID: c.ID, MessageID: id, AgentID: m.AgentID}.Key())
 					if id == "" {
 						continue
 					}

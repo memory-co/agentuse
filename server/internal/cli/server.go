@@ -190,6 +190,26 @@ func serveServer(args []string, onRestart func(upgradeservice.Restart, []string)
 	if base == "" {
 		base = "http://" + displayAddr(ln.Addr())
 	}
+	sec := service.SecurityConfig{Directory: filepath.Join(home, ".agentuse", "security"), PublicURL: base, WSEncryption: settings.Security.WSEncryption}
+	for _, setting := range []struct {
+		name, value string
+		target      *time.Duration
+	}{
+		{"prepare_timeout", settings.Security.PrepareTimeout, &sec.PrepareTimeout},
+		{"run_timeout", settings.Security.RunTimeout, &sec.RunTimeout},
+	} {
+		if setting.value != "" {
+			duration, e := time.ParseDuration(setting.value)
+			if e != nil || duration < time.Second {
+				return fmt.Errorf("security.%s must be a positive duration of at least 1s", setting.name)
+			}
+			*setting.target = duration
+		}
+	}
+
+	if err = st.ConfigureSecurity(sec); err != nil {
+		return err
+	}
 	if *pidFile != "" {
 		if err := os.MkdirAll(filepath.Dir(*pidFile), 0o700); err != nil {
 			return err

@@ -34,6 +34,9 @@ func reportNative(t *testing.T, s *service.Service, d agentuse.Device, p protoco
 	t.Helper()
 	raw, _ := json.Marshal(event)
 	e := protocol.ClientEvent{ConversationID: p.ConversationID, AgentID: p.AgentID, AgentVersionID: p.AgentVersionID, Revision: "client-revision", SessionID: conversation, Seq: seq, MessageID: p.MessageID, Event: raw}
+	if p.Access != nil {
+		e.AccessToken = p.Access.Token
+	}
 	if err := s.ConversationService.ReportClientEvent(context.Background(), d.ID, e); err != nil {
 		t.Fatal(err)
 	}

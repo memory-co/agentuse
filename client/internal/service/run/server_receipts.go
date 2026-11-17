@@ -27,6 +27,7 @@ func (d *endpointConnection) tombstonePath(p protocol.ConversationMessage) strin
 	return filepath.Join(d.cfg.RunService.Sessions.Root, d.cfg.EndpointID, ".server", "messages", receiptName(p.Key()))
 }
 func messageDigest(p protocol.ConversationMessage) string {
+	p.Access = nil
 	raw, _ := json.Marshal(p)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])

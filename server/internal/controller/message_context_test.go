@@ -22,23 +22,20 @@ func TestMessageContextIsScopedToDeliveredDevice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := agentuse.New(f.e.ts.URL, f.key)
+	client := agentuse.New(f.e.ts.URL, p.Access.Token)
 	result, err := client.GetMessageContext(ctx, f.conversation.ID, p.MessageID, f.agent, "new-local-conversation")
 	if err != nil || len(result.CompleteMessages) != 1 || result.CompleteMessages[0].Text != "shared-note" {
 		t.Fatal(result, err)
 	}
-	if _, err = client.GetMessageContext(ctx, f.conversation.ID, reply.Message.ID, "wrong-agent", "new-local-conversation"); !agentuse.IsStatus(err, 404) {
+	if _, err = client.GetMessageContext(ctx, f.conversation.ID, reply.Message.ID, "wrong-agent", "new-local-conversation"); !agentuse.IsStatus(err, 403) {
 		t.Fatal("cross-agent context", err)
 	}
 	other, err := f.e.st.DeviceService.CreateDevice(ctx, f.u.ID, "other")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, key, err := f.e.st.DeviceService.RegisterDevice(ctx, other.SetupToken, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = agentuse.New(f.e.ts.URL, key).GetMessageContext(ctx, f.conversation.ID, p.MessageID, f.agent, "new-local-conversation"); !agentuse.IsStatus(err, 404) {
+	key := other.SetupToken
+	if _, err = agentuse.New(f.e.ts.URL, key).GetMessageContext(ctx, f.conversation.ID, p.MessageID, f.agent, "new-local-conversation"); !agentuse.IsStatus(err, 401) {
 		t.Fatal("unassigned device read context", err)
 	}
 	if _, err = agentuse.New(f.e.ts.URL, f.token).GetMessageContext(ctx, f.conversation.ID, p.MessageID, f.agent, "new-local-conversation"); !agentuse.IsStatus(err, 401) {
@@ -48,7 +45,7 @@ func TestMessageContextIsScopedToDeliveredDevice(t *testing.T) {
 		t.Fatal("missing local conversation accepted", err)
 	}
 	legacy := "/api/conversations/" + f.conversation.ID + "/messages/" + p.MessageID + "/agents/" + f.agent + "/context?client_session_id=old"
-	if code := f.e.code(f.key, "GET", legacy, nil); code != 400 {
+	if code := f.e.code(p.Access.Token, "GET", legacy, nil); code != 400 {
 		t.Fatal("old native session alias retained", code)
 	}
 }

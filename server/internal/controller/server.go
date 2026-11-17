@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/memory-co/agentuse/server/internal/database"
+	"github.com/memory-co/agentuse/server/internal/hub"
 	"github.com/memory-co/agentuse/server/internal/service"
 	conversationservice "github.com/memory-co/agentuse/server/internal/service/conversation"
 	fileservice "github.com/memory-co/agentuse/server/internal/service/file"
@@ -58,7 +59,13 @@ func New(st *service.Service, cfg Config) *Server {
 		s.service.ConversationService.ConfigureConversationAttachments(cfg.AttachmentMaxBytes, cfg.AttachmentConversationMaxBytes, cfg.Logger)
 	}
 	if s.cfg.ClientHandler == nil {
-		s.cfg.ClientHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeErr(w, 503, "device transport not configured") })
+		if st != nil {
+			transport := hub.New(st, cfg.Logger)
+			st.SetNotifier(transport)
+			s.cfg.ClientHandler = transport
+		} else {
+			s.cfg.ClientHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { writeErr(w, 503, "device transport not configured") })
+		}
 	}
 	if st != nil {
 		files := cfg.FileStore
@@ -123,7 +130,7 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 }
 
 func (s *Server) serviceErr(w http.ResponseWriter, err error) {
-	if errors.Is(err, conversationservice.ErrConversationScope) {
+	if errors.Is(err, conversationservice.ErrConversationScope) || errors.Is(err, runservice.ErrAccess) {
 		writeErr(w, 403, err.Error())
 		return
 	}

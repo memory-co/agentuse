@@ -157,6 +157,9 @@ func (l Local) Put(ctx context.Context, key string, source io.ReadSeeker, size i
 	if closeErr != nil {
 		return closeErr
 	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
 	if exclusive {
 		err = root.Link(temp, name)
 		if errors.Is(err, os.ErrExist) {

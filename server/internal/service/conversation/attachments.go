@@ -24,15 +24,13 @@ func (s *Service) attachmentConversation(ctx context.Context, q *gorm.DB, a Atta
 
 	u := a.User
 	if a.DeviceID != "" {
-		var owner string
-		if err := database.Row(ctx, q, database.AttachmentConversationSelect, a.DeviceID, identity.HashSecret(a.Token)).Scan(&owner); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return agentuse.Conversation{}, ErrAttachmentUnauthorized
-			}
-			return agentuse.Conversation{}, err
+		p, err := s.RunService.AccessForRequestIn(ctx, q, a.Token)
+		if err != nil || p.Preparing || p.DeviceID != a.DeviceID || p.UserID != a.User.ID || p.Claims.ConversationID != a.SourceConversationID || p.Claims.AgentID != a.SourceAgentID || (upload && p.RunID != a.RunID) {
+			return agentuse.Conversation{}, ErrAttachmentUnauthorized
 		}
-		u = agentuse.User{Role: agentuse.RoleAdmin}
+		u = agentuse.User{ID: p.UserID, Role: agentuse.RoleUser}
 	}
+
 	if a.DeviceID == "" {
 		var authID, role string
 		if err := database.Row(ctx, q, database.AttachmentConversationSelect3, identity.HashSecret(a.Token)).Scan(&authID, &role); err != nil {
@@ -112,7 +110,13 @@ func (s *Service) CommitAttachment(ctx context.Context, a AttachmentAccess, v *a
 	if v.SizeBytes > max || used > max-v.SizeBytes {
 		return ErrAttachmentQuota
 	}
+	if _, err = s.attachmentConversation(ctx, tx, a, v.ConversationID, true); err != nil {
+		return err
+	}
 	if err = publish(); err != nil {
+		return err
+	}
+	if _, err = s.attachmentConversation(ctx, tx, a, v.ConversationID, true); err != nil {
 		return err
 	}
 	pathHash := sha256.Sum256([]byte(v.RelativePath))

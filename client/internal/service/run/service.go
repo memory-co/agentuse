@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net/http"
 	"runtime"
 	"sync"
 	"time"
@@ -24,6 +25,11 @@ type endpointWorker struct {
 // Service owns all endpoint connections. Metadata and execution capacity are
 // shared across workers; one connection's failure does not stop other endpoints.
 type Service struct {
+	ipcClosed           bool
+	contextAdapters     sync.Map
+	ipcMu               sync.Mutex
+	ipcServer           *http.Server
+	ipcAddress          string
 	FailOnEndpointError bool
 	Path                string
 	fileMu              sync.Mutex
@@ -100,6 +106,9 @@ func (s *Service) Harnesses() any { items, _ := s.Harness.Probe(); return items 
 
 func (s *Service) Run(ctx context.Context) error {
 	defer s.Close()
+	if _, err := s.ensureContextIPC(); err != nil {
+		return err
+	}
 	defer func() {
 		s.mu.Lock()
 		all := []*endpointWorker{}
@@ -125,7 +134,12 @@ func (s *Service) Run(ctx context.Context) error {
 			continue
 		}
 		id := ep.ID()
-		cfg := Config{ConfigPath: s.Path, Server: ep.ServerURL, DeviceID: ep.DeviceID, Key: ep.DeviceKey, EndpointID: id, Enabled: true, Settings: settings, RunService: s, Slots: s.slots, Sessions: s.Sessions, Harness: s.Harness}
+		credentials, err := ep.Credentials()
+		if err != nil {
+			s.mu.Unlock()
+			return err
+		}
+		cfg := Config{Credentials: credentials, CredentialsFile: ep.CredentialsFile, ConfigPath: s.Path, Server: ep.ServerURL, DeviceID: ep.DeviceID, EndpointID: id, Enabled: true, Settings: settings, RunService: s, Slots: s.slots, Sessions: s.Sessions, Harness: s.Harness}
 		connection, err := newConnection(cfg, nil)
 		if err != nil {
 			s.mu.Unlock()

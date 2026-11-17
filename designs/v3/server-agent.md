@@ -1,6 +1,6 @@
 # agentService：不可變 Agent 版本與 Skill 版本關聯
 
-> 版本化鏈路已實現，使用數據庫 遷移基線 `0001_initial` 和 agentuse-client/2。表之間不聲明數據庫外鍵。HTTP、DTO 和 agent_versions 統一使用 device_id。
+> 版本化鏈路已實現，使用數據庫 遷移基線 `0001_initial` 和 agentuse-client/3。表之間不聲明數據庫外鍵。HTTP、DTO 和 agent_versions 統一使用 device_id。
 
 ## 職責與對象關係
 
@@ -42,7 +42,7 @@ Skill 包的格式、上傳 API、權限和表結構統一見 [server-skill.md](
 
 1. 保存 conversation message 時，在 messages.agent_targets 固定每個目標的 agent_version_id、device_id 和 harness；不建立 run_inputs 或預分配執行身份。
 2. Server 按 heartbeat 容量直接發送 message，附固定版本和業務 context，不內嵌 Agent 配置或技能下載清單。
-3. Client 缺少配置時，使用 device key 讀取該 Agent 的固定版本 API，取得模型、指令及固定 skill 引用；再讀 Skill 版本 API 和缺少的 ZIP。授權在消息派發後即可使用，不依賴 run 已存在。
+3. Client 缺少配置時，使用该输入的准备票据读取該 Agent 的固定版本 API，取得模型、指令及固定 skill 引用；再讀 Skill 版本 API 和缺少的 ZIP。授權在消息派發後即可使用，不依賴 run 已存在。
 4. Client 按 endpoint/conversation/agent/version/適配器 revision 複用 session；新版本創建新的事件地址。
 5. Client 校驗和緩存 ZIP，在 workspace 外準備資源，調用 harnessctl init。全部步驟由 Client 內部管理，不向 Server 建立 init 狀態機。
 6. init 成功後 send；accepted 直接關聯 message/Agent 和真正的 run UUID。準備失敗回原 message 的錯誤 ACK，不虛構 run。

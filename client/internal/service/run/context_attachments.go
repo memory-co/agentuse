@@ -6,12 +6,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/memory-co/agentuse/client/internal/fileutil"
 	"github.com/memory-co/agentuse/client/internal/service/endpoint"
@@ -20,17 +18,14 @@ import (
 )
 
 func (c *ExecutionContext) client() (*sdk.Client, error) {
-	if c.manifest.ConfigPath == "" {
-		return nil, fmt.Errorf("上下文缺少 endpoint 注册配置")
-	}
-	ep, err := (endpoint.Service{Path: c.manifest.ConfigPath}).GetByID(c.EndpointID)
+	httpClient, err := c.ipcHTTPClient()
 	if err != nil {
 		return nil, err
 	}
-	client := sdk.New(ep.ServerURL, ep.DeviceKey)
+	client := sdk.New("http://context", "")
 	client.RunID = c.RunID
 	client.Source = c.fileSource
-	client.HTTPClient = &http.Client{Timeout: time.Minute, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	client.HTTPClient = httpClient
 	return client, nil
 }
 

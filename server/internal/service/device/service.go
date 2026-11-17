@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"github.com/memory-co/agentuse/internal/securews"
 	"time"
 
 	"gorm.io/gorm"
@@ -11,6 +12,7 @@ import (
 
 // Service owns the device business operations. Peers are explicit contracts.
 type Service struct {
+	Identity *securews.Identity
 	DB       *gorm.DB
 	Now      func() time.Time
 	Changes  *notification.Broker

@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"github.com/memory-co/agentuse/internal/securews"
 	"io"
 	"net/http"
 	"testing"
@@ -45,7 +46,12 @@ func TestSkillAPIAndAssignedDeviceDownload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, key, err := e.st.DeviceService.RegisterDevice(ctx, d.SetupToken, "")
+	_, csr, err := securews.NewCredentials(e.st.Security.Identity.CA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, _, err = e.st.DeviceService.Enroll(ctx, d.SetupToken, "", csr)
+	key := "dk_retired"
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,17 +63,17 @@ func TestSkillAPIAndAssignedDeviceDownload(t *testing.T) {
 		t.Fatal(err)
 	}
 	device := agentuse.New(e.ts.URL, key)
-	if _, err = device.DownloadSkillPackage(ctx, "", skill.ID, skill.CurrentVersionID); !agentuse.IsStatus(err, 404) {
+	if _, err = device.DownloadSkillPackage(ctx, "", skill.ID, skill.CurrentVersionID); !agentuse.IsStatus(err, 401) {
 		t.Fatal("unassigned package downloaded", err)
 	}
 	a, err := c.CreateAgent(ctx, "", agentuse.CreateAgentRequest{ID: "reviewer", Name: "Reviewer", DeviceID: d.ID, Harness: "codex", Instructions: "fixed", Skills: []agentuse.SkillRef{{SkillID: skill.ID, SkillVersionID: skill.CurrentVersionID}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = device.GetAgentVersion(ctx, "", a.ID, a.CurrentVersionID); !agentuse.IsStatus(err, 404) {
+	if _, err = device.GetAgentVersion(ctx, "", a.ID, a.CurrentVersionID); !agentuse.IsStatus(err, 401) {
 		t.Fatal("device read an unassigned Agent version", err)
 	}
-	if _, err = device.GetSkillVersion(ctx, "", skill.ID, skill.CurrentVersionID); !agentuse.IsStatus(err, 404) {
+	if _, err = device.GetSkillVersion(ctx, "", skill.ID, skill.CurrentVersionID); !agentuse.IsStatus(err, 401) {
 		t.Fatal("device read unassigned skill metadata", err)
 	}
 	_, _, err = e.st.ConversationService.CreateConversation(ctx, u, "", "", "test", []string{a.ID}, nil, "", nil)
@@ -78,6 +84,8 @@ func TestSkillAPIAndAssignedDeviceDownload(t *testing.T) {
 	if err != nil || p.AgentVersionID != a.CurrentVersionID {
 		t.Fatal(p, err)
 	}
+	device.Token = p.Access.Token
+	key = p.Access.Token
 	fixed, err := device.GetAgentVersion(ctx, "", a.ID, p.AgentVersionID)
 	if err != nil || fixed.Instructions != "fixed" || len(fixed.Skills) != 1 || fixed.Skills[0].SkillVersionID != skill.CurrentVersionID {
 		t.Fatal("fixed configuration unavailable before accepted", fixed, err)

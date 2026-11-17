@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/memory-co/agentuse/internal/protocol"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,7 +48,7 @@ func runDaemonForMulti(t *testing.T, c *agentuse.Client, user, home, cli, fake s
 		for _, item := range ds {
 			if item.ID == d.ID && item.Status == "online" && len(item.Harnesses) == count {
 				for _, cap := range item.Capabilities {
-					if cap == "agentuse-client/2" {
+					if cap == protocol.ExecutionProtocol {
 						return true
 					}
 				}

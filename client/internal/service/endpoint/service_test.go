@@ -11,7 +11,7 @@ import (
 func TestEndpointYAMLOnlyStoresAddressAndRegistration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "endpoints.yaml")
 	svc := Service{Path: path}
-	for _, ep := range []Endpoint{{Name: "one", ServerURL: "https://Company.example.com:443/", Enabled: true, DeviceID: "d1", DeviceKey: "key1"}, {Name: "two", ServerURL: "http://localhost:8090", Enabled: true, DeviceID: "d2", DeviceKey: "key2"}} {
+	for _, ep := range []Endpoint{{Name: "one", ServerURL: "https://Company.example.com:443/", Enabled: true, DeviceID: "d1", CredentialsFile: "key1"}, {Name: "two", ServerURL: "http://localhost:8090", Enabled: true, DeviceID: "d2", CredentialsFile: "key2"}} {
 		if e := svc.Save(ep); e != nil {
 			t.Fatal(e)
 		}
@@ -25,12 +25,12 @@ func TestEndpointYAMLOnlyStoresAddressAndRegistration(t *testing.T) {
 		t.Fatal(string(b))
 	}
 	ep := all[0]
-	ep.DeviceKey = "new-key"
+	ep.CredentialsFile = "new-key"
 	if e = svc.Save(ep); e != nil {
 		t.Fatal(e)
 	}
 	all, _ = svc.Registrations()
-	if len(all) != 2 || all[0].DeviceKey != "new-key" {
+	if len(all) != 2 || all[0].CredentialsFile != "new-key" {
 		t.Fatal(all)
 	}
 }
@@ -51,7 +51,7 @@ func TestBuiltinLocalIsAnEndpointNotARegistration(t *testing.T) {
 	if e = service.Remove(LocalID); e == nil {
 		t.Fatal("builtin local was removed")
 	}
-	remote := Endpoint{Name: "platform", ServerURL: "https://example.com", Enabled: true, DeviceID: "d", DeviceKey: "secret-key"}
+	remote := Endpoint{Name: "platform", ServerURL: "https://example.com", Enabled: true, DeviceID: "d", CredentialsFile: "secret-key"}
 	if e = service.Save(remote); e != nil {
 		t.Fatal(e)
 	}

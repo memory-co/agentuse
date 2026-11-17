@@ -20,7 +20,7 @@ func (d *endpointConnection) resolveResources(ctx context.Context, p protocol.Co
 		return Request{}, fileutil.ErrInvalid
 	}
 	path := filepath.Join(root, p.AgentVersionID+".json")
-	client := agentuse.New(d.cfg.Server, d.cfg.Key)
+	client := agentuse.New(d.cfg.Server, d.ticket(p.Key()))
 	client.HTTPClient = &http.Client{Timeout: time.Minute, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
 	var version agentuse.AgentVersion
 	raw, err := os.ReadFile(path)
@@ -46,7 +46,7 @@ func (d *endpointConnection) resolveResources(ctx context.Context, p protocol.Co
 	if err = fileutil.WriteJSON(path, version); err != nil {
 		return Request{}, err
 	}
-	request := Request{Harness: version.Harness, Model: version.Model, AgentInstructions: version.Instructions}
+	request := Request{resourceToken: d.ticket(p.Key()), Harness: version.Harness, Model: version.Model, AgentInstructions: version.Instructions}
 	// Existing sessions own their resource snapshot; metadata/API caches are only
 	// needed when preparing a fresh address, not every subsequent send.
 	sessions, err := d.cfg.RunService.Sessions.Sessions(ctx, d.cfg.EndpointID, p.ConversationID)

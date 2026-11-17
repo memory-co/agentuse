@@ -123,7 +123,7 @@ func TestRemoteResourceDownloadValidation(t *testing.T) {
 		w.Write(data)
 	}))
 	defer ts.Close()
-	ep := endpoint.Endpoint{ServerURL: ts.URL, DeviceID: "device", DeviceKey: "dk_test", Enabled: true}
+	ep := endpoint.Endpoint{ServerURL: ts.URL, DeviceID: "device", CredentialsFile: "dk_test", Enabled: true}
 	if e := s.Endpoints.Save(ep); e != nil {
 		t.Fatal(e)
 	}
@@ -131,7 +131,7 @@ func TestRemoteResourceDownloadValidation(t *testing.T) {
 	digest := sha256.Sum256(data)
 	descriptor := protocol.SkillResource{SkillID: skill, SkillVersionID: version, Name: "reviewer", SizeBytes: int64(len(data)), SHA256: hex.EncodeToString(digest[:]), DownloadPath: path}
 	a := harness.Adapter{EventsPath: filepath.Join(s.Sessions.Root, m.EndpointID, m.ConversationID, "sessions", m.ID, "events.jsonl")}
-	cleanup, e := s.prepareResources(context.Background(), m, Request{skills: []protocol.SkillResource{descriptor}}, &a)
+	cleanup, e := s.prepareResources(context.Background(), m, Request{resourceToken: "dk_test", skills: []protocol.SkillResource{descriptor}}, &a)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -143,7 +143,7 @@ func TestRemoteResourceDownloadValidation(t *testing.T) {
 	other := m
 	other.ID = uuid.NewString()
 	nextAdapter := harness.Adapter{EventsPath: filepath.Join(s.Sessions.Root, other.EndpointID, other.ConversationID, "sessions", other.ID, "events.jsonl")}
-	cleanup, e = s.prepareResources(context.Background(), other, Request{skills: []protocol.SkillResource{descriptor}}, &nextAdapter)
+	cleanup, e = s.prepareResources(context.Background(), other, Request{resourceToken: "dk_test", skills: []protocol.SkillResource{descriptor}}, &nextAdapter)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -156,18 +156,18 @@ func TestRemoteResourceDownloadValidation(t *testing.T) {
 	if e = os.WriteFile(cache, []byte("interrupted download"), 0600); e != nil {
 		t.Fatal(e)
 	}
-	dataAgain, e := s.cachedSkill(context.Background(), m, descriptor)
+	dataAgain, e := s.cachedSkill(context.Background(), m, descriptor, "dk_test")
 	if e != nil || !bytes.Equal(dataAgain, data) || calls != 2 {
 		t.Fatal("cache corruption not repaired", e, calls)
 	}
 	descriptor.SHA256 = strings.Repeat("0", 64)
-	_, e = s.prepareResources(context.Background(), m, Request{skills: []protocol.SkillResource{descriptor}}, &a)
+	_, e = s.prepareResources(context.Background(), m, Request{resourceToken: "dk_test", skills: []protocol.SkillResource{descriptor}}, &a)
 	if e == nil {
 		t.Fatal("bad checksum accepted")
 	}
 	descriptor.DownloadPath = "https://other.invalid/package"
 	before := calls
-	_, e = s.prepareResources(context.Background(), m, Request{skills: []protocol.SkillResource{descriptor}}, &a)
+	_, e = s.prepareResources(context.Background(), m, Request{resourceToken: "dk_test", skills: []protocol.SkillResource{descriptor}}, &a)
 	if e == nil || calls != before {
 		t.Fatal("foreign download accepted")
 	}

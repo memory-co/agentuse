@@ -17,12 +17,13 @@ const ModeLocal = "local"
 const ModeServer = "server"
 
 type Endpoint struct {
-	Mode      string `yaml:"-" json:"mode"`
-	Name      string `yaml:"name" json:"name"`
-	ServerURL string `yaml:"server_url" json:"server_url"`
-	Enabled   bool   `yaml:"enabled" json:"enabled"`
-	DeviceID  string `yaml:"device_id" json:"device_id"`
-	DeviceKey string `yaml:"device_key" json:"-"`
+	CredentialsFile string `yaml:"credentials_file,omitempty" json:"-"`
+	Mode            string `yaml:"-" json:"mode"`
+	Name            string `yaml:"name" json:"name"`
+	ServerURL       string `yaml:"server_url" json:"server_url"`
+	Enabled         bool   `yaml:"enabled" json:"enabled"`
+	DeviceID        string `yaml:"device_id" json:"device_id"`
+	DeviceKey       string `yaml:"device_key,omitempty" json:"-"`
 }
 
 func (e Endpoint) ID() string {
@@ -95,7 +96,8 @@ func (s Service) Snapshot() (*Service, error) {
 
 var endpointMu sync.Mutex
 
-func (s Service) Registrations() ([]Endpoint, error) {
+func (s Service) Registrations() ([]Endpoint, error) { return s.registrations(false) }
+func (s Service) registrations(allowLegacy bool) ([]Endpoint, error) {
 	if s.snapshot != nil {
 		return append([]Endpoint{}, (*s.snapshot)...), nil
 	}
@@ -120,8 +122,8 @@ func (s Service) Registrations() ([]Endpoint, error) {
 		if e != nil {
 			return nil, e
 		}
-		if seen[id] || v.DeviceID == "" || v.DeviceKey == "" {
-			return nil, fmt.Errorf("duplicate or incomplete endpoint")
+		if seen[id] || v.DeviceID == "" || (!allowLegacy && v.DeviceKey != "") || (v.CredentialsFile == "" && !(allowLegacy && v.DeviceKey != "")) {
+			return nil, fmt.Errorf("duplicate or legacy endpoint; reset the device and register again using its installation code")
 		}
 		seen[id] = true
 		file.Endpoints[i].ServerURL = url
@@ -145,10 +147,10 @@ func (s Service) Save(v Endpoint) error {
 		return e
 	}
 	v.ServerURL = u
-	if v.DeviceID == "" || v.DeviceKey == "" {
+	if v.DeviceID == "" || v.CredentialsFile == "" || v.DeviceKey != "" {
 		return fmt.Errorf("device identity required")
 	}
-	items, e := s.Registrations()
+	items, e := s.registrations(true)
 	if e != nil && !errors.Is(e, os.ErrNotExist) {
 		return e
 	}

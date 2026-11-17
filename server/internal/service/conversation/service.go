@@ -8,6 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/memory-co/agentuse/internal/access"
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/database"
@@ -18,14 +19,17 @@ import (
 
 // Service owns the conversation business operations. Peers are explicit contracts.
 type Service struct {
-	DB            *gorm.DB
-	Database      *database.DB
-	Now           func() time.Time
-	Log           *log.Logger
-	Changes       *notification.Broker
-	Notifier      interface{ KickAll() }
-	RunService    runService
-	DeviceService interface {
+	AccessSigner   *access.Signer
+	PrepareTimeout time.Duration
+	AccessTimeout  time.Duration
+	DB             *gorm.DB
+	Database       *database.DB
+	Now            func() time.Time
+	Log            *log.Logger
+	Changes        *notification.Broker
+	Notifier       interface{ KickAll() }
+	RunService     runService
+	DeviceService  interface {
 		CheckRuntime(context.Context, *gorm.DB, string, string) error
 	}
 	Files                        *fileservice.Service
@@ -34,6 +38,7 @@ type Service struct {
 }
 
 type runService interface {
+	AccessForRequestIn(context.Context, *gorm.DB, string) (run.AccessPrincipal, error)
 	ApplyClientEvent(ctx context.Context, device string, envelope protocol.ClientEvent, consumer run.ExecutionEventConsumer) error
 	DeleteConversationExecution(ctx context.Context, tx *gorm.DB, id string) error
 	DispatchedTarget(ctx context.Context, q *gorm.DB, device, conversation, message, agent string) (run.MessageTarget, error)

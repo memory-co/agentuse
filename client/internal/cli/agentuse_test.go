@@ -3,8 +3,7 @@ package cli
 import (
 	"encoding/json"
 	harnessservice "github.com/memory-co/agentuse/client/internal/service/harness"
-	"net/http"
-	"net/http/httptest"
+	"github.com/memory-co/agentuse/internal/securews/securewstest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,31 +12,8 @@ import (
 func TestAgentuseCommands(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("AGENTUSE_UI_ADDR", "")
-	var deleted bool
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if deleted {
-			w.WriteHeader(401)
-			return
-		}
-		switch r.URL.Path {
-		case "/api/client/register":
-			var req struct {
-				Token string `json:"token"`
-			}
-			json.NewDecoder(r.Body).Decode(&req)
-			if req.Token != "st_good" {
-				w.WriteHeader(401)
-				return
-			}
-			w.Write([]byte(`{"device_id":"dm_test","name":"laptop","key":"dk_test"}`))
-		case "/api/client/me":
-			w.Write([]byte(`{"device_id":"dm_test","name":"laptop","user_id":"alice","status":"offline"}`))
-		default:
-			w.WriteHeader(401)
-		}
-	}))
-	defer ts.Close()
-	d := struct{ ID, SetupToken string }{"dm_test", "st_good"}
+	peer := securewstest.New(t)
+	d := struct{ ID, SetupToken string }{"dm_test", peer.Code}
 	cfg := filepath.Join(t.TempDir(), "endpoints.yaml")
 	t.Setenv("PATH", t.TempDir()) // 本机没有 claude / codex
 	t.Setenv("TOKEN", "")
@@ -54,15 +30,15 @@ func TestAgentuseCommands(t *testing.T) {
 	if code, _, errOut := run("daemon"); code != 1 || !strings.Contains(errOut, "还没注册") {
 		t.Fatalf("daemon before register: %d %q", code, errOut)
 	}
-	if code, _, _ := run("register", "-server", ts.URL); code != 2 {
+	if code, _, _ := run("register", "-server", peer.URL); code != 2 {
 		t.Fatalf("register without token: %d", code)
 	}
-	if code, _, errOut := run("register", "-server", ts.URL, "-token", "st_bad"); code != 1 || !strings.Contains(errOut, "注册失败") {
+	if code, _, errOut := run("register", "-server", peer.URL, "-token", "st_bad"); code != 1 || !strings.Contains(errOut, "注册失败") {
 		t.Fatalf("register bad token: %d %q", code, errOut)
 	}
 	// TOKEN 环境变量(setup.sh 就是这么传的)
 	t.Setenv("TOKEN", d.SetupToken)
-	if code, out, _ := run("register", "-server", ts.URL); code != 0 || !strings.Contains(out, d.ID) {
+	if code, out, _ := run("register", "-server", peer.URL); code != 0 || !strings.Contains(out, d.ID) {
 		t.Fatalf("register: %d %q", code, out)
 	}
 	if code, out, _ := run("status"); code != 0 || !strings.Contains(out, "正常") || !strings.Contains(out, d.ID) {
@@ -80,11 +56,11 @@ func TestAgentuseCommands(t *testing.T) {
 	}
 
 	// 页面上删掉后，密钥失效
-	deleted = true
+	peer.Revoked.Store(true)
 	if code, out, _ := run("status"); code != 0 || !strings.Contains(out, "失败") {
 		t.Fatalf("status after delete: %d %q", code, out)
 	}
-	if code, _, errOut := run("daemon"); code != 1 || !strings.Contains(errOut, "密钥无效") {
+	if code, _, errOut := run("daemon"); code != 1 || !strings.Contains(errOut, "凭据") && !strings.Contains(errOut, "authentication") {
 		t.Fatalf("daemon with deleted key: %d %q", code, errOut)
 	}
 }

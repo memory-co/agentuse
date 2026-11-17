@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/google/uuid"
+	"github.com/memory-co/agentuse/internal/access"
 	"github.com/memory-co/agentuse/internal/protocol"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/database"
@@ -61,6 +62,8 @@ func (s *Service) RunsIn(ctx context.Context, q *gorm.DB, conversation string) (
 // MessageTarget contains transport metadata embedded in an existing message.
 // It has no execution state or identity; only accepted events create RunInputs.
 type MessageTarget struct {
+	AccessClaims   *access.Claims                `json:"access_claims,omitempty"`
+	AccessLimit    int64                         `json:"access_limit,omitempty"`
 	MessageID      string                        `json:"-"`
 	ConversationID string                        `json:"-"`
 	AgentID        string                        `json:"-"`

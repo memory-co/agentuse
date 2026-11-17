@@ -3,7 +3,6 @@ package controller
 import (
 	"encoding/json"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -104,7 +103,7 @@ func TestServerOpenAPIRoutesSchemasAndCredentials(t *testing.T) {
 	if !strings.HasPrefix(spec.OpenAPI, "3.1.") || len(spec.Paths) < 35 {
 		t.Fatal("incomplete OpenAPI document", spec.OpenAPI, len(spec.Paths))
 	}
-	if len(spec.Security) != 2 || spec.Components.SecuritySchemes["cookieAuth"].Name != cookieName || spec.Components.SecuritySchemes["bearerAuth"].Scheme != "bearer" || len(spec.Components.SecuritySchemes) != 3 || spec.Components.SecuritySchemes["deviceKey"].Scheme != "bearer" {
+	if len(spec.Security) != 2 || spec.Components.SecuritySchemes["cookieAuth"].Name != cookieName || spec.Components.SecuritySchemes["bearerAuth"].Scheme != "bearer" || len(spec.Components.SecuritySchemes) != 3 || spec.Components.SecuritySchemes["executionAccess"].Scheme != "bearer" {
 		t.Fatal("incorrect authentication schemes")
 	}
 	ids := map[string]bool{}
@@ -149,8 +148,8 @@ func TestServerOpenAPIRoutesSchemasAndCredentials(t *testing.T) {
 		}
 	}
 	for _, path := range []string{protocol.MePath, protocol.WSPath} {
-		if !reflect.DeepEqual(spec.Paths[path]["get"].Security, []map[string][]string{{"deviceKey": {}}}) {
-			t.Fatal("device endpoint allows the wrong credentials", path)
+		if len(spec.Paths[path]["get"].Security) != 0 {
+			t.Fatal("device handshake must not require a bearer", path)
 		}
 	}
 	if len(spec.Paths["/api/conversations/{id}"]["get"].Security) != 3 || len(spec.Paths["/api/conversations/{id}/attachments/{attachment_id}"]["delete"].Security) != 2 {
