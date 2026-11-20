@@ -310,6 +310,11 @@ class ProtocolTests(unittest.TestCase):
         for request in requests:
             self.assertEqual(request['params']['approvalPolicy'],'never')
             self.assertEqual(request['params']['sandbox'],'danger-full-access')
+        codex_commands=[x['argv'] for x in frames if 'argv' in x and Path(x['argv'][0]).name=='codex']
+        self.assertEqual(len(codex_commands),2)
+        for command in codex_commands:
+            self.assertIn('allow_login_shell=false',command)
+            self.assertIn('shell_environment_policy.inherit="all"',command)
         commands=[x['argv'] for x in frames if 'argv' in x and Path(x['argv'][0]).name=='claude']
         self.assertEqual(len(commands),2)
         for command in commands:

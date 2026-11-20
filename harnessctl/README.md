@@ -1,6 +1,6 @@
 # harnessctl/3：本机 Harness CLI 协议
 
-> 当前实现为 harnessctl/3：必须先 init，send 只提交正文，不兼容旧版 send 的配置参数。两个独立包版本为 0.4.1。公共事件仍为五种；result 新增 model 字段，返回每次执行的原生模型信息。
+> 当前实现为 harnessctl/3：必须先 init，send 只提交正文，不兼容旧版 send 的配置参数。Codex 包版本为 0.4.2，Claude Code 包版本为 0.4.1。公共事件仍为五种；result 新增 model 字段，返回每次执行的原生模型信息。
 
 上层先用 init 将工作目录、模型和可选资源绑定到一个事件文件地址，之后只向该地址发送消息、取消执行、查询状态和回复请求。原生首次启动、运行中补充输入、排队、上下文恢复以及后台进程回收，全部由适配器决定。
 
@@ -256,7 +256,7 @@ python3 -m unittest discover -s harnessctl/tests -v
 python3 harnessctl/package.py
 python3 harnessctl/package.py --adapter claudecode
 cd harnessctl/dist
-sha256sum -c harnessctl-codex-0.4.1-linux.tar.gz.sha256
+sha256sum -c harnessctl-codex-0.4.2-linux.tar.gz.sha256
 sha256sum -c harnessctl-claudecode-0.4.1-linux.tar.gz.sha256
 ```
 

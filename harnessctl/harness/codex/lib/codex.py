@@ -5,7 +5,11 @@ STEER_WHILE_BUSY = True
 
 
 def argv(config):
-    args = [BINARY, 'app-server', '--listen', 'stdio://']
+    # Tool shells must preserve the caller's session-scoped executable path.
+    # Login startup files may replace PATH before the command is resolved.
+    args = [BINARY, 'app-server', '--listen', 'stdio://',
+            '-c', 'allow_login_shell=false',
+            '-c', 'shell_environment_policy.inherit="all"']
     if config['model']:
         import json
         args += ['-c', 'model=' + json.dumps(config['model'])]
@@ -24,7 +28,7 @@ def open_thread(r):
 
 
 def initialize(r):
-    r.request('initialize', dict(clientInfo=dict(name='harnessctl', version='0.4.1'),
+    r.request('initialize', dict(clientInfo=dict(name='harnessctl', version='0.4.2'),
                                  capabilities=dict(experimentalApi=True)))
 
 

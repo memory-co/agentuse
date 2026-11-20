@@ -1,6 +1,6 @@
 # codex harnessctl 适配器
 
-> 当前实现为 harnessctl/3（包版本 0.4.1）。必须先 init；send 不再接受配置参数，旧版命令协议不兼容。
+> 当前实现为 harnessctl/3（包版本 0.4.2）。必须先 init；send 不再接受配置参数，旧版命令协议不兼容。
 
 本目录是完整独立分发包，入口仅加载本目录 lib/。依赖 Linux、Python 3.9+ 标准库以及已安装并配置认证的原生 codex，不依赖父目录、其他适配器或 AgentUse。
 
@@ -29,3 +29,5 @@ JSONL 完整事件契约见 [EVENT.md](EVENT.md)，机器格式见 [event.schema
 每个 run 的 result 包含 model（string 或 null），记录原生确认的主执行模型；无法确认或排队后未执行时为 null。status.model 仍表示 init 绑定的配置选择，含义与 result.model 不同。
 
 默认执行权限为自动放行：thread/start 和 thread/resume 均显式设置 approvalPolicy=never、sandbox=danger-full-access，不继承本机较保守的默认值。普通工具执行不进入 reply 链路；用户问题仍以 request(kind=question) 等待 reply。若原生仍发出显式权限请求，作为例外保留 permission 请求，不擅自吞掉或伪造批准。组织策略拒绝、认证错误和执行失败不会通过自动 reply 绕过。
+
+工具 Shell 使用非 login 模式（allow_login_shell=false），並明確繼承呼叫端環境（shell_environment_policy.inherit=all），避免系統 profile 重設 PATH，導致 session 私有命令無法找到。這些設定僅作用於適配器啟動的原生進程，不修改全域 Codex 或 Shell 設定；建立及恢復 thread 均使用相同設定。適配器只傳遞環境，不感知上層命令的業務含義。
