@@ -1,6 +1,6 @@
 # harnessctl/3：本机 Harness CLI 协议
 
-> 当前实现为 harnessctl/3：必须先 init，send 只提交正文，不兼容旧版 send 的配置参数。Codex 包版本为 0.4.2，Claude Code 包版本为 0.4.1。公共事件仍为五种；result 新增 model 字段，返回每次执行的原生模型信息。
+> 当前实现为 harnessctl/3：必须先 init，send 只提交正文，不兼容旧版 send 的配置参数。Codex 包版本为 0.4.2，Claude Code 包版本为 0.4.1，Antigravity CLI（agy）包版本为 0.1.0。公共事件仍为五种；result 新增 model 字段，返回每次执行的原生模型信息。
 
 上层先用 init 将工作目录、模型和可选资源绑定到一个事件文件地址，之后只向该地址发送消息、取消执行、查询状态和回复请求。原生首次启动、运行中补充输入、排队、上下文恢复以及后台进程回收，全部由适配器决定。
 
@@ -19,18 +19,19 @@ harnessctl/
 │   │   ├── README.md
 │   │   ├── LICENSE
 │   │   └── lib/{runtime.py,codex.py}
-│   └── claudecode/                 完整独立包
-│       ├── harnessctl
-│       ├── manifest.json
-│       ├── README.md
-│       ├── LICENSE
-│       └── lib/{runtime.py,claudecode.py}
+│   ├── claudecode/                 完整独立包
+│   │   ├── harnessctl
+│   │   ├── manifest.json
+│   │   ├── README.md
+│   │   ├── LICENSE
+│   │   └── lib/{runtime.py,claudecode.py}
+│   └── agy/                        完整独立包
 └── tests/                          仓库测试，不进入发布包
 ```
 
 **每个 `harness/<name>/` 目录就是一个分发包。** 单独复制其中一个目录即可运行，不依赖父目录、其他适配器、AgentUse 模块或服务。入口只加载包内 lib，不使用包外符号链接或运行时下载补齐依赖。包按只读使用，运行状态保存在调用方的事件文件旁边。
 
-当前依赖 Linux、Python 3.9+ 标准库以及用户安装并配置认证的原生 codex 或 claude。无 Go/Node.js 包依赖。原生 CLI 自身的依赖仍需满足。manifest 声明 harnessctl/3、五个命令、stdin 支持、平台、基础依赖和实测后端版本，不让上层选择原生传输或投递策略。认证沿用原生 CLI 的配置和继承环境，不通过本协议传密钥。
+当前依赖 Linux、Python 3.9+ 标准库以及用户安装并配置认证的原生 codex、claude 或 agy。无 Go/Node.js 包依赖。原生 CLI 自身的依赖仍需满足。manifest 声明 harnessctl/3、五个命令、stdin 支持、平台、基础依赖和实测后端版本，不让上层选择原生传输或投递策略。认证沿用原生 CLI 的配置和继承环境，不通过本协议传密钥。
 
 ## 2. 公开命令
 
@@ -76,7 +77,7 @@ printf '%s' '{"q1":"Go"}' | "$A" reply /tmp/review.jsonl req-2
 
 **规范化后的绝对事件文件路径就是会话的唯一身份。** 事件地址、--cwd、--agents-md 和 --skills-dir 的相对路径均以调用进程的 cwd 解析，并消解 `..` 和符号链接；--cwd 不改变其他参数的解析基准。没有单独的公开 session ID，也不要求调用方获取或传入原生 session/thread ID。
 
-init 创建空事件文件与匹配的私有状态，事件文件父目录必须存在。一个地址绑定一个适配器，不允许 Codex 和 Claude Code 交叉使用同一个地址。send、cancel、status、reply 不创建地址；地址未初始化时返回 4。
+init 创建空事件文件与匹配的私有状态，事件文件父目录必须存在。一个地址绑定一个适配器，不同适配器不能交叉使用同一个地址。send、cancel、status、reply 不创建地址；地址未初始化时返回 4。
 
 ### 4.1 init：配置绑定
 
@@ -87,7 +88,7 @@ init 创建空事件文件与匹配的私有状态，事件文件父目录必须
 | --agents-md FILE | 可选的单个 UTF-8 指令文件，文件名不要求真的叫 AGENTS.md；初始化时读取并保存内容快照 |
 | --skills-dir DIR | 可重复的 skills 查找根目录；按参数顺序发现技能，并保存完整技能资源快照 |
 
-初始化的配置属于事件地址，不属于 cwd。同一个 cwd 可以被多个事件地址使用，各自绑定不同模型、指令和技能。两种适配器也可以共享 cwd，但不能共享同一个事件地址。
+初始化的配置属于事件地址，不属于 cwd。同一个 cwd 可以被多个事件地址使用，各自绑定不同模型、指令和技能。不同适配器也可以共享 cwd，但不能共享同一个事件地址。
 
 init 不启动守护进程或原生会话，不写 accepted/result，不分配 run_id/input_id。初始化成功后 status 返回 idle、run_id=null、queued=0、requests=[]；配置中的 cwd/model 正常返回。原生会话在后续首次 send 时才建立。
 
@@ -127,7 +128,7 @@ init 不启动守护进程或原生会话，不写 accepted/result，不分配 r
 
 资源快照需要在进程回收、重启恢复和原生上下文恢复后保持一致。这里只冻结显式提供的指令与技能资源，不声称隔离原生已有的用户配置、项目技能、认证或外部服务。
 
-### 4.4 两个适配器如何对接
+### 4.4 适配器如何对接
 
 | 能力 | Codex | Claude Code |
 |---|---|---|
@@ -138,7 +139,9 @@ init 不启动守护进程或原生会话，不写 accepted/result，不分配 r
 
 注册 Codex 技能根目录只作用于本适配器管理的原生进程；不能改其他会话的全局技能配置。Claude 的插件是适配器生成的技能容器，不执行来源目录中的插件安装器或额外 hook。原生能力不足时明确报错，不退化为把资源写进 cwd 或仅拼接一段“请自行查找技能”的提示词。
 
-两端统一的是附加指令和可发现的技能集合，不强求原生指令优先级、技能展示名称或目录继承行为完全一致。恢复必须继续使用初始化时的资源；不在同一原生会话中尝试替换历史系统提示词。
+agy 使用 ACP 原生会话附加指令及指向私有技能快照的索引，模型按需读 SKILL.md。忙时输入依序进入独立 run，工具权限回覆通过 ACP 转换。详细行为见 [agy 适配器](harness/agy/README.md)。
+
+各适配器统一的是附加指令和可发现的技能集合，不强求原生指令优先级、技能展示名称或目录继承行为完全一致。恢复必须继续使用初始化时的资源；不在同一原生会话中尝试替换历史系统提示词。
 
 适配器内部会持久化原生恢复标识，但不在公开状态中提供另一个会话 ID。路径与其 `.d/` 状态需要一起保留。只复制 JSONL 而丢失私有恢复信息，不保证能继续原生上下文，也不能默默当成新会话执行。
 
@@ -215,7 +218,7 @@ state 为 idle、running、awaiting_reply、cancelling 或 failed；queued 仅�
 
 ## 10. 事件和私有文件
 
-公共事件仅有五种，完整格式见 [EVENT.md](EVENT.md)，机器格式为 [event.schema.json](event.schema.json)。两个独立包自带相同契约和写前校验器。
+公共事件仅有五种，完整格式见 [EVENT.md](EVENT.md)，机器格式为 [event.schema.json](event.schema.json)。各独立包自带相同契约和写前校验器。
 
 | 类型 | 用途 | 可靠性 |
 |---|---|---|
@@ -258,6 +261,7 @@ python3 harnessctl/package.py --adapter claudecode
 cd harnessctl/dist
 sha256sum -c harnessctl-codex-0.4.2-linux.tar.gz.sha256
 sha256sum -c harnessctl-claudecode-0.4.1-linux.tar.gz.sha256
+sha256sum -c harnessctl-agy-0.1.0-linux.tar.gz.sha256
 ```
 
 每个压缩包只包含对应的独立适配器目录，使用固定时间和属主元数据，可重复构建。安装/解压不自动执行代码。测试仅复制独立目录到仓库外，并隐藏其他适配器；除现有 stdin、忙时补充、取消、回复、失联和独立归档验证外，还必须覆盖：
@@ -287,6 +291,6 @@ HARNESSCTL_REAL_LLM=1 python3 -m unittest discover -s harnessctl/tests -p test_r
 
 ## 默认执行权限
 
-内置适配器默认自动放行普通工具操作。Codex 在 thread/start 和 thread/resume 均设置 approvalPolicy=never、sandbox=danger-full-access；Claude Code 使用 --permission-mode bypassPermissions，并保留 stdio 问答通道。这些设置由适配器负责，client/server 不增加权限策略判断。
+Codex 和 Claude Code 适配器默认自动放行普通工具操作。Codex 在 thread/start 和 thread/resume 均设置 approvalPolicy=never、sandbox=danger-full-access；Claude Code 使用 --permission-mode bypassPermissions，并保留 stdio 问答通道。这些设置由适配器负责，client/server 不增加权限策略判断。
 
 AskUserQuestion / requestUserInput 等真正需要用户答案的问题仍产生 request(kind=question)，由 reply 回答。若原生在该配置下仍发出显式权限请求，保留 request(kind=permission) 作为例外；不把所有回调一律自动批准，也不把组织策略拒绝、认证错误或执行失败改写成确认请求。

@@ -277,6 +277,7 @@ class ProtocolTests(unittest.TestCase):
             if len([x for x in self.events(event) if x['type']=='accepted'])==8:break
             time.sleep(.02)
         self.assertEqual(len([x for x in self.events(event) if x['type']=='accepted']),8)
+        self.wait_log(event, 'session.ready')
         self.assertEqual(len([x for x in self.events(event) if x['type']=='log' and x['topic']=='session.ready']),1)
 
     def test_restart_resumes_without_public_native_ids(self):

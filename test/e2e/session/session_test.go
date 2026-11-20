@@ -91,7 +91,14 @@ func waitStatus(t *testing.T, c *agentuse.Client, user, id, status string) {
 func writeAdapterConfig(t *testing.T, path string, v map[string]any) {
 	t.Helper()
 	root := filepath.Join(filepath.Dir(path), "harness")
-	for name, raw := range v["harnesses"].(map[string]any) {
+	configured := v["harnesses"].(map[string]any)
+	// Keep each fixture independent of native CLIs installed on the test host.
+	for _, name := range []string{"agy", "claude", "codex"} {
+		if _, ok := configured[name]; !ok {
+			configured[name] = map[string]any{"disabled": true}
+		}
+	}
+	for name, raw := range configured {
 		opts := raw.(map[string]any)
 		dir := filepath.Join(root, name, "local")
 		os.MkdirAll(dir, 0700)
