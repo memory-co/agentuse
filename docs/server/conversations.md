@@ -109,7 +109,7 @@ Message 的 author_role 为 user/agent/child_conversation。content 是正文字
 
 发送消息可用 reply_to_message_id 回复同一 conversation 中的消息。消息通过 `to_agent_ids`、`to_user_ids` 指定收件人，`attachment_ids` 指定本条消息的文件。只有 Agent 收件人触发执行；实际 run UUID 由 Client 的 accepted 事件返回。附件操作见 [对话文件](conversation-files.md)。
 
-网页输入框在同一会话中，默认沿用当前用户上次发送消息时的 Agent `@` 选择，保留多选，无需等待 Agent 回复。Agent 回复及其他用户的消息不会改变默认目标；手动改选或清空后保留当前选择，发送失败也不丢失。重新打开或刷新会话时，从当前用户在该会话的最后一条消息恢复，最后一次没有选择 Agent 时保持为空。不同会话和代为用户身份各自初始化。
+网页输入框默认沿用当前用户在该会话上次发送消息时的 Agent `@` 选择，支持多选。当前用户还没在子会话发过消息时，默认选中最近一条 Agent 委派消息中的收件 Agent。手动改选或清空后保留当前选择，发送失败也不丢失。重新打开或刷新会话时，用户最后一次发送的消息若无 Agent 收件人，默认保持为空。不同会话和代为用户身份各自初始化。
 
 这是输入框的默认选择：发送时仍显式提交 `to_agent_ids`。API 省略收件人仍按空数组处理，不由 Server 隐式继承。
 

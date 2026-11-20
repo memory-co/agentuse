@@ -113,7 +113,11 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
   if (q.isPending) return <div className="px-6"><Loading /></div>;
   if (q.isError) return <div className="px-6 py-6"><ErrorState error={q.error} /></div>;
   const { conversation: x, messages, events } = q.data;
-  const lastSent = [...messages].reverse().find(message => message.author_role === 'user' && message.author_user_id === sender);
+  const recentMessages = [...messages].reverse();
+  const lastSent = recentMessages.find(message => message.author_role === 'user' && message.author_user_id === sender);
+  const initialTargets = lastSent?.to_agent_ids ?? (x.parent_conversation_id
+    ? recentMessages.find(message => message.author_role === 'agent' && message.to_agent_ids.length > 0)?.to_agent_ids
+    : undefined);
   const questions = q.data.questions ?? [];
   const meta = t(`nest.${x.mode}`);
   const settled = x.status === 'idle' || x.status === 'resolved';
@@ -144,7 +148,7 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
     </div>
     {selectedRound === undefined && <div ref={composer} className="mx-auto w-full max-w-3xl px-4 pb-4">
       {reply.isError && <div className="pb-2"><ErrorState error={reply.error} /></div>}
-      <MentionComposer files={fileDraft.files} onFiles={fileDraft.addFiles} onRemoveFile={fileDraft.remove} key={`${id}:${sender}`} initialTargets={lastSent?.to_agent_ids ?? []} agents={agents.data??[]} users={[...new Set([x.user_id, x.created_by, ...messages.flatMap(m => [m.author_user_id, ...m.to_user_ids])].filter((value): value is string => !!value))]} placeholder={t('conversation.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets,users)=>reply.mutateAsync({prompt,targets,users})}/>
+      <MentionComposer files={fileDraft.files} onFiles={fileDraft.addFiles} onRemoveFile={fileDraft.remove} key={`${id}:${sender}`} initialTargets={initialTargets} agents={agents.data??[]} users={[...new Set([x.user_id, x.created_by, ...messages.flatMap(m => [m.author_user_id, ...m.to_user_ids])].filter((value): value is string => !!value))]} placeholder={t('conversation.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets,users)=>reply.mutateAsync({prompt,targets,users})}/>
 
     </div>}
    </div>
