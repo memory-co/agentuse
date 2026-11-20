@@ -38,13 +38,15 @@ curl -H "Authorization: Bearer $AGENTUSE_TOKEN" \
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| GET / POST | `/api/devices` | 列出设备 / 创建设备并返回安装命令 |
+| GET / POST | `/api/devices` | 列出设备 / 创建设备并返回私钥正文和注册命令 |
 | PUT | `/api/devices/{id}/harnesses/{harness}` | 用 `{"enabled":true}` 启用或关闭该设备的执行器 |
-| POST | `/api/devices/{id}/reset` | 重置设备安装令牌和连接凭据 |
+| POST | `/api/devices/{id}/reset` | 撤销设备旧凭据并返回新私钥 |
 | DELETE | `/api/devices/{id}` | 删除设备并断开连接 |
 | GET | `/api/harnesses` | 读取设备上报的执行器视图 |
 
-Client 使用页面返回的可信 `ar1.` 安装码，在安全 WS 内提交本地生成的 CSR，领取设备证书；私钥不离开 Client。长期设备证书只用于连接和续签，业务 HTTP 使用短期输入／run 票据。旧 `POST /api/client/register`、`GET /api/client/me` 返回 426，旧 `dk_` 不再可用。设备、执行器及 Agent 的配置顺序见 [快速开始](../client/cli.md#接入-server)。
+创建设备或重置设备的响应包含 `setup_token`（OpenSSH Ed25519 私钥正文）、`setup_server_pin`（Server CA 指纹）及 `setup_command`（供 Client 读取输入的注册命令）。这两个操作只通过 HTTPS 或 Server 本机管理入口签发，响应使用 `Cache-Control: no-store`。列表不包含私钥。持有当前私钥即可再次导入同一设备，重置会撤销旧私钥和证书。
+
+Client 通过安全 WS 提交 CSR 和当前连接的签名，领取设备证书。业务 HTTP 使用短期输入或 run 票据。旧 `POST /api/client/register` 和 `GET /api/client/me` 返回 426。设备配置顺序见 [快速开始](../client/cli.md#接入-server)。
 
 ## Agent 与固定版本
 

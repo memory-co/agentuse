@@ -6,12 +6,12 @@
 
 ### 接入 Server
 
-使用当前内置适配器时，在 Linux 执行设备上安装并登录需要使用的 Codex 或 Claude Code，同时准备 Python 3.9+。其他平台需使用其 manifest 明确支持的平台适配器。Server 管理页面中新建设备后，复制生成的安装命令执行，它会完成 Client 安装、设备注册和后台服务配置。
+使用当前内置适配器时，在 Linux 执行设备上安装并登录需要使用的 Codex 或 Claude Code，同时准备 Python 3.9+。其他平台需使用其 manifest 明确支持的平台适配器。从可信来源安装 Client。在 HTTPS 管理页面或 Server 本机的管理入口创建设备，运行页面给出的注册命令，再把设备私钥正文粘贴到 Client 提示符。
 
-已经安装二进制时，可以手动注册并在前台启动：
+注册完成后可以在前台启动。
 
 ```bash
-agentuse register --server https://agentuse.example.com --token 替换为设备安装令牌
+agentuse register --server https://agentuse.example.com
 agentuse start
 ```
 
@@ -77,7 +77,7 @@ agentuse ui --open
 
 ```bash
 agentuse register --config /opt/agentuse/endpoints.yaml \
-  --server https://agentuse.example.com --token 替换为设备安装令牌
+  --server https://agentuse.example.com
 agentuse start --config /opt/agentuse/endpoints.yaml
 agentuse harnesses --config /opt/agentuse/endpoints.yaml
 ```
@@ -116,8 +116,8 @@ AGENTUSE_UI_ADDR=127.0.0.1:7901 agentuse start
 对不同地址重复执行注册：
 
 ```bash
-agentuse register --server https://server-a.example.com --token 替换为A的安装令牌
-agentuse register --server https://server-b.example.com --token 替换为B的安装令牌
+agentuse register --server https://server-a.example.com
+agentuse register --server https://server-b.example.com
 agentuse start
 ```
 
@@ -134,16 +134,16 @@ AGENTUSE_SERVER=https://server-b.example.com agentuse status
 ## register
 
 ```bash
-agentuse register --server URL --token SETUP_TOKEN [--config FILE]
+agentuse register --server URL [--server-pin FINGERPRINT] [--config FILE]
 ```
 
 | 参数 | 默认值或来源 | 说明 |
 |---|---|---|
 | `--server` | 无，必填 | Server 地址 |
-| `--token` | 环境变量 `TOKEN`，必填 | 在 Server 页面生成的设备安装令牌 |
+| `--server-pin` | 管理页面提供，HTTP 地址必填 | Server CA PEM 的 SHA-256 指纹 |
 | `--config` | `~/.agentuse/endpoints.yaml` | 写入平台注册信息的文件 |
 
-安装令牌用于一次注册，成功后保存设备 ID 和设备密钥。为新 Server 注册会追加来源；对同一地址注册会更新其注册信息。随后重启 Client。
+粘贴 `BEGIN OPENSSH PRIVATE KEY` 与 `END OPENSSH PRIVATE KEY` 之间的 Ed25519 私钥正文。终端输入不回显，自动化可以从标准输入提供正文。注册成功后，Client 将私钥与证书保存到独立的私有文件。在同一 Server 地址重新注册会更新对应来源。随后重启 Client。
 
 ## start 和 daemon
 
@@ -154,7 +154,7 @@ agentuse daemon [--config FILE]
 
 两者都在前台持续运行，通过 `Ctrl+C` 或 `SIGTERM` 停止。`start` 允许尚未注册时进行本地调试；`daemon` 是安装脚本使用的后台服务入口，需要已有平台注册信息。
 
-自动安装时通常已经由 systemd、launchd 或后台进程运行 `daemon`，可先用 `agentuse status` 查看。修改配置后重启对应进程。
+使用可信的 `setup.sh` 安装 Client 后，完成注册再执行 `bash setup.sh --service`。脚本通过 systemd、launchd 或后台进程运行 `daemon`。可用 `agentuse status` 查看状态。
 
 ## ui
 
@@ -398,4 +398,4 @@ agentuse version
 
 命令结果写入 stdout，错误和运行日志写入 stderr。`status` 展示检查结果，自动化判断具体连接情况时应读取相应检查信息。
 
-设备注册使用页面生成的 `ar1.` 可信安装码，包含 Server 地址、公开 CA 和一次性注册令牌。Client 本机生成私钥，保存到独立的 0600 证书文件；旧 `device_key` 配置需重新注册。context 的 HTTP 请求通过 Client 的私有本地 socket／named pipe 代理，独立于可选 Web UI；context.json 和模型环境不含证书私钥或访问票据。
+设备私钥可以重复导入，重置后旧私钥和证书失效。旧 `device_key` 配置需要重新注册。context 的 HTTP 请求通过 Client 的私有本地 socket／named pipe 代理，独立于可选 Web UI；context.json 和模型环境不含证书私钥或访问票据。

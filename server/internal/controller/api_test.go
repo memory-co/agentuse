@@ -3,8 +3,10 @@ package controller
 import (
 	"context"
 	"github.com/memory-co/agentuse/internal/securews"
+	"github.com/memory-co/agentuse/server/internal/service"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -203,8 +205,7 @@ func (e *env) deviceWith(u agentuse.User, harnesses ...string) agentuse.Device {
 	e.t.Helper()
 	ctx := context.Background()
 	d, _ := e.st.DeviceService.CreateDevice(ctx, u.ID, "laptop")
-	_, csr, _ := securews.NewCredentials(e.st.Security.Identity.CA)
-	d, _, _ = e.st.DeviceService.Enroll(ctx, d.SetupToken, "", csr)
+	d, _, _ = enrollDevice(e.t, e.st, d.SetupToken, "")
 	var rep []deviceservice.ReportedHarness
 	for _, h := range harnesses {
 		rep = append(rep, deviceservice.ReportedHarness{Name: h})
@@ -269,6 +270,20 @@ func TestAgentsAPI(t *testing.T) {
 	}
 }
 
+func enrollDevice(t *testing.T, s *service.Service, token, hostname string) (agentuse.Device, []byte, error) {
+	t.Helper()
+	credentials, err := securews.ImportDeviceKey(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := securews.Policy{ServerNonce: "test enrollment"}
+	proof, err := credentials.EnrollmentProof(policy, hostname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.DeviceService.Enroll(context.Background(), policy, proof)
+}
+
 func TestDevicesAPI(t *testing.T) {
 	e := newEnv(t, Config{})
 	_, aliceTok := e.user("alice", agentuse.RoleUser)
@@ -277,47 +292,60 @@ func TestDevicesAPI(t *testing.T) {
 	// 不带请求体也能建
 	var v deviceView
 	if r := e.req(aliceTok, "POST", "/api/devices", nil, &v); r.StatusCode != http.StatusCreated || v.Name != "" ||
-		v.SetupCommand != `curl -fsSL "`+e.ts.URL+`/setup.sh" -o setup.sh && TOKEN="`+v.SetupToken+`" bash setup.sh` {
+		v.SetupToken == "" || v.SetupServerPin == "" || strings.Contains(v.SetupCommand, v.SetupToken) || r.Header.Get("Cache-Control") != "no-store" {
 		t.Fatalf("create: %d %+v", r.StatusCode, v)
 	}
 	if c := e.code(aliceTok, "POST", "/api/devices", "{"); c != http.StatusBadRequest {
 		t.Fatalf("bad json: %d", c)
 	}
 	var list []deviceView
-	if e.req(aliceTok, "GET", "/api/devices", nil, &list); len(list) != 1 || list[0].SetupCommand == "" {
+	if e.req(aliceTok, "GET", "/api/devices", nil, &list); len(list) != 1 || list[0].SetupCommand != "" || list[0].SetupToken != "" {
 		t.Fatalf("list: %+v", list)
 	}
 
-	// 注册后不再有安装命令
-	invitation, err := securews.DecodeInvitation(v.SetupToken)
-	if err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	register := func(token, pin string) (*securews.Credentials, securews.AuthResult, error) {
+		key, err := securews.ImportDeviceKey(token)
+		if err != nil {
+			return nil, securews.AuthResult{}, err
+		}
+		channel, policy, err := securews.ConnectForEnrollment(ctx, e.ts.URL, pin, key)
+		if err != nil {
+			return nil, securews.AuthResult{}, err
+		}
+		defer channel.Close()
+		proof, err := key.EnrollmentProof(policy, "host")
+		if err != nil {
+			return nil, securews.AuthResult{}, err
+		}
+		if err = channel.Write(ctx, proof); err != nil {
+			return nil, securews.AuthResult{}, err
+		}
+		var result securews.AuthResult
+		err = channel.Read(ctx, &result)
+		return key, result, err
+	}
+	original := v.SetupToken
+	if _, _, err := register(original, strings.Repeat("0", 64)); err == nil {
+		t.Fatal("enrollment trusted a different Server")
+	}
+	credentials, reg, err := register(original, v.SetupServerPin)
+	if err != nil || reg.Type != "enrolled" || reg.DeviceID != v.ID {
+		t.Fatal("enrollment failed", err)
+	}
+	if _, err := credentials.SetCertificate(reg.Certificate, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	credentials, csr, err := securews.NewCredentials(invitation.CA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	channel, _, err := securews.Connect(context.Background(), e.ts.URL, credentials)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = channel.Write(context.Background(), securews.Authentication{Type: "enroll", Token: invitation.Token, CSR: csr, Hostname: "host"}); err != nil {
-		t.Fatal(err)
-	}
-	var reg securews.AuthResult
-	if err = channel.Read(context.Background(), &reg); err != nil || reg.Type != "enrolled" || reg.DeviceID != v.ID {
-		t.Fatal(reg, err)
-	}
-	channel.Close()
-	if _, err = credentials.SetCertificate(reg.Certificate, time.Now()); err != nil {
-		t.Fatal(err)
+	if _, again, err := register(original, v.SetupServerPin); err != nil || again.Type != "enrolled" || again.DeviceID != v.ID {
+		t.Fatal("private key could not be imported again", err)
 	}
 
 	var after []deviceView
 	if e.req(aliceTok, "GET", "/api/devices", nil, &after); after[0].SetupCommand != "" || after[0].SetupToken != "" || after[0].Name != "host" {
 		t.Fatalf("after register: %+v", after)
 	}
-	if c := e.code("", "POST", "/api/client/register", map[string]string{"token": v.SetupToken}); c != http.StatusUpgradeRequired {
+	if c := e.code("", "POST", "/api/client/register", map[string]string{"token": "legacy"}); c != http.StatusUpgradeRequired {
 		t.Fatalf("reuse setup token: %d", c)
 	}
 	if c := e.code("", "POST", "/api/client/register", "x"); c != http.StatusUpgradeRequired {
@@ -350,6 +378,17 @@ func TestDevicesAPI(t *testing.T) {
 	if r := e.req(aliceTok, "POST", "/api/devices/"+v.ID+"/reset", nil, &v); r.StatusCode != 200 || v.SetupCommand == "" || v.Status != agentuse.DevicePending {
 		t.Fatalf("reset: %d %+v", r.StatusCode, v)
 	}
+	if _, old, err := register(original, v.SetupServerPin); err != nil || old.Type != "rejected" {
+		t.Fatal("old private key was not rejected", err)
+	}
+	if channel, _, err := securews.Authenticate(ctx, e.ts.URL, credentials); err == nil {
+		channel.Close()
+		t.Fatal("old certificate accepted")
+	}
+	if _, replacement, err := register(v.SetupToken, v.SetupServerPin); err != nil || replacement.Type != "enrolled" {
+		t.Fatal("replacement failed", err)
+	}
+
 	if c := e.code("dk_retired", "GET", "/api/client/me", nil); c != http.StatusUpgradeRequired {
 		t.Fatalf("old key after reset: %d", c)
 	}

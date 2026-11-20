@@ -3,43 +3,36 @@ package endpoint
 import (
 	"context"
 	"fmt"
-	"github.com/memory-co/agentuse/internal/securews"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/memory-co/agentuse/internal/securews"
 )
 
-// Register consumes a trusted installation code inside the authenticated channel.
-// The generated device private key never leaves this process or its private file.
-func (s Service) Register(ctx context.Context, server, token string) (Endpoint, error) {
-	invitation, err := securews.DecodeInvitation(token)
-	if err != nil {
-		return Endpoint{}, err
-	}
-	if server == "" {
-		server = invitation.Server
-	}
+// Register imports a device private key and proves possession inside the trusted channel.
+func (s Service) Register(ctx context.Context, server, pin, token string) (Endpoint, error) {
 	server, id, err := NormalizeEndpoint(server)
 	if err != nil {
 		return Endpoint{}, err
 	}
-	expected, _, err := NormalizeEndpoint(invitation.Server)
-	if err != nil || expected != server {
-		return Endpoint{}, fmt.Errorf("installation code belongs to another Server address")
-	}
-	credentials, csr, err := securews.NewCredentials(invitation.CA)
+	credentials, err := securews.ImportDeviceKey(token)
 	if err != nil {
 		return Endpoint{}, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	channel, _, err := securews.Connect(ctx, server, credentials)
+	channel, policy, err := securews.ConnectForEnrollment(ctx, server, pin, credentials)
 	if err != nil {
 		return Endpoint{}, err
 	}
 	defer channel.Close()
 	host, _ := os.Hostname()
-	if err = channel.Write(ctx, securews.Authentication{Type: "enroll", Token: invitation.Token, CSR: csr, Hostname: host}); err != nil {
+	proof, err := credentials.EnrollmentProof(policy, host)
+	if err != nil {
+		return Endpoint{}, err
+	}
+	if err = channel.Write(ctx, proof); err != nil {
 		return Endpoint{}, err
 	}
 	var reply securews.AuthResult
@@ -47,7 +40,7 @@ func (s Service) Register(ctx context.Context, server, token string) (Endpoint, 
 		return Endpoint{}, err
 	}
 	if reply.Type != "enrolled" || reply.Error != "" || reply.DeviceID == "" {
-		return Endpoint{}, fmt.Errorf("installation code is invalid or already used")
+		return Endpoint{}, securews.ErrCredential
 	}
 	peer, err := credentials.SetCertificate(reply.Certificate, time.Now())
 	if err != nil {
@@ -56,6 +49,7 @@ func (s Service) Register(ctx context.Context, server, token string) (Endpoint, 
 	if peer.DeviceID != reply.DeviceID {
 		return Endpoint{}, fmt.Errorf("registered device identity mismatch")
 	}
+
 	path, err := filepath.Abs(filepath.Join(filepath.Dir(s.Path), "credentials", id, "device.json"))
 	if err != nil {
 		return Endpoint{}, err

@@ -44,13 +44,10 @@ func registered(t *testing.T, s *service.Service, u agentuse.User, name string, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, csr, err := securews.NewCredentials(s.Security.Identity.CA)
-	if err != nil {
+	if d, _, err = enrollDevice(t, s, d.SetupToken, name); err != nil {
 		t.Fatal(err)
 	}
-	if d, _, err = s.DeviceService.Enroll(ctx, d.SetupToken, name, csr); err != nil {
-		t.Fatal(err)
-	}
+
 	var rep []deviceservice.ReportedHarness
 	for _, h := range harnesses {
 		rep = append(rep, deviceservice.ReportedHarness{Name: h})
@@ -92,4 +89,18 @@ func TestOpenFile(t *testing.T) {
 	if len(hs) != 0 {
 		t.Fatalf("unreported harnesses after reopen: %+v", hs)
 	}
+}
+
+func enrollDevice(t *testing.T, s *service.Service, token, name string) (agentuse.Device, []byte, error) {
+	t.Helper()
+	credentials, err := securews.ImportDeviceKey(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := securews.Policy{ServerNonce: "test enrollment"}
+	proof, err := credentials.EnrollmentProof(policy, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.DeviceService.Enroll(context.Background(), policy, proof)
 }

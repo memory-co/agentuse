@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -105,6 +106,7 @@ func (c *Channel) Write(ctx context.Context, v any) error {
 func (c *Channel) Close() { c.WS.CloseNow() }
 
 type Challenge struct {
+	GetCA  bool   `json:"get_ca,omitempty"`
 	Server string `json:"server"`
 	Nonce  string `json:"nonce"`
 }
@@ -118,6 +120,7 @@ type Policy struct {
 	Encryption  bool   `json:"encryption"`
 }
 type SignedPolicy struct {
+	CA          []byte `json:"ca,omitempty"`
 	Policy      Policy `json:"policy"`
 	Certificate []byte `json:"certificate"`
 	Signature   []byte `json:"signature"`
@@ -126,7 +129,6 @@ type Authentication struct {
 	Type        string `json:"type"`
 	Certificate []byte `json:"certificate,omitempty"`
 	Signature   []byte `json:"signature,omitempty"`
-	Token       string `json:"token,omitempty"`
 	CSR         []byte `json:"csr,omitempty"`
 	Hostname    string `json:"hostname,omitempty"`
 }
@@ -177,10 +179,13 @@ func Accept(ctx context.Context, ws *websocket.Conn, id *Identity, encryption bo
 	if err != nil {
 		return nil, p, err
 	}
-	if err = wsjson.Write(handshake, ws, SignedPolicy{Policy: p, Certificate: id.Certificate, Signature: signature}); err != nil {
+	announcement := SignedPolicy{Policy: p, Certificate: id.Certificate, Signature: signature}
+	if challenge.GetCA {
+		announcement.CA = id.CA
+	}
+	if err = wsjson.Write(handshake, ws, announcement); err != nil {
 		return nil, p, err
 	}
-	ws.SetReadLimit(MaxMessage)
 	ws.SetReadLimit(MaxMessage)
 	stream := websocket.NetConn(ctx, ws, websocket.MessageBinary)
 	if err = stream.SetDeadline(time.Now().Add(15 * time.Second)); err != nil {
@@ -233,10 +238,44 @@ func Connect(ctx context.Context, server string, credentials *Credentials) (*Cha
 }
 
 func ConnectWithClient(ctx context.Context, server string, credentials *Credentials, client *http.Client) (*Channel, Policy, error) {
+	return connect(ctx, server, credentials, client, false, "")
+}
+
+// ConnectForEnrollment learns the public CA from the handshake. A trusted pin
+// is required over HTTP. HTTPS can also establish initial trust via outer TLS.
+func ConnectForEnrollment(ctx context.Context, server, pin string, credentials *Credentials) (*Channel, Policy, error) {
+	return connect(ctx, server, credentials, nil, true, pin)
+}
+
+func connect(ctx context.Context, server string, credentials *Credentials, client *http.Client, enrollment bool, pin string) (*Channel, Policy, error) {
 	if credentials == nil {
 		return nil, Policy{}, fmt.Errorf("device trust is missing; register again")
 	}
+	if enrollment {
+		if pin == "" && !strings.HasPrefix(server, "https://") {
+			return nil, Policy{}, fmt.Errorf("HTTP registration requires the trusted Server fingerprint (--server-pin)")
+		}
+		if pin != "" {
+			decoded, err := hex.DecodeString(pin)
+			if err != nil || len(decoded) != 32 {
+				return nil, Policy{}, fmt.Errorf("invalid Server fingerprint")
+			}
+			pin = strings.ToLower(pin)
+		}
+	}
+
 	address := strings.Replace(strings.Replace(strings.TrimRight(server, "/"), "https://", "wss://", 1), "http://", "ws://", 1) + protocol.WSPath
+	// Reject redirects so HTTPS trust cannot be established through a downgraded
+	// or unrelated endpoint during enrollment.
+	if enrollment {
+		if client == nil {
+			client = &http.Client{}
+		} else {
+			copy := *client
+			client = &copy
+		}
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
 	dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
 	defer dialCancel()
 	ws, response, err := websocket.Dial(dialCtx, address, &websocket.DialOptions{HTTPClient: client, HTTPHeader: http.Header{protocol.ProtocolHeader: []string{protocol.ExecutionProtocol}}, CompressionMode: websocket.CompressionDisabled})
@@ -258,7 +297,7 @@ func ConnectWithClient(ctx context.Context, server string, credentials *Credenti
 	handshake, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	ws.SetReadLimit(32 << 10)
-	challenge := Challenge{Server: strings.TrimRight(server, "/"), Nonce: randomNonce()}
+	challenge := Challenge{GetCA: enrollment, Server: strings.TrimRight(server, "/"), Nonce: randomNonce()}
 	if err = wsjson.Write(handshake, ws, challenge); err != nil {
 		return nil, Policy{}, err
 	}
@@ -267,14 +306,25 @@ func ConnectWithClient(ctx context.Context, server string, credentials *Credenti
 		return nil, Policy{}, err
 	}
 	p := announcement.Policy
-	if p.Server != challenge.Server || p.ClientNonce != challenge.Nonce || !validNonce(p.ServerNonce) || !validNonce(p.Connection) || p.Protocol != protocol.ExecutionProtocol || p.ServerID != ServerID(credentials.CA) {
+	if p.Server != challenge.Server || p.ClientNonce != challenge.Nonce || !validNonce(p.ServerNonce) || !validNonce(p.Connection) || p.Protocol != protocol.ExecutionProtocol {
 		return nil, p, fmt.Errorf("invalid Server policy binding")
 	}
+	ca := credentials.CA
+	if enrollment {
+		ca = announcement.CA
+		if len(ca) == 0 || (pin != "" && ServerID(ca) != pin) {
+			return nil, p, fmt.Errorf("Server CA does not match the trusted fingerprint")
+		}
+	}
+	if p.ServerID != ServerID(ca) {
+		return nil, p, fmt.Errorf("invalid Server policy identity")
+	}
+
 	cert, err := Certificate(announcement.Certificate)
 	if err != nil {
 		return nil, p, err
 	}
-	roots, err := Roots(credentials.CA)
+	roots, err := Roots(ca)
 	if err != nil {
 		return nil, p, err
 	}
@@ -310,6 +360,9 @@ func ConnectWithClient(ctx context.Context, server string, credentials *Credenti
 	}
 	if err = stream.SetDeadline(time.Time{}); err != nil {
 		return nil, p, err
+	}
+	if enrollment {
+		credentials.CA = ca
 	}
 	ok = true
 	return &Channel{WS: ws, stream: stream}, p, nil

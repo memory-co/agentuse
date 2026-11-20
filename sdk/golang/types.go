@@ -62,16 +62,17 @@ type CreateAgentRequest struct {
 }
 
 type Device struct {
-	Capabilities []string        `json:"capabilities"`
-	ID           string          `json:"id"`
-	UserID       string          `json:"user_id"`
-	Name         string          `json:"name"`
-	Status       string          `json:"status"` // pending / online / offline
-	LastSeenAt   *int64          `json:"last_seen_at"`
-	CreatedAt    int64           `json:"created_at"`
-	Harnesses    []DeviceHarness `json:"harnesses"`
-	SetupToken   string          `json:"setup_token,omitempty"`
-	SetupCommand string          `json:"setup_command,omitempty"`
+	Capabilities   []string        `json:"capabilities"`
+	ID             string          `json:"id"`
+	UserID         string          `json:"user_id"`
+	Name           string          `json:"name"`
+	Status         string          `json:"status"` // pending / online / offline
+	LastSeenAt     *int64          `json:"last_seen_at"`
+	CreatedAt      int64           `json:"created_at"`
+	Harnesses      []DeviceHarness `json:"harnesses"`
+	SetupToken     string          `json:"setup_token,omitempty"` // OpenSSH private key body, returned only on create/reset
+	SetupServerPin string          `json:"setup_server_pin,omitempty"`
+	SetupCommand   string          `json:"setup_command,omitempty"`
 }
 
 type DeviceHarness struct {

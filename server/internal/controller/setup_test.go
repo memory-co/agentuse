@@ -3,6 +3,7 @@ package controller
 import (
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -34,7 +35,7 @@ func TestConfiguredPublicURL(t *testing.T) {
 	headers := []string{"X-Forwarded-Host", "proxy.invalid", "X-Forwarded-Proto", "http", "Origin", "https://browser.invalid", "Referer", "https://browser.invalid/"}
 	var device deviceView
 	resp := e.req(token, "POST", "/api/devices", nil, &device, headers...)
-	want := `curl -fsSL "` + publicURL + `/setup.sh" -o setup.sh && TOKEN="` + device.SetupToken + `" bash setup.sh`
+	want := "agentuse register --server '" + publicURL + "' --server-pin '" + device.SetupServerPin + "'"
 	if resp.StatusCode != http.StatusCreated || device.SetupCommand != want {
 		t.Fatal("device installation command must use the configured public URL")
 	}
@@ -104,5 +105,38 @@ func TestMissingDist(t *testing.T) {
 	os.Mkdir(filepath.Join(dir, "agentuse-darwin-arm64"), 0o755) // 目录不算
 	if got := MissingDist(dir); !reflect.DeepEqual(got, []string{"linux-arm64", "darwin-amd64", "darwin-arm64"}) {
 		t.Fatalf("missing: %v", got)
+	}
+}
+
+func TestDevicePrivateKeyIssuanceRequiresTrustedManagementConnection(t *testing.T) {
+	e := newEnv(t, Config{PublicURL: "https://agentuse.example.com"})
+	_, token := e.user("key-issuer", agentuse.RoleUser)
+	for _, tc := range []struct {
+		name           string
+		remote         string
+		target         string
+		forwardedProto string
+		want           int
+	}{
+		{"remote HTTP", "192.0.2.10:8040", "http://agentuse.example.com/api/devices", "", 403},
+		{"remote forged forwarding header", "192.0.2.10:8040", "http://agentuse.example.com/api/devices", "https", 403},
+		{"remote forged localhost", "192.0.2.10:8040", "http://localhost/api/devices", "", 403},
+		{"loopback", "127.0.0.1:8040", "http://localhost/api/devices", "", 201},
+		{"local HTTPS proxy", "127.0.0.1:8040", "http://agentuse.example.com/api/devices", "https", 201},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodPost, tc.target, nil)
+			r.RemoteAddr = tc.remote
+			r.Header.Set("Authorization", "Bearer "+token)
+			r.Header.Set("X-Forwarded-Proto", tc.forwardedProto)
+			w := httptest.NewRecorder()
+			e.srv.ServeHTTP(w, r)
+			if w.Code != tc.want {
+				t.Fatalf("got %d, want %d", w.Code, tc.want)
+			}
+			if tc.want == 403 && strings.Contains(w.Body.String(), "setup_token") {
+				t.Fatal("response leaked a device key")
+			}
+		})
 	}
 }

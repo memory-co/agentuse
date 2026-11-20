@@ -89,9 +89,9 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if auth.Type == "enroll" {
-		d, cert, e := h.service.DeviceService.Enroll(ctx, auth.Token, auth.Hostname, auth.CSR)
+		d, cert, e := h.service.DeviceService.Enroll(ctx, policy, auth)
 		if e != nil {
-			_ = channel.Write(ctx, securews.AuthResult{Type: "rejected", Error: "installation code is invalid or already used"})
+			_ = channel.Write(ctx, securews.AuthResult{Type: "rejected", Error: "device key is unknown, revoked or failed verification"})
 			return
 		}
 		_ = channel.Write(ctx, securews.AuthResult{Type: "enrolled", DeviceID: d.ID, Name: d.Name, UserID: d.UserID, Certificate: cert})

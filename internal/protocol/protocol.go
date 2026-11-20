@@ -27,10 +27,6 @@ const (
 	AckUnknown        = "unknown"
 )
 
-type RegisterRequest struct {
-	Token    string `json:"token"`
-	Hostname string `json:"hostname"`
-}
 type MeResponse struct {
 	DeviceID string `json:"device_id"`
 	Name     string `json:"name"`

@@ -22,20 +22,21 @@ func TestDeviceSetup(t *testing.T) {
 	if err != nil || d.Status != agentuse.DevicePending || d.SetupToken == "" || d.Name != "" {
 		t.Fatalf("create: %v %+v", err, d)
 	}
-	_, csr, err := securews.NewCredentials(s.Security.Identity.CA)
+	unknown, _, err := securews.GenerateDeviceKey()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.DeviceService.Enroll(ctx, "st_nope", "h", csr); !errors.Is(err, database.ErrNotFound) {
-		t.Fatalf("bad setup token: %v", err)
+	if _, _, err := enrollDevice(t, s, unknown, "h"); !errors.Is(err, database.ErrNotFound) {
+		t.Fatalf("unknown key: %v", err)
 	}
+
 	// 没起名字：用主机名;主机名也没有就用 id
-	reg, cert, err := s.DeviceService.Enroll(ctx, d.SetupToken, "", csr)
+	reg, cert, err := enrollDevice(t, s, d.SetupToken, "")
 	if err != nil || reg.Name != d.ID || reg.Status != agentuse.DeviceOffline {
 		t.Fatalf("register: %v %+v", err, reg)
 	}
-	if _, _, err := s.DeviceService.Enroll(ctx, d.SetupToken, "h", csr); !errors.Is(err, database.ErrNotFound) {
-		t.Fatal("setup token is single-use")
+	if _, _, err := enrollDevice(t, s, d.SetupToken, "h"); err != nil {
+		t.Fatal("key could not be imported again", err)
 	}
 	peer, err := securews.VerifyDevice(s.Security.Identity.CA, cert, s.Now())
 	if err != nil {
@@ -56,7 +57,7 @@ func TestDeviceSetup(t *testing.T) {
 	if _, err := s.DeviceService.AuthenticateCertificate(ctx, peer); err == nil {
 		t.Fatal("old key should be invalid after reset")
 	}
-	if again, _, err := s.DeviceService.Enroll(ctx, reset.SetupToken, "other-host", csr); err != nil || again.Name != d.ID {
+	if again, _, err := enrollDevice(t, s, reset.SetupToken, "other-host"); err != nil || again.Name != d.ID {
 		t.Fatalf("re-register keeps name: %v %+v", err, again)
 	}
 }

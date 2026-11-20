@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/memory-co/agentuse/internal/identity"
+	"github.com/memory-co/agentuse/internal/securews"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/database"
@@ -16,26 +17,30 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// CreateDevice 在页面上添加一台 device:生成一次性的安装令牌，等用户在电脑上跑 setup.sh 注册。
+// CreateDevice provisions a device key and returns its private body for import.
 func (s *Service) CreateDevice(ctx context.Context, userID, name string) (agentuse.Device, error) {
+	token, keyHash, err := securews.GenerateDeviceKey()
+	if err != nil {
+		return agentuse.Device{}, err
+	}
 	d := agentuse.Device{
 		ID:         identity.NewID("dev_"),
 		UserID:     userID,
 		Name:       strings.TrimSpace(name),
-		SetupToken: identity.NewToken("st_"),
+		SetupToken: token,
 		Status:     agentuse.DevicePending,
 		CreatedAt:  s.Now().Unix(),
 	}
-	_, err := database.Exec(ctx, s.DB,
+	_, err = database.Exec(ctx, s.DB,
 		database.CreateDeviceInsert,
-		d.ID, d.UserID, d.Name, d.SetupToken, d.Status, d.CreatedAt)
+		d.ID, d.UserID, d.Name, keyHash, d.Status, d.CreatedAt)
 	if err == nil {
 		s.Changes.Publish(notification.Change{Resource: "devices", ID: d.ID}, d.UserID)
 	}
 	return d, err
 }
 
-// ResetDeviceSetup 重新生成安装令牌(用于换电脑 / 重装),旧密钥立即失效。
+// resetDeviceSetup replaces the device key and revokes all previous certificates.
 func (s *Service) resetDeviceSetup(ctx context.Context, u agentuse.User, id string) (agentuse.Device, error) {
 	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
@@ -60,13 +65,21 @@ func (s *Service) resetDeviceSetup(ctx context.Context, u agentuse.User, id stri
 	if err = s.ConversationService.RetireDeviceMessages(ctx, tx, id, "device 已重置，请重新发送任务"); err != nil {
 		return agentuse.Device{}, err
 	}
-	if _, err = database.Exec(ctx, tx, database.ResetDeviceSetupUpdate, identity.NewToken("st_"), agentuse.DevicePending, id); err != nil {
+	token, keyHash, err := securews.GenerateDeviceKey()
+	if err != nil {
+		return agentuse.Device{}, err
+	}
+	if _, err = database.Exec(ctx, tx, database.ResetDeviceSetupUpdate, keyHash, agentuse.DevicePending, id); err != nil {
 		return agentuse.Device{}, err
 	}
 	if err = tx.Commit().Error; err != nil {
 		return agentuse.Device{}, err
 	}
-	return s.GetDevice(ctx, u, id)
+	d, err := s.GetDevice(ctx, u, id)
+	if err == nil {
+		d.SetupToken = token
+	}
+	return d, err
 }
 
 func (s *Service) scanDevice(row database.Scanner) (agentuse.Device, error) {

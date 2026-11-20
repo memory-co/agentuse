@@ -79,3 +79,21 @@ func securityMigration() *gormigrate.Migration {
 		return nil
 	}}
 }
+
+const DeviceKeyMigration = "0004_device_public_key"
+
+func deviceKeyMigration() *gormigrate.Migration {
+	return &gormigrate.Migration{ID: DeviceKeyMigration, Migrate: func(db *gorm.DB) error {
+		if !db.Migrator().HasColumn(&Device{}, "PublicKeyHash") {
+			if err := db.Migrator().AddColumn(&Device{}, "PublicKeyHash"); err != nil {
+				return err
+			}
+		}
+		if !db.Migrator().HasIndex(&Device{}, "devices_public_key") {
+			if err := db.Migrator().CreateIndex(&Device{}, "devices_public_key"); err != nil {
+				return err
+			}
+		}
+		return db.Exec("UPDATE devices SET setup_token=NULL WHERE setup_token IS NOT NULL").Error
+	}}
+}

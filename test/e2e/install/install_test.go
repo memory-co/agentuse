@@ -148,13 +148,25 @@ func testSetup(t *testing.T, gh *fakeGitHub, srv *e2eutil.Server) {
 		t.Fatal(err)
 	}
 	device := t.TempDir()
-	cmd := exec.Command("bash", "-c", dv.SetupCommand)
+	// The download script never receives the private key. Import directly through
+	// the Client, then install the background service using the local script.
+	cmd := exec.Command("bash", "-c", `curl -fsSL "$1/setup.sh" -o setup.sh && bash setup.sh`, "setup", srv.URL)
 	cmd.Dir = device
 	cmd.Env = e2eutil.Env(device, gh.env...)
+	e2eutil.MustRun(t, cmd)
+	bin := filepath.Join(device, ".agentuse", "bin", "agentuse")
+	register := exec.Command(bin, "register", "--server", srv.URL, "--server-pin", dv.SetupServerPin)
+	register.Stdin = strings.NewReader(dv.SetupToken)
+	register.Env = e2eutil.Env(device)
+	if out := e2eutil.MustRun(t, register); !strings.Contains(out, "注册成功") {
+		t.Fatal("registration did not complete")
+	}
+	daemon := exec.Command("bash", "setup.sh", "--service")
+	daemon.Dir = device
+	daemon.Env = e2eutil.Env(device, gh.env...)
 	t.Cleanup(func() { killPidfile(filepath.Join(device, ".agentuse", "daemon.pid")) })
-	out := e2eutil.MustRun(t, cmd)
-	if !strings.Contains(out, "注册成功") || !strings.Contains(out, "已在后台启动") {
-		t.Fatalf("setup.sh:\n%s", out)
+	if out := e2eutil.MustRun(t, daemon); !strings.Contains(out, "已在后台启动") {
+		t.Fatal("setup did not start daemon")
 	}
 
 	e2eutil.WaitFor(t, 20*time.Second, "设备上线", func() bool {
@@ -166,7 +178,6 @@ func testSetup(t *testing.T, gh *fakeGitHub, srv *e2eutil.Server) {
 		t.Fatalf("没起名字的设备用主机名: %q", ds[0].Name)
 	}
 
-	bin := filepath.Join(device, ".agentuse", "bin", "agentuse")
 	status := exec.Command(bin, "status")
 	status.Env = e2eutil.Env(device)
 	if out := e2eutil.MustRun(t, status); !strings.Contains(out, "正常") || !strings.Contains(out, "nohup: 运行中") {

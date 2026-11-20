@@ -16,7 +16,6 @@ func TestAgentuseCommands(t *testing.T) {
 	d := struct{ ID, SetupToken string }{"dm_test", peer.Code}
 	cfg := filepath.Join(t.TempDir(), "endpoints.yaml")
 	t.Setenv("PATH", t.TempDir()) // 本机没有 claude / codex
-	t.Setenv("TOKEN", "")
 	run := func(args ...string) (int, string, string) {
 		var code int
 		out, errOut := capture(t, func() { code = Main(append(args, "-config", cfg)) })
@@ -33,12 +32,10 @@ func TestAgentuseCommands(t *testing.T) {
 	if code, _, _ := run("register", "-server", peer.URL); code != 2 {
 		t.Fatalf("register without token: %d", code)
 	}
-	if code, _, errOut := run("register", "-server", peer.URL, "-token", "st_bad"); code != 1 || !strings.Contains(errOut, "注册失败") {
+	if code, _, errOut := run("register", "-server", peer.URL, "-server-pin", peer.Pin, "-token", "st_bad"); code != 1 || !strings.Contains(errOut, "注册失败") {
 		t.Fatalf("register bad token: %d %q", code, errOut)
 	}
-	// TOKEN 环境变量(setup.sh 就是这么传的)
-	t.Setenv("TOKEN", d.SetupToken)
-	if code, out, _ := run("register", "-server", peer.URL); code != 0 || !strings.Contains(out, d.ID) {
+	if code, out, _ := run("register", "-server", peer.URL, "-server-pin", peer.Pin, "-token", d.SetupToken); code != 0 || !strings.Contains(out, d.ID) {
 		t.Fatalf("register: %d %q", code, out)
 	}
 	if code, out, _ := run("status"); code != 0 || !strings.Contains(out, "正常") || !strings.Contains(out, d.ID) {

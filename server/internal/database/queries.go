@@ -29,15 +29,15 @@ const AttachmentExistsSelect = `SELECT COUNT(*) FROM attachments WHERE conversat
 
 const DeviceCapabilitiesSelect = `SELECT capability FROM device_capabilities WHERE device_id=? ORDER BY capability`
 
-const CreateDeviceInsert = `INSERT INTO devices (id, user_id, name, setup_token, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+const CreateDeviceInsert = `INSERT INTO devices (id, user_id, name, public_key_hash, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`
 
 const ResetDeviceSetupSelect = `SELECT 1 FROM devices WHERE id=?`
 
 const ResetDeviceSetupClause = ` AND user_id=?`
 
-const ResetDeviceSetupUpdate = `UPDATE devices SET setup_token=?,key_hash=NULL,status=? WHERE id=?`
+const ResetDeviceSetupUpdate = `UPDATE devices SET public_key_hash=?,setup_token=NULL,key_hash=NULL,status=? WHERE id=?`
 
-const DeviceCols = `SELECT id, user_id, name, setup_token, status, last_seen_at, created_at FROM devices`
+const DeviceCols = `SELECT id, user_id, name, status, last_seen_at, created_at FROM devices`
 
 const GetDeviceClause = ` WHERE id = ?`
 

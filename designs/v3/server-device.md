@@ -1,6 +1,6 @@
 # deviceService：執行設備
 
-> 设备证书、可信安装码、续签与代次撤销已实现，见[安全通道与执行期授权](client-server-security.md)。
+> 设备证书、设备私钥导入、续签与代次撤销已实现，见[安全通道与执行期授权](client-server-security.md)。
 
 > 本文規則已落實到 遷移基線 `0001_initial`、Server API 與業務 service。使用 device/conversation 命名；session_id 只引用 Client 本地執行會話。時間為 Unix 秒，JSON 在 SQLite 使用 TEXT、MySQL 使用 JSON、PostgreSQL 使用 JSONB，關聯由 service 在事務內校驗與清理，不聲明數據庫外鍵。
 
@@ -8,7 +8,7 @@
 
 device 是一臺用戶的執行設備，client 是設備上運行的程序。deviceService 管登記、憑據、連接狀態和執行能力，不管理對話或 run 的業務終態。
 
-- 登記設備、生成一次性 setup token，通过安全 WS 校验 Client 的 CSR，签发设备证书。
+- 登记设备时生成 Ed25519 设备私钥，返回 OpenSSH 正文。Client 在安全 WS 内证明持有私钥，Server 签发设备证书。
 - 保存 client 本地探測後上報的 harness、版本與業務能力，不下發探測命令。
 - 維護 online/offline 和最近活動時間，管理某個 harness 是否允許領取任務。
 - 刪除/重置時撤銷憑據並斷開舊連接；未領取輸入可失敗，已經執行的 run 不由 server 合成終態。
@@ -17,7 +17,7 @@ device 是一臺用戶的執行設備，client 是設備上運行的程序。dev
 
 | 操作 | 行爲 |
 |---|---|
-| 登記/註冊 | 在事務內消費 setup_token，保存设备证书序列号和公钥标识，禁止重複註冊 |
+| 登記/註冊 | 核对预先保存的公钥指纹，保存设备证书序列号。持有当前私钥可以再次导入。 |
 | 上線 | 验证设备私钥持有证明、证书及当前凭据代次，更新 client 上報的 run 協議能力與本地 harness 探測結果，不把 available 自動等同於 enabled |
 | 心跳/離線 | 更新最近活動時間和連接狀態；在線連接對象由連接管理組件維護 |
 | 開關 harness | 修改 enabled；重新開啓後通知派活 |
@@ -33,13 +33,14 @@ agentService 發佈版本時檢查設備歸屬和運行能力，runService 根�
 
 ### devices
 
-設備主表。`user_id` 是歸屬用戶，`setup_token` 只供註冊使用，`key_hash` 仅保留旧库字段，新注册清空它。註冊後清除 setup_token；重置增加 credential_generation 并撤销所有设备证书及旧代次票据。
+設備主表。 `user_id` 是归属用户，`public_key_hash` 对应当前 Ed25519 私钥。重置替换指纹、增加 `credential_generation` 并撤销旧证书。历史字段 `setup_token` 和 `key_hash` 保留用于迁移兼容。
 
 ```sql
 CREATE TABLE devices (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     name TEXT NOT NULL,
+    public_key_hash TEXT,
     key_hash TEXT, -- 旧字段，新注册为空
     credential_generation INTEGER NOT NULL DEFAULT 1,
     setup_token TEXT,
@@ -47,6 +48,8 @@ CREATE TABLE devices (
     last_seen_at INTEGER,
     created_at INTEGER NOT NULL
 );
+CREATE UNIQUE INDEX devices_public_key
+    ON devices(public_key_hash);
 CREATE UNIQUE INDEX devices_key
     ON devices(key_hash);
 CREATE UNIQUE INDEX devices_setup_token

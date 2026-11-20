@@ -16,7 +16,9 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/ncruces/go-sqlite3 v0.34.0
 	github.com/ncruces/go-sqlite3/gormlite v0.34.0
+	golang.org/x/crypto v0.50.0
 	golang.org/x/sys v0.43.0
+	golang.org/x/term v0.42.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.3

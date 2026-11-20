@@ -34,7 +34,8 @@ func runDaemonForMulti(t *testing.T, c *agentuse.Client, user, home, cli, fake s
 		count = 2
 	}
 	writeAdapterConfig(t, cfg, map[string]any{"harnesses": hs})
-	cmd := exec.Command(cli, "register", "-server", c.BaseURL, "-token", d.SetupToken, "-config", cfg)
+	cmd := exec.Command(cli, "register", "-server", c.BaseURL, "-server-pin", d.SetupServerPin, "-config", cfg)
+	cmd.Stdin = strings.NewReader(d.SetupToken)
 	cmd.Env = e2eutil.Env(home)
 	e2eutil.MustRun(t, cmd)
 	cmd = exec.Command(cli, "daemon", "-config", cfg)

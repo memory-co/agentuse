@@ -14,7 +14,7 @@ import (
 func TestCheckKey(t *testing.T) {
 	peer := securewstest.New(t)
 	svc := Service{Path: filepath.Join(t.TempDir(), "endpoints.yaml")}
-	ep, err := svc.Register(context.Background(), peer.URL, peer.Code)
+	ep, err := svc.Register(context.Background(), peer.URL, peer.Pin, peer.Code)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestCheckKey(t *testing.T) {
 	if _, err = CheckKey(context.Background(), Endpoint{ServerURL: peer.URL, DeviceKey: "dk_legacy"}); !errors.Is(err, ErrUnauthorized) {
 		t.Fatal("legacy bearer accepted", err)
 	}
-	if _, err = svc.Register(context.Background(), peer.URL, "st_good"); err == nil {
+	if _, err = svc.Register(context.Background(), peer.URL, peer.Pin, "st_good"); err == nil {
 		t.Fatal("plaintext installation token accepted")
 	}
 }
@@ -45,7 +45,7 @@ func TestRegistrationReplacesLegacyKeyWithoutPersistingPrivateMaterial(t *testin
 	if _, err := svc.Registrations(); err == nil {
 		t.Fatal("legacy key enabled runtime fallback")
 	}
-	ep, err := svc.Register(context.Background(), peer.URL, peer.Code)
+	ep, err := svc.Register(context.Background(), peer.URL, peer.Pin, peer.Code)
 	if err != nil {
 		t.Fatal(err)
 	}

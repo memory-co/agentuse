@@ -14,20 +14,24 @@ import (
 	"github.com/memory-co/agentuse/server/internal/notification"
 )
 
-func (s *Service) Enroll(ctx context.Context, token, hostname string, csr []byte) (agentuse.Device, []byte, error) {
+func (s *Service) Enroll(ctx context.Context, policy securews.Policy, auth securews.Authentication) (agentuse.Device, []byte, error) {
+	keyHash, err := securews.VerifyEnrollment(policy, auth)
+	if err != nil {
+		return agentuse.Device{}, nil, err
+	}
 	tx, err := database.Begin(ctx, s.DB)
 	if err != nil {
 		return agentuse.Device{}, nil, err
 	}
 	defer tx.Rollback()
 	var stored database.Device
-	if err = tx.WithContext(ctx).Where("setup_token=?", token).Take(&stored).Error; err != nil {
+	if err = tx.WithContext(ctx).Where("public_key_hash=?", keyHash).Take(&stored).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			err = database.ErrNotFound
 		}
 		return agentuse.Device{}, nil, err
 	}
-	raw, err := s.Identity.Issue(csr, stored.ID, stored.CredentialGeneration, s.Now())
+	raw, err := s.Identity.Issue(auth.CSR, stored.ID, stored.CredentialGeneration, s.Now())
 	if err != nil {
 		return agentuse.Device{}, nil, err
 	}
@@ -38,21 +42,26 @@ func (s *Service) Enroll(ctx context.Context, token, hostname string, csr []byte
 	if err = s.recordCertificate(ctx, tx, cert); err != nil {
 		return agentuse.Device{}, nil, err
 	}
-	name := string(stored.Name)
-	if name == "" {
-		name = strings.TrimSpace(hostname)
+	firstEnrollment := stored.Status == agentuse.DevicePending
+	if firstEnrollment {
+		name := string(stored.Name)
+		if name == "" {
+			name = strings.TrimSpace(auth.Hostname)
+		}
+		if name == "" || len(name) > 255 {
+			name = stored.ID
+		}
+		if err = tx.WithContext(ctx).Model(&database.Device{}).Where("id=?", stored.ID).
+			Updates(map[string]any{"name": name, "status": agentuse.DeviceOffline}).Error; err != nil {
+			return agentuse.Device{}, nil, err
+		}
 	}
-	if name == "" {
-		name = stored.ID
-	}
-	if err = tx.WithContext(ctx).Model(&database.Device{}).Where("id=? AND setup_token=?", stored.ID, token).Updates(map[string]any{"name": name, "setup_token": nil, "key_hash": nil, "status": agentuse.DeviceOffline}).Error; err != nil {
-		return agentuse.Device{}, nil, err
-	}
+
 	if err = tx.Commit().Error; err != nil {
 		return agentuse.Device{}, nil, err
 	}
 	d, err := s.GetDevice(ctx, agentuse.User{Role: agentuse.RoleAdmin}, stored.ID)
-	if err == nil {
+	if err == nil && firstEnrollment {
 		s.Changes.Publish(notification.Change{Resource: "devices", ID: d.ID}, d.UserID)
 	}
 	return d, raw, err
@@ -64,7 +73,7 @@ func (s *Service) recordCertificate(ctx context.Context, tx *gorm.DB, p securews
 
 func (s *Service) AuthenticateCertificate(ctx context.Context, p securews.Peer) (agentuse.Device, error) {
 	var count int64
-	err := s.DB.WithContext(ctx).Table("device_certificates c").Joins("JOIN devices d ON d.id=c.device_id AND d.credential_generation=c.generation").Where("c.serial=? AND c.device_id=? AND c.generation=? AND c.key_hash=? AND c.revoked_at IS NULL AND c.not_before<=? AND c.not_after>? AND d.setup_token IS NULL", p.Serial, p.DeviceID, p.Generation, p.KeyHash, s.Now().Unix(), s.Now().Unix()).Count(&count).Error
+	err := s.DB.WithContext(ctx).Table("device_certificates c").Joins("JOIN devices d ON d.id=c.device_id AND d.credential_generation=c.generation").Where("c.serial=? AND c.device_id=? AND c.generation=? AND c.key_hash=? AND c.revoked_at IS NULL AND c.not_before<=? AND c.not_after>?", p.Serial, p.DeviceID, p.Generation, p.KeyHash, s.Now().Unix(), s.Now().Unix()).Count(&count).Error
 	if err != nil {
 		return agentuse.Device{}, err
 	}

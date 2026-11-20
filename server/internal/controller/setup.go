@@ -8,11 +8,11 @@ import (
 	"strings"
 )
 
-// setupScript 是 /setup.sh:下载 agentuse、用 TOKEN 注册、装成后台服务。
+// setupScript 安装 Client，注册后可用 --service 安装后台服务。
 // __SERVER__ 在返回时替换成服务地址。
 const setupScript = `#!/usr/bin/env bash
 # agentuse daemon 安装脚本
-# 用法: curl -fsSL "__SERVER__/setup.sh" -o setup.sh && TOKEN="<安装令牌>" bash setup.sh
+# 用法: bash setup.sh 安装；Client 注册后，bash setup.sh --service 启动后台服务。
 set -euo pipefail
 
 SERVER="__SERVER__"
@@ -22,37 +22,45 @@ BIN="$INSTALL_DIR/agentuse"
 say() { printf '\033[1;34m[agentuse]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[agentuse]\033[0m %s\n' "$*" >&2; exit 1; }
 
-[ -n "${TOKEN:-}" ] || die "缺少 TOKEN。请从 agentuse 页面复制完整的安装命令。"
-command -v curl >/dev/null || die "需要 curl"
-
 case "$(uname -s)" in
   Linux) OS=linux ;;
   Darwin) OS=darwin ;;
   *) die "暂不支持的系统: $(uname -s)" ;;
 esac
-case "$(uname -m)" in
-  x86_64|amd64) ARCH=amd64 ;;
-  arm64|aarch64) ARCH=arm64 ;;
-  *) die "暂不支持的架构: $(uname -m)" ;;
+
+case "${1:-}" in
+  "")
+    command -v curl >/dev/null || die "需要 curl"
+
+    case "$(uname -m)" in
+      x86_64|amd64) ARCH=amd64 ;;
+      arm64|aarch64) ARCH=arm64 ;;
+      *) die "暂不支持的架构: $(uname -m)" ;;
+    esac
+
+    mkdir -p "$INSTALL_DIR"
+    say "下载 agentuse ($OS/$ARCH) ..."
+    if ! curl -fsSL "$SERVER/download/agentuse-$OS-$ARCH" -o "$BIN.tmp"; then
+      rm -f "$BIN.tmp"
+      if command -v go >/dev/null; then
+        say "服务上没有 $OS/$ARCH 的二进制，改用 go install 本地编译 ..."
+        GOBIN="$INSTALL_DIR" go install github.com/memory-co/agentuse/client/cmd/agentuse@latest
+      else
+        die "下载失败：服务上没有 $OS/$ARCH 的二进制(请管理员 make dist 后用 agentuse-server start -dist 指定目录)"
+      fi
+    else
+      chmod +x "$BIN.tmp"
+      mv "$BIN.tmp" "$BIN"
+    fi
+    say "Client 已安装到 $BIN。运行管理页面提供的 agentuse register 命令并粘贴私钥。"
+    say "注册后可执行 bash setup.sh --service 启动后台服务。"
+    exit 0 ;;
+  --service)
+    [ -x "$BIN" ] || die "请先运行 bash setup.sh 安装 Client"
+    [ -f "$HOME/.agentuse/endpoints.yaml" ] || die "请先完成 agentuse register"
+    ;;
+  *) die "用法: bash setup.sh [--service]" ;;
 esac
-
-mkdir -p "$INSTALL_DIR"
-say "下载 agentuse ($OS/$ARCH) ..."
-if ! curl -fsSL "$SERVER/download/agentuse-$OS-$ARCH" -o "$BIN.tmp"; then
-  rm -f "$BIN.tmp"
-  if command -v go >/dev/null; then
-    say "服务上没有 $OS/$ARCH 的二进制，改用 go install 本地编译 ..."
-    GOBIN="$INSTALL_DIR" go install github.com/memory-co/agentuse/client/cmd/agentuse@latest
-  else
-    die "下载失败：服务上没有 $OS/$ARCH 的二进制(请管理员 make dist 后用 agentuse-server start -dist 指定目录)"
-  fi
-else
-  chmod +x "$BIN.tmp"
-  mv "$BIN.tmp" "$BIN"
-fi
-
-say "注册这台电脑 ..."
-"$BIN" register -server "$SERVER" -token "$TOKEN"
 
 LOG="$HOME/.agentuse/daemon.log"
 if [ "$OS" = darwin ]; then

@@ -191,11 +191,11 @@ func (s *Server) registerAPI() {
 	putFile.RequestBody = &huma.RequestBody{Required: true, Content: map[string]*huma.MediaType{"application/octet-stream": {Schema: binary}}}
 	putFile.Responses["503"] = jsonResponse(503, apiErrorBody{})
 
-	bind("GET", "/api/devices", "list-devices", "列出设备及安装命令", "device", user, nil, []deviceView{}, 200, s.handleListDevices)
-	createDevice := bind("POST", "/api/devices", "create-device", "创建设备并返回安装命令", "device", user, createDeviceBody{}, deviceView{}, 201, s.handleCreateDevice)
+	bind("GET", "/api/devices", "list-devices", "列出设备", "device", user, nil, []deviceView{}, 200, s.handleListDevices)
+	createDevice := bind("POST", "/api/devices", "create-device", "创建设备并返回私钥正文和注册命令", "device", user, createDeviceBody{}, deviceView{}, 201, s.handleCreateDevice)
 	createDevice.RequestBody.Required = false
 	bind("DELETE", "/api/devices/{id}", "delete-device", "删除设备并断开连接", "device", user, nil, nil, 204, s.handleDeleteDevice)
-	bind("POST", "/api/devices/{id}/reset", "reset-device-setup", "重置设备安装令牌", "device", user, nil, deviceView{}, 200, s.handleResetDevice)
+	bind("POST", "/api/devices/{id}/reset", "reset-device-setup", "撤销旧设备凭据并返回新私钥", "device", user, nil, deviceView{}, 200, s.handleResetDevice)
 	bind("PUT", "/api/devices/{id}/harnesses/{harness}", "toggle-device-harness", "启用或禁用设备的 harness", "device", user, toggleHarnessBody{}, deviceView{}, 200, s.handleToggleHarness)
 	bind("GET", "/api/conversations", "list-conversations", "列出顶层对话或指定父对话的直接子对话", "conversation", conversation, nil, []agentuse.Conversation{}, 200, s.handleListConversations, query("parent_conversation_id", "父对话 ID；由 Agent 创建子对话，返回的 parent_agent_id 固定记录发起者"))
 	bind("POST", "/api/conversations", "create-conversation", "创建会话，可同时发送首条消息", "conversation", conversation, createConversationBody{}, agentuse.CreateConversationResponse{}, 201, s.handleCreateConversation)
@@ -220,7 +220,7 @@ func (s *Server) registerAPI() {
 	content := bind("GET", "/api/conversations/{id}/attachments/{attachment_id}/content", "download-attachment", "下载附件内容", "attachment", attachment, nil, nil, 200, s.handleAttachmentContent, runHeader)
 	binaryResponse(content, "*/*")
 	bind("DELETE", "/api/conversations/{id}/attachments/{attachment_id}", "delete-attachment", "删除附件", "attachment", attachmentDelete, nil, nil, 204, s.handleDeleteAttachment)
-	bind("POST", protocol.RegisterPath, "register-device", "旧版注册入口已停用；使用可信安装码和安全 WS", "client", public, protocol.RegisterRequest{}, apiErrorBody{}, 426, s.handleRegister)
+	bind("POST", protocol.RegisterPath, "register-device", "旧版注册入口已停用；Client 导入设备私钥后通过安全 WS 证明持有", "client", public, nil, apiErrorBody{}, 426, s.handleRegister)
 	bind("GET", protocol.MePath, "get-device-identity", "旧版设备 HTTP 身份接口已停用", "client", public, nil, apiErrorBody{}, 426, s.handleDeviceMe)
 	ws := bind("GET", protocol.WSPath, "connect-client", "升级为 Client 双向 WebSocket 连接", "client", public, nil, nil, 101, s.cfg.ClientHandler.ServeHTTP, &huma.Param{Name: protocol.ProtocolHeader, In: "header", Required: true, Schema: &huma.Schema{Type: "string", Enum: []any{protocol.ExecutionProtocol}}})
 	ws.Description = "HTTP 升级不携带 bearer；随后进行固定 CA、双向挑战、签名策略和默认 TLS 1.3 握手，以本地私钥证明设备身份。注册、证书续签和 run 授权恢复均走安全通道，业务报文为 agentuse-client/3 的长度前缀 JSON。完整报文和恢复规则见仓库 designs/v3/protocol.md。"

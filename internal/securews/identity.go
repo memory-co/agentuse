@@ -301,21 +301,33 @@ func csrForKey(key crypto.Signer) ([]byte, error) {
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der}), nil
 }
 
-func (id *Identity) Issue(csr []byte, device string, generation int64, now time.Time) ([]byte, error) {
-	b, rest := pem.Decode(csr)
-	if b == nil || b.Type != "CERTIFICATE REQUEST" || len(rest) != 0 || device == "" || generation < 1 {
+func parseDeviceCSR(csr []byte) (*x509.CertificateRequest, error) {
+	block, rest := pem.Decode(csr)
+	if block == nil || block.Type != "CERTIFICATE REQUEST" || len(rest) != 0 {
 		return nil, fmt.Errorf("invalid device certificate request")
 	}
-	r, err := x509.ParseCertificateRequest(b.Bytes)
+	request, err := x509.ParseCertificateRequest(block.Bytes)
 	if err != nil {
 		return nil, err
 	}
-	if err = r.CheckSignature(); err != nil {
-		return nil, err
-	}
-	if _, ok := r.PublicKey.(ed25519.PublicKey); !ok {
+	if _, ok := request.PublicKey.(ed25519.PublicKey); !ok {
 		return nil, fmt.Errorf("Ed25519 device key required")
 	}
+	if err := request.CheckSignature(); err != nil {
+		return nil, err
+	}
+	return request, nil
+}
+
+func (id *Identity) Issue(csr []byte, device string, generation int64, now time.Time) ([]byte, error) {
+	if device == "" || generation < 1 {
+		return nil, fmt.Errorf("invalid device certificate identity")
+	}
+	r, err := parseDeviceCSR(csr)
+	if err != nil {
+		return nil, err
+	}
+
 	ca, err := Certificate(id.CA)
 	if err != nil {
 		return nil, err

@@ -52,3 +52,7 @@ SQLite 的 IMMEDIATE 事务覆盖版本检查、建表及版本写入。PostgreS
 ### 0003_device_security
 
 原地增加 devices.credential_generation、runs.access_token_hash（唯一索引）和 runs.access_expires_at，以及 device_certificates 表。已发布 0001/0002 的表形状保持固定；现有用户、消息、文件与 run 均保留，不给旧 run 补发授权。设备须重置后重新注册证书。票据的公开签发参数保存在 messages.agent_targets，不新增准备期或 grant 表。
+
+### 0004_device_public_key
+
+增加设备公钥指纹及唯一索引，清除旧的一次性注册值。已签发证书可继续使用，待注册设备可重置后领取新的私钥正文。私钥正文只存在于创建或重置的响应及 Client 的私有文件。

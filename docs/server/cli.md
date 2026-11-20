@@ -75,7 +75,7 @@ security:
 
 设备 WS 内层 TLS 1.3 默认开启，外层为 HTTP 或 HTTPS 都可使用。已有 HTTPS/WSS 的部署可设 `ws_encryption: false`；此时公开地址必须为 HTTPS，Client 仍校验实际 WSS。准备窗口默认 30 分钟，run 授权默认 24 小时；期限不会因心跳、补充输入或重连延长。浏览器不使用设备证书。
 
-Server 的私有 CA、通道身份及 HMAC 签名材料持久保存在 `~/.agentuse/security/`；备份和多实例部署必须同时保留或共享该目录及数据库。旧设备升级后在页面重置并复制新的 `ar1.` 安装码重新注册，无需删除版本化数据库。
+Server 的私有 CA、通道身份及 HMAC 签名材料持久保存在 `~/.agentuse/security/`；备份和多实例部署必须同时保留或共享该目录及数据库。已经注册的证书设备升级后可继续连接。待注册的旧安装码需要在页面重置后换成设备私钥。
 
 修改后重启 Server 生效。公开地址的优先级为：`--public-url` → `AGENTUSE_PUBLIC_URL` → `settings.yaml` 的 `public_url` → 本机监听地址。参数和环境变量只覆盖本次启动，不改写文件。文件不存在时使用默认值；YAML 格式错误或出现未知字段时会报错并指出文件路径。
 
@@ -103,6 +103,8 @@ Server 的私有 CA、通道身份及 HMAC 签名材料持久保存在 `~/.agent
 两个附件容量参数必须是正整数，单位为字节。
 
 公开地址由后端启动配置统一决定，控制登录链接、设备安装命令、`setup.sh` 中的下载和注册地址，以及登录 cookie 的 HTTPS 属性。前端直接展示后端返回的安装命令；Host、Origin、Referer 和代理转发头不会改变公开地址。未配置时固定使用启动时的本机监听地址，例如 `http://localhost:8080`；使用域名、局域网地址或 HTTPS 反向代理时应在 `settings.yaml` 中配置公开地址，也可通过参数或环境变量提供。
+
+新建或重置设备时，从 HTTPS 管理页面或 Server 本机的 `localhost` 管理入口领取私钥。HTTPS 由反向代理终结时，代理应通过回环地址连接 Server，保留 HTTPS `public_url` 对应的 Host，并覆盖 `X-Forwarded-Proto: https`。Client 可继续连接配置的 HTTP 地址，使用注册命令中的 Server CA 指纹验证内层 TLS。
 
 也可以在启动时交互设置密码，标准输入仅用于这次设置，后续普通启动保留数据库中的凭据：
 

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/memory-co/agentuse/internal/securews"
 	"io"
 	"testing"
 
@@ -24,11 +23,7 @@ func TestNestedConversationAPISourceScopesAndIndependentFiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, csr, err := securews.NewCredentials(e.st.Security.Identity.CA)
-		if err != nil {
-			t.Fatal(err)
-		}
-		d, _, err = e.st.DeviceService.Enroll(ctx, d.SetupToken, "", csr)
+		d, _, err = enrollDevice(t, e.st, d.SetupToken, "")
 		key := "dk_retired"
 		if err != nil {
 			t.Fatal(err)

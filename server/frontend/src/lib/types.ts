@@ -9,7 +9,7 @@ export interface Agent { current_version_id:string;version:number;model?:string;
 export interface DeviceHarness { harness: string; version: string; harness_revision: string; capabilities: string[]; available: boolean; enabled: boolean; updated_at: number }
 export interface Device {
   id: string; user_id: string; name: string; status: 'pending' | 'online' | 'offline';
-  capabilities: string[]; setup_command?: string; last_seen_at: number | null; created_at: number; harnesses: DeviceHarness[];
+  capabilities: string[]; setup_command?: string; setup_token?: string; last_seen_at: number | null; created_at: number; harnesses: DeviceHarness[];
 }
 
 export type ConversationStatus = 'idle' | 'pending' | 'running' | 'waiting' | 'resolved';

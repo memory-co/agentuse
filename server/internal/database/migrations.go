@@ -32,7 +32,7 @@ func migrations() []*gormigrate.Migration {
 			db = db.Set("gorm:table_options", "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin")
 		}
 		return db.Migrator().CreateTable(&ServerUpgrade{})
-	}}}, securityMigration())
+	}}}, securityMigration(), deviceKeyMigration())
 }
 
 func migrate(db *gorm.DB) error {

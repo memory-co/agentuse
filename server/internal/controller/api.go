@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -225,28 +226,40 @@ func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// deviceView 是页面上一台 device:待注册的附带安装命令。
-type deviceView struct {
-	agentuse.Device
-	SetupCommand string `json:"setup_command,omitempty"`
+// Only create/reset responses carry private key material.
+type deviceView = agentuse.Device
+
+func (s *Server) writeDeviceSetup(w http.ResponseWriter, status int, device agentuse.Device) {
+	device.SetupServerPin = securews.ServerID(s.service.Security.Identity.CA)
+	device.SetupCommand = "agentuse register --server " + shellArg(s.cfg.PublicURL) + " --server-pin " + shellArg(device.SetupServerPin)
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, status, device)
 }
 
-func (s *Server) view(d agentuse.Device) deviceView {
-	v := deviceView{Device: d}
-	if d.SetupToken != "" {
-		invitation, err := securews.EncodeInvitation(s.cfg.PublicURL, s.service.Security.Identity.CA, d.SetupToken)
-		if err != nil {
-			s.log.Printf("device installation code: %v", err)
-			return v
-		}
-		v.SetupToken = invitation
-		v.SetupCommand = setupCommand(s.cfg.PublicURL, invitation)
+func shellArg(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+func (s *Server) allowDeviceKeyIssuance(w http.ResponseWriter, r *http.Request) bool {
+	if r.TLS != nil {
+		return true
 	}
-	return v
-}
-
-func setupCommand(base, token string) string {
-	return `curl -fsSL "` + base + `/setup.sh" -o setup.sh && TOKEN="` + token + `" bash setup.sh`
+	// Plain HTTP is limited to a local administrator or a local HTTPS proxy.
+	// A remote request cannot make itself trusted by setting a forwarding header.
+	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if ip := net.ParseIP(remote); ip != nil && ip.IsLoopback() {
+		host := (&url.URL{Host: r.Host}).Hostname()
+		if ip := net.ParseIP(host); strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback()) {
+			return true
+		}
+		publicURL, err := url.Parse(s.cfg.PublicURL)
+		if err == nil && publicURL.Scheme == "https" && strings.EqualFold(r.Host, publicURL.Host) &&
+			r.Header.Get("X-Forwarded-Proto") == "https" {
+			return true
+		}
+	}
+	writeErr(w, http.StatusForbidden, "device private keys are issued over HTTPS or the local management address")
+	return false
 }
 
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
@@ -255,14 +268,13 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 		s.serviceErr(w, err)
 		return
 	}
-	out := make([]deviceView, 0, len(ds))
-	for _, d := range ds {
-		out = append(out, s.view(d))
-	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, ds)
 }
 
 func (s *Server) handleCreateDevice(w http.ResponseWriter, r *http.Request) {
+	if !s.allowDeviceKeyIssuance(w, r) {
+		return
+	}
 	var req createDeviceBody
 	if r.ContentLength != 0 {
 		if err := readJSON(r, &req); err != nil {
@@ -275,7 +287,7 @@ func (s *Server) handleCreateDevice(w http.ResponseWriter, r *http.Request) {
 		s.serviceErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, s.view(d))
+	s.writeDeviceSetup(w, http.StatusCreated, d)
 }
 
 func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
@@ -288,12 +300,15 @@ func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleResetDevice(w http.ResponseWriter, r *http.Request) {
+	if !s.allowDeviceKeyIssuance(w, r) {
+		return
+	}
 	d, err := s.service.DeviceService.ResetDeviceSetup(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.serviceErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.view(d))
+	s.writeDeviceSetup(w, http.StatusOK, d)
 }
 
 func (s *Server) handleToggleHarness(w http.ResponseWriter, r *http.Request) {
@@ -313,7 +328,7 @@ func (s *Server) handleToggleHarness(w http.ResponseWriter, r *http.Request) {
 		s.serviceErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.view(d))
+	writeJSON(w, http.StatusOK, d)
 }
 
 func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request) {
@@ -487,5 +502,5 @@ func (s *Server) handleDeviceMe(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(protocol.ProtocolHeader, protocol.ExecutionProtocol)
-	writeErr(w, http.StatusUpgradeRequired, "register using a trusted installation code and the authenticated device WebSocket")
+	writeErr(w, http.StatusUpgradeRequired, "import an Ed25519 device private key using the current Client")
 }

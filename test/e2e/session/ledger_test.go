@@ -40,7 +40,8 @@ func TestClientMultiEndpointFilesAndUI(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		cmd := exec.Command(cli, "register", "-server", server.URL, "-token", d.SetupToken, "-config", cfg)
+		cmd := exec.Command(cli, "register", "-server", server.URL, "-server-pin", d.SetupServerPin, "-config", cfg)
+		cmd.Stdin = strings.NewReader(d.SetupToken)
 		cmd.Env = e2eutil.Env(home)
 		e2eutil.MustRun(t, cmd)
 		u, _ := url.Parse(server.URL)
@@ -199,7 +200,8 @@ func TestClientNativeSessionsShareWorkspaceAndRunConcurrently(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	cmd := exec.Command(cli, "register", "-server", server.URL, "-token", d.SetupToken)
+	cmd := exec.Command(cli, "register", "-server", server.URL, "-server-pin", d.SetupServerPin)
+	cmd.Stdin = strings.NewReader(d.SetupToken)
 	cmd.Env = e2eutil.Env(home)
 	e2eutil.MustRun(t, cmd)
 	cmd = exec.Command(cli, "start")

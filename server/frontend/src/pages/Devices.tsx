@@ -21,8 +21,11 @@ export function Devices({ me }: { me: User }) {
   const t = useT();
   const devices = useQuery({ queryKey: ['devices'], queryFn: () => api<Device[]>('/api/devices') });
   const [name, setName] = useState('');
+  const [setup, setSetup] = useState<Device | null>(null);
   const add = useMutation({
-    mutationFn: () => api('/api/devices', { method: 'POST', body: { name: name.trim() } }),
+    mutationFn: async () => {
+      setSetup(await api<Device>('/api/devices', { method: 'POST', body: { name: name.trim() } }));
+    },
     onSuccess: () => { setName(''); void refresh(); },
   });
   return <div className="grid grid-cols-1 gap-4">
@@ -33,20 +36,37 @@ export function Devices({ me }: { me: User }) {
           <Input className="max-w-xs" placeholder={t('devices.namePlaceholder')} value={name} onChange={e => setName(e.target.value)} />
           <Button type="submit" disabled={add.isPending}><Plus />{t('devices.add')}</Button>
         </form>
+        {add.isError && <ErrorState error={add.error} />}
       </CardContent>
     </Card>
+    {setup?.setup_token && <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{t('devices.setupTitle')}</CardTitle>
+        <CardDescription>{t('devices.runSetup')}</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <CopyBlock text={setup.setup_command || ''} />
+        <p className="text-sm">{t('devices.pastePrivateKey')}</p>
+        <CopyBlock text={setup.setup_token} />
+        <p className="text-sm text-muted-foreground">{t('devices.startClient')}</p>
+        <Button className="w-fit" variant="outline" onClick={() => setSetup(null)}>{t('devices.hideSetup')}</Button>
+      </CardContent>
+    </Card>}
     {devices.isPending ? <Loading /> : devices.isError ? <ErrorState error={devices.error} />
-      : devices.data.length ? devices.data.map(d => <DeviceCard key={d.id} d={d} me={me} />)
+      : devices.data.length ? devices.data.map(d => <DeviceCard key={d.id} d={d} me={me} onSetup={setSetup} onDelete={() => setSetup(current => current?.id === d.id ? null : current)} />)
       : <Empty>{t('devices.empty')}</Empty>}
   </div>;
 }
 
-function DeviceCard({ d, me }: { d: Device; me: User }) {
+function DeviceCard({ d, me, onSetup, onDelete }: { d: Device; me: User; onSetup: (device: Device) => void; onDelete: () => void }) {
   const t = useT();
   const harnesses = useHarnesses();
   const displayName = (n: string) => harnesses.data?.find(a => a.name === n)?.display_name || n;
-  const del = useMutation({ mutationFn: () => api(`/api/devices/${d.id}`, { method: 'DELETE' }), onSuccess: refresh });
-  const reset = useMutation({ mutationFn: () => api(`/api/devices/${d.id}/reset`, { method: 'POST' }), onSuccess: refresh });
+  const del = useMutation({ mutationFn: () => api(`/api/devices/${d.id}`, { method: 'DELETE' }), onSuccess: () => { onDelete(); void refresh(); } });
+  const reset = useMutation({
+    mutationFn: async () => { onSetup(await api<Device>(`/api/devices/${d.id}/reset`, { method: 'POST' })); },
+    onSuccess: refresh,
+  });
   const toggle = useMutation({
     mutationFn: ({ harness, enabled }: { harness: string; enabled: boolean }) =>
       api(`/api/devices/${d.id}/harnesses/${encodeURIComponent(harness)}`, { method: 'PUT', body: { enabled } }),
@@ -62,19 +82,17 @@ function DeviceCard({ d, me }: { d: Device; me: User }) {
         <CardDescription className="font-mono text-xs">{meta}</CardDescription>
       </div>
       <div className="flex gap-2">
-        {d.status !== 'pending' && <Confirm title={t('devices.resetTitle')} description={t('devices.resetText')} onConfirm={() => reset.mutate()}>
+        <Confirm title={t('devices.resetTitle')} description={t('devices.resetText')} onConfirm={() => reset.mutate()}>
           <Button variant="outline" size="sm"><RefreshCw />{t('devices.reset')}</Button>
-        </Confirm>}
+        </Confirm>
         <Confirm title={t('devices.deleteTitle')} description={t('devices.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
           <Button variant="outline" size="sm" className="text-destructive"><Trash2 />{t('common.delete')}</Button>
         </Confirm>
       </div>
     </CardHeader>
     <CardContent>
-      {d.status === 'pending' ? <div className="grid gap-2">
-        <p className="text-sm text-muted-foreground">{t('devices.runSetup')}</p>
-        <CopyBlock text={d.setup_command || ''} />
-      </div> : d.harnesses.length ? <div className="grid gap-3">
+      {reset.isError && <ErrorState error={reset.error} />}
+      {d.status === 'pending' ? <p className="text-sm text-muted-foreground">{t('devices.awaitImport')}</p> : d.harnesses.length ? <div className="grid gap-3">
         <p className="text-sm text-muted-foreground">{t('devices.pickHarnesses')}</p>
         {d.harnesses.map(a => <label key={a.harness} className="flex items-center gap-3 text-sm">
           <Switch checked={a.enabled} disabled={!a.available || toggle.isPending} onCheckedChange={enabled => toggle.mutate({ harness: a.harness, enabled })} />

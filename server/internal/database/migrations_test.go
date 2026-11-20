@@ -292,6 +292,10 @@ func TestSecurityMigrationUpgradesPublishedBaselineWithoutMintingAccess(t *testi
 	if err = db.db.Where("id=?", "device").Take(&d).Error; err != nil || d.CredentialGeneration != 1 || string(d.Name) != "retained" {
 		t.Fatal(d, err)
 	}
+	if d.SetupToken != nil || d.PublicKeyHash != nil || !db.db.Migrator().HasIndex(&Device{}, "devices_public_key") {
+		t.Fatal("new device key migration did not retire old installation material")
+	}
+
 	if err = db.db.Where("id=?", "run").Take(&r).Error; err != nil || r.AccessTokenHash != nil || r.AccessExpiresAt != nil || r.Status != "running" {
 		t.Fatal("migration fabricated authorization", r, err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,12 +16,14 @@ import (
 	runservice "github.com/memory-co/agentuse/client/internal/service/run"
 	settingservice "github.com/memory-co/agentuse/client/internal/service/setting"
 	"github.com/memory-co/agentuse/internal/command"
+	"github.com/memory-co/agentuse/internal/securews"
+	"golang.org/x/term"
 )
 
 const agentuseUsage = `agentuse —— 让这台电脑上的 CLI harness 从 agentuse 服务领活
 
 用法:
-  agentuse register -server URL -token 安装令牌   注册这台电脑(setup.sh 会替你跑)
+  agentuse register -server URL [-server-pin 指纹]   粘贴设备私钥注册这台电脑
   agentuse start                                  启动 client，连接已启用的 endpoints
   agentuse ui [-open]                             本机 Conversation、Session 与 Run
   agentuse status                                 看本机的注册和连接状态
@@ -51,14 +54,38 @@ func runRegister(args []string) error {
 	fs := command.NewFlags("agentuse register")
 	cfgPath := fs.String("config", endpointservice.DefaultPath(), "配置文件")
 	server := fs.String("server", "", "agentuse 服务地址")
-	token := fs.String("token", os.Getenv("TOKEN"), "页面上生成的安装令牌(默认读环境变量 TOKEN)")
+	pin := fs.String("server-pin", "", "Server CA 指纹（HTTP 地址必填）")
+	token := fs.String("token", "", "Ed25519 私钥正文，默认安全读取标准输入")
 	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
-	if *server == "" || *token == "" {
-		return command.UsageErr("需要 -server 和 -token")
+	if *server == "" {
+		return command.UsageErr("需要 -server")
 	}
-	cfg, err := services.Register(context.Background(), *server, *token, *cfgPath)
+	if strings.HasPrefix(*server, "http://") && *pin == "" {
+		return command.UsageErr("HTTP 注册需要可信的 -server-pin")
+	}
+	if *token == "" {
+		var raw []byte
+		var err error
+		fd := int(os.Stdin.Fd())
+		if term.IsTerminal(fd) {
+			fmt.Fprint(os.Stderr, "粘贴设备私钥正文，然后按回车: ")
+			raw, err = term.ReadPassword(fd)
+			fmt.Fprintln(os.Stderr)
+		} else {
+			raw, err = io.ReadAll(io.LimitReader(os.Stdin, securews.MaxDeviceKeyText+1))
+		}
+		if err != nil {
+			return fmt.Errorf("读取设备私钥: %w", err)
+		}
+		if len(strings.TrimSpace(string(raw))) == 0 {
+			return command.UsageErr("需要输入设备私钥正文")
+		}
+		*token = string(raw)
+	}
+	cfg, err := services.Register(context.Background(), *server, *pin, *token, *cfgPath)
+
 	if err != nil {
 		return fmt.Errorf("注册失败: %w", err)
 	}

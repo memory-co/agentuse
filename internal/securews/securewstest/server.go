@@ -17,6 +17,7 @@ type Server struct {
 	Identity *securews.Identity
 	Revoked  atomic.Bool
 	Code     string
+	Pin      string
 }
 
 func New(t testing.TB) *Server {
@@ -25,7 +26,11 @@ func New(t testing.TB) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{Identity: id}
+	code, hash, err := securews.GenerateDeviceKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Identity: id, Code: code, Pin: securews.ServerID(id.CA)}
 	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" {
 			t.Error("device bearer leaked into WS upgrade")
@@ -48,7 +53,8 @@ func New(t testing.TB) *Server {
 			return
 		}
 		if a.Type == "enroll" {
-			if a.Token != "st_good" || s.Revoked.Load() {
+			got, err := securews.VerifyEnrollment(p, a)
+			if err != nil || got != hash || s.Revoked.Load() {
 				_ = c.Write(ctx, securews.AuthResult{Type: "rejected", Error: "invalid installation code"})
 				return
 			}
@@ -69,9 +75,5 @@ func New(t testing.TB) *Server {
 		_ = c.Read(ctx, &message)
 	}))
 	t.Cleanup(s.Close)
-	s.Code, err = securews.EncodeInvitation(s.URL, id.CA, "st_good")
-	if err != nil {
-		t.Fatal(err)
-	}
 	return s
 }

@@ -55,7 +55,8 @@ func testCodexSteer(t *testing.T, codex string, real bool) {
 		}
 		extra = append(extra, "CODEX_HOME="+codexHome)
 	}
-	command := exec.Command(cli, "register", "-server", server.URL, "-token", d.SetupToken, "-config", cfg)
+	command := exec.Command(cli, "register", "-server", server.URL, "-server-pin", d.SetupServerPin, "-config", cfg)
+	command.Stdin = strings.NewReader(d.SetupToken)
 	command.Env = e2eutil.Env(home, extra...)
 	e2eutil.MustRun(t, command)
 	command = exec.Command(cli, "daemon", "-config", cfg)

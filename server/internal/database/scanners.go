@@ -32,13 +32,12 @@ func ScanAttachment(row Scanner) (attachment.Attachment, error) {
 
 func ScanDevice(row Scanner) (agentuse.Device, error) {
 	var d agentuse.Device
-	var token sql.NullString
 	var seen sql.NullInt64
-	err := row.Scan(&d.ID, &d.UserID, &d.Name, &token, &d.Status, &seen, &d.CreatedAt)
+	err := row.Scan(&d.ID, &d.UserID, &d.Name, &d.Status, &seen, &d.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return agentuse.Device{}, ErrNotFound
 	}
-	d.SetupToken, d.LastSeenAt = token.String, nullInt(seen)
+	d.LastSeenAt = nullInt(seen)
 	d.Harnesses = []agentuse.DeviceHarness{}
 	d.Capabilities = []string{}
 	return d, err

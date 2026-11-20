@@ -68,8 +68,8 @@ func LoadConfigForServer(path, server string) (run.Config, error) {
 	}
 	return run.Config{}, fmt.Errorf("server is not registered: %s", server)
 }
-func Register(ctx context.Context, server, token, path string) (run.Config, error) {
-	ep, e := (endpoint.Service{Path: path}).Register(ctx, server, token)
+func Register(ctx context.Context, server, pin, token, path string) (run.Config, error) {
+	ep, e := (endpoint.Service{Path: path}).Register(ctx, server, pin, token)
 	if e != nil {
 		return run.Config{}, e
 	}

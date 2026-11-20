@@ -1,6 +1,6 @@
 # Client–Server 安全通道与执行期授权
 
-> 状态：已实现，设备协议为 `agentuse-client/3`，原生适配器仍为 harnessctl/3。本文仅覆盖 Go Client 与 Server；浏览器、用户 SDK 和管理员 CLI 沿用用户身份。旧设备需要重置并重新注册；版本化数据库由 `0003_device_security` 原地升级。
+> 状态：已实现，设备协议为 `agentuse-client/3`，原生适配器仍为 harnessctl/3。本文仅覆盖 Go Client 与 Server；浏览器、用户 SDK 和管理员 CLI 沿用用户身份。旧设备需要按下文重新注册；版本化数据库由 `0003_device_security` 原地升级。
 
 ## 目标与通信边界
 
@@ -43,26 +43,25 @@ Client 不增加第二个独立开关。Server 通过签名的握手策略声明
 
 ## 设备身份与首次信任
 
-现有 `dk_…` 是共享 Bearer 凭据，不是私钥或证书。目标改为每个 endpoint 一套设备私钥和证书；注册仍保持“一串安装码”的体验。
-
-安装码包含版本、Server 地址、Server 身份 CA 的公开证书和一次性注册令牌。它不是设备私钥，Base64 编码也不提供保密性。安装码经用户可信渠道取得；Client 程序本身也应来自可信安装渠道，不能依赖明文 HTTP 下载的脚本证明自身可信。
+Server 在创建设备或重置时生成独立的 Ed25519 密钥对，`setup_token` 就是 OpenSSH 私钥正文。Server 只持久化公钥指纹，私钥只通过 HTTPS 或本机管理响应交给使用者。使用者在可信的 Client 终端粘贴正文。安装脚本与命令行记录无需携带私钥。
 
 ```text
-Client 本地生成设备密钥对
-  → 按安装码固定的 Server 信任验证握手
-  → 在受保护连接内提交一次性注册令牌和 CSR
-  → Server 事务内消费注册令牌，绑定设备、公钥和凭据代次
-  → Server 返回设备证书
-  → Client 保存私钥与证书，重新建立已认证的设备连接
+Client 导入 OpenSSH 私钥
+  → 固定 Server CA 指纹，或通过已验证的 WSS 建立首次信任
+  → 在安全通道内提交 CSR 和本次连接的签名
+  → Server 核对签名及公钥指纹，签发当前代次的设备证书
+  → Client 保存私钥与证书，建立已认证的设备连接
 ```
+
+持有当前私钥可重新导入同一设备。领取私钥的响应只在创建或重置时返回，响应不缓存。重置替换公钥指纹并撤销已有证书。HTTP 地址的注册命令单独携带可信的 Server CA 指纹。Client 在发送签名前，通过指纹验证握手附带的 CA。HTTPS 地址也可通过验证外层证书建立首次信任。
 
 Server 自己保存身份 CA 私钥、Server 通道证书及签名密钥；这些材料持久保存，不能每次启动重新生成。设备证书绑定 `device_id`、凭据代次和 Client 身份用途，由 CA 签发；初版使用标准 X.509 证书及 Ed25519 密钥。
 
-Client 私钥只在本机生成和保存，不发给 Server，不写入安装命令、WS JSON、日志或原生 Agent 环境。Server 保存设备公钥标识、证书序列号、有效期、凭据代次及撤销状态。证书链有效不等于设备仍获授权：每次建立连接还必须检查设备存在、代次与撤销记录。
+设备私钥只在受信管理响应中交付，之后由 Client 保存。Server 用公钥指纹匹配设备，并保存证书序列号、有效期、凭据代次和撤销状态。认证连接同时检查证书链和当前设备授权。
 
 `endpoints.yaml` 继续保存 Server 地址、设备 ID 和非秘密的证书文件引用；私钥与设备证书保存在该 endpoint 的独立私有目录，文件权限为 `0600`。endpointService 保存这些注册材料，runService 使用启动快照建立连接。续签原子替换证书材料，不改变 endpoint、conversation、session 或 run 身份。
 
-证书有效期为 90 天，剩余 30 天时通过已认证 WS 申请续签，CSR 必须证明持有相应私钥。续签保留旧证书至其原始到期时间，避免续签回复丢失导致设备失联；重置仍撤销所有序列号。到期前无法续签时停止建立新连接；已有连接也不能无限越过证书有效期。证书已失效的设备由用户重新授权注册，不能通过未认证接口无限自助恢复。
+证书有效期为 90 天，剩余 30 天时通过已认证 WS 申请续签，CSR 必须证明持有相应私钥。续签保留旧证书至其原始到期时间，避免续签回复丢失导致设备失联；重置仍撤销所有序列号。到期前无法续签时停止建立新连接；已有连接也不能无限越过证书有效期。证书已过期时可重新导入当前私钥，取得新证书。设备重置或删除后，旧私钥也无法再次注册。
 
 重置或删除设备时，在同一事务撤销其证书、增加凭据代次并撤销全部短期授权，提交后关闭旧 WS。吊销和授权过期不伪造 run 的终态。Server 信任根更换需要旧可信身份授权的更新或用户重新安装可信注册材料，不从未认证 HTTP 响应静默替换信任根。
 
@@ -252,7 +251,7 @@ accepted 之前没有 runs 行，也无需提前保存 hash。首次签发参数
 
 hash 或截止时间为空表示没有 run 访问授权，不能因合法签名、重复 accepted 或重连自动补发。设备重置前来源参数的旧代次不被提升，重新注册也不自动恢复旧 run 权限；恢复执行事实与重新授予数据访问分开。
 
-已注册旧设备需经用户重新授权绑定本地公钥；dk 不能转换为私钥。两端协同升级，不保留 /2 设备 Bearer 或旧明文注册作为降级路径；旧 /api/client/register 交换流程退出设备注册路径。
+已注册的证书设备可继续连接。旧 `ar1.` 安装码随 `0004_device_public_key` 迁移停用，待注册设备需要重置并复制新私钥。旧 `dk_` 设备需要重新注册。两端协同升级，不保留 /2 设备 Bearer 或旧明文注册作为降级路径；旧 /api/client/register 交换流程退出设备注册路径。
 
 ## 开销与验证
 
@@ -273,7 +272,7 @@ TLS 和证书校验发生于连接建立，持续消息使用对称加密；长�
 - Server/Client 重启可恢复相同活动 run 凭据；过期、终态、撤销或空授权不复活，合法事实补报不被授权过期阻止。
 - 所有设备 HTTP 入口移除长期身份旁路；本地缓存和人类读取维持各自规则。
 
-本轮仅修改设计，不改变运行代码、数据库迁移、实际协议版本和当前使用手册。相关设计：[协议](protocol.md) · [设备](server-device.md) · [Client endpoint](client-endpoint.md) · [Client context](client-context.md) · [run](server-run.md) · [数据库](server-database.md)。
+相关设计见[协议](protocol.md) · [设备](server-device.md) · [Client endpoint](client-endpoint.md) · [Client context](client-context.md) · [run](server-run.md) · [数据库](server-database.md)。
 
 
 ## 实现与运维
@@ -282,4 +281,4 @@ Server 将 CA、通道证书和私钥写入 `~/.agentuse/security/identity.json`
 
 握手最多同时受理 64 个，令牌桶突发上限 128、每秒补充 16 个；策略、TLS、设备认证各有 15 秒期限，认证帧上限 64 KiB，业务帧上限 8 MiB。无认证握手不分配业务执行。Client 启动独立的私有 context IPC；Unix socket 位于当前用户私有临时目录，Windows 使用当前用户 ACL 的 named pipe。可关闭 Web UI，IPC 仍可用。每次代理请求由守护进程重新查询原生 status 并核对公开事件；显式指定历史或排队 run 不能冒充当前 run。
 
-旧 `/api/client/register` 和 `/api/client/me` 返回 426；升级请求仅携带协议版本，设备证明在安全通道内完成。旧 `dk_` 不用于 WS 或业务 HTTP，旧 endpoints.yaml 需逐个用新安装码覆盖注册。现有 run 不回填访问凭据，历史文件由用户 API 读取。
+旧 `/api/client/register` 和 `/api/client/me` 返回 426；升级请求仅携带协议版本，设备证明在安全通道内完成。旧 `dk_` 不用于 WS 或业务 HTTP，使用旧 device_key 的 endpoints.yaml 需逐个用新设备私钥覆盖注册。现有 run 不回填访问凭据，历史文件由用户 API 读取。

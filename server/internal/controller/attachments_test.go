@@ -41,11 +41,12 @@ func attachmentEnv(t *testing.T, max, total int64) *attachmentFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	credentials, csr, err := securews.NewCredentials(e.st.Security.Identity.CA)
+	credentials, err := securews.ImportDeviceKey(d.SetupToken)
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, certificate, err := e.st.DeviceService.Enroll(ctx, d.SetupToken, "", csr)
+	credentials.CA = e.st.Security.Identity.CA
+	d, certificate, err := enrollDevice(t, e.st, d.SetupToken, "")
 	if err == nil {
 		_, err = credentials.SetCertificate(certificate, time.Now())
 	}

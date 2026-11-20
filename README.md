@@ -16,7 +16,7 @@ agentuse 是一个可以自己部署的 agent 中间件。用户用**一行命�
 
 ## 特点
 
-- **一行命令接入**:`curl …/setup.sh … && bash setup.sh`,自动注册并装成后台服务(launchd / systemd),电脑在 NAT 后面也能用。
+- **设备通过私钥接入**。在 Client 提示符粘贴设备私钥，注册后可以安装后台服务，电脑在 NAT 后面也能用。
 - **活在自己电脑上跑**:代码、密钥、harness 的登录状态都不离开用户电脑;消息只派给 agent 主人自己的 device。
 - **harness 可换**:内置 Claude Code、Codex,也能注册自己写的程序;agent 切换运行时(哪台电脑上的哪个 harness)不用改名字。
 - **共享会话**:一个 conversation 可 @ 多个 agent，按本地 session 补齐共享历史，支持执行中的补充输入；协作模式可拆分子会话并汇总结果。
@@ -64,13 +64,9 @@ public_url: https://agentuse.example.com
 
 ### 2. 接入一台电脑
 
-打开网页 →「机器」→「添加设备」,页面会给出一条命令，在要跑 harness 的电脑上执行:
+在 HTTPS 管理页面或 Server 本机的管理入口添加设备。在执行电脑上安装可信的 Client，运行页面生成的注册命令，把私钥正文粘贴到 Client 提示符，然后执行 `agentuse start`。
 
-```bash
-curl -fsSL "https://agentuse.example.com/setup.sh" -o setup.sh && TOKEN="ar1.…" bash setup.sh
-```
-
-它会下载 agentuse、注册这台电脑、装成后台服务(macOS launchd / Linux systemd --user,都没有就 nohup)。几秒后页面上这台电脑变成「在线」,并列出本机检测到的 harness。
+如果使用 Server 的 HTTPS 安装脚本，可以先运行 `bash setup.sh` 安装 Client。若 `agentuse` 不在 PATH，用 `~/.agentuse/bin/agentuse` 执行注册命令。注册后运行 `bash setup.sh --service` 设置后台服务。设备在线后会在页面上报告本机检测到的 harness。
 
 ### 3. 选择开启哪些 harness
 
@@ -87,7 +83,7 @@ agentuse-server user list [-json]
 agentuse-server user token 用户id                       # 重置登录令牌
 
 # 用户电脑
-agentuse register -server URL -token 安装令牌           # setup.sh 会替你跑
+agentuse register -server URL [-server-pin 指纹]       # 在提示符粘贴设备私钥
 agentuse start                                          # 前台启动 Client，也支持本地调试
 agentuse ui --open                                      # 打开本机页面
 agentuse daemon                                         # setup.sh 安装的后台服务入口

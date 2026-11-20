@@ -41,7 +41,7 @@ func TestConfigRoundTrip(t *testing.T) {
 func TestRegister(t *testing.T) {
 	peer := securewstest.New(t)
 	path := filepath.Join(t.TempDir(), "endpoints.yaml")
-	cfg, err := Register(context.Background(), peer.URL, peer.Code, path)
+	cfg, err := Register(context.Background(), peer.URL, peer.Pin, peer.Code, path)
 	if err != nil || cfg.DeviceID != "dm_test" || cfg.CredentialsFile == "" {
 		t.Fatal(cfg, err)
 	}
@@ -49,7 +49,7 @@ func TestRegister(t *testing.T) {
 	if err != nil || saved.CredentialsFile != cfg.CredentialsFile {
 		t.Fatal(saved, err)
 	}
-	if _, err = Register(context.Background(), peer.URL, "st_legacy", path); err == nil {
+	if _, err = Register(context.Background(), peer.URL, peer.Pin, "st_legacy", path); err == nil {
 		t.Fatal("legacy token accepted")
 	}
 }

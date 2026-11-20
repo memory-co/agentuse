@@ -162,3 +162,34 @@ func TestIdentityAndCredentialsSurviveRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestEnrollmentCanLearnCAThroughVerifiedWSS(t *testing.T) {
+	identity, err := NewIdentity(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer ws.CloseNow()
+		ch, _, err := Accept(r.Context(), ws, identity, false)
+		if err == nil {
+			var unused Authentication
+			_ = ch.Read(r.Context(), &unused)
+		}
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	credentials := &Credentials{}
+	channel, policy, err := connect(ctx, server.URL, credentials, server.Client(), true, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer channel.Close()
+	if policy.Encryption || ServerID(credentials.CA) != ServerID(identity.CA) {
+		t.Fatal("verified WSS did not establish the Server CA")
+	}
+}

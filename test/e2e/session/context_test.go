@@ -69,7 +69,8 @@ func TestRunContextImagesAndHumanEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	register := exec.Command(cli, "register", "--server", srv.URL, "--token", device.SetupToken, "--config", config)
+	register := exec.Command(cli, "register", "--server", srv.URL, "--server-pin", device.SetupServerPin, "--config", config)
+	register.Stdin = strings.NewReader(device.SetupToken)
 	register.Env = e2eutil.Env(home)
 	e2eutil.MustRun(t, register)
 	daemon := exec.Command(cli, "daemon", "--config", config)
