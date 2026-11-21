@@ -290,7 +290,7 @@ function App() {
       <Sidebar collapsible="icon">
         <SidebarHeader className="gap-3 p-3">
           <div className="flex h-8 items-center gap-2 px-1 group-data-[collapsible=icon]:hidden">
-            <Terminal className="size-5" />
+            <img src="/agentuse-mark.png" alt="" width={32} height={32} className="size-8 shrink-0 rounded-lg" />
             <span className="font-semibold tracking-tight">agentuse</span>
             <Badge variant="secondary" className="ml-auto text-[10px]">
               Client

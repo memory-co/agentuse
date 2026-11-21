@@ -25,6 +25,7 @@ export function Login() {
     <Button variant="ghost" size="sm" className="absolute right-4 top-4" onClick={() => setLocale(getLocale() === 'zh' ? 'en' : 'zh')}><Languages />{t('nav.language')}</Button>
     <Card className="w-full max-w-sm">
       <CardHeader>
+        <img src="/agentuse-mark.png" alt="" width={40} height={40} className="mb-2 size-10 rounded-lg" />
         <CardTitle className="text-xl">{t('login.title')}</CardTitle>
         <CardDescription>{t('login.text')}</CardDescription>
       </CardHeader>

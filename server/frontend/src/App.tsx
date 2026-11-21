@@ -165,7 +165,7 @@ function SidebarBody({ me, pages, route, parentId, conversations, onNavigate, on
       <SidebarMenu>
         <SidebarMenuItem className="flex items-center gap-1">
           <SidebarMenuButton size="lg" onClick={() => nav({ page: 'new' })} tooltip="agentuse">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-base font-semibold text-sidebar-primary-foreground">a</div>
+            <img src="/agentuse-mark.png" alt="" width={32} height={32} className="size-8 shrink-0 rounded-lg" />
             <span className="truncate text-base font-semibold tracking-tight">agentuse</span>
           </SidebarMenuButton>
           {onClose && <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={onClose} aria-label={t('nav.closeNav')}><X /></Button>}
