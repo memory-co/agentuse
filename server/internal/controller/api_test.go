@@ -292,8 +292,8 @@ func TestDevicesAPI(t *testing.T) {
 	// 不带请求体也能建
 	var v deviceView
 	if r := e.req(aliceTok, "POST", "/api/devices", nil, &v); r.StatusCode != http.StatusCreated || v.Name != "" ||
-		v.SetupToken == "" || v.SetupServerPin == "" || strings.Contains(v.SetupCommand, v.SetupToken) || r.Header.Get("Cache-Control") != "no-store" {
-		t.Fatalf("create: %d %+v", r.StatusCode, v)
+		v.SetupToken == "" || v.SetupServerPin == "" || !strings.Contains(v.SetupCommand, "\n"+v.SetupToken+"\n") || r.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("unexpected setup response: %d", r.StatusCode)
 	}
 	if c := e.code(aliceTok, "POST", "/api/devices", "{"); c != http.StatusBadRequest {
 		t.Fatalf("bad json: %d", c)

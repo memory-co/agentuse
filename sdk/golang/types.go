@@ -72,7 +72,7 @@ type Device struct {
 	Harnesses      []DeviceHarness `json:"harnesses"`
 	SetupToken     string          `json:"setup_token,omitempty"` // OpenSSH private key body, returned only on create/reset
 	SetupServerPin string          `json:"setup_server_pin,omitempty"`
-	SetupCommand   string          `json:"setup_command,omitempty"`
+	SetupCommand   string          `json:"setup_command,omitempty"` // Shell command containing the device key, returned only on create/reset
 }
 
 type DeviceHarness struct {

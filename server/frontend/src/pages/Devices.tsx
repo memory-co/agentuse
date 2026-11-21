@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Confirm, CopyBlock, Empty, ErrorState, Loading, StatusBadge } from '@/components/Shared';
+import { Confirm, CopyButton, Empty, ErrorState, Loading, StatusBadge } from '@/components/Shared';
 import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query';
 import { useHarnesses } from '@/pages/Harnesses';
@@ -39,17 +39,14 @@ export function Devices({ me }: { me: User }) {
         {add.isError && <ErrorState error={add.error} />}
       </CardContent>
     </Card>
-    {setup?.setup_token && <Card>
+    {setup?.setup_command && <Card>
       <CardHeader>
         <CardTitle>{t('devices.setupTitle')}</CardTitle>
         <CardDescription>{t('devices.runSetup')}</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-3">
-        <CopyBlock text={setup.setup_command || ''} />
-        <p className="text-sm">{t('devices.pastePrivateKey')}</p>
-        <CopyBlock text={setup.setup_token} />
-        <p className="text-sm text-muted-foreground">{t('devices.startClient')}</p>
-        <Button className="w-fit" variant="outline" onClick={() => setSetup(null)}>{t('devices.hideSetup')}</Button>
+      <CardContent className="flex flex-wrap gap-2">
+        <CopyButton text={setup.setup_command}>{t('devices.copySetup')}</CopyButton>
+        <Button variant="ghost" onClick={() => setSetup(null)}>{t('common.close')}</Button>
       </CardContent>
     </Card>}
     {devices.isPending ? <Loading /> : devices.isError ? <ErrorState error={devices.error} />

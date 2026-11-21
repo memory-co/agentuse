@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState, type ComponentProps, type ReactNode } from 'react';
 import { Check, Copy, LoaderCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -32,19 +32,44 @@ export function ErrorState({ error }: { error: unknown }) {
   return <p className="text-sm text-destructive">{errText(error)}</p>;
 }
 
-// 一段可复制的命令(安装命令、登录链接)。
-export function CopyBlock({ text }: { text: string }) {
+async function copyText(text: string) {
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  // Clipboard API requires a secure context. Keep copying available on HTTP.
+  const field = document.createElement('textarea');
+  field.value = text;
+  field.readOnly = true;
+  field.style.position = 'fixed';
+  field.style.opacity = '0';
+  const focused = document.activeElement;
+  document.body.append(field);
+  try {
+    field.select();
+    if (!document.execCommand('copy')) throw new Error('Copy failed');
+  } finally {
+    field.remove();
+    if (focused instanceof HTMLElement) focused.focus();
+  }
+}
+
+export function CopyButton({ text, children, ...props }: { text: string } & ComponentProps<typeof Button>) {
   const t = useT();
   const [done, setDone] = useState(false);
-  const copy = () => navigator.clipboard.writeText(text).then(
+  const copy = () => copyText(text).then(
     () => { setDone(true); setTimeout(() => setDone(false), 1500); },
     () => toast.error(t('common.copyFailed')),
   );
+  return <Button type="button" {...props} onClick={copy}>{done ? <Check /> : <Copy />}{children}</Button>;
+}
+
+// 一段可复制的命令(安装命令、登录链接)。
+export function CopyBlock({ text }: { text: string }) {
+  const t = useT();
   return <div className="relative">
     <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md border bg-muted p-3 pr-12 font-mono text-xs">{text}</pre>
-    <Button size="icon" variant="ghost" className="absolute right-1 top-1 size-8" onClick={copy} aria-label={t('common.copy')}>
-      {done ? <Check /> : <Copy />}
-    </Button>
+    <CopyButton text={text} size="icon" variant="ghost" className="absolute right-1 top-1 size-8" aria-label={t('common.copy')} />
   </div>;
 }
 

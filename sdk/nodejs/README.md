@@ -14,9 +14,8 @@ const agentuse = new Client({ baseUrl: "http://agentuse.internal:8080", token: p
 
 const uid = "u_10086"; // 网站自己的 user id,每次调用直接传
 
-// 连接我的电脑：把命令给用户复制
+// 连接我的电脑：仅向设备所属用户展示 d.setup_command，供复制到目标电脑执行
 const d = await agentuse.createDevice(uid, "my-laptop");
-console.log(d.setup_command);
 
 // 电脑上线后打开 claude
 await agentuse.setDeviceHarness(uid, d.id, "claude", true);

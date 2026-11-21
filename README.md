@@ -16,7 +16,7 @@ agentuse 是一个可以自己部署的 agent 中间件。用户用**一行命�
 
 ## 特点
 
-- **设备通过私钥接入**。在 Client 提示符粘贴设备私钥，注册后可以安装后台服务，电脑在 NAT 后面也能用。
+- **设备一键接入**。复制注册命令到目标电脑运行，自动安装 Client、注册并启动后台服务，电脑在 NAT 后面也能用。
 - **活在自己电脑上跑**:代码、密钥、harness 的登录状态都不离开用户电脑;消息只派给 agent 主人自己的 device。
 - **harness 可换**:内置 Claude Code、Codex,也能注册自己写的程序;agent 切换运行时(哪台电脑上的哪个 harness)不用改名字。
 - **共享会话**:一个 conversation 可 @ 多个 agent，按本地 session 补齐共享历史，支持执行中的补充输入；协作模式可拆分子会话并汇总结果。
@@ -70,9 +70,7 @@ public_url: https://agentuse.example.com
 
 ### 2. 接入一台电脑
 
-登录管理页面并添加设备。在执行电脑上安装可信的 Client，运行页面生成的注册命令，把私钥正文粘贴到 Client 提示符，然后执行 `agentuse start`。
-
-如果使用 Server 的 HTTPS 安装脚本，可以先运行 `bash setup.sh` 安装 Client。若 `agentuse` 不在 PATH，用 `~/.agentuse/bin/agentuse` 执行注册命令。注册后运行 `bash setup.sh --service` 设置后台服务。设备在线后会在页面上报告本机检测到的 harness。
+登录管理页面并添加设备，点击「复制注册命令」。在要接入的电脑上打开终端，粘贴并运行。命令会从 Server 下载安装脚本，在需要时安装 Client，然后注册设备并启动后台服务。设备在线后会在页面上报告本机检测到的 harness。
 
 ### 3. 选择开启哪些 harness
 

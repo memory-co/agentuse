@@ -23,7 +23,7 @@ func TestSetupScript(t *testing.T) {
 	b, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	script := string(b)
-	if !strings.Contains(script, `SERVER="`+e.ts.URL+`"`) || strings.Contains(script, "__SERVER__") ||
+	if !strings.Contains(script, "SERVER='"+e.ts.URL+"'") || strings.Contains(script, "__SERVER__") ||
 		resp.Header.Get("Cache-Control") != "no-store" || !strings.HasPrefix(script, "#!/usr/bin/env bash") {
 		t.Fatalf("setup.sh: %v\n%s", resp.Header, script)
 	}
@@ -36,8 +36,9 @@ func TestConfiguredPublicURL(t *testing.T) {
 	headers := []string{"X-Forwarded-Host", "proxy.invalid", "X-Forwarded-Proto", "http", "Origin", "https://browser.invalid", "Referer", "https://browser.invalid/"}
 	var device deviceView
 	resp := e.req(token, "POST", "/api/devices", nil, &device, headers...)
-	want := "agentuse register --server '" + publicURL + "' --server-pin '" + device.SetupServerPin + "'"
-	if resp.StatusCode != http.StatusCreated || device.SetupCommand != want {
+	if resp.StatusCode != http.StatusCreated ||
+		!strings.Contains(device.SetupCommand, "curl -fsSL '"+publicURL+"/setup.sh'") ||
+		!strings.Contains(device.SetupCommand, "register --server '"+publicURL+"' --server-pin '"+device.SetupServerPin+"'") {
 		t.Fatal("device installation command must use the configured public URL")
 	}
 	var user agentuse.UserToken
@@ -58,7 +59,7 @@ func TestConfiguredPublicURL(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	script, err := io.ReadAll(resp.Body)
-	if err != nil || !strings.Contains(string(script), `SERVER="`+publicURL+`"`) {
+	if err != nil || !strings.Contains(string(script), "SERVER='"+publicURL+"'") {
 		t.Fatal("setup.sh must use the same configured public URL")
 	}
 }

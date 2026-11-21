@@ -6,16 +6,11 @@
 
 ### 接入 Server
 
-使用当前内置适配器时，在 Linux 执行设备上安装并登录需要使用的 Codex 或 Claude Code，同时准备 Python 3.9+。其他平台需使用其 manifest 明确支持的平台适配器。从可信来源安装 Client。登录管理页面创建设备，运行页面给出的注册命令，再把设备私钥正文粘贴到 Client 提示符。
+登录 Server 管理页面，添加设备并点击「复制注册命令」。在目标电脑的终端粘贴并运行。命令会用 `curl` 从 Server 下载 `setup.sh`，在需要时安装 Client，然后注册并启动后台服务。
 
-注册完成后可以在前台启动。
+使用当前内置适配器时，在 Linux 执行设备上安装并登录需要使用的 Codex 或 Claude Code，同时准备 Python 3.9+。其他平台需使用其 manifest 明确支持的平台适配器。
 
-```bash
-agentuse register --server https://agentuse.example.com
-agentuse start
-```
-
-另开终端检查配置和凭据、查看可用 harness、打开本机页面：
+另开终端可检查配置和凭据、查看可用 harness、打开本机页面。若 `agentuse` 不在 PATH，使用 `~/.agentuse/bin/agentuse`。
 
 ```bash
 agentuse status
@@ -23,7 +18,7 @@ agentuse harnesses
 agentuse ui --open
 ```
 
-回到 Server 管理页面，在设备上启用需要的 harness，再创建 Agent、发送消息。注册命令只保存设备身份；已运行的 Client 需要重启后读取新配置。
+回到 Server 管理页面，在设备上启用需要的 harness，再创建 Agent、发送消息。
 
 ### 本地调试
 
@@ -45,7 +40,7 @@ agentuse ui --open
 
 | 命令 | 作用 |
 |---|---|
-| `agentuse register` | 用设备安装令牌注册 Server |
+| `agentuse register` | 导入设备私钥并注册 Server |
 | `agentuse start` | 启动 Client，连接已启用的 Server，同时支持本地调试 |
 | `agentuse daemon` | 自动安装的后台服务入口，需要已有平台注册信息 |
 | `agentuse ui` | 输出本机页面登录链接，`--open` 同时打开浏览器 |

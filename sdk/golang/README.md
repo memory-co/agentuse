@@ -12,9 +12,8 @@ import agentuse "github.com/memory-co/agentuse/sdk/golang"
 c := agentuse.New("http://agentuse.internal:8080", os.Getenv("AGENTUSE_TOKEN")) // admin 令牌，全局一个
 uid := "u_10086"                                                                 // 网站自己的 user id,每次调用直接传
 
-// 连接我的电脑：把命令给用户复制
+// 连接我的电脑：仅向设备所属用户展示 d.SetupCommand，供复制到目标电脑执行
 d, err := c.CreateDevice(ctx, uid, "my-laptop")
-fmt.Println(d.SetupCommand)
 
 // 电脑上线后打开 claude
 _, err = c.SetDeviceHarness(ctx, uid, d.ID, "claude", true)

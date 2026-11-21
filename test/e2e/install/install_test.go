@@ -148,37 +148,38 @@ func testSetup(t *testing.T, gh *fakeGitHub, srv *e2eutil.Server) {
 		t.Fatal(err)
 	}
 	device := t.TempDir()
-	// The download script never receives the private key. Import directly through
-	// the Client, then install the background service using the local script.
-	cmd := exec.Command("bash", "-c", `curl -fsSL "$1/setup.sh" -o setup.sh && bash setup.sh`, "setup", srv.URL)
-	cmd.Dir = device
-	cmd.Env = e2eutil.Env(device, gh.env...)
-	e2eutil.MustRun(t, cmd)
-	bin := filepath.Join(device, ".agentuse", "bin", "agentuse")
-	register := exec.Command(bin, "register", "--server", srv.URL, "--server-pin", dv.SetupServerPin)
-	register.Stdin = strings.NewReader(dv.SetupToken)
-	register.Env = e2eutil.Env(device)
-	if out := e2eutil.MustRun(t, register); !strings.Contains(out, "注册成功") {
-		t.Fatal("registration did not complete")
-	}
-	daemon := exec.Command("bash", "setup.sh", "--service")
-	daemon.Dir = device
-	daemon.Env = e2eutil.Env(device, gh.env...)
 	t.Cleanup(func() { killPidfile(filepath.Join(device, ".agentuse", "daemon.pid")) })
-	if out := e2eutil.MustRun(t, daemon); !strings.Contains(out, "已在后台启动") {
-		t.Fatal("setup did not start daemon")
+	runSetup := func(d *agentuse.Device) {
+		t.Helper()
+		cmd := exec.Command("bash")
+		cmd.Stdin = strings.NewReader(d.SetupCommand + "\n")
+		cmd.Dir = device
+		cmd.Env = e2eutil.Env(device, gh.env...)
+		out, err := cmd.CombinedOutput()
+		if err != nil || !strings.Contains(string(out), "注册成功") || !strings.Contains(string(out), "已在后台启动") {
+			t.Fatalf("setup failed: %v\n%s", err, strings.ReplaceAll(string(out), d.SetupToken, "[private key]"))
+		}
+		if strings.Contains(string(out), d.SetupToken) {
+			t.Fatal("setup printed the device private key")
+		}
+		e2eutil.WaitFor(t, 20*time.Second, "设备上线", func() bool {
+			ds, err := c.ListDevices(ctx, "alice")
+			return err == nil && len(ds) == 1 && ds[0].ID == d.ID && ds[0].Status == "online"
+		})
 	}
-
-	e2eutil.WaitFor(t, 20*time.Second, "设备上线", func() bool {
-		ds, err := c.ListDevices(ctx, "alice")
-		return err == nil && len(ds) == 1 && ds[0].ID == dv.ID && ds[0].Status == "online"
-	})
+	runSetup(dv)
 	ds, _ := c.ListDevices(ctx, "alice")
 	if host, _ := os.Hostname(); ds[0].Name != host {
 		t.Fatalf("没起名字的设备用主机名: %q", ds[0].Name)
 	}
 
-	status := exec.Command(bin, "status")
+	reset, err := c.ResetDevice(ctx, "alice", dv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runSetup(reset)
+
+	status := exec.Command(filepath.Join(device, ".agentuse", "bin", "agentuse"), "status")
 	status.Env = e2eutil.Env(device)
 	if out := e2eutil.MustRun(t, status); !strings.Contains(out, "正常") || !strings.Contains(out, "nohup: 运行中") {
 		t.Fatalf("agentuse status:\n%s", out)

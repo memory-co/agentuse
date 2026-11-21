@@ -1,12 +1,34 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 )
+
+func deviceSetupCommand(server, pin, key string) string {
+	// The private key is read by the Client, outside the downloaded installer.
+	// Its generated base64 body cannot contain the heredoc delimiter.
+	return fmt.Sprintf(`(
+  set -e
+  script=$(mktemp)
+  trap 'rm -f "$script"' EXIT
+  curl -fsSL %s -o "$script"
+  bin="${AGENTUSE_INSTALL_DIR:-$HOME/.agentuse/bin}/agentuse"
+  if [ ! -x "$bin" ]; then bash "$script"; fi
+  "$bin" register --server %s --server-pin %s <<'AGENTUSE_DEVICE_KEY'
+%s
+AGENTUSE_DEVICE_KEY
+  bash "$script" --service
+)`, shellArg(server+"/setup.sh"), shellArg(server), shellArg(pin), key)
+}
+
+func shellArg(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
 
 // setupScript 安装 Client，注册后可用 --service 安装后台服务。
 // __SERVER__ 在返回时替换成服务地址。
@@ -15,7 +37,7 @@ const setupScript = `#!/usr/bin/env bash
 # 用法: bash setup.sh 安装；Client 注册后，bash setup.sh --service 启动后台服务。
 set -euo pipefail
 
-SERVER="__SERVER__"
+SERVER=__SERVER__
 INSTALL_DIR="${AGENTUSE_INSTALL_DIR:-$HOME/.agentuse/bin}"
 BIN="$INSTALL_DIR/agentuse"
 
@@ -52,8 +74,7 @@ case "${1:-}" in
       chmod +x "$BIN.tmp"
       mv "$BIN.tmp" "$BIN"
     fi
-    say "Client 已安装到 $BIN。运行管理页面提供的 agentuse register 命令并粘贴私钥。"
-    say "注册后可执行 bash setup.sh --service 启动后台服务。"
+    say "Client 已安装到 $BIN。"
     exit 0 ;;
   --service)
     [ -x "$BIN" ] || die "请先运行 bash setup.sh 安装 Client"
@@ -106,8 +127,18 @@ EOF
   command -v loginctl >/dev/null && loginctl enable-linger "$(id -un)" 2>/dev/null || true
 else
   PIDFILE="$HOME/.agentuse/daemon.pid"
-  if [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE")" 2>/dev/null; then sleep 1; fi
-  nohup "$BIN" daemon >>"$LOG" 2>&1 &
+  if [ -f "$PIDFILE" ]; then
+    pid="$(cat "$PIDFILE")"
+    if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && [ "$pid" -gt 1 ] && [ "$(ps -p "$pid" -o args= 2>/dev/null)" = "$BIN daemon" ]; then
+      kill -TERM "$pid" 2>/dev/null || true
+      for ((attempt=0; attempt<50; attempt++)); do
+        [ "$(ps -p "$pid" -o args= 2>/dev/null)" = "$BIN daemon" ] || break
+        sleep 0.1
+      done
+      [ "$attempt" -lt 50 ] || die "Client 未能正常退出，请查看 $LOG"
+    fi
+  fi
+  nohup "$BIN" daemon </dev/null >>"$LOG" 2>&1 &
   echo $! >"$PIDFILE"
   say "已在后台启动(pid $(cat "$PIDFILE")),日志: $LOG"
   say "注意：没有 systemd/launchd,重启电脑后需要手动运行: $BIN daemon"
@@ -119,7 +150,7 @@ say "完成！回到 agentuse 页面，选择这台电脑上要开启的 harness
 func (s *Server) handleSetupScript(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write([]byte(strings.ReplaceAll(setupScript, "__SERVER__", s.cfg.PublicURL)))
+	_, _ = w.Write([]byte(strings.ReplaceAll(setupScript, "__SERVER__", shellArg(s.cfg.PublicURL))))
 }
 
 var binNameRe = regexp.MustCompile(`^agentuse-(linux|darwin)-(amd64|arm64)$`)

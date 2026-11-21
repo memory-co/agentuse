@@ -230,13 +230,9 @@ type deviceView = agentuse.Device
 
 func (s *Server) writeDeviceSetup(w http.ResponseWriter, status int, device agentuse.Device) {
 	device.SetupServerPin = securews.ServerID(s.service.Security.Identity.CA)
-	device.SetupCommand = "agentuse register --server " + shellArg(s.cfg.PublicURL) + " --server-pin " + shellArg(device.SetupServerPin)
+	device.SetupCommand = deviceSetupCommand(s.cfg.PublicURL, device.SetupServerPin, device.SetupToken)
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, status, device)
-}
-
-func shellArg(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
