@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronDown, ChevronRight, Download, Folder, FolderOpen, Search, Trash2, X, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Download, Folder, FolderOpen, Search, Trash2, X, Plus, ZoomIn, ZoomOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Confirm, ErrorState, Loading } from '@/components/Shared';
@@ -35,11 +35,14 @@ const sortedNodes = (nodes: Map<string, FileNode>) => Array.from(nodes.values())
   Number(!!a.file) - Number(!!b.file)
   || (a.name === 'user_input' ? -1 : b.name === 'user_input' ? 1 : a.name.localeCompare(b.name)));
 
-function FilePreview({ file }: { file: Attachment }) {
+const isPreviewImage = (file: Attachment) => /^image\/(png|jpeg|gif|webp|avif)$/.test(file.content_type);
+const maxImagePreviewBytes = 16 * 1024 * 1024;
+
+function FilePreview({ file, fitWidth }: { file: Attachment; fitWidth: boolean }) {
   const t = useT();
-  const image = /^image\/(png|jpeg|gif|webp|avif)$/.test(file.content_type);
+  const image = isPreviewImage(file);
   const text = file.content_type.startsWith('text/') || /application\/(json|xml)/.test(file.content_type);
-  const tooLarge = file.size_bytes > (image ? 16 * 1024 * 1024 : 512 * 1024);
+  const tooLarge = file.size_bytes > (image ? maxImagePreviewBytes : 512 * 1024);
   const preview = useQuery({
     queryKey: ['attachment-preview', file.id], enabled: (image || text) && !tooLarge, staleTime: Infinity,
     queryFn: async ({ signal }) => {
@@ -59,7 +62,9 @@ function FilePreview({ file }: { file: Attachment }) {
   if (preview.isError) return <div className="p-6"><ErrorState error={preview.error} /></div>;
   if (preview.isPending) return <div className="flex h-full items-center justify-center"><Loading /></div>;
   return image
-    ? <div className="flex h-full items-center justify-center p-4 sm:p-6"><img src={url} alt={file.filename} className="max-h-full max-w-full rounded-md object-contain" /></div>
+    ? <div className={cn('p-4 sm:p-6', !fitWidth && 'flex h-full items-center justify-center')}>
+        <img src={url} alt={file.filename} className={cn('rounded-md', fitWidth ? 'h-auto w-full' : 'max-h-full max-w-full object-contain')} />
+      </div>
     : <pre className="min-h-full whitespace-pre-wrap break-words p-4 font-mono text-xs leading-6 sm:p-6 sm:text-sm">{typeof preview.data === 'string' ? preview.data : ''}</pre>;
 }
 
@@ -99,6 +104,7 @@ function FileBrowser({ conversation, files, pending, error, selected, onSelect, 
   const [folder, setFolder] = useState('');
   const [collapsed, setCollapsed] = useState(new Set<string>());
   const [pane, setPane] = useState<'files' | 'preview'>(selected ? 'preview' : 'files');
+  const [fitWidth, setFitWidth] = useState(false);
   const [focused, setFocused] = useState('');
   const treeRef = useRef<HTMLDivElement>(null);
   const selectedFile = files.find(file => file.id === selected?.id) ?? selected;
@@ -125,6 +131,7 @@ function FileBrowser({ conversation, files, pending, error, selected, onSelect, 
     },
   });
   useEffect(() => {
+    setFitWidth(false);
     if (!selected) return;
     setCollapsed(current => new Set([...current].filter(value => !selected.relative_path.startsWith(`${value}/`))));
     setFocused(selected.relative_path);
@@ -221,12 +228,18 @@ function FileBrowser({ conversation, files, pending, error, selected, onSelect, 
             <FileIcon mime={selectedFile.content_type} className="size-5 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium" title={selectedFile.relative_path}>{selectedFile.filename}</p><p className="mt-1 truncate text-xs text-muted-foreground">{selectedFile.size_bytes.toLocaleString()} B{selectedFile.created_by_agent_id && ` · @${selectedFile.created_by_agent_id}`}</p></div>
             <div className="flex w-full flex-wrap items-center gap-1 sm:w-auto">
+              {isPreviewImage(selectedFile) && selectedFile.size_bytes <= maxImagePreviewBytes && (
+                <Button variant="outline" size="sm" onClick={() => setFitWidth(current => !current)}>
+                  {fitWidth ? <ZoomOut /> : <ZoomIn />}
+                  {t(fitWidth ? 'attachment.fitImage' : 'attachment.fitWidth')}
+                </Button>
+              )}
               <Button variant="outline" size="sm" disabled={download.isPending} onClick={() => download.mutate(selectedFile)}><Download />{t('attachment.download')}</Button>
               {!readOnly && <Button variant="ghost" size="sm" disabled={busy} onClick={() => onAttach(selectedFile)}><Plus />{t('attachment.attach')}</Button>}
               {!readOnly && !referenced.has(selectedFile.id) && <Confirm title={t('attachment.delete')} description={selectedFile.relative_path} onConfirm={() => remove.mutate(selectedFile)}><Button size="icon" variant="ghost" className="size-8 text-destructive" aria-label={t('attachment.delete')} disabled={remove.isPending}><Trash2 /></Button></Confirm>}
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto bg-muted/10"><FilePreview key={selectedFile.id} file={selectedFile} /></div>
+          <div className="min-h-0 flex-1 overflow-auto bg-muted/10"><FilePreview key={selectedFile.id} file={selectedFile} fitWidth={fitWidth} /></div>
           {!referenced.has(selectedFile.id) && <p className="shrink-0 border-t px-4 py-2 text-xs text-muted-foreground">{t('attachment.unreferenced')}</p>}
           {[download.error, remove.error].filter(Boolean).map((value, index) => <div className="shrink-0 px-4 py-2" key={index}><ErrorState error={value} /></div>)}
         </> : <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-muted-foreground"><FolderOpen className="size-10 opacity-40" /><p className="text-sm">{t('attachment.select')}</p></div>}
