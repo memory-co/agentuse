@@ -2,7 +2,7 @@ import { Markdown } from '@/components/Markdown';
 import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronRight, CircleCheck, FolderOpen, LoaderCircle, MessagesSquare, RotateCcw, Trash2, UserRound, X } from 'lucide-react';
+import { Bot, ChevronRight, CircleCheck, FolderOpen, LoaderCircle, MessagesSquare, RotateCcw, Trash2, UserRound, X } from 'lucide-react';
 import { MentionComposer } from '@/components/MentionComposer';
 import { FileManager } from '@/components/FileManager';
 import { listAttachments } from '@/lib/attachments';
@@ -55,14 +55,19 @@ export function NewConversation({ onCreated }: { onCreated: (id: string) => void
     },
     onSuccess: r => { void refresh(); onCreated(r.conversation.id); },
   });
-  return <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-6 px-4 py-10">
-    <div className="grid gap-1 text-center">
-      <h1 className="text-2xl font-semibold">{t('conversation.ask')}</h1>
-      <p className="text-sm text-muted-foreground">{t('mention.shared')}</p>
+  return <div className="conversation-column flex flex-1 flex-col justify-center gap-7 py-10">
+    <div className="grid gap-2">
+      <h1 className="text-[1.75rem] font-semibold tracking-tight sm:text-4xl">{t('conversation.ask')}</h1>
+      <p className="text-sm leading-6 text-muted-foreground sm:text-base">{t('mention.shared')}</p>
     </div>
-    <fieldset className="grid gap-2 rounded-xl border p-3" disabled={add.isPending||!!draftId}>
-      <legend className="px-1 text-xs text-muted-foreground">{t('nest.mode')}</legend>
-      {(['single','collaborative'] as const).map(value=><label key={value} className="flex cursor-pointer items-start gap-3 rounded-md p-2 hover:bg-muted/60"><input className="mt-1" type="radio" name="conversation-mode" value={value} checked={mode===value} onChange={()=>setMode(value)}/><span className="grid gap-1"><span className="text-sm font-medium">{t(`nest.${value}`)}</span><span className="text-xs text-muted-foreground">{t(`nest.${value}Hint`)}</span></span></label>)}
+    <fieldset className="min-w-0" disabled={add.isPending||!!draftId}>
+      <legend className="mb-2 text-xs font-medium text-muted-foreground">{t('nest.mode')}</legend>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {(['single','collaborative'] as const).map(value=><label key={value} className={cn('flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors', mode === value ? 'border-primary/40 bg-accent/60' : 'bg-panel hover:bg-muted')}>
+          <input className="mt-1 accent-primary" type="radio" name="conversation-mode" value={value} checked={mode===value} onChange={()=>setMode(value)}/>
+          <span className="grid gap-1"><span className="text-sm font-semibold">{t(`nest.${value}`)}</span><span className="text-xs leading-5 text-muted-foreground">{t(`nest.${value}Hint`)}</span></span>
+        </label>)}
+      </div>
     </fieldset>
     <MentionComposer showAgentPicker agents={agents.data??[]} users={sender ? [sender] : []} files={fileDraft.files} onFiles={fileDraft.addFiles} onRemoveFile={fileDraft.remove} placeholder={t('conversation.taskPlaceholder')} busy={add.isPending} onSend={(prompt,targets,users)=>add.mutateAsync({prompt,targets,users})} />
     {draftId && <div className="grid gap-1 text-center text-xs"><p>{t('attachment.created')}</p><a className="underline" href={`#/conversations/${draftId}`}>{t('attachment.open')}</a></div>}
@@ -124,17 +129,19 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
   return <div className="flex min-h-0 flex-1 overflow-hidden">
    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto grid min-w-0 w-full max-w-3xl grid-cols-1 gap-6 px-4 py-6">
-        <div className="flex items-start gap-2 border-b pb-3">
-          <p className="min-w-0 flex-1 break-all font-mono text-xs text-muted-foreground">{meta}</p>
-          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" aria-label={t('attachment.files')} aria-haspopup="dialog" onClick={() => openFiles()}><FolderOpen />{t('attachment.files')}</Button>
-          {x.mode === 'collaborative' && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs xl:hidden" aria-label={t('nest.children')} aria-haspopup="dialog" onClick={() => setChildrenOpen(true)}><MessagesSquare />{t('nest.children')}<span className="text-muted-foreground">{children.data?.length ?? 0}</span></Button>}
-          {selectedRound === undefined && settled && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" disabled={resolve.isPending} onClick={() => resolve.mutate(x.status === 'idle')}>
-            {x.status === 'idle' ? <><CircleCheck />{t('conversation.resolve')}</> : <><RotateCcw />{t('conversation.reopen')}</>}
-          </Button>}
-          {selectedRound === undefined && settled && <Confirm title={t('conversation.deleteTitle')} description={t(x.mode==='collaborative'?'nest.deleteTree':'conversation.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
-            <Button variant="ghost" size="icon" className="size-7 text-destructive" aria-label={t('conversation.delete')}><Trash2 /></Button>
-          </Confirm>}
+      <div className="conversation-column grid grid-cols-1 gap-7 py-5 sm:gap-8 sm:py-7">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b pb-3">
+          <p className="text-xs font-medium text-muted-foreground">{meta}</p>
+          <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1">
+            <Button variant="ghost" size="sm" className="gap-1.5 px-2" aria-label={t('attachment.files')} aria-haspopup="dialog" onClick={() => openFiles()}><FolderOpen />{t('attachment.files')}</Button>
+            {x.mode === 'collaborative' && <Button variant="ghost" size="sm" className="gap-1.5 px-2 xl:hidden" aria-label={t('nest.children')} aria-haspopup="dialog" onClick={() => setChildrenOpen(true)}><MessagesSquare />{t('nest.children')}<span className="text-muted-foreground">{children.data?.length ?? 0}</span></Button>}
+            {selectedRound === undefined && settled && <Button variant="ghost" size="sm" className="gap-1.5 px-2" disabled={resolve.isPending} onClick={() => resolve.mutate(x.status === 'idle')}>
+              {x.status === 'idle' ? <><CircleCheck />{t('conversation.resolve')}</> : <><RotateCcw />{t('conversation.reopen')}</>}
+            </Button>}
+            {selectedRound === undefined && settled && <Confirm title={t('conversation.deleteTitle')} description={t(x.mode==='collaborative'?'nest.deleteTree':'conversation.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
+              <Button variant="ghost" size="icon" className="size-8 text-destructive" aria-label={t('conversation.delete')}><Trash2 /></Button>
+            </Confirm>}
+          </div>
         </div>
 
         {selectedRound !== undefined && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 p-3 text-xs"><span>{t('nest.round', {n:selectedRound})} · {t(q.data.rounds[0]?.finished_at !== undefined ? 'nest.roundEnded' : 'nest.roundActive')}</span><a className="underline" href={`#/conversations/${id}`}>{t('nest.fullConversation')}</a></div>}
@@ -146,14 +153,14 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
         <div ref={bottom} />
       </div>
     </div>
-    {selectedRound === undefined && <div ref={composer} className="mx-auto w-full max-w-3xl px-4 pb-4">
+    {selectedRound === undefined && <div ref={composer} className="conversation-column pb-4 pt-2 sm:pb-6">
       {reply.isError && <div className="pb-2"><ErrorState error={reply.error} /></div>}
       <MentionComposer files={fileDraft.files} onFiles={fileDraft.addFiles} onRemoveFile={fileDraft.remove} key={`${id}:${sender}`} initialTargets={initialTargets} agents={agents.data??[]} users={[...new Set([x.user_id, x.created_by, ...messages.flatMap(m => [m.author_user_id, ...m.to_user_ids])].filter((value): value is string => !!value))]} placeholder={t('conversation.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets,users)=>reply.mutateAsync({prompt,targets,users})}/>
 
     </div>}
    </div>
    {x.mode === 'collaborative' && <>
-     <aside className="hidden w-80 shrink-0 flex-col border-l xl:flex 2xl:w-96" aria-label={t('nest.children')} data-conversation-children={id}>
+     <aside className="hidden w-[19rem] shrink-0 flex-col border-l xl:flex 2xl:w-[21rem]" aria-label={t('nest.children')} data-conversation-children={id}>
        <ChildConversations conversations={children.data ?? []} pending={children.isPending} error={children.error} />
      </aside>
      <Sheet open={childrenOpen} onOpenChange={setChildrenOpen}>
@@ -175,18 +182,19 @@ function ChildConversations({ conversations, pending, error, onClose }: {
   conversations: Conversation[]; pending: boolean; error: unknown; onClose?: () => void;
 }) {
   const t = useT();
-  return <section className="flex h-full min-h-0 flex-col bg-background">
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
+  return <section className="flex h-full min-h-0 flex-col bg-panel">
+    <header className="flex h-16 shrink-0 items-center gap-2 border-b px-5">
       <MessagesSquare className="size-4 text-muted-foreground" />
-      <h2 className="text-sm font-semibold">{t('nest.children')}</h2>
-      <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{conversations.length}</span>
+      <h2 className="text-sm font-semibold tracking-tight">{t('nest.children')}</h2>
+      <span className="text-xs tabular-nums text-muted-foreground">{conversations.length}</span>
       {onClose && <Button variant="ghost" size="icon" className="ml-auto size-8" aria-label={t('common.close')} onClick={onClose}><X /></Button>}
     </header>
-    <div className="min-h-0 flex-1 overflow-y-auto p-3">
-      {pending ? <Loading /> : error ? <ErrorState error={error} /> : conversations.length ? <div className="grid gap-2">
-        {conversations.map(child => <a key={child.id} className="group grid gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={`#/conversations/${child.id}`} onClick={onClose}>
-          <span className="line-clamp-3 break-words text-sm leading-6">{child.title || child.id}</span>
-          <span className="flex items-center justify-between gap-2"><StatusBadge tone={STATUS_TONE[child.status]}>{statusLabel(child.status)}</StatusBadge><ChevronRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" /></span>
+    <div className="min-h-0 flex-1 overflow-y-auto px-4">
+      {pending ? <Loading /> : error ? <ErrorState error={error} /> : conversations.length ? <div className="divide-y">
+        {conversations.map(child => <a key={child.id} className="group grid min-h-14 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-1 py-3 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" href={`#/conversations/${child.id}`} onClick={onClose}>
+          <span className="line-clamp-3 break-words text-sm font-medium leading-5">{child.title || child.id}</span>
+          <StatusBadge tone={STATUS_TONE[child.status]}>{statusLabel(child.status)}</StatusBadge>
+          <ChevronRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
         </a>)}
       </div> : <div className="flex h-full min-h-40 flex-col items-center justify-center gap-3 px-4 text-center text-muted-foreground"><MessagesSquare className="size-8 opacity-40" /><p className="text-xs leading-6">{t('nest.noChildren')}</p></div>}
     </div>
@@ -204,14 +212,14 @@ function RoundStatus({round}:{round:ConversationRound}) {
 
 function MessageView({ m, onOpenFile }: { m: Message; onOpenFile: (file: Attachment) => void }) {
  const t=useT();
- const targetLabel = <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" data-message-targets={m.id}>
+ const targetLabel = (m.author_role === 'user' || m.to_agent_ids.length > 0 || m.to_user_ids.length > 0) && <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" data-message-targets={m.id}>
    {m.to_agent_ids.map(agent => <span key={`agent:${agent}`} className="break-all font-medium">@{agent}</span>)}
    {m.to_user_ids.map(user => <span key={`user:${user}`} className="inline-flex items-center gap-1 break-all font-medium"><UserRound className="size-3 shrink-0" />{user}</span>)}
    {m.author_role==='user' && !m.to_agent_ids.length && !m.to_user_ids.length && <span>{t('mention.noteOnly')}</span>}
  </div>;
  if(m.author_role==='child_conversation') {
-  return <details className="group min-w-0 rounded-lg border bg-muted/20" data-child-notification={m.id}>
-   <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+  return <details className="group min-w-0 rounded-lg border bg-panel" data-child-notification={m.id}>
+   <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
     <ChevronRight className="size-3.5 shrink-0 transition-transform group-open:rotate-90" />
     <MessagesSquare className="size-3.5 shrink-0" />
     <span className="min-w-0 flex-1 truncate" title={m.author_name || t('nest.deletedChild')}>{t('nest.childAuthor')} · {m.author_name || t('nest.deletedChild')}</span>
@@ -219,20 +227,23 @@ function MessageView({ m, onOpenFile }: { m: Message; onOpenFile: (file: Attachm
    </summary>
    <div className="grid gap-3 border-t px-3 py-3">
     <p className="text-sm text-muted-foreground">{t('nest.roundNotice',{n:m.author_round_seq ?? 0})}</p>
-    <a className="w-fit text-xs underline" href={`#/conversations/${m.author_conversation_id}?round=${m.author_round_seq}`}>{t('nest.readRound')}</a>
+    <a className="w-fit text-xs font-medium text-primary underline underline-offset-4" href={`#/conversations/${m.author_conversation_id}?round=${m.author_round_seq}`}>{t('nest.readRound')}</a>
     {targetLabel}<MessageErrors message={m}/>
    </div>
   </details>;
  }
  if(m.author_role==='user') {
-  return <div className="ml-auto grid min-w-0 max-w-[85%] gap-1.5 rounded-2xl bg-muted px-4 py-2.5 text-sm" title={fmtTime(m.created_at)} data-message-id={m.id}>
+  return <div className="ml-auto grid min-w-0 max-w-[90%] gap-1.5 rounded-2xl rounded-br-md border bg-muted px-4 py-3 text-sm leading-6 sm:max-w-[85%]" title={fmtTime(m.created_at)} data-message-id={m.id}>
     {targetLabel}<div className="whitespace-pre-wrap break-words">{m.content}</div>
     <MessageFiles files={m.attachments} onOpen={onOpenFile} /><MessageErrors message={m}/>
   </div>;
  }
- return <div className="grid min-w-0 grid-cols-1 gap-1.5" title={fmtTime(m.created_at)} data-message-id={m.id}>
+ return <div className="grid min-w-0 grid-cols-1 gap-3" title={fmtTime(m.created_at)} data-message-id={m.id}>
+  {m.author_agent_id && <div className="flex min-w-0 items-center gap-2.5 text-sm">
+    <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground"><Bot className="size-4" aria-hidden="true" /></span>
+    <span className="min-w-0 break-words [overflow-wrap:anywhere]"><span className="font-semibold">@{m.author_agent_id}</span>{m.author_name && <span className="ml-2 text-xs text-muted-foreground">{m.author_name}</span>}</span>
+  </div>}
   {targetLabel}
-  {m.author_agent_id && <div className="text-xs font-medium text-muted-foreground">@{m.author_agent_id}{m.author_name && ` · ${m.author_name}`}</div>}
 
   <Markdown>{m.content}</Markdown><MessageFiles files={m.attachments} onOpen={onOpenFile}/><MessageErrors message={m}/>
  </div>;
@@ -267,7 +278,7 @@ function RunView({run,events,questions,messages,inputs,conversationId,onOpenFile
  const mine=events.filter(e=>e.run_id===run.id);
  const active=['running','waiting'].includes(run.status);
  return <section data-run-id={run.id} aria-label={`${t('run.label')} @${run.agent_id}`}><Dialog.Root open={open} onOpenChange={setOpen}>
-  <Dialog.Trigger asChild><button className="flex max-w-full flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted" data-run-summary>
+  <Dialog.Trigger asChild><button className="flex max-w-full flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md bg-panel px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-run-summary>
    <span className="inline-flex shrink-0 items-center gap-2">{active&&<LoaderCircle className="size-3.5 animate-spin"/>}<span>{t('run.label')} · @{run.agent_id}</span><span>{t(`run.status.${run.status}`)}</span><ChevronRight className="size-3.5"/></span>
    <span className="inline-flex min-w-0 max-w-full flex-wrap gap-x-3 gap-y-1">
     <span>{t('run.harness')} <span className="font-medium text-foreground/80" data-run-summary-harness>{run.harness}</span></span>

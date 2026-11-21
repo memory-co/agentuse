@@ -67,14 +67,18 @@ export function Agents({ me }: { me: User }) {
   return editing?api(`/api/agents/${editing.id}/versions`,{method:'POST',body:{base_version_id:editing.current_version_id,...body}}):api('/api/agents',{method:'POST',body:{id:form.id.trim(),...body}});
  },onSuccess:()=>{setForm(empty);setEditing(null);void refresh();void queryClient.invalidateQueries({queryKey:['agent-versions']});}});
  const del=useMutation({mutationFn:(id:string)=>api(`/api/agents/${id}`,{method:'DELETE'}),onSuccess:refresh});
- return <div className="grid gap-4">
+ return <div className="grid grid-cols-1 gap-4 sm:gap-5">
   <Card><CardHeader><CardTitle>{editing?label('发布 agent 新版本','Publish agent version'):t('agents.newTitle')}</CardTitle><CardDescription>{t('agents.newText')}</CardDescription></CardHeader><CardContent>
   <form className="grid gap-3" onSubmit={e=>{e.preventDefault();save.mutate();}}>
-   <div className="flex flex-wrap gap-2"><Input className="w-40" aria-label="Agent ID" placeholder={t('agents.idPlaceholder')} value={form.id} disabled={!!editing} onChange={e=>setForm({...form,id:e.target.value})}/><Input className="w-48" aria-label={t('common.name')} placeholder={t('agents.namePlaceholder')} required value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/><RuntimeSelect className="w-64" value={form.runtime} onChange={runtime=>setForm({...form,runtime})} devices={devices.data} userId={editing?.user_id??me.id}/></div>
+   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.5fr)]">
+    <Input aria-label="Agent ID" placeholder={t('agents.idPlaceholder')} value={form.id} disabled={!!editing} onChange={e=>setForm({...form,id:e.target.value})}/>
+    <Input aria-label={t('common.name')} placeholder={t('agents.namePlaceholder')} required value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
+    <RuntimeSelect className="min-w-0" value={form.runtime} onChange={runtime=>setForm({...form,runtime})} devices={devices.data} userId={editing?.user_id??me.id}/>
+   </div>
    <Input aria-label={t('common.description')} placeholder={t('common.description')} value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/>
    <Input aria-label="Model" placeholder={label('Model（可选）','Model (optional)')} value={form.model} onChange={e=>setForm({...form,model:e.target.value})}/>
    <Textarea aria-label="AGENTS.md" placeholder="AGENTS.md" rows={6} value={form.instructions} onChange={e=>setForm({...form,instructions:e.target.value})}/>
-   <Popover><PopoverTrigger asChild><Button type="button" variant="outline" className="justify-start">Skills · {form.skills.length}</Button></PopoverTrigger><PopoverContent className="w-96"><Command><CommandInput placeholder={label('搜索 skill 和版本','Search skills and versions')}/><CommandList><CommandEmpty>{label('没有可用 skill','No skills available')}</CommandEmpty>{versions.data?.filter(v=>skills.data?.find(s=>s.id===v.skill_id)?.user_id===(editing?.user_id??me.id)).map(v=><CommandItem key={v.id} value={`${v.name} v${v.version} ${v.id}`} onSelect={()=>setForm(f=>({...f,skills:f.skills.includes(v.id)?f.skills.filter(id=>id!==v.id):[...f.skills.filter(id=>versions.data?.find(x=>x.id===id)?.skill_id!==v.skill_id),v.id]}))}><span className="mr-2">{form.skills.includes(v.id)?'✓':'○'}</span>{v.name} · v{v.version} <span className="ml-2 text-xs text-muted-foreground">{v.skill_id.slice(0,8)}</span></CommandItem>)}</CommandList></Command></PopoverContent></Popover>
+   <Popover><PopoverTrigger asChild><Button type="button" variant="outline" className="w-fit justify-start">Skills · {form.skills.length}</Button></PopoverTrigger><PopoverContent align="start" className="w-96 max-w-[calc(100vw-2rem)]"><Command><CommandInput placeholder={label('搜索 skill 和版本','Search skills and versions')}/><CommandList><CommandEmpty>{label('没有可用 skill','No skills available')}</CommandEmpty>{versions.data?.filter(v=>skills.data?.find(s=>s.id===v.skill_id)?.user_id===(editing?.user_id??me.id)).map(v=><CommandItem key={v.id} value={`${v.name} v${v.version} ${v.id}`} onSelect={()=>setForm(f=>({...f,skills:f.skills.includes(v.id)?f.skills.filter(id=>id!==v.id):[...f.skills.filter(id=>versions.data?.find(x=>x.id===id)?.skill_id!==v.skill_id),v.id]}))}><span className="mr-2">{form.skills.includes(v.id)?'✓':'○'}</span>{v.name} · v{v.version} <span className="ml-2 text-xs text-muted-foreground">{v.skill_id.slice(0,8)}</span></CommandItem>)}</CommandList></Command></PopoverContent></Popover>
    {form.skills.map(id=><div key={id} className="text-sm">{versions.data?.find(v=>v.id===id)?.name??id} · v{versions.data?.find(v=>v.id===id)?.version??'?'} <Button variant="ghost" type="button" onClick={()=>setForm({...form,skills:form.skills.filter(x=>x!==id)})}>×</Button></div>)}
    {versions.isError&&<ErrorState error={versions.error}/>}
    {save.isError&&<ErrorState error={save.error}/>}
@@ -82,7 +86,28 @@ export function Agents({ me }: { me: User }) {
   </form></CardContent></Card>
   <Card><CardHeader><CardTitle>{t('agents.listTitle')}</CardTitle></CardHeader><CardContent>
    {del.isError&&<ErrorState error={del.error}/>}
-   {agents.isPending?<Loading/>:agents.isError?<ErrorState error={agents.error}/>:<Table><TableHeader><TableRow><TableHead>ID</TableHead><TableHead>{t('common.name')}</TableHead><TableHead>{t('agents.runtime')}</TableHead><TableHead>{label('版本','Version')}</TableHead><TableHead/></TableRow></TableHeader><TableBody>{agents.data.map(a=><TableRow key={a.id}><TableCell>{a.id}</TableCell><TableCell>{a.name}</TableCell><TableCell>{devices.data?.find(d=>d.id===a.device_id)?.name??a.device_id} · {a.harness}</TableCell><TableCell>v{a.version}</TableCell><TableCell><Button variant="ghost" onClick={()=>load(a)}>{label('编辑','Edit')}</Button><Button variant="ghost" onClick={()=>setHistoryID(a.id)}>{label('历史版本','History')}</Button><Confirm title={t('agents.deleteTitle',{name:a.name})} description={t('agents.deleteText')} action={t('common.delete')} onConfirm={()=>del.mutate(a.id)}><Button variant="ghost" size="icon" aria-label={t('common.delete')}><Trash2/></Button></Confirm></TableCell></TableRow>)}</TableBody></Table>}
+   {agents.isPending?<Loading/>:agents.isError?<ErrorState error={agents.error}/>:<Table>
+    <TableHeader className="bg-panel">
+     <TableRow><TableHead>ID</TableHead><TableHead>{t('common.name')}</TableHead><TableHead>{t('agents.runtime')}</TableHead><TableHead>{label('版本','Version')}</TableHead><TableHead/></TableRow>
+    </TableHeader>
+    <TableBody>
+     {agents.data.map(a=><TableRow key={a.id}>
+      <TableCell className="text-xs text-muted-foreground">{a.id}</TableCell>
+      <TableCell className="font-medium">{a.name}</TableCell>
+      <TableCell>{devices.data?.find(d=>d.id===a.device_id)?.name??a.device_id} · {a.harness}</TableCell>
+      <TableCell className="tabular-nums text-muted-foreground">v{a.version}</TableCell>
+      <TableCell>
+       <div className="flex items-center justify-end gap-1">
+        <Button variant="ghost" size="sm" onClick={()=>load(a)}>{label('编辑','Edit')}</Button>
+        <Button variant="ghost" size="sm" onClick={()=>setHistoryID(a.id)}>{label('历史版本','History')}</Button>
+        <Confirm title={t('agents.deleteTitle',{name:a.name})} description={t('agents.deleteText')} action={t('common.delete')} onConfirm={()=>del.mutate(a.id)}>
+         <Button variant="ghost" size="icon" className="size-8 text-destructive" aria-label={t('common.delete')}><Trash2/></Button>
+        </Confirm>
+       </div>
+      </TableCell>
+     </TableRow>)}
+    </TableBody>
+   </Table>}
   </CardContent></Card>
   {historyID&&<Card><CardHeader><CardTitle>{historyID} · {label('历史版本','History')}</CardTitle></CardHeader><CardContent>{history.isPending?<Loading/>:history.isError?<ErrorState error={history.error}/>:history.data.map(v=><details key={v.id} className="border-b py-3"><summary className="cursor-pointer">v{v.version} · {v.name} · {new Date(v.created_at*1000).toLocaleString()}</summary><pre className="my-3 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(v,null,2)}</pre><Button variant="outline" onClick={()=>{const a=agents.data?.find(a=>a.id===historyID);if(a)load(a,v);}}>{label('以此配置发布新版本','Use this configuration')}</Button></details>)}<Button variant="ghost" onClick={()=>setHistoryID('')}>{t('common.close')}</Button></CardContent></Card>}
  </div>;

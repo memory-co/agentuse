@@ -122,12 +122,14 @@ function Shell({ me }: { me: User }) {
     {current?.parent_conversation_id && <Button asChild variant="ghost" size="sm" className="h-7 shrink-0 gap-1.5 px-2 text-muted-foreground">
       <a href={`#${href({ page: 'conversation', id: current.parent_conversation_id })}`} aria-label={t('nest.parent')} title={t('nest.parent')}><ArrowLeft /><span className="hidden sm:inline">{t('nest.parent')}</span></a>
     </Button>}
-    <span className="min-w-0 truncate text-sm font-medium">{title}</span>
+    <span className="min-w-0 truncate text-base font-semibold tracking-tight sm:text-lg" title={title}>{title}</span>
     {current && current.status !== 'idle' && <span className="shrink-0 whitespace-nowrap"><StatusBadge tone={STATUS_TONE[current.status]}>{statusLabel(current.status)}</StatusBadge></span>}
     {admin && actAs && <span className="ml-auto shrink-0 truncate text-xs text-muted-foreground">{t('actAs.acting', { id: actAs })}</span>}
   </>;
   const content = route.page === 'conversation' ? <ConversationView key={route.id} id={route.id} onDeleted={() => go(current?.parent_conversation_id ? { page: 'conversation', id: current.parent_conversation_id } : { page: 'new' })} />
-    : page ? <div className="mx-auto w-full max-w-5xl px-4 py-6"><page.Page me={effective} /></div>
+    : page ? <div className="min-w-0 flex-1 bg-panel">
+      <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-8 sm:py-8"><page.Page me={effective} /></div>
+    </div>
     : <NewConversation onCreated={id => go({ page: 'conversation', id })} />;
   const body = (onNavigate: () => void, onClose?: () => void) =>
     <SidebarBody me={me} pages={pages} route={route} parentId={current?.parent_conversation_id} conversations={conversations} onNavigate={onNavigate} onClose={onClose} />;
@@ -135,9 +137,9 @@ function Shell({ me }: { me: User }) {
   return <>
     <Sidebar collapsible="icon">{body(() => undefined)}<SidebarRail /></Sidebar>
     <SidebarInset className="h-svh min-h-0 overflow-hidden">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+      <header className="workspace-header">
         <SidebarTrigger className="-ml-1" />
-        <Separator orientation="vertical" className="mr-2 h-4" />
+        <Separator orientation="vertical" className="h-5" />
         {heading}
       </header>
       <main id="main-content" tabIndex={-1} className="flex min-h-0 flex-1 flex-col overflow-auto outline-none">{content}</main>
@@ -159,12 +161,12 @@ function SidebarBody({ me, pages, route, parentId, conversations, onNavigate, on
     onSuccess: () => { setActAs(''); queryClient.clear(); queryClient.setQueryData(['me'], null); },
   });
   return <>
-    <SidebarHeader>
+    <SidebarHeader className="pb-3 pt-3">
       <SidebarMenu>
         <SidebarMenuItem className="flex items-center gap-1">
           <SidebarMenuButton size="lg" onClick={() => nav({ page: 'new' })} tooltip="agentuse">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sm font-bold text-sidebar-primary-foreground">a</div>
-            <span className="truncate font-semibold">agentuse</span>
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-base font-semibold text-sidebar-primary-foreground">a</div>
+            <span className="truncate text-base font-semibold tracking-tight">agentuse</span>
           </SidebarMenuButton>
           {onClose && <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={onClose} aria-label={t('nav.closeNav')}><X /></Button>}
         </SidebarMenuItem>
@@ -182,10 +184,10 @@ function SidebarBody({ me, pages, route, parentId, conversations, onNavigate, on
         <ConversationList conversations={conversations} route={route} parentId={parentId} nav={nav} />
       </SidebarGroup>
     </SidebarContent>
-    <SidebarFooter>
+    <SidebarFooter className="border-t border-sidebar-border">
       <SidebarMenu><LanguageItem /><SidebarMenuItem className="flex items-center gap-1">
         <SidebarMenuButton size="lg" className="flex-1" tooltip={me.name}>
-          <div className="flex size-8 items-center justify-center rounded-full bg-muted text-sm font-medium">{me.name.slice(0, 1).toUpperCase()}</div>
+          <div className="flex size-8 items-center justify-center rounded-full bg-background text-sm font-medium">{me.name.slice(0, 1).toUpperCase()}</div>
           <div className="grid flex-1 text-left text-sm leading-tight"><span className="truncate font-semibold">{me.name}</span><span className="truncate text-xs text-muted-foreground">{admin ? t('common.admin') : t('common.normalUser')}</span></div>
         </SidebarMenuButton>
         <SidebarMenuAction onClick={() => logout.mutate()} title={t('nav.logout')} className="group-data-[collapsible=icon]:hidden"><LogOut /></SidebarMenuAction>
@@ -271,7 +273,7 @@ function MobileShell({ route, body, heading, page }: {
       {body(() => goTo(1), () => goTo(1))}
     </div>
     <div className={cn('flex h-full w-full shrink-0 snap-start flex-col', safe)} aria-hidden={col !== 1}>
-      <header className="flex h-12 shrink-0 items-center gap-1 border-b px-2">
+      <header className="workspace-header gap-1">
         <Button variant="ghost" size="icon" aria-label={col === 0 ? t('nav.closeNav') : t('nav.openNav')} aria-expanded={col === 0} onClick={() => goTo(col === 0 ? 1 : 0)}><Menu /></Button>
         {heading}
       </header>

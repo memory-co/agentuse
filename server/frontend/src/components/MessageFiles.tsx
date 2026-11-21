@@ -30,8 +30,9 @@ export function MessageFiles({ files, onOpen }: { files: Attachment[]; onOpen: (
   if (!files.length) return null;
   return <div className="flex min-w-0 flex-wrap gap-2 pt-1" aria-label={t('attachment.thisMessage')} data-message-files="true">
     {files.map(file => <button key={file.id} type="button" onClick={() => onOpen(file)} title={file.relative_path}
-      className="flex min-w-0 max-w-full items-center gap-2 rounded-lg border bg-background/70 px-3 py-2 text-left text-xs hover:bg-background">
-      <FileIcon mime={file.content_type} /><span className="min-w-0"><span className="block truncate font-medium">{file.filename}</span><span className="block truncate text-muted-foreground">{file.relative_path} · {file.size_bytes.toLocaleString()} B</span></span>
+      className="flex min-w-0 max-w-full items-center gap-3 rounded-lg border bg-panel px-3 py-2 text-left transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <FileIcon mime={file.content_type} className="size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0"><span className="block truncate text-sm font-medium">{file.filename}</span><span className="block truncate text-xs text-muted-foreground">{file.relative_path} · {file.size_bytes.toLocaleString()} B</span></span>
     </button>)}
   </div>;
 }

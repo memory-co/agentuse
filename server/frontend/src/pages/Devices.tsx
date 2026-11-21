@@ -28,9 +28,9 @@ export function Devices({ me }: { me: User }) {
     },
     onSuccess: () => { setName(''); void refresh(); },
   });
-  return <div className="grid grid-cols-1 gap-4">
+  return <div className="grid grid-cols-1 gap-4 sm:gap-5">
     <Card>
-      <CardHeader><CardTitle className="text-base">{t('devices.addTitle')}</CardTitle><CardDescription>{t('devices.addText')}</CardDescription></CardHeader>
+      <CardHeader><CardTitle>{t('devices.addTitle')}</CardTitle><CardDescription>{t('devices.addText')}</CardDescription></CardHeader>
       <CardContent>
         <form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); add.mutate(); }}>
           <Input className="max-w-xs" placeholder={t('devices.namePlaceholder')} value={name} onChange={e => setName(e.target.value)} />
@@ -41,7 +41,7 @@ export function Devices({ me }: { me: User }) {
     </Card>
     {setup?.setup_token && <Card>
       <CardHeader>
-        <CardTitle className="text-base">{t('devices.setupTitle')}</CardTitle>
+        <CardTitle>{t('devices.setupTitle')}</CardTitle>
         <CardDescription>{t('devices.runSetup')}</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
@@ -77,28 +77,30 @@ function DeviceCard({ d, me, onSetup, onDelete }: { d: Device; me: User; onSetup
   const meta = [d.id, me.role === 'admin' && d.user_id !== me.id && t('devices.metaUser', { id: d.user_id }), d.last_seen_at && t('devices.metaSeen', { at: fmtTime(d.last_seen_at) })].filter(Boolean).join(' · ');
   return <Card>
     <CardHeader className="flex-row flex-wrap items-start justify-between gap-2 space-y-0">
-      <div className="grid gap-1">
-        <CardTitle className="flex items-center gap-2 text-base">{d.name || t('devices.unnamed')}<StatusBadge tone={tone}>{label}</StatusBadge></CardTitle>
-        <CardDescription className="font-mono text-xs">{meta}</CardDescription>
+      <div className="grid min-w-0 gap-1.5">
+        <CardTitle className="flex flex-wrap items-center gap-x-2 gap-y-1 break-words [overflow-wrap:anywhere]">{d.name || t('devices.unnamed')}<StatusBadge tone={tone}>{label}</StatusBadge></CardTitle>
+        <CardDescription className="break-words text-xs tabular-nums [overflow-wrap:anywhere]">{meta}</CardDescription>
       </div>
       <div className="flex gap-2">
         <Confirm title={t('devices.resetTitle')} description={t('devices.resetText')} onConfirm={() => reset.mutate()}>
-          <Button variant="outline" size="sm"><RefreshCw />{t('devices.reset')}</Button>
+          <Button variant="ghost" size="sm"><RefreshCw />{t('devices.reset')}</Button>
         </Confirm>
         <Confirm title={t('devices.deleteTitle')} description={t('devices.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
-          <Button variant="outline" size="sm" className="text-destructive"><Trash2 />{t('common.delete')}</Button>
+          <Button variant="ghost" size="sm" className="text-destructive"><Trash2 />{t('common.delete')}</Button>
         </Confirm>
       </div>
     </CardHeader>
     <CardContent>
       {reset.isError && <ErrorState error={reset.error} />}
-      {d.status === 'pending' ? <p className="text-sm text-muted-foreground">{t('devices.awaitImport')}</p> : d.harnesses.length ? <div className="grid gap-3">
-        <p className="text-sm text-muted-foreground">{t('devices.pickHarnesses')}</p>
-        {d.harnesses.map(a => <label key={a.harness} className="flex items-center gap-3 text-sm">
-          <Switch checked={a.enabled} disabled={!a.available || toggle.isPending} onCheckedChange={enabled => toggle.mutate({ harness: a.harness, enabled })} />
-          <span className="font-medium">{displayName(a.harness)}</span>
-          <span className="text-xs text-muted-foreground">{a.harness} {a.version}{!a.available && t('devices.notDetected')}</span>
-        </label>)}
+      {d.status === 'pending' ? <p className="text-sm text-muted-foreground">{t('devices.awaitImport')}</p> : d.harnesses.length ? <div>
+        <p className="mb-2 text-sm text-muted-foreground">{t('devices.pickHarnesses')}</p>
+        <div className="divide-y">
+          {d.harnesses.map(a => <label key={a.harness} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 text-sm">
+            <Switch checked={a.enabled} disabled={!a.available || toggle.isPending} onCheckedChange={enabled => toggle.mutate({ harness: a.harness, enabled })} />
+            <span className="font-medium">{displayName(a.harness)}</span>
+            <span className="min-w-0 break-words text-xs text-muted-foreground">{a.harness} {a.version}{!a.available && t('devices.notDetected')}</span>
+          </label>)}
+        </div>
       </div> : <p className="text-sm text-muted-foreground">{t('devices.noHarnesses')}</p>}
     </CardContent>
   </Card>;

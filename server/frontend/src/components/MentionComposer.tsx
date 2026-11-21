@@ -63,7 +63,7 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
     setQuery(null);
     void onSend(text, targets, userTargets).then(() => setText(''), () => undefined);
   };
-  return <form className="relative min-w-0 rounded-xl border bg-background p-2 shadow-sm" onSubmit={e => { e.preventDefault(); submit(); }}>
+  return <form className="relative min-w-0 rounded-2xl border border-input bg-card p-2.5 shadow-sm transition-colors focus-within:border-primary/60 sm:p-3" onSubmit={e => { e.preventDefault(); submit(); }}>
     {showAgentPicker && <div className="mb-2 border-b px-2 pb-3">
       <Popover onOpenChange={() => setPickerQuery('')}>
         <PopoverTrigger asChild>
@@ -90,7 +90,7 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
       </Popover>
     </div>}
     <div className="flex flex-wrap gap-1 px-2">
-      {targets.map(id => <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs">
+      {targets.map(id => <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md bg-accent px-2 py-1 text-xs text-accent-foreground">
         <span className="truncate">@{id}</span>
         <button type="button" disabled={busy} aria-label={`${t('mention.remove')} ${id}`} onClick={() => changeTargets(v => v.filter(x => x !== id))}><X className="size-3" /></button>
       </span>)}
@@ -101,7 +101,7 @@ export function MentionComposer({ agents, users = [], busy, onSend, initialTarge
     </div>
     <DraftFiles files={files} busy={busy} onRemove={onRemoveFile ?? (() => undefined)} />
     <Textarea ref={textarea} value={text} disabled={busy} placeholder={placeholder} enterKeyHint="send"
-      className="max-h-60 min-h-[44px] resize-none border-0 p-2 shadow-none focus-visible:ring-0"
+      className="max-h-60 min-h-[44px] resize-none border-0 p-2 text-base leading-6 shadow-none focus-visible:ring-0 md:text-base"
       onPaste={event => {
         if (busy || !onFiles) return;
         const images = Array.from(event.clipboardData.files).filter(file => file.type.startsWith('image/'));

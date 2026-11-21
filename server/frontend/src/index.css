@@ -2,38 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
-/* shadcn/ui 默认主题(new-york, neutral),和 memory.talk 一致。布局全部用工具类和 components/ui 拼,这里只留 token。 */
 @layer base {
   :root {
-    --background: 0 0% 100%; --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%; --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%; --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%; --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%; --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%; --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%; --accent-foreground: 0 0% 9%;
-    --destructive: 0 84.2% 60.2%; --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%; --input: 0 0% 89.8%; --ring: 0 0% 3.9%;
-    --radius: 0.5rem;
-    --sidebar-background: 0 0% 98%; --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%; --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%; --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%; --sidebar-ring: 217.2 91.2% 59.8%;
+    --background: 0 0% 100%; --foreground: 160 12% 14%;
+    --panel: 95 11% 96%;
+    --card: var(--background); --card-foreground: var(--foreground);
+    --popover: var(--background); --popover-foreground: var(--foreground);
+    --primary: 163 44% 28%; --primary-foreground: 0 0% 100%;
+    --secondary: 50 14% 93%; --secondary-foreground: var(--foreground);
+    --muted: 48 18% 95%; --muted-foreground: 153 7% 37%;
+    --accent: 155 22% 91%; --accent-foreground: 163 42% 22%;
+    --destructive: 0 64% 45%; --destructive-foreground: 0 0% 100%;
+    --border: 100 10% 87%; --input: 106 8% 81%; --ring: var(--primary);
+    --radius: 0.625rem;
+    --sidebar-background: 43 22% 93%; --sidebar-foreground: 156 10% 23%;
+    --sidebar-primary: var(--primary); --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: var(--accent); --sidebar-accent-foreground: var(--accent-foreground);
+    --sidebar-border: 45 12% 84%; --sidebar-ring: var(--ring);
   }
   .dark {
-    --background: 0 0% 3.9%; --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%; --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%; --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%; --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%; --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%; --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%; --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%; --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%; --input: 0 0% 14.9%; --ring: 0 0% 83.1%;
-    --sidebar-background: 240 5.9% 10%; --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%; --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%; --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%; --sidebar-ring: 217.2 91.2% 59.8%;
+    --background: 156 9% 10%; --foreground: 60 10% 93%;
+    --panel: 150 8% 13%;
+    --popover: 150 8% 15%;
+    --primary: 156 37% 66%; --primary-foreground: 163 29% 12%;
+    --secondary: 150 7% 19%;
+    --muted: 144 6% 17%; --muted-foreground: 150 8% 69%;
+    --accent: 158 18% 22%; --accent-foreground: 151 32% 82%;
+    --destructive: 0 80% 73%; --destructive-foreground: 0 45% 15%;
+    --border: 148 7% 23%; --input: 146 8% 32%;
+    --sidebar-background: 44 9% 14%; --sidebar-foreground: var(--foreground);
+    --sidebar-border: 48 7% 25%;
   }
   * { @apply border-border; }
   body { @apply bg-background text-foreground; }
@@ -43,24 +41,33 @@
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 
 @layer components {
+  .workspace-header { @apply flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 sm:h-16 sm:gap-3 sm:px-6; }
+  [data-sidebar="menu-button"][data-active="true"],
+  [data-sidebar="menu-sub-button"][data-active="true"] {
+    box-shadow: inset 2px 0 hsl(var(--sidebar-primary));
+  }
+  .conversation-column { @apply mx-auto w-full min-w-0 max-w-[50rem] px-4 sm:px-6 xl:px-8; }
+
   .markdown > :first-child { margin-top: 0; }
   .markdown > :last-child { margin-bottom: 0; }
-  .markdown p, .markdown ul, .markdown ol, .markdown blockquote, .markdown pre, .markdown table { @apply my-3; }
-  .markdown h1 { @apply mb-3 mt-6 text-2xl font-semibold; }
-  .markdown h2 { @apply mb-3 mt-5 text-xl font-semibold; }
-  .markdown h3 { @apply mb-2 mt-4 text-lg font-semibold; }
-  .markdown h4, .markdown h5, .markdown h6 { @apply mb-2 mt-4 font-semibold; }
-  .markdown ul { @apply list-disc pl-6; }
-  .markdown ol { @apply list-decimal pl-6; }
+  .markdown p, .markdown ul, .markdown ol, .markdown blockquote, .markdown pre, .markdown .markdown-table { @apply my-4; }
+  .markdown h1 { @apply mb-3 mt-8 text-[1.6rem] font-semibold leading-tight; }
+  .markdown h2 { @apply mb-2 mt-7 text-xl font-semibold leading-snug; }
+  .markdown h3 { @apply mb-2 mt-6 text-lg font-semibold leading-snug; }
+  .markdown h4, .markdown h5, .markdown h6 { @apply mb-2 mt-5 font-semibold; }
+  .markdown ul { @apply list-disc space-y-1 pl-6; }
+  .markdown ol { @apply list-decimal space-y-1 pl-6; }
   .markdown li > p { @apply my-1; }
-  .markdown blockquote { @apply border-l-4 pl-4 text-muted-foreground; }
-  .markdown a { @apply underline underline-offset-2; }
-  .markdown pre { @apply overflow-x-auto rounded-lg bg-muted p-3 text-xs leading-6; overflow-wrap: normal; }
-  .markdown code { @apply rounded bg-muted px-1 py-0.5 font-mono text-xs; }
-  .markdown pre code { @apply rounded-none bg-transparent p-0; }
-  .markdown table { @apply w-full border-collapse text-left; }
-  .markdown th, .markdown td { @apply border px-3 py-2; }
-  .markdown th { @apply bg-muted font-semibold; }
+  .markdown blockquote { @apply border-l-2 border-primary/40 pl-4 text-muted-foreground; }
+  .markdown a { @apply text-primary underline decoration-primary/40 underline-offset-4 hover:decoration-primary; }
+  .markdown pre { @apply overflow-x-auto rounded-lg border bg-panel p-4 text-[0.8125rem] leading-6; overflow-wrap: normal; }
+  .markdown code { @apply rounded bg-muted px-1.5 py-0.5 font-mono text-[0.85em]; }
+  .markdown pre code { @apply rounded-none bg-transparent p-0; font-size: inherit; }
+  .markdown-table { @apply overflow-x-auto rounded-lg border; }
+  .markdown table { @apply w-full border-collapse text-left text-sm; }
+  .markdown th, .markdown td { @apply border-b px-3 py-2.5 align-top sm:px-4; }
+  .markdown th { @apply bg-panel font-semibold; }
+  .markdown tbody tr:last-child td { @apply border-b-0; }
   .markdown hr { @apply my-4 border-border; }
   .markdown img { @apply h-auto max-w-full rounded; }
   .markdown .contains-task-list { @apply list-none; }
