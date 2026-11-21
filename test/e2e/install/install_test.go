@@ -221,8 +221,63 @@ func TestInstallMissingRelease(t *testing.T) {
 	cmd := exec.Command("bash", "-c", oneLiner(t))
 	cmd.Env = e2eutil.Env(home, append(gh.env, "INSTALL_DIR="+filepath.Join(home, "bin"))...)
 	out, err := cmd.CombinedOutput()
-	if err == nil || !strings.Contains(string(out), "下载 https://github.com/memory-co/agentuse/releases/download/v9.9.9/SHA256SUMS 失败") {
+	if err == nil || !strings.Contains(string(out), "下载或校验 v9.9.9 的 SHA256SUMS 失败") {
 		t.Fatalf("应该下载失败: %v\n%s", err, out)
+	}
+}
+
+func TestInstallMirrorSelection(t *testing.T) {
+	e2eutil.Skip(t)
+	const tag = "v9.9.9"
+	const github = "https://github.com/memory-co/agentuse/releases/download/" + tag + "/"
+	const oss = "https://agentuse.oss-cn-beijing.aliyuncs.com/releases/" + tag + "/"
+	server := "agentuse-server-" + runtime.GOOS + "-" + runtime.GOARCH
+
+	for _, tc := range []struct {
+		name      string
+		primary   string
+		env       []string
+		fallbacks []string
+	}{
+		{name: "faster GitHub", primary: github, env: []string{"FAKE_OSS_LATENCY=0.400"}},
+		{name: "faster OSS", primary: oss},
+		{name: "failed and corrupted downloads fall back", primary: oss,
+			env:       []string{"FAKE_OSS_MISSING_FILE=" + server, "FAKE_OSS_BAD_FILE=agentuse-linux-amd64"},
+			fallbacks: []string{server, "agentuse-linux-amd64"}},
+		{name: "GitHub unreachable", primary: oss, env: []string{"FAKE_GITHUB_DOWN=1", "FAKE_OSS_LATEST=" + tag}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gh := newFakeGitHub(t, tag)
+			gh.publish(t, tag)
+			home := t.TempDir()
+			installDir := filepath.Join(home, "bin")
+			cmd := exec.Command("bash", "-c", oneLiner(t))
+			env := append(gh.env, "INSTALL_DIR="+installDir, "FAKE_OSS_RELEASES="+gh.releases)
+			cmd.Env = e2eutil.Env(home, append(env, tc.env...)...)
+			out := e2eutil.MustRun(t, cmd)
+			if !strings.Contains(out, "优先下载源: "+strings.TrimSuffix(tc.primary, "/"+tag+"/")) {
+				t.Fatal(out)
+			}
+			log, err := os.ReadFile(gh.log)
+			if err != nil {
+				t.Fatal(err)
+			}
+			requests := "\n" + string(log)
+			if !strings.Contains(requests, "\n"+tc.primary+server+"\n") {
+				t.Fatal(requests)
+			}
+			for _, file := range tc.fallbacks {
+				if !strings.Contains(requests, "\n"+github+file+"\n") {
+					t.Fatal("missing GitHub fallback for", file, requests)
+				}
+			}
+			if len(tc.fallbacks) == 0 && tc.primary == oss && strings.Contains(requests, "\n"+github+server+"\n") {
+				t.Fatal("unexpected GitHub binary download", requests)
+			}
+			if got, want := sha256File(t, filepath.Join(installDir, "agentuse-server")), sha256File(t, filepath.Join(gh.releases, tag, server)); got != want {
+				t.Fatalf("server digest %s, want %s", got, want)
+			}
+		})
 	}
 }
 

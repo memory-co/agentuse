@@ -6,11 +6,12 @@
 # 请求过的地址追加到 $FAKE_CURL_LOG。
 set -euo pipefail
 
-url="" out=""
+url="" out="" timing=""
 args=("$@")
 for ((i = 0; i < ${#args[@]}; i++)); do
   case "${args[$i]}" in
     -o) out="${args[$((i + 1))]}" ;;
+    -w) timing="${args[$((i + 1))]}" ;;
     http://* | https://*) url="${args[$i]}" ;;
   esac
 done
@@ -19,15 +20,30 @@ echo "$url" >>"${FAKE_CURL_LOG:-/dev/null}"
 serve() {
   [ -f "$1" ] || { echo "curl: (22) The requested URL returned error: 404" >&2; exit 22; }
   if [ -n "$out" ]; then cp "$1" "$out"; else cat "$1"; fi
+  if [ "$timing" = '%{time_total}' ]; then printf '%s' "${2:-0.250}"; fi
 }
 
 case "$url" in
   https://raw.githubusercontent.com/memory-co/agentuse/main/install.sh)
     serve "$FAKE_INSTALL_SH" ;;
   https://api.github.com/repos/memory-co/agentuse/releases/latest)
+    [ "${FAKE_GITHUB_DOWN:-}" != 1 ] || exit 6
     printf '{\n  "url": "x",\n  "tag_name": "%s",\n  "name": "%s"\n}\n' "$FAKE_LATEST" "$FAKE_LATEST" ;;
   https://github.com/memory-co/agentuse/releases/download/*)
+    [ "${FAKE_GITHUB_DOWN:-}" != 1 ] || exit 6
     serve "$FAKE_RELEASES/${url#https://github.com/memory-co/agentuse/releases/download/}" ;;
+  https://agentuse.oss-cn-beijing.aliyuncs.com/releases/latest)
+    [ -n "${FAKE_OSS_LATEST:-}" ] || exit 22
+    printf '%s\n' "$FAKE_OSS_LATEST" ;;
+  https://agentuse.oss-cn-beijing.aliyuncs.com/releases/*)
+    [ -n "${FAKE_OSS_RELEASES:-}" ] || exit 22
+    case "${url##*/}" in
+      "${FAKE_OSS_MISSING_FILE:-}") exit 22 ;;
+      "${FAKE_OSS_BAD_FILE:-}") printf 'corrupt' > "$out"; exit 0 ;;
+    esac
+    serve "$FAKE_OSS_RELEASES/${url#https://agentuse.oss-cn-beijing.aliyuncs.com/releases/}" "${FAKE_OSS_LATENCY:-0.100}" ;;
+  https://agentuse.cn-beijing.taihangpfm.cn/releases/*)
+    exit 22 ;;
   http://127.0.0.1:* | http://localhost:*)
     exec "$REAL_CURL" "$@" ;;
   *)

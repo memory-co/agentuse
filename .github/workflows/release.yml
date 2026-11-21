@@ -3,13 +3,16 @@ name: Release
 on:
   push:
     tags: ['v*']
-
-permissions:
-  contents: write
+  workflow_dispatch:
 
 jobs:
   release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,9 +39,87 @@ jobs:
         run: go test ./...
 
       - name: Build
-        run: make release VERSION=${{ github.ref_name }}
+        run: make release "VERSION=$RELEASE_TAG"
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" dist/* --title "${{ github.ref_name }}" --generate-notes
+        run: gh release create "$RELEASE_TAG" dist/* --title "$RELEASE_TAG" --generate-notes
+
+  mirror:
+    needs: release
+    if: >-
+      ${{ !cancelled() && github.repository == 'memory-co/agentuse' &&
+          (needs.release.result == 'success' ||
+           (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) }}
+    runs-on: ubuntu-latest
+    environment: oss
+    permissions:
+      contents: read
+    env:
+      OSS_RELEASES: oss://agentuse/releases
+      OSS_PUBLIC: https://agentuse.oss-cn-beijing.aliyuncs.com
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download and verify published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            RELEASE_TAG="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+          fi
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          gh release download "$RELEASE_TAG" --pattern 'agentuse-*' --pattern SHA256SUMS --dir dist
+          cd dist
+          for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            test -s "agentuse-$platform"
+            test -s "agentuse-server-$platform"
+          done
+          sha256sum -c SHA256SUMS
+          printf 'RELEASE_TAG=%s\n' "$RELEASE_TAG" >> "$GITHUB_ENV"
+
+      - name: Install ossutil
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 3 -o ossutil.zip https://gosspublic.alicdn.com/ossutil/v2/2.2.1/ossutil-2.2.1-linux-amd64.zip
+          printf '%s  ossutil.zip\n' fbf1026bd383a5d9bee051cd64a6226c730357ba569491f7c7b91af66560ef1d | sha256sum -c
+          unzip -q ossutil.zip
+          printf '%s\n' "$RUNNER_TEMP/ossutil-2.2.1-linux-amd64" >> "$GITHUB_PATH"
+
+      - name: Publish and verify OSS mirror
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.ACCESSKEYID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.ACCESSKEYSECRET }}
+        run: |
+          if [[ -z "$OSS_ACCESS_KEY_ID" || -z "$OSS_ACCESS_KEY_SECRET" ]]; then
+            echo "::error::Missing ACCESSKEYID or ACCESSKEYSECRET in the oss environment"
+            exit 1
+          fi
+          upload() {
+            ossutil cp --region cn-beijing --endpoint https://oss-cn-beijing.aliyuncs.com --force --acl public-read "$@"
+          }
+
+          for file in dist/agentuse-*; do
+            upload "$file" "$OSS_RELEASES/$RELEASE_TAG/${file##*/}"
+            curl -fsSI --retry 3 --connect-timeout 5 --max-time 20 "$OSS_PUBLIC/releases/$RELEASE_TAG/${file##*/}" >/dev/null
+          done
+          upload dist/SHA256SUMS "$OSS_RELEASES/$RELEASE_TAG/SHA256SUMS"
+          curl -fsS --retry 3 --connect-timeout 5 --max-time 20 "$OSS_PUBLIC/releases/$RELEASE_TAG/SHA256SUMS" -o "$RUNNER_TEMP/oss-sums"
+          cmp dist/SHA256SUMS "$RUNNER_TEMP/oss-sums"
+
+          latest_tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+          if [[ "$latest_tag" == "$RELEASE_TAG" ]]; then
+            upload install.sh oss://agentuse/install.sh --cache-control no-cache --content-type text/plain
+            curl -fsS --retry 3 --connect-timeout 5 --max-time 20 "$OSS_PUBLIC/install.sh" -o "$RUNNER_TEMP/oss-install.sh"
+            cmp install.sh "$RUNNER_TEMP/oss-install.sh"
+            printf '%s\n' "$RELEASE_TAG" > "$RUNNER_TEMP/oss-latest"
+            upload "$RUNNER_TEMP/oss-latest" "$OSS_RELEASES/latest" --cache-control no-cache --content-type text/plain
+            curl -fsS --retry 3 --connect-timeout 5 --max-time 20 "$OSS_PUBLIC/releases/latest" -o "$RUNNER_TEMP/oss-latest-check"
+            cmp "$RUNNER_TEMP/oss-latest" "$RUNNER_TEMP/oss-latest-check"
+          fi

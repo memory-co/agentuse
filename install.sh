@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# agentuse 一键安装：从 GitHub Release 下载预编译的 agentuse-server,
+# agentuse 一键安装：从 GitHub Release 或 OSS 下载预编译的 agentuse-server,
 # 以及给用户电脑 setup.sh 下载用的各平台 agentuse(放到 ~/.agentuse/dist)。
 #
 #   curl -fsSL https://raw.githubusercontent.com/memory-co/agentuse/main/install.sh | bash
@@ -11,12 +11,22 @@
 set -euo pipefail
 
 REPO="memory-co/agentuse"
+GITHUB_BASE="https://github.com/$REPO/releases/download"
+OSS_BASE="https://agentuse.oss-cn-beijing.aliyuncs.com/releases"
+OSS_CNAME="https://agentuse.cn-beijing.taihangpfm.cn/releases"
 PLATFORMS="linux-amd64 linux-arm64 darwin-amd64 darwin-arm64"
 
 die() { echo "错误: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
 
 command -v curl >/dev/null 2>&1 || die "需要 curl"
+if command -v sha256sum >/dev/null 2>&1; then
+  SHA256=(sha256sum)
+elif command -v shasum >/dev/null 2>&1; then
+  SHA256=(shasum -a 256)
+else
+  die "需要 sha256sum 或 shasum 校验下载文件"
+fi
 
 case "$(uname -s)" in
   Linux) OS=linux ;;
@@ -29,13 +39,26 @@ case "$(uname -m)" in
   *) die "不支持的架构: $(uname -m)" ;;
 esac
 
+latest_version() {
+  local metadata tag mirror
+  if metadata="$(curl -fsSL --connect-timeout 3 --max-time 5 "https://api.github.com/repos/$REPO/releases/latest")"; then
+    tag="$(printf '%s\n' "$metadata" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')"
+    if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then printf '%s\n' "$tag"; return; fi
+  fi
+  for mirror in "$OSS_BASE" "$OSS_CNAME"; do
+    if tag="$(curl -fsSL --connect-timeout 3 --max-time 5 "$mirror/latest")" && [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      printf '%s\n' "$tag"
+      return
+    fi
+  done
+  return 1
+}
+
 VERSION="${VERSION:-}"
 if [ -z "$VERSION" ]; then
-  VERSION="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-    | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
-  [ -n "$VERSION" ] || die "查不到最新版本，可以用 VERSION=v0.0.5 指定"
+  VERSION="$(latest_version)" || die "查不到最新版本，可以用 VERSION=v0.2.1 指定"
 fi
-BASE="https://github.com/$REPO/releases/download/$VERSION"
+[[ "$VERSION" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]] || die "无效的版本号: $VERSION"
 
 if [ -z "${INSTALL_DIR:-}" ]; then
   INSTALL_DIR=/usr/local/bin
@@ -60,25 +83,58 @@ cleanup() {
 }
 trap cleanup EXIT
 
-fetch() { curl -fSL --progress-bar "$BASE/$1" -o "$TMP/$1" || die "下载 $BASE/$1 失败"; }
+FILES=("agentuse-server-$OS-$ARCH")
+for p in $PLATFORMS; do FILES+=("agentuse-$p"); done
+SOURCES=("$GITHUB_BASE" "$OSS_BASE" "$OSS_CNAME")
+
+probe_source() {
+  local index="$1" seconds
+  seconds="$(curl -fsSL --connect-timeout 3 --max-time 6 --max-filesize 65536 \
+    -w '%{time_total}' "${SOURCES[$index]}/$VERSION/SHA256SUMS" -o "$TMP/$index.manifest" 2>/dev/null)" || return 1
+  [[ "$seconds" =~ ^[0-9]+\.[0-9]+$ ]] || return 1
+  awk -v files="${FILES[*]}" '
+    BEGIN { count = split(files, names, " "); for (i = 1; i <= count; i++) wanted[names[i]] = 1 }
+    { sub(/^\*/, "", $2) }
+    $2 in wanted {
+      if (NF != 2 || length($1) != 64 || $1 !~ /^[0-9a-fA-F]+$/ || seen[$2]++) exit 1
+      print tolower($1), $2
+      found++
+    }
+    END { if (found != count) exit 1 }
+  ' "$TMP/$index.manifest" > "$TMP/$index.sums" || return 1
+  printf '%s %s\n' "$seconds" "$index" > "$TMP/$index.ready"
+}
+
+fetch_verified() {
+  local name="$1" digest index
+  digest="$(awk -v name="$name" '$2 == name {print $1}' "$manifest")"
+  for index in $source_order; do
+    if curl -fSL --progress-bar --connect-timeout 5 --speed-limit 1024 --speed-time 15 \
+      "${SOURCES[$index]}/$VERSION/$name" -o "$TMP/$name" &&
+      (cd "$TMP" && printf '%s  %s\n' "$digest" "$name" | "${SHA256[@]}" -c --quiet); then
+      return
+    fi
+    info "${SOURCES[$index]} 下载或校验 $name 失败，尝试备用源"
+  done
+  die "$name 下载或 SHA256 校验失败"
+}
 
 info "安装 agentuse $VERSION ($OS/$ARCH)"
-fetch SHA256SUMS
-fetch "agentuse-server-$OS-$ARCH"
-for p in $PLATFORMS; do fetch "agentuse-$p"; done
-
-info "校验 SHA256"
-# 只校验下载了的文件(macOS 自带的 shasum 不一定支持 --ignore-missing)
-FILES="agentuse-server-$OS-$ARCH"
-for p in $PLATFORMS; do FILES="$FILES agentuse-$p"; done
-for f in $FILES; do grep " \*\{0,1\}$f\$" "$TMP/SHA256SUMS" || die "SHA256SUMS 里没有 $f"; done > "$TMP/SUMS"
-if command -v sha256sum >/dev/null 2>&1; then
-  (cd "$TMP" && sha256sum -c --quiet SUMS) || die "校验失败"
-elif command -v shasum >/dev/null 2>&1; then
-  (cd "$TMP" && shasum -a 256 -c --quiet SUMS) || die "校验失败"
-else
-  echo "警告: 没有 sha256sum / shasum,跳过校验" >&2
-fi
+pids=()
+for index in "${!SOURCES[@]}"; do
+  probe_source "$index" &
+  pids+=("$!")
+done
+for pid in "${pids[@]}"; do wait "$pid" || true; done
+ready=("$TMP/"*.ready)
+[ -f "${ready[0]}" ] || die "下载或校验 $VERSION 的 SHA256SUMS 失败，所有下载源均不可用"
+source_order="$(LC_ALL=C sort -k1,1n -k2,2n "${ready[@]}" | awk '{print $2}')"
+read -r first_source <<< "$source_order"
+manifest="$TMP/$first_source.sums"
+# Prefer the GitHub checksums whenever available, even when a mirror is faster.
+if [ -f "$TMP/0.ready" ]; then manifest="$TMP/0.sums"; fi
+info "优先下载源: ${SOURCES[$first_source]}"
+for f in "${FILES[@]}"; do fetch_verified "$f"; done
 
 mkdir -p "$INSTALL_DIR" "$DIST_DIR"
 # Replace atomically so an existing Server may keep running until the optional restart.

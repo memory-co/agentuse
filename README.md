@@ -39,7 +39,13 @@ Linux / macOS(amd64 / arm64)上一行装好:
 curl -fsSL https://raw.githubusercontent.com/memory-co/agentuse/main/install.sh | bash
 ```
 
-脚本会从最新 [Release](https://github.com/memory-co/agentuse/releases) 下载 `agentuse-server` 装到 `/usr/local/bin`(没权限就装到 `~/.local/bin`),并把各平台的 `agentuse` 放到 `~/.agentuse/dist`,供用户电脑的 `setup.sh` 下载。装指定版本：`curl … | VERSION=v0.0.5 bash`。
+安装脚本探测 [GitHub Release](https://github.com/memory-co/agentuse/releases) 和阿里云 OSS，优先从响应最快的可用源下载。单个文件下载或 SHA-256 校验失败时会尝试备用源。安装路径为 `/usr/local/bin`，无写权限时使用 `~/.local/bin`。各平台的 Client 放在 `~/.agentuse/dist`，供用户电脑的 `setup.sh` 下载。安装指定版本可用 `curl … | VERSION=v0.2.1 bash`。
+
+GitHub 无法访问时，也可以从 OSS 获取安装脚本和最新镜像版本。
+
+```bash
+curl -fsSL https://agentuse.oss-cn-beijing.aliyuncs.com/install.sh | bash
+```
 
 安装结束时可设置管理员登录密码，输入并确认后会后台启动或重启脚本管理的 Server。直接回车则保留原流程，手动启动：
 
