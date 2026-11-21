@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -108,34 +109,43 @@ func TestMissingDist(t *testing.T) {
 	}
 }
 
-func TestDevicePrivateKeyIssuanceRequiresTrustedManagementConnection(t *testing.T) {
-	e := newEnv(t, Config{PublicURL: "https://agentuse.example.com"})
-	_, token := e.user("key-issuer", agentuse.RoleUser)
-	for _, tc := range []struct {
-		name           string
-		remote         string
-		target         string
-		forwardedProto string
-		want           int
-	}{
-		{"remote HTTP", "192.0.2.10:8040", "http://agentuse.example.com/api/devices", "", 403},
-		{"remote forged forwarding header", "192.0.2.10:8040", "http://agentuse.example.com/api/devices", "https", 403},
-		{"remote forged localhost", "192.0.2.10:8040", "http://localhost/api/devices", "", 403},
-		{"loopback", "127.0.0.1:8040", "http://localhost/api/devices", "", 201},
-		{"local HTTPS proxy", "127.0.0.1:8040", "http://agentuse.example.com/api/devices", "https", 201},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodPost, tc.target, nil)
-			r.RemoteAddr = tc.remote
-			r.Header.Set("Authorization", "Bearer "+token)
-			r.Header.Set("X-Forwarded-Proto", tc.forwardedProto)
-			w := httptest.NewRecorder()
-			e.srv.ServeHTTP(w, r)
-			if w.Code != tc.want {
-				t.Fatalf("got %d, want %d", w.Code, tc.want)
+func TestDevicePrivateKeyIssuanceOverHTTP(t *testing.T) {
+	for _, scheme := range []string{"http", "https"} {
+		t.Run(scheme, func(t *testing.T) {
+			e := newEnv(t, Config{PublicURL: scheme + "://agentuse.example.com"})
+			_, token := e.user("key-issuer", agentuse.RoleUser)
+			post := func(path, token string, want int) *httptest.ResponseRecorder {
+				t.Helper()
+				r := httptest.NewRequest(http.MethodPost, "http://agentuse:8080"+path, nil)
+				r.RemoteAddr = "192.0.2.10:8040"
+				if token != "" {
+					r.Header.Set("Authorization", "Bearer "+token)
+				}
+				w := httptest.NewRecorder()
+				e.srv.ServeHTTP(w, r)
+				if w.Code != want {
+					t.Fatalf("POST %s returned %d, want %d", path, w.Code, want)
+				}
+				return w
 			}
-			if tc.want == 403 && strings.Contains(w.Body.String(), "setup_token") {
-				t.Fatal("response leaked a device key")
+			decodeKey := func(w *httptest.ResponseRecorder) deviceView {
+				t.Helper()
+				var device deviceView
+				if err := json.NewDecoder(w.Body).Decode(&device); err != nil {
+					t.Fatal(err)
+				}
+				if device.ID == "" || device.SetupToken == "" || w.Header().Get("Cache-Control") != "no-store" {
+					t.Fatal("missing device ID, private key, or no-store response header")
+				}
+				return device
+			}
+			post("/api/devices", "", http.StatusUnauthorized)
+			created := decodeKey(post("/api/devices", token, http.StatusCreated))
+			resetPath := "/api/devices/" + created.ID + "/reset"
+			post(resetPath, "", http.StatusUnauthorized)
+			reset := decodeKey(post(resetPath, token, http.StatusOK))
+			if reset.ID != created.ID || reset.SetupToken == created.SetupToken {
+				t.Fatal("reset did not issue a new key for the same device")
 			}
 		})
 	}

@@ -70,7 +70,7 @@ public_url: https://agentuse.example.com
 
 ### 2. 接入一台电脑
 
-在 HTTPS 管理页面或 Server 本机的管理入口添加设备。在执行电脑上安装可信的 Client，运行页面生成的注册命令，把私钥正文粘贴到 Client 提示符，然后执行 `agentuse start`。
+登录管理页面并添加设备。在执行电脑上安装可信的 Client，运行页面生成的注册命令，把私钥正文粘贴到 Client 提示符，然后执行 `agentuse start`。
 
 如果使用 Server 的 HTTPS 安装脚本，可以先运行 `bash setup.sh` 安装 Client。若 `agentuse` 不在 PATH，用 `~/.agentuse/bin/agentuse` 执行注册命令。注册后运行 `bash setup.sh --service` 设置后台服务。设备在线后会在页面上报告本机检测到的 harness。
 

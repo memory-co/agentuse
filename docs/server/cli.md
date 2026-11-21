@@ -104,7 +104,7 @@ Server 的私有 CA、通道身份及 HMAC 签名材料持久保存在 `~/.agent
 
 公开地址由后端启动配置统一决定，控制登录链接、设备安装命令、`setup.sh` 中的下载和注册地址，以及登录 cookie 的 HTTPS 属性。前端直接展示后端返回的安装命令；Host、Origin、Referer 和代理转发头不会改变公开地址。未配置时固定使用启动时的本机监听地址，例如 `http://localhost:8080`；使用域名、局域网地址或 HTTPS 反向代理时应在 `settings.yaml` 中配置公开地址，也可通过参数或环境变量提供。
 
-新建或重置设备时，从 HTTPS 管理页面或 Server 本机的 `localhost` 管理入口领取私钥。HTTPS 由反向代理终结时，代理应通过回环地址连接 Server，保留 HTTPS `public_url` 对应的 Host，并覆盖 `X-Forwarded-Proto: https`。Client 可继续连接配置的 HTTP 地址，使用注册命令中的 Server CA 指纹验证内层 TLS。
+登录管理页面后，可在新建或重置设备时领取私钥。管理入口支持 HTTP 和 HTTPS，反向代理可通过 HTTP 转发到 Server。Client 可连接配置的 HTTP 地址，使用注册命令中的 Server CA 指纹验证内层 TLS。
 
 也可以在启动时交互设置密码，标准输入仅用于这次设置，后续普通启动保留数据库中的凭据：
 

@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"errors"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -240,28 +239,6 @@ func shellArg(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
-func (s *Server) allowDeviceKeyIssuance(w http.ResponseWriter, r *http.Request) bool {
-	if r.TLS != nil {
-		return true
-	}
-	// Plain HTTP is limited to a local administrator or a local HTTPS proxy.
-	// A remote request cannot make itself trusted by setting a forwarding header.
-	remote, _, _ := net.SplitHostPort(r.RemoteAddr)
-	if ip := net.ParseIP(remote); ip != nil && ip.IsLoopback() {
-		host := (&url.URL{Host: r.Host}).Hostname()
-		if ip := net.ParseIP(host); strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback()) {
-			return true
-		}
-		publicURL, err := url.Parse(s.cfg.PublicURL)
-		if err == nil && publicURL.Scheme == "https" && strings.EqualFold(r.Host, publicURL.Host) &&
-			r.Header.Get("X-Forwarded-Proto") == "https" {
-			return true
-		}
-	}
-	writeErr(w, http.StatusForbidden, "device private keys are issued over HTTPS or the local management address")
-	return false
-}
-
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 	ds, err := s.service.DeviceService.ListDevices(r.Context(), currentUser(r))
 	if err != nil {
@@ -272,9 +249,6 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateDevice(w http.ResponseWriter, r *http.Request) {
-	if !s.allowDeviceKeyIssuance(w, r) {
-		return
-	}
 	var req createDeviceBody
 	if r.ContentLength != 0 {
 		if err := readJSON(r, &req); err != nil {
@@ -300,9 +274,6 @@ func (s *Server) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleResetDevice(w http.ResponseWriter, r *http.Request) {
-	if !s.allowDeviceKeyIssuance(w, r) {
-		return
-	}
 	d, err := s.service.DeviceService.ResetDeviceSetup(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {
 		s.serviceErr(w, err)

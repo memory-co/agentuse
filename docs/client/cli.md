@@ -6,7 +6,7 @@
 
 ### 接入 Server
 
-使用当前内置适配器时，在 Linux 执行设备上安装并登录需要使用的 Codex 或 Claude Code，同时准备 Python 3.9+。其他平台需使用其 manifest 明确支持的平台适配器。从可信来源安装 Client。在 HTTPS 管理页面或 Server 本机的管理入口创建设备，运行页面给出的注册命令，再把设备私钥正文粘贴到 Client 提示符。
+使用当前内置适配器时，在 Linux 执行设备上安装并登录需要使用的 Codex 或 Claude Code，同时准备 Python 3.9+。其他平台需使用其 manifest 明确支持的平台适配器。从可信来源安装 Client。登录管理页面创建设备，运行页面给出的注册命令，再把设备私钥正文粘贴到 Client 提示符。
 
 注册完成后可以在前台启动。
 

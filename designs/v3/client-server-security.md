@@ -43,7 +43,7 @@ Client 不增加第二个独立开关。Server 通过签名的握手策略声明
 
 ## 设备身份与首次信任
 
-Server 在创建设备或重置时生成独立的 Ed25519 密钥对，`setup_token` 就是 OpenSSH 私钥正文。Server 只持久化公钥指纹，私钥只通过 HTTPS 或本机管理响应交给使用者。使用者在可信的 Client 终端粘贴正文。安装脚本与命令行记录无需携带私钥。
+Server 在创建设备或重置时生成独立的 Ed25519 密钥对，`setup_token` 就是 OpenSSH 私钥正文。Server 只持久化公钥指纹，并在通过用户认证和权限校验的创建或重置响应中交付私钥。管理请求支持 HTTP 和 HTTPS。使用者在可信的 Client 终端粘贴正文。安装脚本与命令行记录无需携带私钥。
 
 ```text
 Client 导入 OpenSSH 私钥
@@ -57,7 +57,7 @@ Client 导入 OpenSSH 私钥
 
 Server 自己保存身份 CA 私钥、Server 通道证书及签名密钥；这些材料持久保存，不能每次启动重新生成。设备证书绑定 `device_id`、凭据代次和 Client 身份用途，由 CA 签发；初版使用标准 X.509 证书及 Ed25519 密钥。
 
-设备私钥只在受信管理响应中交付，之后由 Client 保存。Server 用公钥指纹匹配设备，并保存证书序列号、有效期、凭据代次和撤销状态。认证连接同时检查证书链和当前设备授权。
+设备私钥交付后由 Client 保存。Server 用公钥指纹匹配设备，并保存证书序列号、有效期、凭据代次和撤销状态。认证连接同时检查证书链和当前设备授权。
 
 `endpoints.yaml` 继续保存 Server 地址、设备 ID 和非秘密的证书文件引用；私钥与设备证书保存在该 endpoint 的独立私有目录，文件权限为 `0600`。endpointService 保存这些注册材料，runService 使用启动快照建立连接。续签原子替换证书材料，不改变 endpoint、conversation、session 或 run 身份。
 
