@@ -6,12 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/memory-co/agentuse/internal/access"
 
 	"github.com/google/uuid"
-
 	"gorm.io/gorm"
 
+	"github.com/memory-co/agentuse/internal/access"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/database"
 	deviceservice "github.com/memory-co/agentuse/server/internal/service/device"
@@ -84,12 +83,34 @@ func (s *Service) rounds(ctx context.Context, q *gorm.DB, conversation string) (
 	}
 	return out, nil
 }
+
+// These predicates use r for the round and c for its conversation. Only routed
+// inputs from the creating Agent count, including when that Agent also executes
+// work and writes results in the child.
+func (s *Service) roundHasParentInput() string {
+	targets := database.MessageTargets(s.DB, "m", "t")
+	return `EXISTS(SELECT 1 FROM ` + targets.From + `
+		WHERE m.conversation_id=r.conversation_id
+			AND m.seq BETWEEN r.start_message_seq AND r.end_message_seq
+			AND m.author_role='agent' AND m.author_agent_id=c.parent_agent_id)`
+}
+
+func (s *Service) pendingParentRound() string {
+	return `r.finished_at IS NOT NULL AND ` + s.roundHasParentInput() + `
+		AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id=c.parent_conversation_id
+			AND m.author_conversation_id=c.id AND m.author_round_seq=r.seq)`
+}
+
 func (s *Service) projectRoundDelivery(ctx context.Context, q *gorm.DB, r *agentuse.ConversationRound) error {
 	if r.FinishedAt == nil {
 		return nil
 	}
 	var parent, agent string
-	if err := database.Row(ctx, q, `SELECT COALESCE(parent_conversation_id,''),COALESCE(parent_agent_id,'') FROM conversations WHERE id=?`, r.ConversationID).Scan(&parent, &agent); err != nil {
+	var hasParentInput bool
+	if err := database.Row(ctx, q, `
+		SELECT COALESCE(c.parent_conversation_id,''),COALESCE(c.parent_agent_id,''),`+s.roundHasParentInput()+`
+		FROM conversation_rounds r JOIN conversations c ON c.id=r.conversation_id
+		WHERE r.conversation_id=? AND r.seq=?`, r.ConversationID, r.Seq).Scan(&parent, &agent, &hasParentInput); err != nil {
 		return err
 	}
 	if parent == "" {
@@ -103,6 +124,9 @@ func (s *Service) projectRoundDelivery(ctx context.Context, q *gorm.DB, r *agent
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
+	if !hasParentInput {
+		return nil
+	}
 	r.ParentDelivery = "pending"
 	var exists int
 	if err = database.Row(ctx, q, `SELECT count(*) FROM agents WHERE id=? AND deleted_at IS NULL`, agent).Scan(&exists); err != nil {
@@ -115,8 +139,8 @@ func (s *Service) projectRoundDelivery(ctx context.Context, q *gorm.DB, r *agent
 	return nil
 }
 
-// A finished interval is the durable notification intent. Parent unavailability
-// never changes its end boundary or rolls back an already committed child result.
+// ReconcileRoundNotifications calls this for finished rounds with parent input.
+// Parent unavailability does not roll back an already committed child result.
 func (s *Service) notifyFinishedRound(ctx context.Context, childID string, seq int64) error {
 	var parentID string
 	err := s.Database.Tx(ctx, func(tx *gorm.DB) error {
@@ -217,10 +241,13 @@ func (s *Service) notifyFinishedRound(ctx context.Context, childID string, seq i
 	return err
 }
 
-// Only completed conversation rounds are scanned; individual Agent messages are
-// never parent deliveries. The unique author/round key is the delivery receipt.
+// The unique author/round key is the delivery receipt for a delegated round.
 func (s *Service) ReconcileRoundNotifications(ctx context.Context) error {
-	rows, err := database.Rows(ctx, s.DB, `SELECT r.conversation_id,r.seq FROM conversation_rounds r JOIN conversations c ON c.id=r.conversation_id JOIN agents a ON a.id=c.parent_agent_id AND a.deleted_at IS NULL WHERE r.finished_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id=c.parent_conversation_id AND m.author_conversation_id=c.id AND m.author_round_seq=r.seq) ORDER BY r.finished_at,r.conversation_id,r.seq`)
+	rows, err := database.Rows(ctx, s.DB, `
+		SELECT r.conversation_id,r.seq FROM conversation_rounds r
+		JOIN conversations c ON c.id=r.conversation_id
+		JOIN agents a ON a.id=c.parent_agent_id AND a.deleted_at IS NULL
+		WHERE `+s.pendingParentRound()+` ORDER BY r.finished_at,r.conversation_id,r.seq`)
 	if err != nil {
 		return err
 	}

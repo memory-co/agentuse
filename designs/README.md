@@ -6,7 +6,7 @@
 
 v1/v2 是历史存档，其中旧接口和类型不代表当前支持的入口。Server 当前仅使用 [Conversation 接口](../docs/server/conversations.md)，旧 session 路由和兼容别名已删除。
 
-嵌套 conversation 已实现，主、子会话各自支持多 Agent。子会话整轮结束后由 Server 生成 child_conversation 通知，协调者按来源会话与轮次读取结果。关系、轮次和表结构统一见 [conversation 设计](v3/server-conversation.md#父子對話)；[嵌套对话设计](v3/server-conversation-nest.md)说明 context CLI、派发和按轮次通知的闭环。
+嵌套 conversation 已实现，主、子会话各自支持多 Agent。包含协调者委派工作的子轮次结束后，Server 生成 child_conversation 通知，协调者按来源会话与轮次读取结果。关系、轮次和表结构统一见 [conversation 设计](v3/server-conversation.md#父子對話)；[嵌套对话设计](v3/server-conversation-nest.md)说明 context CLI、派发和按轮次通知的闭环。
 
 | 入口 | 内容 |
 |---|---|

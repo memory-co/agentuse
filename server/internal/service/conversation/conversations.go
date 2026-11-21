@@ -131,11 +131,13 @@ func (s *Service) deleteConversation(ctx context.Context, u sdk.User, id string,
 			return ErrConversationBusy
 		}
 		if v.ParentConversationID != "" && v.ParentConversationID != root.ID {
-			var pending int
-			if err = database.Row(ctx, tx, `SELECT count(*) FROM conversation_rounds r WHERE r.conversation_id=? AND r.finished_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.conversation_id=? AND m.author_conversation_id=r.conversation_id AND m.author_round_seq=r.seq)`, v.ID, v.ParentConversationID).Scan(&pending); err != nil {
+			var pending bool
+			if err = database.Row(ctx, tx, `
+				SELECT EXISTS(SELECT 1 FROM conversation_rounds r JOIN conversations c ON c.id=r.conversation_id
+					WHERE r.conversation_id=? AND `+s.pendingParentRound()+`)`, v.ID).Scan(&pending); err != nil {
 				return err
 			}
-			if pending > 0 {
+			if pending {
 				return ErrConversationBusy
 			}
 		}

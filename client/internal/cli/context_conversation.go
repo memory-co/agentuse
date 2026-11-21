@@ -24,11 +24,13 @@ Available in a collaborative root conversation:
 
 Delegate work, briefly report the assigned children, and end this run immediately.
 Do not poll, sleep, or repeatedly read/list to wait for children. Server sends a
-notification after each child round completes; read that round when notified.
+notification when a child round containing your delegated work completes.
+Read that round when notified.
 `
 const childConversationUsage = `Execute the assigned task directly; child conversations cannot create children.
 If blocked or clarification is needed, explain it in your final response and end
-this round normally. Server notifies the coordinator after the round completes.
+this round normally. Server notifies the creating coordinator after rounds that
+include work they assigned. Reply to direct user requests in this conversation.
 Use the status and attachment execution tools as needed.
 `
 const singleConversationUsage = "Execute directly in single mode; conversation delegation commands are not available.\n"

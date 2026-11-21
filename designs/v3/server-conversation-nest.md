@@ -6,7 +6,7 @@
 
 協作根 conversation 的 Agent 分析需求後，用已放進執行環境的 context 命令創建 single 子 conversation，明確指定子 Agent 和任務內容。可以創建多個子對話，分布在不同 Client；一個子對話也可以有多個 Agent。
 
-子 Agent 的回覆保留在子對話。**整輪所有輸入和執行收束後，Server 自動在父對話放入一條 author_role=child_conversation 的消息**，author_conversation_id 和 author_round_seq 指向來源。父側收件人固定為創建子對話的 parent_agent_id，然後走普通消息派發。通知不複製某個 Agent 的結果，也不要求子 Agent 再調用一個報告工具。
+子 Agent 的回覆保留在子對話。**一輪包含創建該子對話的協調者委派的工作時，Server 在整輪收束後自動向父對話發一條 author_role=child_conversation 的消息**，author_conversation_id 和 author_round_seq 指向來源。用戶直接與子 Agent 的對話單獨執行時留在子對話；如果同一輪也包含協調者委派，該輪仍回報一次。通知的收件人為 parent_agent_id，然後走普通消息派發。通知不複製某個 Agent 的結果，也不要求子 Agent 再調用一個報告工具。
 
 ```mermaid
 sequenceDiagram
@@ -42,7 +42,7 @@ Server 根據 mode 和真實父子關係，隨每次 message.context 注入英�
 Coordinate this top-level conversation. Do not execute the delegated work yourself.
 Use context conversation agents and create to delegate into child conversations.
 Keep each child ID. Server sends one child_conversation notification after every
-completed child round. Read CHILD_ID --round N, review all results and failures,
+completed child round that contains work you assigned. Read CHILD_ID --round N, review all results and failures,
 answer child questions with send CHILD_ID --agents IDS MESSAGE, and consolidate.
 A completed round is not proof of success. After creating children or sending
 follow-up work, briefly report the assignments and end this run immediately.
@@ -56,8 +56,8 @@ deliver a child round notification; read that round when notified.
 Execute the assigned work yourself. Do not create another conversation.
 If you need clarification or resources, explain the question or obstacle in your
 final response and end this round normally. Do not wait for a coordinator reply
-within the same round. Server notifies the creating parent Agent after all inputs
-and executions settle. The coordinator may send instructions for a later round.
+within the same round. Server notifies the creating parent Agent after rounds
+that include work they assigned. Reply to direct user requests in the child.
 ```
 
 內層沒有主動發父消息的入口。若缺失「鑑權方式」才能繼續，它直接在最終答復中提問並結束本輪；協調者被通知後讀取該輪，決定回答、換人或停止，再發下一輪輸入。原生權限審批/人工提問仍用 request/reply，等待時不偽造輪次結束。這樣不用混合進展回報、手動最終報告和自動結果轉發。
@@ -87,13 +87,13 @@ context conversation read CHILD_ID --round 1
 context conversation send CHILD_ID --agents coder "Use the existing OAuth mechanism"
 ```
 
-派發或補充子任務後，協調者簡短告知使用者已委派的工作並立即結束當前 run。context 不提供 wait、timeout 或等待輪次的入口；禁止用輪詢、sleep 或反覆 read/list 代替等待。Server 在子會話整輪結束後自動通知；父 run 已結束時，通知觸發新的 run，再讀取通知指定的輪次。
+派發或補充子任務後，協調者簡短告知使用者已委派的工作並立即結束當前 run。context 不提供 wait、timeout 或等待輪次的入口；禁止用輪詢、sleep 或反覆 read/list 代替等待。含有委派工作的子輪次結束後，Server 自動通知；父 run 已結束時，通知觸發新的 run，再讀取通知指定的輪次。
 
 ## 邊界和可靠性
 
 一次 Agent-targeted 輸入開始一輪，直到對話沒有活躍 run、等待原生請求或未收束投遞。多 Agent 各自結束只更新子歷史；失敗、取消、已確認拒絕也納入同一輪，不逐條報告。斷線和 unknown 不能被推斷為完成。
 
-子結果及輪次邊界先落庫。父通知獨立原子保存作者來源、輪次及給創建 Agent 的分配；父側故障不抹掉子結果。Server 從已結束但缺通知的輪次補送，進程重啓及事件重放不重複生成父消息。同一子對話按輪次順序補送。發起 Agent 已刪除則顯示 failed，保留來源，不回退其他收件人。
+子結果及輪次邊界先落庫。父通知獨立原子保存作者來源、輪次及給創建 Agent 的分配；父側故障不抹掉子結果。Server 補送已結束且包含委派工作的輪次所缺的通知，進程重啓及事件重放不重複生成父消息。同一子對話按輪次順序補送。發起 Agent 已刪除則顯示 failed，保留來源，不回退其他收件人。
 
 GET 的 round=N 只返回該輪固定的消息與執行範圍；對話當前狀態和通知送達狀態仍為當前值。父通知點開該輪，子頁面展示輪次分隔與 pending/delivered/failed；delivered 僅指父消息已落庫，並非已被處理。
 

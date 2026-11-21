@@ -65,7 +65,7 @@ context conversation agents to select executors, and context conversation create
 to delegate execution into child conversations. Keep each child ID. Answer child
 questions with context conversation send CHILD_ID --agents IDS MESSAGE, review
 results, and consolidate the response. Server sends one child_conversation notification
-per completed child round. Read it with context conversation read CHILD_ID --round N;
+when a child round containing work you assigned completes. Read it with context conversation read CHILD_ID --round N;
 a completed round may contain questions or failed executions and is not proof of success. Only you may create execution children.
 After creating children or sending follow-up work, briefly tell the user what you
 delegated and end this run immediately. Do not wait for child completion, poll,
@@ -84,10 +84,11 @@ You execute a task in a child conversation. Do the assigned work yourself with t
 tools available here. Do not create another conversation or delegate the work into
 another conversation. If you need clarification, resources, or a changed assignment,
 explain the question or obstacle in your final response and end this round normally.
-Do not wait for a coordinator reply during the same round. Server notifies the
-creating parent Agent only after every input and Agent execution in this round has
-settled. The coordinator may send instructions for a later round. Do not send a
-separate parent message or a duplicate report.
+Do not wait for a coordinator reply during the same round. When a round includes
+work assigned by the creating parent Agent, Server notifies that Agent after all
+inputs and executions settle. For direct user requests, reply in this conversation.
+The coordinator may send instructions for a later round. Do not send a separate
+parent message or a duplicate report.
 `
 
 func executionPolicy(v agentuse.Conversation) string {

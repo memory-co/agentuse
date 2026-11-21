@@ -110,7 +110,7 @@ parent_conversation_id 為空表示頂層對話；非空時表示直接執行任
 
 創建子對話時，調用方在首條消息中提供子問題及必要背景，不隱式複製父對話的全部歷史、初始化指令或附件。Agent 的最終回覆只保存在該子對話，作者仍為 agent，並記錄固定 Agent 版本。
 
-**回傳只有一條路徑：子 conversation 的整輪執行結束後，由 Server 自動生成一條 child_conversation 消息送到父 conversation。** Client 不提供主動向父發消息的命令或接口，也不能用普通消息接口繞過來源範圍限制。通知不複製某個 Agent 的正文，不偽裝成父對話中的 Agent。
+**子 conversation 的一輪包含創建該子對話的父 Agent 發給子 Agent 的輸入時，Server 於整輪執行結束後自動生成一條 child_conversation 消息送到父 conversation。** 用戶直接發給子 Agent 的輸入留在子對話中，單獨執行時不觸發父通知。委派與用戶輸入進入同一輪時，該輪收束後仍為委派工作通知一次。Client 不提供主動向父發消息的命令或接口，也不能用普通消息接口繞過來源範圍限制。通知不複製某個 Agent 的正文，不偽裝成父對話中的 Agent。
 
 輪次由 conversationService 管理，定義如下：
 
@@ -142,13 +142,13 @@ author_user_id、author_agent_id、author_agent_version_id 均為空，author_na
 
 ### 可靠性與範圍讀取
 
-子結果和輪次結束先提交，通知使用獨立事務；父側臨時不可用不能回滾子結果。已結束輪次本身就是持久化的通知意圖。Server 在結果/投遞變更後及定期補送時，找出缺少父通知的輪次；父消息的 (conversation_id, author_conversation_id, author_round_seq) 唯一鍵去重。進程重啓、事件重放及重複補送最多保存一條通知，同一子對話按輪次順序補送。這保證消息只落庫一次；原生執行仍沿既有可靠投遞協議。
+子結果和輪次結束先提交，通知使用獨立事務；父側臨時不可用不能回滾子結果。Server 在結果/投遞變更後及定期補送時，從固定輪次區間查找包含協調者委派且缺少父通知的已結束輪次。父消息的 (conversation_id, author_conversation_id, author_round_seq) 唯一鍵去重。進程重啓、事件重放及重複補送最多保存一條通知，同一子對話按輪次順序補送。這保證消息只落庫一次；原生執行仍沿既有可靠投遞協議。
 
-rounds 的 parent_delivery、parent_message_id、parent_delivery_error 是只讀投影：pending 表示已結束待通知，delivered 表示父消息及其分配已保存，failed 表示發起 Agent 已刪除。delivered 不表示父 Agent 已處理。這些字段屬於輪次，不屬於某條 Agent 結果消息；頂層及未結束輪次不投影回傳狀態。
+rounds 的 parent_delivery、parent_message_id、parent_delivery_error 是只讀投影：pending 表示已結束待通知，delivered 表示父消息及其分配已保存，failed 表示發起 Agent 已刪除。delivered 不表示父 Agent 已處理。這些字段屬於輪次；已有父通知的歷史輪次仍顯示 delivered。未收到委派的子輪次沒有待回傳狀態。
 
 GET /api/conversations/{id}?round=N 返回 [start_message_seq,end_message_seq] 內的消息、該區間輸入關聯的投遞與 run，以及這些 run 的事件和問題，rounds 僅含指定輪次。不存在的輪次返回 404；非法、重複或未知查詢參數返回 400。對話元數據與回傳狀態仍為當前投影，不宣稱整個 DTO 是歷史時點快照。已結束輪次的消息與執行範圍不受下一輪影響；活動輪次可讀取當前進度。
 
-Client 的 `read CHILD_ID --round N` 使用此接口。子會話整輪結束後，Server 自動生成父側通知；協調者按通知中的來源與輪次讀取固定結果，不依賴本機等待命令。
+Client 的 `read CHILD_ID --round N` 使用此接口。協調者按通知中的來源與輪次讀取固定結果，包含同一輪內的追加輸入。
 
 前端父對話的子對話通知默認折疊，摘要只顯示展開箭頭、子對話圖標、來源標題、輪次和結束狀態，減少與協調者回覆的重複；展開後顯示通知詳情、收件人及指定輪次的連結，不展示為 @Agent 回覆。子對話歷史保留各 Agent 原始回覆，並顯示輪次及通知狀態。指定輪次頁面提供只讀消息與執行範圍，可返回完整對話。
 
@@ -282,7 +282,7 @@ agent_targets 是以 agent_id 為鍵的內部 JSON 元數據：固定 agent_vers
 
 ### conversation_rounds
 
-每個 conversation 的本地輪次區間。seq 僅在同一對話中遞增，不是另一個全局 UUID 或執行身份。根對話也記錄輪次，只有有父關係的已結束輪次會生成通知。service 在同一事務校驗起止消息歸屬、序號、靜止條件和真實父子關係；不提供調用方修改輪次的接口。
+每個 conversation 的本地輪次區間。seq 僅在同一對話中遞增，不是另一個全局 UUID 或執行身份。根對話也記錄輪次，父通知由已結束的子輪次內的協調者委派輸入判定。service 在同一事務校驗起止消息歸屬、序號、靜止條件和真實父子關係；不提供調用方修改輪次的接口。
 
 ```sql
 CREATE TABLE conversation_rounds (

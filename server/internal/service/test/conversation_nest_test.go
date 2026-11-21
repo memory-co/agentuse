@@ -271,6 +271,77 @@ func TestEmptyConversationsAndNotesDoNotProduceRounds(t *testing.T) {
 		t.Fatal(detail, err)
 	}
 }
+
+func TestChildRoundNotifiesOnlyForCreatingAgentInput(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		delegate bool
+	}{
+		{name: "direct user follow-up"},
+		{name: "coordinator adds work to a user-started round", delegate: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := roundSetup(t, false, true)
+			ctx := context.Background()
+			s := f.s
+			f.result(t, f.executor.ID, "completed", "Initial delegated result")
+
+			// Even a reply authored by the creating Agent in the child is a result,
+			// so it must not count as a new delegation from the parent.
+			user, err := s.ConversationService.SendMessage(ctx, f.u, f.child.ID, "User follow-up", []string{f.coordinator.ID}, nil, nil, "")
+			if err != nil || user.Round == nil || user.Round.Seq != 2 {
+				t.Fatal(user, err)
+			}
+			messageIDs := []string{user.Message.ID}
+			recipients := []agentuse.Agent{f.coordinator}
+			if tc.delegate {
+				delegated, err := s.ConversationService.SendAgentMessage(ctx, f.source, f.child.ID, "Delegated follow-up", []string{f.executor.ID}, nil, nil, "")
+				if err != nil || delegated.Round == nil || delegated.Round.Seq != 2 {
+					t.Fatal(delegated, err)
+				}
+				messageIDs = append(messageIDs, delegated.Message.ID)
+				recipients = append(recipients, f.executor)
+			} else if _, err := s.ConversationService.SendAgentMessage(ctx, f.source, f.child.ID, "Coordinator note", nil, nil, nil, ""); err != nil {
+				t.Fatal(err)
+			}
+
+			for i, recipient := range recipients {
+				input, err := s.RunService.DispatchMessage(ctx, f.d, protocol.Message{
+					ActiveStreams: []protocol.StreamRef{{ConversationID: f.child.ID, AgentID: recipient.ID, AgentVersionID: recipient.CurrentVersionID}},
+				})
+				if err != nil || input.MessageID != messageIDs[i] {
+					t.Fatal(input, err)
+				}
+				session, run := uuid.NewString(), uuid.NewString()
+				reportNative(t, s, f.d, input, session, 1, acceptedEvent(run, "follow-up", input.Content))
+				reportNative(t, s, f.d, input, session, 2, map[string]any{"type": "result", "run_id": run, "input_ids": []string{"follow-up"}, "status": "completed", "output": "Follow-up result"})
+			}
+
+			if err := s.ConversationService.ReconcileRoundNotifications(ctx); err != nil {
+				t.Fatal(err)
+			}
+			detail, err := s.ConversationService.ReadRound(ctx, f.u, f.child.ID, 2)
+			if err != nil || len(detail.Rounds) != 1 || detail.Rounds[0].FinishedAt == nil {
+				t.Fatal(detail, err)
+			}
+			round := detail.Rounds[0]
+			notices := parentNotices(t, f)
+			if tc.delegate {
+				if len(notices) != 2 || notices[1].AuthorRoundSeq != 2 || round.ParentDelivery != "delivered" {
+					t.Fatal(notices, round)
+				}
+			} else {
+				if len(notices) != 1 || round.ParentDelivery != "" || round.ParentMessageID != "" {
+					t.Fatal(notices, round)
+				}
+				if err := s.ConversationService.DeleteConversation(ctx, f.u, f.child.ID); err != nil {
+					t.Fatal("user round blocked deletion", err)
+				}
+			}
+		})
+	}
+}
+
 func TestRoundDeliveryFailurePreservesLineageAndDeleteGuards(t *testing.T) {
 	f := roundSetup(t, false, true)
 	ctx := context.Background()
@@ -437,8 +508,8 @@ func TestConcurrentFinalResultAndNewInputPreserveTheRoundBoundary(t *testing.T) 
 	run := uuid.NewString()
 	reportNative(t, f.s, f.d, next, "child-"+f.executor.ID, 3, acceptedEvent(run, "next", next.Content))
 	reportNative(t, f.s, f.d, next, "child-"+f.executor.ID, 4, map[string]any{"type": "result", "run_id": run, "input_ids": []string{"next"}, "status": "completed", "output": "Follow-up result"})
-	if len(parentNotices(t, f)) != int(round) {
-		t.Fatal("lost or duplicated a round notification")
+	if notices := parentNotices(t, f); len(notices) != 1 || notices[0].AuthorRoundSeq != 1 {
+		t.Fatal("expected a notification only for the delegated round", notices)
 	}
 	if round == 2 {
 		first, err := f.s.ConversationService.ReadRound(ctx, f.u, f.child.ID, 1)
