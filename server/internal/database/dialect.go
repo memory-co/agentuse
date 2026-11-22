@@ -83,6 +83,16 @@ func AttachmentReferences(db *gorm.DB) string {
 	}
 }
 
+// RunResultSummary projects the measurements used by the conversation timeline.
+func RunResultSummary(db *gorm.DB) string {
+	switch db.Dialector.Name() {
+	case "postgres":
+		return `jsonb_build_object('model', result::jsonb->'model', 'usage', result::jsonb->'usage')`
+	default:
+		return `JSON_OBJECT('model', JSON_EXTRACT(result, '$.model'), 'usage', JSON_EXTRACT(result, '$.usage'))`
+	}
+}
+
 func (t TargetQuery) Columns() string {
 	return fmt.Sprintf("SELECT %s.id,%s.conversation_id,%s,%s,%s,%s,%s.content,COALESCE(%s,'null'),COALESCE(%s,'null') FROM %s", t.message, t.message, t.Key, t.Version, t.Device, t.Harness, t.message, t.Dispatch, t.Error, t.From)
 }

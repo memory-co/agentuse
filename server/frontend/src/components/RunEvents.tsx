@@ -1,6 +1,10 @@
 import { useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowDownToLine, ChevronRight, CircleHelp, FileJson2, FileText, Flag, MessageSquare } from 'lucide-react';
-import type { ConversationEvent } from '@/lib/types';
+import { ErrorState, Loading } from '@/components/Shared';
+import { Button } from '@/components/ui/button';
+import { api, downloadFile } from '@/lib/api';
+import type { RunEventPage, RunEventPreview } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 
@@ -24,7 +28,7 @@ function textAt(payload: unknown, path: readonly string[]) {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
-function eventTitle(event: ConversationEvent) {
+function eventTitle(event: RunEventPreview) {
   for (const path of titlePaths) {
     const value = textAt(event.payload, path);
     if (value) return { value, path: `$.${path.join('.')}` };
@@ -32,7 +36,7 @@ function eventTitle(event: ConversationEvent) {
   return { value: event.kind, path: 'event.kind' };
 }
 
-function eventDate(event: ConversationEvent) {
+function eventDate(event: RunEventPreview) {
   const reported = textAt(event.payload, ['ts']);
   const at = reported ? Date.parse(reported) : NaN;
   const date = new Date(Number.isFinite(at) ? at : event.created_at * 1000);
@@ -47,9 +51,10 @@ const eventIcons: Record<string, typeof FileText> = {
   log: FileText,
 };
 
-function EventRow({ event }: { event: ConversationEvent }) {
+function EventRow({ event, payloadURL }: { event: RunEventPreview; payloadURL: string }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const download = useMutation({ mutationFn: () => downloadFile(payloadURL, `run-event-${event.id}.json`) });
   const title = eventTitle(event);
   const topic = textAt(event.payload, ['topic']);
   const level = textAt(event.payload, ['level']);
@@ -84,25 +89,46 @@ function EventRow({ event }: { event: ConversationEvent }) {
       </summary>
       {open && <div className="mb-3 ml-11 min-w-0 rounded-lg border bg-muted/20" data-event-detail>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2 text-[11px] text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5"><FileJson2 className="size-3.5" aria-hidden="true" />{t('run.eventJson')}</span>
-          <span>{t('run.eventTitleSource')} <code>{title.path}</code></span>
+          <span className="inline-flex items-center gap-1.5"><FileJson2 className="size-3.5" aria-hidden="true" />{t(event.payload_preview ? 'run.eventPreview' : 'run.eventJson')}</span>
+          {event.payload_preview ? <Button variant="link" size="sm" className="h-auto p-0" disabled={download.isPending} onClick={() => download.mutate()}>{t('run.eventDownload')}</Button>
+            : <span>{t('run.eventTitleSource')} <code>{title.path}</code></span>}
         </div>
-        <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-5 [overflow-wrap:anywhere]">{JSON.stringify(event.payload ?? null, null, 2)}</pre>
+        <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-5 [overflow-wrap:anywhere]">{event.payload_preview ?? JSON.stringify(event.payload ?? null)}</pre>
       </div>}
     </details>
   </li>;
 }
 
-export function RunEvents({ events }: { events: ConversationEvent[] }) {
+export function RunEvents({ conversationId, runId }: { conversationId: string; runId: string }) {
   const t = useT();
-  return <details open className="group/events mt-6 min-w-0 border-t pt-4" data-run-events>
+  const [expanded, setExpanded] = useState(true);
+  const [cursors, setCursors] = useState(['']);
+  const cursor = cursors[cursors.length - 1];
+  const path = `/api/conversations/${encodeURIComponent(conversationId)}/runs/${encodeURIComponent(runId)}/events`;
+  const page = useQuery({
+    queryKey: ['run-events', conversationId, runId, cursor],
+    queryFn: ({ signal }) => api<RunEventPage>(`${path}?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { signal }),
+    enabled: expanded,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  });
+  const data = page.data;
+  const next = data?.next_cursor;
+  const events = data?.events ?? [];
+  return <details open={expanded} onToggle={event => setExpanded(event.currentTarget.open)} className="group/events mt-6 min-w-0 border-t pt-4" data-run-events>
     <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md py-1 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
       <FileText className="size-4 text-muted-foreground" aria-hidden="true" />
       <span>{t('run.events')}</span><span className="text-xs font-normal tabular-nums text-muted-foreground">{events.length}</span>
       <ChevronRight className="ml-auto size-3.5 text-muted-foreground transition-transform group-open/events:rotate-90" aria-hidden="true" />
     </summary>
-    {events.length ? <ol className="relative mt-3 min-w-0 before:absolute before:bottom-6 before:left-[17px] before:top-6 before:w-px before:bg-border">
-      {events.map(event => <EventRow key={event.id} event={event} />)}
-    </ol> : <p className="py-4 text-xs text-muted-foreground">{t('run.noEvents')}</p>}
+    {(next || cursors.length > 1) && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <Button size="sm" variant="outline" onClick={() => setCursors(cursors.slice(0, -1))} disabled={cursors.length === 1}>{t('run.eventPrevious')}</Button>
+      <span>{t('run.eventPage', { n: cursors.length })}</span>
+      <Button size="sm" variant="outline" onClick={() => next && setCursors([...cursors, next])} disabled={!next}>{t('run.eventNext')}</Button>
+    </div>}
+    {page.isPending ? <Loading /> : page.isError ? <ErrorState error={page.error} />
+      : events.length ? <ol className="relative mt-3 min-w-0 before:absolute before:bottom-6 before:left-[17px] before:top-6 before:w-px before:bg-border">
+        {events.map(event => <EventRow key={event.id} event={event} payloadURL={`${path}/${encodeURIComponent(event.id)}`} />)}
+      </ol> : <p className="py-4 text-xs text-muted-foreground">{t('run.noEvents')}</p>}
   </details>;
 }

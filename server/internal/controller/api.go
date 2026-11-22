@@ -422,15 +422,25 @@ func (s *Server) handleGetConversation(w http.ResponseWriter, r *http.Request) {
 	if !s.conversationInScope(w, r, r.PathValue("id"), false) {
 		return
 	}
-	for key := range r.URL.Query() {
-		if key != "round" {
+	params := r.URL.Query()
+	for key := range params {
+		if key != "round" && key != "view" {
 			writeErr(w, 400, "unknown query parameter: "+key)
 			return
 		}
 	}
 	var v agentuse.ConversationDetail
 	var err error
-	if raw, ok := r.URL.Query()["round"]; ok {
+	summary := false
+	if view, ok := params["view"]; ok {
+		if len(view) != 1 || view[0] != "summary" {
+			writeErr(w, 400, "view must be summary")
+			return
+		}
+		summary = true
+	}
+	var round int64
+	if raw, ok := params["round"]; ok {
 		if len(raw) != 1 {
 			writeErr(w, 400, "round must be a positive integer")
 			return
@@ -440,7 +450,13 @@ func (s *Server) handleGetConversation(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, "round must be a positive integer")
 			return
 		}
-		v, err = s.service.ConversationService.ReadRound(r.Context(), currentUser(r), r.PathValue("id"), seq)
+		round = seq
+	}
+	id := r.PathValue("id")
+	if summary {
+		v, err = s.service.ConversationService.ReadConversationSummary(r.Context(), currentUser(r), id, round)
+	} else if round != 0 {
+		v, err = s.service.ConversationService.ReadRound(r.Context(), currentUser(r), id, round)
 	} else {
 		v, err = s.service.ConversationService.ReadConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	}

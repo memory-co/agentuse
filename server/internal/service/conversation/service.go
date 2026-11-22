@@ -43,8 +43,12 @@ type runService interface {
 	DeleteConversationExecution(ctx context.Context, tx *gorm.DB, id string) error
 	DispatchedTarget(ctx context.Context, q *gorm.DB, device, conversation, message, agent string) (run.MessageTarget, error)
 	RunInputsIn(ctx context.Context, q *gorm.DB, conversation string) ([]agentuse.RunInput, error)
+	InputsForRun(ctx context.Context, q *gorm.DB, conversation, runID string) ([]agentuse.RunInput, error)
 	EventsIn(ctx context.Context, q *gorm.DB, conversation string) ([]agentuse.ConversationEvent, error)
+	EventsForRun(ctx context.Context, q *gorm.DB, conversation, runID string) ([]agentuse.ConversationEvent, error)
 	LinkRunReply(ctx context.Context, tx *gorm.DB, run, message string) error
 	QuestionsIn(ctx context.Context, q *gorm.DB, where string, args ...any) ([]agentuse.Question, error)
 	RunsIn(ctx context.Context, q *gorm.DB, conversation string) ([]agentuse.Run, error)
+	RunSummariesIn(ctx context.Context, q *gorm.DB, conversation string) ([]agentuse.Run, error)
+	RunIn(ctx context.Context, q *gorm.DB, conversation, id string) (agentuse.Run, error)
 }

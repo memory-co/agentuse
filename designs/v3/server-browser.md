@@ -28,7 +28,7 @@ Server 網頁透過 `GET /api/browser/ws` 建立一條 WebSocket，僅接收資�
 
 `resource` 包含 `conversations`、`attachments`、`agents`、`skills`、`devices`、`users`。`id` 指對應資源，附件通知的 id 是 conversation ID；有父對話時附 parent_conversation_id。嵌套對話視圖使用 conversation 資源，不再有獨立 works 資源通知。通知不包含消息正文、附件內容、日誌、執行結果或憑證。
 
-前端依資源精確使相關查詢失效，只重新讀取目前啟用的查詢。對話變更更新該對話詳情及其所在的頂層或子對話列表。執行中的 `log`、`message` 事件只保存執行歷史，通知帶有 `detail_only: true`，前端只重新讀取正在查看的該對話詳情。附件變更只更新該對話文件列表。遞歸刪除提交後通知被刪除節點及相關列表，刪除通知使用刪除前的父對話 ID。Agent 回覆和 run detail 的輸出使用 Markdown 顯示，支援 GFM 表格、清單、連結及程式碼區塊；使用者消息仍顯示原文。停用原始 HTML，保留安全 URL 過濾，不使用 dangerouslySetInnerHTML。
+前端只重新讀取受通知影響且目前啟用的查詢。對話變更更新該對話摘要、已打開的執行詳情及其所在的頂層或子對話列表。執行中的 `log`、`message` 事件只保存執行歷史，通知帶有 `detail_only: true`。收到這類通知時，只重新讀取該對話中目前展開的執行事件頁。執行詳情在打開時載入，事件按 ID 游標每頁讀取 20 條。附件變更只更新該對話文件列表。遞歸刪除提交後通知被刪除節點及相關列表，刪除通知使用刪除前的父對話 ID。Agent 回覆和 run detail 的輸出使用 Markdown 顯示，支援 GFM 表格、清單、連結及程式碼區塊；使用者消息仍顯示原文。停用原始 HTML，保留安全 URL 過濾，不使用 dangerouslySetInnerHTML。
 
 ## 合併、斷線與邊界
 

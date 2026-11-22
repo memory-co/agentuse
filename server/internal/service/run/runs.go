@@ -15,13 +15,19 @@ import (
 	"github.com/memory-co/agentuse/server/internal/database"
 )
 
-const nativeRunCols = `SELECT id,conversation_id,first_message_id,agent_id,agent_version_id,device_id,session_id,harness,harness_revision,status,result_message_id,output,error,result,created_at,updated_at FROM runs`
+const runColumns = `SELECT id,conversation_id,first_message_id,agent_id,agent_version_id,device_id,session_id,harness,harness_revision,status,result_message_id,`
+const runTable = `,created_at,updated_at FROM runs`
+const nativeRunCols = runColumns + `output,error,result` + runTable
 
 func (s *Service) GetRun(ctx context.Context, u agentuse.User, conversation, id string) (agentuse.Run, error) {
 	if _, err := s.ConversationService.GetConversation(ctx, u, conversation); err != nil {
 		return agentuse.Run{}, err
 	}
-	return database.ScanRun(database.Row(ctx, s.DB, nativeRunCols+` WHERE conversation_id=? AND id=?`, conversation, id))
+	return s.RunIn(ctx, s.DB, conversation, id)
+}
+
+func (s *Service) RunIn(ctx context.Context, q *gorm.DB, conversation, id string) (agentuse.Run, error) {
+	return database.ScanRun(database.Row(ctx, q, nativeRunCols+` WHERE conversation_id=? AND id=?`, conversation, id))
 }
 
 // ExecutionSource verifies Client identity against actual accepted execution facts.
@@ -43,7 +49,19 @@ func (s *Service) Runs(ctx context.Context, conversation string) ([]agentuse.Run
 	return s.RunsIn(ctx, s.DB, conversation)
 }
 func (s *Service) RunsIn(ctx context.Context, q *gorm.DB, conversation string) ([]agentuse.Run, error) {
-	rows, err := database.Rows(ctx, q, nativeRunCols+` WHERE conversation_id=? ORDER BY created_at,id`, conversation)
+	return s.readRuns(ctx, q, conversation, false)
+}
+
+func (s *Service) RunSummariesIn(ctx context.Context, q *gorm.DB, conversation string) ([]agentuse.Run, error) {
+	return s.readRuns(ctx, q, conversation, true)
+}
+
+func (s *Service) readRuns(ctx context.Context, q *gorm.DB, conversation string, summary bool) ([]agentuse.Run, error) {
+	cols := nativeRunCols
+	if summary {
+		cols = runColumns + `'','',` + database.RunResultSummary(q) + runTable
+	}
+	rows, err := database.Rows(ctx, q, cols+` WHERE conversation_id=? ORDER BY created_at,id`, conversation)
 	if err != nil {
 		return nil, err
 	}
@@ -53,6 +71,9 @@ func (s *Service) RunsIn(ctx context.Context, q *gorm.DB, conversation string) (
 		r, e := database.ScanRun(rows)
 		if e != nil {
 			return nil, e
+		}
+		if summary {
+			r.Result = nil
 		}
 		out = append(out, r)
 	}
@@ -99,7 +120,21 @@ func (s *Service) DispatchedTarget(ctx context.Context, q *gorm.DB, device, conv
 }
 
 func (s *Service) RunInputsIn(ctx context.Context, q *gorm.DB, conversation string) ([]agentuse.RunInput, error) {
-	rows, err := database.Rows(ctx, q, `SELECT i.run_id,i.input_id,i.message_id,i.created_at FROM run_inputs i JOIN runs r ON r.id=i.run_id JOIN messages m ON m.id=i.message_id WHERE r.conversation_id=? ORDER BY m.seq,r.agent_id`, conversation)
+	return s.readRunInputs(ctx, q, conversation, "")
+}
+
+func (s *Service) InputsForRun(ctx context.Context, q *gorm.DB, conversation, runID string) ([]agentuse.RunInput, error) {
+	return s.readRunInputs(ctx, q, conversation, runID)
+}
+
+func (s *Service) readRunInputs(ctx context.Context, q *gorm.DB, conversation, runID string) ([]agentuse.RunInput, error) {
+	query := `SELECT i.run_id,i.input_id,i.message_id,i.created_at FROM run_inputs i JOIN runs r ON r.id=i.run_id JOIN messages m ON m.id=i.message_id WHERE r.conversation_id=?`
+	args := []any{conversation}
+	if runID != "" {
+		query += ` AND i.run_id=?`
+		args = append(args, runID)
+	}
+	rows, err := database.Rows(ctx, q, query+` ORDER BY m.seq,r.agent_id`, args...)
 	if err != nil {
 		return nil, err
 	}

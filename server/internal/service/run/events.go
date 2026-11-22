@@ -244,7 +244,21 @@ func (s *Service) RunEvents(ctx context.Context, conversation string) ([]agentus
 	return s.EventsIn(ctx, s.DB, conversation)
 }
 func (s *Service) EventsIn(ctx context.Context, q *gorm.DB, conversation string) ([]agentuse.ConversationEvent, error) {
-	rows, err := database.Rows(ctx, q, `SELECT id,conversation_id,session_id,run_id,agent_id,agent_version_id,device_id,event_seq,kind,payload,created_at FROM run_events WHERE conversation_id=? ORDER BY id`, conversation)
+	return s.readEvents(ctx, q, conversation, "")
+}
+
+func (s *Service) EventsForRun(ctx context.Context, q *gorm.DB, conversation string, runID string) ([]agentuse.ConversationEvent, error) {
+	return s.readEvents(ctx, q, conversation, runID)
+}
+
+func (s *Service) readEvents(ctx context.Context, q *gorm.DB, conversation, runID string) ([]agentuse.ConversationEvent, error) {
+	query := `SELECT id,conversation_id,session_id,run_id,agent_id,agent_version_id,device_id,event_seq,kind,payload,created_at FROM run_events WHERE conversation_id=?`
+	args := []any{conversation}
+	if runID != "" {
+		query += ` AND run_id=?`
+		args = append(args, runID)
+	}
+	rows, err := database.Rows(ctx, q, query+` ORDER BY id`, args...)
 	if err != nil {
 		return nil, err
 	}

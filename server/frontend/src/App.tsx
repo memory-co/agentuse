@@ -17,10 +17,10 @@ import { api, ApiError } from '@/lib/api';
 import { setActAs, useActAs } from '@/lib/actas';
 import { queryClient } from '@/lib/query';
 import { cn } from '@/lib/utils';
-import type { Conversation, ConversationDetail, User } from '@/lib/types';
+import type { Conversation, User } from '@/lib/types';
 import { Login } from '@/pages/Login';
 import { Devices } from '@/pages/Devices';
-import { ConversationView, NewConversation, STATUS_TONE, statusLabel, useConversations, useChildren } from '@/pages/Conversations';
+import { ConversationView, NewConversation, STATUS_TONE, statusLabel, useConversation, useConversations, useChildren } from '@/pages/Conversations';
 import { Agents } from '@/pages/Agents';
 import { Skills } from '@/pages/Skills';
 import { Harnesses } from '@/pages/Harnesses';
@@ -109,15 +109,10 @@ function Shell({ me }: { me: User }) {
   const pages = PAGES.filter(p => !p.admin || admin);
   const conversations = useConversations();
   const { isMobile } = useSidebar();
-  // Share the selected conversation snapshot with its view.
-  const detail = useQuery({
-    queryKey: ['conversations', route.page === 'conversation' ? route.id : ''],
-    queryFn: () => api<ConversationDetail>(`/api/conversations/${route.page === 'conversation' ? route.id : ''}`),
-    enabled: route.page === 'conversation',
-    refetchOnWindowFocus: false,
-  });
-  const current = route.page === 'conversation' ? detail.data?.conversation : undefined;
-  const viewingRound = route.page === 'conversation' && new URLSearchParams(location.hash.split('?')[1]).has('round');
+  const roundParam = new URLSearchParams(location.hash.split('?')[1]).get('round');
+  const round = roundParam === null ? undefined : Number(roundParam);
+  const summary = useConversation(route.page === 'conversation' ? route.id : '', round);
+  const current = route.page === 'conversation' ? summary.data?.conversation : undefined;
   const page = pages.find(p => p.key === route.page);
   const title = route.page === 'new' ? t('nav.new') : route.page === 'conversation' ? current?.title || route.id
     : page ? t(page.label) : '';
@@ -126,11 +121,11 @@ function Shell({ me }: { me: User }) {
       <a href={`#${href({ page: 'conversation', id: current.parent_conversation_id })}`} aria-label={t('nest.parent')} title={t('nest.parent')}><ArrowLeft /><span className="hidden sm:inline">{t('nest.parent')}</span></a>
     </Button>}
     <span className="min-w-0 truncate text-base font-semibold tracking-tight sm:text-lg" title={title}>{title}</span>
-    {current && !viewingRound && <ConversationRename key={`${effective.id}:${current.id}`} conversation={current} />}
+    {current && round === undefined && <ConversationRename key={`${effective.id}:${current.id}`} conversation={current} />}
     {current && current.status !== 'idle' && <span className="shrink-0 whitespace-nowrap"><StatusBadge tone={STATUS_TONE[current.status]}>{statusLabel(current.status)}</StatusBadge></span>}
     {admin && actAs && <span className="ml-auto shrink-0 truncate text-xs text-muted-foreground">{t('actAs.acting', { id: actAs })}</span>}
   </>;
-  const content = route.page === 'conversation' ? <ConversationView key={route.id} id={route.id} onDeleted={() => go(current?.parent_conversation_id ? { page: 'conversation', id: current.parent_conversation_id } : { page: 'new' })} />
+  const content = route.page === 'conversation' ? <ConversationView key={route.id} id={route.id} selectedRound={round} onDeleted={() => go(current?.parent_conversation_id ? { page: 'conversation', id: current.parent_conversation_id } : { page: 'new' })} />
     : page ? <div className="min-w-0 flex-1 bg-panel">
       <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-8 sm:py-8"><page.Page me={effective} /></div>
     </div>

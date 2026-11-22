@@ -18,7 +18,7 @@ import { api } from '@/lib/api';
 import { useActAs } from '@/lib/actas';
 import { queryClient } from '@/lib/query';
 import { useAgents } from '@/pages/Agents';
-import type { Message, Question, Conversation, ConversationDetail as Detail, ConversationEvent, ConversationStatus, ConversationRound, Run, RunInput, User, Attachment } from '@/lib/types';
+import type { Message, Question, Conversation, ConversationSummary, ConversationStatus, ConversationRound, Run, RunDetail, User, Attachment } from '@/lib/types';
 import { cn, fmtTime } from '@/lib/utils';
 import { t, useT } from '@/lib/i18n';
 
@@ -28,7 +28,20 @@ export const useConversations = () => useQuery({ queryKey: ['conversations'], qu
 export const useChildren = (parent: string, enabled=true) => useQuery({
   queryKey: ['conversations', 'children', parent], queryFn: () => api<Conversation[]>(`/api/conversations?parent_conversation_id=${encodeURIComponent(parent)}`), enabled, refetchOnWindowFocus: false,
 });
+const invalidRound = (round?: number) => round !== undefined && (!Number.isSafeInteger(round) || round <= 0);
+export function useConversation(id: string, round?: number) {
+  return useQuery({
+    queryKey: round === undefined ? ['conversations', id] : ['conversations', id, 'round', round],
+    queryFn: ({ signal }) => api<ConversationSummary>(`/api/conversations/${encodeURIComponent(id)}?view=summary${round === undefined ? '' : `&round=${round}`}`, { signal }),
+    enabled: !!id && !invalidRound(round),
+    refetchOnWindowFocus: false,
+  });
+}
 const refresh = () => queryClient.invalidateQueries({ queryKey: ['conversations'] });
+const refreshRun = (conversationId: string, runId: string) => {
+  void queryClient.invalidateQueries({ queryKey: ['run-details', conversationId, runId], exact: true });
+  void refresh();
+};
 
 /** 新会话：选 agent,写第一句话。 */
 export function NewConversation({ onCreated }: { onCreated: (id: string) => void }) {
@@ -77,7 +90,7 @@ export function NewConversation({ onCreated }: { onCreated: (id: string) => void
 }
 
 /** Conversation messages, nested conversations and files. */
-export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () => void }) {
+export function ConversationView({ id, selectedRound, onDeleted }: { id: string; selectedRound?: number; onDeleted: () => void }) {
   const t = useT();
   const actAs = useActAs();
   const sender = actAs || queryClient.getQueryData<User>(['me'])?.id;
@@ -100,10 +113,7 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
     setFilesOpen(false);
   };
 
-  const roundParam = new URLSearchParams(location.hash.split('?')[1] ?? '').get('round');
-  const selectedRound = roundParam === null ? undefined : Number(roundParam);
-  const invalidRound = selectedRound !== undefined && (!Number.isSafeInteger(selectedRound) || selectedRound <= 0);
-  const q = useQuery({ queryKey: selectedRound === undefined ? ['conversations', id] : ['conversations', id, 'round', selectedRound], queryFn: () => api<Detail>(`/api/conversations/${id}${selectedRound === undefined ? '' : `?round=${selectedRound}`}`), enabled: !invalidRound, refetchOnWindowFocus: false });
+  const q = useConversation(id, selectedRound);
   const children=useChildren(id,q.data?.conversation.mode==='collaborative');
   const reply = useMutation({
     mutationFn: async ({prompt,targets,users}: {prompt:string;targets:string[];users:string[]}) => {const attachment_ids=await fileDraft.upload(id);const body={prompt,to_agent_ids:targets,to_user_ids:users,attachment_ids};return api(`/api/conversations/${id}/messages`, { method:'POST', body });},
@@ -112,18 +122,17 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
   const del = useMutation({ mutationFn: () => api(`/api/conversations/${id}${q.data?.conversation.mode==='collaborative'?'?recursive=true':''}`, { method: 'DELETE' }), onSuccess: () => { void refresh(); onDeleted(); } });
   const resolve = useMutation({ mutationFn: (done: boolean) => api(`/api/conversations/${id}/${done ? 'resolve' : 'reopen'}`, { method: 'POST' }), onSuccess: () => { void refresh(); } });
   const bottom = useRef<HTMLDivElement>(null);
-  const count = (q.data?.messages.length ?? 0) + (q.data?.events.length ?? 0);
+  const count = q.data?.messages.length ?? 0;
   useEffect(() => { if(selectedRound === undefined) bottom.current?.scrollIntoView({block:'end'}); }, [count,selectedRound]);
-  if (invalidRound) return <ErrorState error={t('nest.invalidRound')} />;
+  if (invalidRound(selectedRound)) return <ErrorState error={t('nest.invalidRound')} />;
   if (q.isPending) return <div className="px-6"><Loading /></div>;
   if (q.isError) return <div className="px-6 py-6"><ErrorState error={q.error} /></div>;
-  const { conversation: x, messages, events } = q.data;
+  const { conversation: x, messages } = q.data;
   const recentMessages = [...messages].reverse();
   const lastSent = recentMessages.find(message => message.author_role === 'user' && message.author_user_id === sender);
   const initialTargets = lastSent?.to_agent_ids ?? (x.parent_conversation_id
     ? recentMessages.find(message => message.author_role === 'agent' && message.to_agent_ids.length > 0)?.to_agent_ids
     : undefined);
-  const questions = q.data.questions ?? [];
   const meta = t(`nest.${x.mode}`);
   const settled = x.status === 'idle' || x.status === 'resolved';
   return <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -148,7 +157,7 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
         {(del.isError||resolve.isError) && <ErrorState error={del.error||resolve.error}/>}
 
         {messages.map(m=><div key={m.id} className="grid min-w-0 grid-cols-1 gap-2">{x.parent_conversation_id && q.data.rounds.filter(round => round.start_message_seq === m.seq).map(round => <RoundStatus key={round.seq} round={round} />)}<MessageView m={m} onOpenFile={openFiles}/>
-        {(q.data.runs??[]).filter(r=>r.first_message_id===m.id).map(run=><RunView key={run.id} run={run} events={events} questions={questions} messages={messages} inputs={q.data.run_inputs.filter(input=>input.run_id===run.id)} onOpenFile={openFiles} conversationId={id}/>)}
+        {q.data.runs.filter(r=>r.first_message_id===m.id).map(run=><RunView key={run.id} run={run} messages={messages} round={selectedRound} onOpenFile={openFiles} conversationId={id}/>)}
         </div>)}
         <div ref={bottom} />
       </div>
@@ -257,7 +266,7 @@ function MessageErrors({message}:{message:Message}) {
 function QuestionView({ q, conversationId }: { q: Question; conversationId: string }) {
  const [answers,setAnswers]=useState<Record<string,string>>({});
  const p=q.payload??{};
- const reply=useMutation({mutationFn:(answer:unknown)=>api(`/api/conversations/${conversationId}/runs/${q.run_id}/requests/${encodeURIComponent(q.request_id)}/reply`,{method:'POST',body:{answer}}),onSuccess:()=>void refresh()});
+ const reply=useMutation({mutationFn:(answer:unknown)=>api(`/api/conversations/${conversationId}/runs/${q.run_id}/requests/${encodeURIComponent(q.request_id)}/reply`,{method:'POST',body:{answer}}),onSuccess:()=>refreshRun(conversationId,q.run_id)});
  const busy=reply.isPending||(reply.isSuccess&&!q.delivery_error);
  return <div className="grid gap-2 rounded-lg border p-3 text-sm">
   <p className="whitespace-pre-wrap break-words font-medium">{p.message}</p>
@@ -271,11 +280,11 @@ function QuestionView({ q, conversationId }: { q: Question; conversationId: stri
  </div>;
 }
 
-function RunView({run,events,questions,messages,inputs,conversationId,onOpenFile}:{run:Run;events:ConversationEvent[];questions:Question[];messages:Message[];inputs:RunInput[];conversationId:string;onOpenFile:(file:Attachment)=>void}){
+type RunViewProps = { run: Run; messages: Message[]; round?: number; conversationId: string; onOpenFile: (file: Attachment) => void };
+
+function RunView({run,messages,round,conversationId,onOpenFile}:RunViewProps){
  const t=useT();
  const [open,setOpen]=useState(false);
- const cancel=useMutation({mutationFn:()=>api(`/api/conversations/${conversationId}/runs/${run.id}/cancel`,{method:'POST'}),onSuccess:()=>void refresh()});
- const mine=events.filter(e=>e.run_id===run.id);
  const active=['running','waiting'].includes(run.status);
  return <section data-run-id={run.id} aria-label={`${t('run.label')} @${run.agent_id}`}><Dialog.Root open={open} onOpenChange={setOpen}>
   <Dialog.Trigger asChild><button className="flex max-w-full flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md bg-panel px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-run-summary>
@@ -290,6 +299,27 @@ function RunView({run,events,questions,messages,inputs,conversationId,onOpenFile
    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><Dialog.Title className="font-semibold">@{run.agent_id} · {t('run.details')}</Dialog.Title><Dialog.Description className="mt-1 text-xs text-muted-foreground">{t(`run.status.${run.status}`)} · {run.harness} · {run.harness_revision}</Dialog.Description></div><Dialog.Close asChild><Button size="icon" variant="ghost" className="shrink-0" aria-label={t('common.close')}><X className="size-4"/></Button></Dialog.Close></div>
    <RunTokenUsage usage={run.usage} />
    <dl className="my-4 grid grid-cols-[auto_minmax(0,1fr)] gap-2 text-xs"><dt>{t('run.id')}</dt><dd className="break-all">{run.id}</dd><dt>{t('run.model')}</dt><dd className="break-all" data-run-model>{run.model ?? t('run.modelUnknown')}</dd><dt>{t('run.clientSession')}</dt><dd className="break-all">{run.session_id}</dd><dt>{t('run.device')}</dt><dd className="break-all">{run.device_id}</dd></dl>
+   {open && <RunDetails run={run} messages={messages} round={round} conversationId={conversationId} onOpenFile={file=>{setOpen(false);onOpenFile(file);}} />}
+  </Dialog.Content></Dialog.Portal>
+ </Dialog.Root></section>;
+}
+
+function RunDetails({run,messages,round,conversationId,onOpenFile}:RunViewProps){
+ const t=useT();
+ const path = `/api/conversations/${encodeURIComponent(conversationId)}/runs/${encodeURIComponent(run.id)}`;
+ const details = useQuery({
+  queryKey: ['run-details', conversationId, run.id],
+  queryFn: ({ signal }) => api<RunDetail>(`${path}?view=metadata`, { signal }),
+  gcTime: 0,
+  refetchOnWindowFocus: false,
+ });
+ const cancel=useMutation({mutationFn:()=>api(`${path}/cancel`,{method:'POST'}),onSuccess:()=>refreshRun(conversationId,run.id)});
+ const active=['running','waiting'].includes(run.status);
+ const inputs = details.data?.inputs.filter(input => round === undefined || messages.some(message => message.id === input.message_id)) ?? [];
+ const output = details.data?.run.output;
+ const error = details.data?.run.error;
+ return <>
+  {details.isPending ? <Loading /> : details.isError ? <ErrorState error={details.error} /> : <>
    <section className="my-4 grid grid-cols-1 gap-2" aria-label={t('run.inputs')}>
     <h3 className="text-sm font-medium">{t('run.inputs')} · {inputs.length}</h3>
     {inputs.map(input=>{
@@ -303,18 +333,18 @@ function RunView({run,events,questions,messages,inputs,conversationId,onOpenFile
       <div className="grid grid-cols-1 gap-3 border-t p-3 text-sm">
        <p className="break-all text-xs text-muted-foreground">{t('run.inputId')} · {input.input_id}</p>
        <p className="text-xs text-muted-foreground sm:hidden">{fmtTime(input.created_at)}</p>
-       {message && <><Markdown>{message.content}</Markdown><MessageFiles files={message.attachments} onOpen={file=>{setOpen(false);onOpenFile(file);}} /></>}
+       {message && <><Markdown>{message.content}</Markdown><MessageFiles files={message.attachments} onOpen={onOpenFile} /></>}
       </div>
      </details>;
     })}
    </section>
-   {run.output&&<Markdown>{run.output}</Markdown>}
-   {run.error&&<p className="text-sm text-destructive">{run.error}</p>}
-   <div className="my-4 grid grid-cols-1 gap-3">{questions.filter(q=>q.run_id===run.id).map(q=><QuestionView key={q.request_id} q={q} conversationId={conversationId}/>)}</div>
-   {active&&<Button size="sm" variant="outline" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>{t('run.cancel')}</Button>}
-   {cancel.isSuccess&&active&&<p className="mt-2 text-xs text-muted-foreground">{t('run.cancelPending')}</p>}
-   {cancel.isError&&<ErrorState error={cancel.error}/>}
-   <RunEvents events={mine} />
-  </Dialog.Content></Dialog.Portal>
- </Dialog.Root></section>;
+   {output&&<Markdown>{output}</Markdown>}
+   {error&&<p className="text-sm text-destructive">{error}</p>}
+   <div className="my-4 grid grid-cols-1 gap-3">{details.data.questions?.map(q=><QuestionView key={q.request_id} q={q} conversationId={conversationId}/>)}</div>
+  </>}
+  {active&&<Button size="sm" variant="outline" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>{t('run.cancel')}</Button>}
+  {cancel.isSuccess&&active&&<p className="mt-2 text-xs text-muted-foreground">{t('run.cancelPending')}</p>}
+  {cancel.isError&&<ErrorState error={cancel.error}/>}
+  <RunEvents conversationId={conversationId} runId={run.id} />
+ </>;
 }

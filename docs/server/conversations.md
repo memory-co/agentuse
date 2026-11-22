@@ -15,7 +15,9 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 | PATCH | `/api/conversations/{id}` | 使用 `{"title":"新名称"}` 重命名当前对话 |
 | POST | `/api/conversations/{id}/messages` | 发送消息，明确指定收件人与附件 |
 | POST | `/api/conversations/{id}/resolve`、`reopen` | 标记完成 / 重新打开 |
-| GET | `/api/conversations/{id}/runs/{run_id}` | 读取 run 及事件 |
+| GET | `/api/conversations/{id}/runs/{run_id}` | 读取 run 及事件，`view=metadata` 改为读取运行、输入和问题 |
+| GET | `/api/conversations/{id}/runs/{run_id}/events` | 按事件 ID 升序读取，使用 `cursor` 接在上一页之后，`limit` 默认 20，最大 50 |
+| GET | `/api/conversations/{id}/runs/{run_id}/events/{event_id}` | 下载该次运行的单条完整事件 JSON |
 | POST | `/api/conversations/{id}/runs/{run_id}/cancel` | 取消 run |
 | POST | `/api/conversations/{id}/runs/{run_id}/requests/{request_id}/reply` | 回答原生执行请求 |
 | GET | `/api/conversations/{id}/messages/{message_id}/agents/{agent_id}/context` | Client 补齐共享历史；查询参数 `session_id` 指定实际本地 session |
@@ -25,6 +27,8 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 | GET / PUT | `/api/conversations/{id}/files/{path...}` | 按路径读写通用 conversation 文件 |
 
 父会话与子会话都可在完整会话页的标题旁重命名。接口仅接受有该会话权限的用户凭据，去除标题首尾空白后保存并返回会话对象。重命名只更新 `title`。
+
+会话页面用 `GET /api/conversations/{id}?view=summary` 读取消息、轮次和运行摘要。可与 `round=N` 一起使用。打开运行详情后，页面才读取该 run 的明细和事件，事件翻页时用返回的 `next_cursor` 继续读取。长于 4096 字元的事件返回 `payload_preview`，可单独下载完整 JSON。省略 `view` 时，会话快照和 run 详情沿用原有完整响应。
 
 ## 多 Agent 共享消息示例
 

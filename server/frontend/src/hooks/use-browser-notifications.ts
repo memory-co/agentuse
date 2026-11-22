@@ -6,14 +6,17 @@ import { api, ApiError } from '@/lib/api';
 type Change = { resource: string; id?: string; parent_conversation_id?: string; detail_only?: boolean };
 
 function refresh(changes: Change[], waiting: Set<string>, stillCurrent: () => boolean) {
-  const keys = new Map<string, readonly unknown[]>();
-  const add = (key: readonly unknown[]) => { keys.set(JSON.stringify(key), key); };
+  const keys = new Set<string>();
+  const conversations = new Set<string>();
+  const eventConversations = new Set<string>();
+  const add = (key: readonly unknown[]) => { keys.add(JSON.stringify(key)); };
   const reset = changes.some(change => change.resource === 'reset');
   for (const change of changes) {
     switch (change.resource) {
       case 'conversations':
-        if (change.id) add(['conversations', change.id]);
+        if (change.id) eventConversations.add(change.id);
         if (!change.detail_only) {
+          if (change.id) conversations.add(change.id);
           if (change.parent_conversation_id) add(['conversations', 'children', change.parent_conversation_id]);
           else add(['conversations']);
         }
@@ -32,8 +35,13 @@ function refresh(changes: Change[], waiting: Set<string>, stillCurrent: () => bo
       case 'upgrades': for (const query of queryClient.getQueryCache().findAll({ queryKey: ['upgrades'] })) add(query.queryKey); break;
     }
   }
-  const predicate = (query: { queryKey: readonly unknown[] }) => reset
-    || keys.has(JSON.stringify(query.queryKey));
+  const predicate = ({ queryKey }: { queryKey: readonly unknown[] }) => {
+    const [resource, id] = queryKey;
+    return reset || keys.has(JSON.stringify(queryKey)) || (typeof id === 'string' && (
+      ((resource === 'conversations' || resource === 'run-details') && conversations.has(id))
+      || (resource === 'run-events' && eventConversations.has(id))
+    ));
+  };
   for (const query of queryClient.getQueryCache().findAll({ predicate })) {
     if (waiting.has(query.queryHash)) continue;
     waiting.add(query.queryHash);

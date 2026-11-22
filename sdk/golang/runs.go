@@ -36,9 +36,23 @@ type RunInput struct {
 	CreatedAt int64  `json:"created_at"`
 }
 type RunDetail struct {
-	Inputs []RunInput          `json:"inputs" nullable:"false"`
-	Run    Run                 `json:"run"`
-	Events []ConversationEvent `json:"events"`
+	Inputs    []RunInput          `json:"inputs" nullable:"false"`
+	Run       Run                 `json:"run"`
+	Events    []ConversationEvent `json:"events"`
+	Questions []Question          `json:"questions,omitempty"`
+}
+
+type RunEventPreview struct {
+	ID             string          `json:"id"`
+	Kind           string          `json:"kind"`
+	CreatedAt      int64           `json:"created_at"`
+	Payload        json.RawMessage `json:"payload,omitempty"`
+	PayloadPreview string          `json:"payload_preview,omitempty"`
+}
+
+type RunEventPage struct {
+	Events     []RunEventPreview `json:"events" nullable:"false"`
+	NextCursor *string           `json:"next_cursor"`
 }
 type WaitOptions struct{ ReturnOnWaiting bool }
 
