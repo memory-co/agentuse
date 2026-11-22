@@ -46,6 +46,8 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 
 创建时可指定 `mode: "single" | "collaborative"`，省略默认 single，创建后不可修改。single 在当前对话中完成任务；collaborative 的 Agent 负责拆分、协调和汇总，在本机 `context conversation` 命令中创建子对话。两种模式都支持多个 Agent。
 
+协调者以独立目标划分子会话：新目标必须创建新子会话；原目标的澄清、补充、返工和重试才向原来的子会话发送消息。同一 Agent 可执行多个子会话，不能因 Agent、仓库、工具相同或旧会话已完成就复用其处理不同目标。Server 将这条规则随每次输入下发，并在子轮次完成通知中明确原目标续派与新目标新建的区别，因此已有协调者 session 的后续输入也会收到规则。Client 初始化时的工具说明和 CLI 帮助使用相同约定。
+
 子对话必须为 single，最多两层。`parent_conversation_id` 指向协作父对话，`parent_agent_id` 由 Server 从已验证的创建 Agent 来源自动填写，不能在请求中指定。它独立于消息收件人及实际 run。人类创建顶层对话，不能手工指定父对话代建子对话。
 
 ```json

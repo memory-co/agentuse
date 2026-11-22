@@ -22,9 +22,12 @@ sequenceDiagram
     S->>P: child_conversation 通知，指定 child ID / round N
     P->>S: context conversation read CHILD_ID --round N
     S-->>P: 該輪消息、投遞、run、事件與問題
-    alt 問題或需要繼續
+    alt 原目標需要澄清、返工或重試
         P->>S: context conversation send CHILD_ID --agents IDS ANSWER
         S->>C: 下一輪普通 message
+    else 新的獨立目標
+        P->>S: context conversation create --agents IDS NEW_OBJECTIVE
+        S->>C: 新子對話的普通 message
     else 已獲得足夠結果
         P->>P: 匯總並回覆用戶
     end
@@ -41,13 +44,21 @@ Server 根據 mode 和真實父子關係，隨每次 message.context 注入英�
 ```text
 Coordinate this top-level conversation. Do not execute the delegated work yourself.
 Use context conversation agents and create to delegate into child conversations.
-Keep each child ID. Server sends one child_conversation notification after every
+Each child is dedicated to one original objective and its deliverables. Create a
+new child for every new independent objective, even when the Agent, repository,
+or tools are the same, or an existing child is idle or finished. The same Agent
+may execute multiple children. Keep each child ID with its original objective.
+Use send only for clarification, additional requirements, corrections, review
+feedback, or retries for that original objective. If the scope is unclear, prefer
+a new child and pass the relevant facts and artifact references in its assignment.
+Server sends one child_conversation notification after every
 completed child round that contains work you assigned. Read CHILD_ID --round N, review all results and failures,
 answer child questions with send CHILD_ID --agents IDS MESSAGE, and consolidate.
 A completed round is not proof of success. After creating children or sending
-follow-up work, briefly report the assignments and end this run immediately.
+a follow-up for the original objective, briefly report the assignments and end this run immediately.
 Do not poll, sleep, or repeatedly read/list to wait for results. Server will
-deliver a child round notification; read that round when notified.
+deliver a child round notification; read that round when notified. Respond or
+send feedback for its original objective; create a new child for independent work.
 ```
 
 子 Agent 的核心指令：
@@ -62,6 +73,10 @@ that include work they assigned. Reply to direct user requests in the child.
 
 內層沒有主動發父消息的入口。若缺失「鑑權方式」才能繼續，它直接在最終答復中提問並結束本輪；協調者被通知後讀取該輪，決定回答、換人或停止，再發下一輪輸入。原生權限審批/人工提問仍用 request/reply，等待時不偽造輪次結束。這樣不用混合進展回報、手動最終報告和自動結果轉發。
 
+子對話的邊界是原始獨立目標，不是執行 Agent 或倉庫。例如，不同文章應創建不同子對話，同一篇文章的澄清、修正和重試則可續用原對話。協調者記錄子 ID 時同時記錄原目標，不能把已完成或空閒的子對話當作可任意派活的執行槽；範圍不明時優先新建，在首條交辦中攜帶相關事實和產物引用。
+
+這條選路規則由 Server 隨每次 message.context 下發，子輪次完成通知也區分原目標續派與新目標新建。已有協調者原生 session 的後續輸入會收到新規則；Client 初始化工具說明仍使用初始化時的指令快照，因此同時維護 Server 每次注入、Client 工具說明和 context conversation help 的一致性。
+
 Server 用設備、已上報的實際 session/run、Agent 版本核對來源；子 Agent 不能用普通發送接口寫入父對話，也不能直接 HTTP 創建根或第三層來繞過分工限制。人類創建根，再要求協調 Agent 拆分；不能代填 parent_agent_id 創建子節點。
 
 ## context 命令已在執行環境中
@@ -71,10 +86,10 @@ Client 將裸 context 放入每個 session 的 PATH，綁定 endpoint、conversa
 | 命令 | 用途 |
 |---|---|
 | context conversation agents | 協調者查詢可用 Agent |
-| context conversation create --mode single --title TITLE --agents IDS MESSAGE | 創建子對話並交辦；返回 conversation 和 round |
+| context conversation create --mode single --title TITLE --agents IDS MESSAGE | 為獨立目標創建新子對話並交辦；返回 conversation 和 round |
 | context conversation list | 列出直接子對話，包含空對話 |
 | context conversation read CHILD_ID [--round N] | 讀取完整對話或指定輪次範圍 |
-| context conversation send CHILD_ID --agents IDS MESSAGE | 向子 Agent 發普通輸入；未結束時加入當輪，已結束則開始下一輪 |
+| context conversation send CHILD_ID --agents IDS MESSAGE | 為原目標澄清、補充、修正或重試；未結束時加入當輪，已結束則開始下一輪 |
 
 這組管理子對話的命令僅 collaborative 根可用。single 根與 single 子對話保留 status、attachment 等執行能力；子對話 help 提示自行執行並正常結束，create 等操作由 CLI 和 Server 同時拒絕。
 

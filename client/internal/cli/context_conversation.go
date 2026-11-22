@@ -22,6 +22,14 @@ Available in a collaborative root conversation:
   context conversation read CHILD_ID [--round N]
   context conversation send CHILD_ID --agents IDS MESSAGE
 
+Each child is dedicated to one original objective and its deliverables. Create a
+new child for every new independent objective, even when the Agent, repository,
+or tools are the same, or an existing child is idle or finished. The same Agent
+may execute multiple children. Keep each child ID with its original objective.
+Use send only for clarification, additional requirements, corrections, review
+feedback, or retries for that original objective. If the scope is unclear, prefer
+a new child and pass the relevant facts and artifact references in its assignment.
+
 Delegate work, briefly report the assigned children, and end this run immediately.
 Do not poll, sleep, or repeatedly read/list to wait for children. Server sends a
 notification when a child round containing your delegated work completes.

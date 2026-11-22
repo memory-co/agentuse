@@ -175,7 +175,7 @@ func (s *Service) notifyFinishedRound(ctx context.Context, childID string, seq i
 		}
 		targets, _ := json.Marshal([]string{child.ParentAgentID})
 		id := uuid.NewString()
-		text := fmt.Sprintf("Child conversation %q finished round %d. Read this round, review every Agent's results and any failures, then decide whether to respond or send follow-up instructions.", child.Title, r.Seq)
+		text := fmt.Sprintf("Child conversation %q finished round %d. Read this round and review every Agent's results and any failures against this child's original objective. Respond to the user, send follow-up instructions for that same objective, or create a new child for an independent objective.", child.Title, r.Seq)
 		_, err = database.Exec(ctx, tx, `INSERT INTO messages(id,seq,conversation_id,author_role,author_conversation_id,author_round_seq,to_agent_ids,content,created_at) VALUES(?,?,?,'child_conversation',?,?,?,?,?)`, id, messageSeq, parent.ID, childID, seq, string(targets), text, s.Now().Unix())
 		if err != nil {
 			return err

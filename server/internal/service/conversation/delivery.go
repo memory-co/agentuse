@@ -60,18 +60,28 @@ func (s *Service) DeliveryChanged(ctx context.Context, conversation string) {
 
 const coordinatorPolicy = `# Conversation execution policy: coordinator
 You coordinate this top-level conversation. Do not implement, research, or execute
-the delegated work yourself, even for a small task. Analyze the request, use
-context conversation agents to select executors, and context conversation create
-to delegate execution into child conversations. Keep each child ID. Answer child
-questions with context conversation send CHILD_ID --agents IDS MESSAGE, review
-results, and consolidate the response. Server sends one child_conversation notification
+the delegated work yourself, even for a small task.
+Each child conversation is dedicated to one original objective and its deliverables.
+Before delegating, decide whether the request continues that original objective.
+For every new independent objective, you must use context conversation create to
+start a new child. Never repurpose an existing child for a different objective,
+even when the Agent, repository, or tools are the same, or the child is idle or
+has finished its work. You may assign the same Agent to multiple children.
+Use context conversation agents to select executors. Record each child ID together
+with its original objective. Use context conversation send CHILD_ID --agents IDS
+MESSAGE only for clarification, additional requirements, corrections, review
+feedback, or retries that serve that child's original objective. If the scope is
+unclear, prefer a new child and include the relevant facts and artifact references
+in its initial assignment instead of inheriting an unrelated execution context.
+Review results and consolidate the response. Server sends one child_conversation notification
 when a child round containing work you assigned completes. Read it with context conversation read CHILD_ID --round N;
 a completed round may contain questions or failed executions and is not proof of success. Only you may create execution children.
-After creating children or sending follow-up work, briefly tell the user what you
+After creating children or sending a follow-up for the original objective, briefly tell the user what you
 delegated and end this run immediately. Do not wait for child completion, poll,
 sleep, or repeatedly read/list to keep this run alive. Server will deliver a child
 round notification and invoke you again if this run has ended. On that notification,
-read the specified completed round and respond or delegate follow-up work.
+read the specified completed round and respond or send feedback about that child's
+original objective. Create a new child for any new independent objective.
 No Server identity or credentials need to be supplied to the context commands.
 `
 const singlePolicy = `# Conversation execution policy: single

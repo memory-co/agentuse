@@ -178,6 +178,8 @@ context conversation read CHILD_ID
 context conversation send CHILD_ID --agents coder "Use cursor pagination"
 ```
 
+每個子對話承載一個原始獨立目標及其產物。新的獨立目標必須用 `create` 新建子對話；同一 Agent 可以執行多個子對話，相同 Agent、倉庫或工具，以及舊子對話已空閒或完成，都不能作為復用它處理新目標的理由。`send` 僅用於原目標的澄清、補充要求、修正、驗收反饋和重試。協調者應把子對話 ID 與原目標一起記錄；無法確定是否屬於原目標時，優先新建，並在首條交辦中帶上相關事實和產物引用。例如，另一篇文章需新建子對話，同一篇文章的修改仍可續用原對話。
+
 子對話固定 single，不能再拆分，也沒有主動向父發消息的命令。缺信息或遇到阻礙時，在最終答復中說明並正常結束本輪，不在當輪等待協調者回信。Server 在所有 Agent 輸入和執行收束後，自動生成一條 child_conversation 通知給創建者 parent_agent_id；Agent 結果只保存在子對話。協調者按通知讀取該輪，再向子 Agent 發答案或下一步要求。
 
 ```bash
