@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowUpCircle, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -43,10 +43,36 @@ export function Devices({ me }: { me: User }) {
     refetchInterval: 5 * 60_000,
   });
   const [name, setName] = useState('');
-  const [setup, setSetup] = useState<Device | null>(null);
+  const [setupCommands, setSetupCommands] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!devices.data) return;
+    const pending = new Set(devices.data.filter(d => d.status === 'pending').map(d => d.id));
+    setSetupCommands(current => {
+      const remaining = Object.entries(current).filter(([id]) => pending.has(id));
+      return remaining.length === Object.keys(current).length ? current : Object.fromEntries(remaining);
+    });
+  }, [devices.data]);
+  const rememberSetup = async (device: Device) => {
+    const command = device.setup_command;
+    const listed = { ...device };
+    delete listed.setup_command;
+    delete listed.setup_token;
+    // Publish the new pending state before retaining its command. Keep private
+    // material out of the shared device list and any mutation result cache.
+    await queryClient.cancelQueries({ queryKey: ['devices'] });
+    queryClient.setQueryData<Device[]>(['devices'], current => current?.some(d => d.id === device.id)
+      ? current.map(d => d.id === device.id ? listed : d)
+      : [...(current ?? []), listed]);
+    if (command) setSetupCommands(current => ({ ...current, [device.id]: command }));
+  };
+  const forgetSetup = (id: string) => setSetupCommands(current => {
+    const next = { ...current };
+    delete next[id];
+    return next;
+  });
   const add = useMutation({
     mutationFn: async () => {
-      setSetup(await api<Device>('/api/devices', { method: 'POST', body: { name: name.trim() } }));
+      await rememberSetup(await api<Device>('/api/devices', { method: 'POST', body: { name: name.trim() } }));
     },
     onSuccess: () => { setName(''); void refresh(); },
   });
@@ -61,30 +87,20 @@ export function Devices({ me }: { me: User }) {
         {add.isError && <ErrorState error={add.error} />}
       </CardContent>
     </Card>
-    {setup?.setup_command && <Card>
-      <CardHeader>
-        <CardTitle>{t('devices.setupTitle')}</CardTitle>
-        <CardDescription>{t('devices.runSetup')}</CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-2">
-        <CopyBlock text={setup.setup_command} copyLabel={t('devices.copySetup')} />
-        <Button className="w-fit" variant="ghost" onClick={() => setSetup(null)}>{t('common.close')}</Button>
-      </CardContent>
-    </Card>}
     {devices.isPending ? <Loading /> : devices.isError ? <ErrorState error={devices.error} />
-      : devices.data.length ? devices.data.map(d => <DeviceCard key={d.id} d={d} me={me} latest={latest.data?.version} onSetup={setSetup} onDelete={() => setSetup(current => current?.id === d.id ? null : current)} />)
+      : devices.data.length ? devices.data.map(d => <DeviceCard key={d.id} d={d} me={me} latest={latest.data?.version} setupCommand={setupCommands[d.id]} onSetup={rememberSetup} onDelete={() => forgetSetup(d.id)} />)
       : <Empty>{t('devices.empty')}</Empty>}
     {latest.isError && devices.data?.some(canUpgrade) && <p className="text-sm text-muted-foreground">{t('devices.releaseUnavailable')}</p>}
   </div>;
 }
 
-function DeviceCard({ d, me, latest, onSetup, onDelete }: { d: Device; me: User; latest?: string; onSetup: (device: Device) => void; onDelete: () => void }) {
+function DeviceCard({ d, me, latest, setupCommand, onSetup, onDelete }: { d: Device; me: User; latest?: string; setupCommand?: string; onSetup: (device: Device) => Promise<void>; onDelete: () => void }) {
   const t = useT();
   const harnesses = useHarnesses();
   const displayName = (n: string) => harnesses.data?.find(a => a.name === n)?.display_name || n;
   const del = useMutation({ mutationFn: () => api(`/api/devices/${d.id}`, { method: 'DELETE' }), onSuccess: () => { onDelete(); void refresh(); } });
   const reset = useMutation({
-    mutationFn: async () => { onSetup(await api<Device>(`/api/devices/${d.id}/reset`, { method: 'POST' })); },
+    mutationFn: async () => { await onSetup(await api<Device>(`/api/devices/${d.id}/reset`, { method: 'POST' })); },
     onSuccess: refresh,
   });
   const upgrade = useMutation({
@@ -99,7 +115,7 @@ function DeviceCard({ d, me, latest, onSetup, onDelete }: { d: Device; me: User;
   const tone = TONE[d.status] || 'muted';
   const label = d.status in TONE ? t(`devices.status.${d.status}`) : d.status;
   const meta = [d.id, me.role === 'admin' && d.user_id !== me.id && t('devices.metaUser', { id: d.user_id }), d.last_seen_at && t('devices.metaSeen', { at: fmtTime(d.last_seen_at) })].filter(Boolean).join(' · ');
-  return <Card>
+  return <Card data-device-id={d.id}>
     <CardHeader className="flex-row flex-wrap items-start justify-between gap-2 space-y-0">
       <div className="grid min-w-0 gap-1.5">
         <CardTitle className="flex flex-wrap items-center gap-x-2 gap-y-1 break-words [overflow-wrap:anywhere]">{d.name || t('devices.unnamed')}<StatusBadge tone={tone}>{label}</StatusBadge></CardTitle>
@@ -111,8 +127,8 @@ function DeviceCard({ d, me, latest, onSetup, onDelete }: { d: Device; me: User;
           <Button variant="outline" size="sm" disabled={upgrade.isPending || upgrading(d)} onClick={() => upgrade.mutate()}>
             <ArrowUpCircle />{t('devices.upgradeTo', { version: latest! })}
           </Button>}
-        <Confirm title={t('devices.resetTitle')} description={t('devices.resetText')} onConfirm={() => reset.mutate()}>
-          <Button variant="ghost" size="sm"><RefreshCw />{t('devices.reset')}</Button>
+        <Confirm title={t(d.status === 'pending' ? 'devices.regenerateSetup' : 'devices.resetTitle')} description={t(d.status === 'pending' ? 'devices.regenerateSetupText' : 'devices.resetText')} onConfirm={() => reset.mutate()}>
+          <Button variant="ghost" size="sm" disabled={reset.isPending}><RefreshCw />{t(d.status === 'pending' ? 'devices.regenerateSetup' : 'devices.reset')}</Button>
         </Confirm>
         <Confirm title={t('devices.deleteTitle')} description={t('devices.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
           <Button variant="ghost" size="sm" className="text-destructive"><Trash2 />{t('common.delete')}</Button>
@@ -129,7 +145,13 @@ function DeviceCard({ d, me, latest, onSetup, onDelete }: { d: Device; me: User;
         {d.client_upgrade.error && <p className="break-words text-destructive">{d.client_upgrade.error}</p>}
       </div>}
       {d.status === 'online' && !d.client_version && <p className="mb-2 text-sm text-muted-foreground">{t('devices.upgradeLegacy')}</p>}
-      {d.status === 'pending' ? <p className="text-sm text-muted-foreground">{t('devices.awaitImport')}</p> : d.harnesses.length ? <div>
+      {d.status === 'pending' ? setupCommand ? <div className="grid min-w-0 gap-3">
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium">{t('devices.setupTitle')}</h3>
+          <p className="text-sm text-muted-foreground">{t('devices.runSetup')}</p>
+        </div>
+        <CopyBlock text={setupCommand} copyLabel={t('devices.copySetup')} />
+      </div> : <p className="text-sm text-muted-foreground">{t('devices.awaitImport')}</p> : d.harnesses.length ? <div>
         <p className="mb-2 text-sm text-muted-foreground">{t('devices.pickHarnesses')}</p>
         <div className="divide-y">
           {d.harnesses.map(a => <label key={a.harness} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 text-sm">

@@ -27,6 +27,8 @@ agentService 發佈版本時檢查設備歸屬和運行能力，runService 根�
 
 狀態爲 pending（未註冊）、offline、online。在線狀態表示連接狀態，不代表設備當前空閒；是否可以領取由 Client heartbeat 的 free_sessions/active 快照與 runService 的派發規則共同決定。
 
+设备页面的注册命令归属到具体设备：创建、重置后在该设备卡片内展示，多台待注册设备分别保留各自命令。前端仅在当前页面的内存中按设备 ID 保存命令，不写入共享设备列表缓存或浏览器存储；设备注册成功或删除后清除。创建、重置接口之外不返回私钥，刷新或离开页面后需要重新生成命令；待注册设备提供「重新生成注册命令」，沿用重置接口使旧命令失效。
+
 執行協議僅聲明 agentuse-client/3。Server 接受 client 上報的自定義 harness 標籤，不要求先註冊全局目錄，不按 codex/claudecode 分支。harness 列表接口是設備上報結果的只讀視圖，沒有創建或編輯 YAML 的 API。
 
 ## 表結構
