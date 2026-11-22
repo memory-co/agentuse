@@ -62,6 +62,8 @@ type CreateAgentRequest struct {
 }
 
 type Device struct {
+	ClientVersion  string          `json:"client_version,omitempty"`
+	ClientUpgrade  *ClientUpgrade  `json:"client_upgrade,omitempty"`
 	Capabilities   []string        `json:"capabilities"`
 	ID             string          `json:"id"`
 	UserID         string          `json:"user_id"`
@@ -73,6 +75,16 @@ type Device struct {
 	SetupToken     string          `json:"setup_token,omitempty"` // OpenSSH private key body, returned only on create/reset
 	SetupServerPin string          `json:"setup_server_pin,omitempty"`
 	SetupCommand   string          `json:"setup_command,omitempty"` // Shell command containing the device key, returned only on create/reset
+}
+
+type ClientUpgrade struct {
+	TargetVersion string `json:"target_version"`
+	Status        string `json:"status"`
+	Error         string `json:"error,omitempty"`
+}
+
+type ClientRelease struct {
+	Version string `json:"version"`
 }
 
 type DeviceHarness struct {

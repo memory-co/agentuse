@@ -39,6 +39,8 @@ curl -H "Authorization: Bearer $AGENTUSE_TOKEN" \
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | GET / POST | `/api/devices` | 列出设备 / 创建设备并返回私钥正文和注册命令 |
+| GET | `/api/devices/latest-release` | 查询最新正式 Client 版本 |
+| POST | `/api/devices/{id}/upgrade` | 请求在线设备通过 WebSocket 开始升级，返回 202 和升级状态 |
 | PUT | `/api/devices/{id}/harnesses/{harness}` | 用 `{"enabled":true}` 启用或关闭该设备的执行器 |
 | POST | `/api/devices/{id}/reset` | 撤销设备旧凭据并返回新私钥 |
 | DELETE | `/api/devices/{id}` | 删除设备并断开连接 |
@@ -47,6 +49,8 @@ curl -H "Authorization: Bearer $AGENTUSE_TOKEN" \
 创建设备或重置设备的响应包含 `setup_token`（OpenSSH Ed25519 私钥正文）、`setup_server_pin`（Server CA 指纹）及 `setup_command`（复制到目标终端执行的 Shell 命令）。命令用 `curl` 下载 `setup.sh`，通过 Bash 的 `TOKEN` 环境变量将私钥正文交给脚本。脚本会复用或安装 Client，通过标准输入将私钥交给 `agentuse register`，然后启动后台服务。`setup_command` 含设备私钥，应按私钥处理。这两个操作需要用户认证及相应权限，HTTP 和 HTTPS 均可使用。响应使用 `Cache-Control: no-store`。列表不包含私钥或注册命令。持有当前私钥即可再次导入同一设备，重置会撤销旧私钥和证书。
 
 Client 通过安全 WS 提交 CSR 和当前连接的签名，领取设备证书。业务 HTTP 使用短期输入或 run 票据。旧 `POST /api/client/register` 和 `GET /api/client/me` 返回 426。设备配置顺序见 [快速开始](../client/cli.md#接入-server)。
+
+设备列表的 `client_version` 来自设备最近一次连接上报。支持远程升级的在线设备具有 `client-upgrade-v1` 能力。升级请求针对最新正式版，设备重新上线并上报目标版本后，列表中的 `client_upgrade.status` 更新为 `succeeded`。
 
 ## Agent 与固定版本
 

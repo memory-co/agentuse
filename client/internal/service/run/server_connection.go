@@ -25,6 +25,7 @@ import (
 	"github.com/memory-co/agentuse/client/internal/service/session"
 	"github.com/memory-co/agentuse/internal/protocol"
 	"github.com/memory-co/agentuse/internal/securews"
+	"github.com/memory-co/agentuse/internal/version"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
@@ -113,6 +114,8 @@ func (d *endpointConnection) send(ctx context.Context, m protocol.Message) error
 }
 func (d *endpointConnection) heartbeat() protocol.Message {
 	m := protocol.Message{Type: protocol.TypeHeartbeat, ID: "h:" + uuid.NewString(), FreeSessions: cap(d.cfg.RunService.slots) - len(d.cfg.RunService.slots), Harnesses: d.harnesses, ActiveStreams: []protocol.StreamRef{}}
+	m.ClientVersion = version.Version
+	m.ClientUpgrade = d.cfg.RunService.Upgrade != nil
 	d.cfg.RunService.localMu.Lock()
 	defer d.cfg.RunService.localMu.Unlock()
 	for _, a := range d.cfg.RunService.localRuns {
@@ -195,7 +198,8 @@ func (d *endpointConnection) session(ctx context.Context) error {
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	defer func() { cancel(); <-done }()
+	var upgrades sync.WaitGroup
+	defer func() { cancel(); <-done; upgrades.Wait() }()
 	go func() {
 		defer close(done)
 		tick := time.NewTicker(100 * time.Millisecond)
@@ -281,6 +285,15 @@ func (d *endpointConnection) session(ctx context.Context) error {
 			}
 		case protocol.TypeAnswer, protocol.TypeCancel:
 			go d.control(d.cfg.RunService.localCtx, m.Type, *m.Control)
+		case protocol.TypeClientUpgrade:
+			if m.Status != "" {
+				return fmt.Errorf("unexpected client upgrade status")
+			}
+			upgrades.Add(1)
+			go func() {
+				defer upgrades.Done()
+				d.upgradeClient(runCtx, m)
+			}()
 		default:
 			return fmt.Errorf("unexpected server message %s", m.Type)
 		}
@@ -365,6 +378,12 @@ func (d *endpointConnection) enqueue(p protocol.ConversationMessage) error {
 	return nil
 }
 func (d *endpointConnection) receiveMessage(ctx context.Context, p protocol.ConversationMessage) {
+	s := d.cfg.RunService
+	if !s.upgradeGate.TryRLock() {
+		// The Server will resend this unacknowledged message after reconnect.
+		return
+	}
+	defer s.upgradeGate.RUnlock()
 	saved, found, err := d.findReceipt(ctx, p)
 	var receiptMu sync.Mutex
 	fail := func(state, reason string) {

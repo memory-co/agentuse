@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,6 +105,21 @@ func loadDaemonConfig(path string) (runservice.Config, error) {
 func runStart(args []string) error  { return runClient(args, true) }
 func runDaemon(args []string) error { return runClient(args, false) }
 func runClient(args []string, allowLocal bool) error {
+	for {
+		var pending *clientUpgrade
+		err := serveClient(args, allowLocal, func(upgrade *clientUpgrade) { pending = upgrade })
+		if pending == nil {
+			return err
+		}
+		// All endpoint workers, local services and the Client lock have stopped.
+		// Exec preserves the PID and the parent service manager.
+		if err := pending.installAndExec(); err != nil {
+			log.Printf("Client 升级失败: %v", err)
+		}
+	}
+}
+
+func serveClient(args []string, allowLocal bool, restart func(*clientUpgrade)) error {
 	fs := command.NewFlags("agentuse daemon")
 	cfgPath := fs.String("config", endpointservice.DefaultPath(), "配置文件")
 	if err := command.Parse(fs, args); err != nil {
@@ -139,6 +155,21 @@ func runClient(args []string, allowLocal bool) error {
 	manager, err := services.New(*cfgPath, sessions)
 	if err != nil {
 		return err
+	}
+	if clientUpgradeSupported() {
+		manager.Upgrade = func(ctx context.Context, target string, beforeRestart func() error) error {
+			upgrade, err := prepareClientUpgrade(ctx, target)
+			if err != nil {
+				return err
+			}
+			if err := beforeRestart(); err != nil {
+				upgrade.cleanup()
+				return err
+			}
+			restart(upgrade)
+			stop()
+			return nil
+		}
 	}
 	if err = manager.Recover(ctx); err != nil {
 		return err

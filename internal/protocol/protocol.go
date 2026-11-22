@@ -6,25 +6,33 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/memory-co/agentuse/internal/version"
 )
 
 const (
-	RegisterPath      = "/api/client/register"
-	WSPath            = "/api/client/ws"
-	MePath            = "/api/client/me"
-	ProtocolHeader    = "AgentUse-Protocol"
-	ExecutionProtocol = "agentuse-client/3"
-	TypeAccess        = "access"
-	TypeCredential    = "credential"
-	TypeHeartbeat     = "heartbeat"
-	TypeMessage       = "message"
-	TypeEvent         = "event"
-	TypeAnswer        = "answer"
-	TypeCancel        = "cancel"
-	TypeAck           = "ack"
-	AckOK             = "ok"
-	AckError          = "error"
-	AckUnknown        = "unknown"
+	RegisterPath            = "/api/client/register"
+	WSPath                  = "/api/client/ws"
+	MePath                  = "/api/client/me"
+	ProtocolHeader          = "AgentUse-Protocol"
+	ExecutionProtocol       = "agentuse-client/3"
+	TypeAccess              = "access"
+	TypeCredential          = "credential"
+	TypeHeartbeat           = "heartbeat"
+	TypeClientUpgrade       = "client_upgrade"
+	CapabilityClientUpgrade = "client-upgrade-v1"
+	UpgradeDownloading      = "downloading"
+	UpgradeRestarting       = "restarting"
+	UpgradeSucceeded        = "succeeded"
+	UpgradeFailed           = "failed"
+	TypeMessage             = "message"
+	TypeEvent               = "event"
+	TypeAnswer              = "answer"
+	TypeCancel              = "cancel"
+	TypeAck                 = "ack"
+	AckOK                   = "ok"
+	AckError                = "error"
+	AckUnknown              = "unknown"
 )
 
 type MeResponse struct {
@@ -55,6 +63,9 @@ type Message struct {
 	FreeSessions  int                  `json:"free_sessions,omitempty"`
 	ActiveStreams []StreamRef          `json:"active,omitempty"`
 	Harnesses     []Harness            `json:"harnesses,omitempty"`
+	ClientVersion string               `json:"client_version,omitempty"`
+	ClientUpgrade bool                 `json:"client_upgrade,omitempty"`
+	TargetVersion string               `json:"target_version,omitempty"`
 	Delivery      *ConversationMessage `json:"-"`
 	ClientEvent   *ClientEvent         `json:"-"`
 	Control       *SessionControl      `json:"-"`
@@ -115,6 +126,14 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	case TypeHeartbeat:
 		if m.FreeSessions < 0 {
 			return fmt.Errorf("negative capacity")
+		}
+		if len(m.ClientVersion) > 128 {
+			return fmt.Errorf("invalid client version")
+		}
+	case TypeClientUpgrade:
+		if !strings.HasPrefix(m.ID, "u:") || len(m.TargetVersion) > 128 || !version.Stable(m.TargetVersion) || len(m.Error) > 4096 ||
+			(m.Status != "" && m.Status != UpgradeRestarting && m.Status != UpgradeFailed) {
+			return fmt.Errorf("invalid client upgrade")
 		}
 	case TypeAck:
 		if m.Status != AckOK && m.Status != AckError && m.Status != AckUnknown {

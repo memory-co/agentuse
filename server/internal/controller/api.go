@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/memory-co/agentuse/internal/securews"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/database"
+	"github.com/memory-co/agentuse/server/internal/hub"
 )
 
 const cookieName = "agentuse_token"
@@ -241,7 +243,45 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 		s.serviceErr(w, err)
 		return
 	}
+	if transport, ok := s.cfg.ClientHandler.(*hub.Hub); ok {
+		for i := range ds {
+			ds[i].ClientUpgrade = transport.ClientUpgrade(ds[i].ID)
+		}
+	}
 	writeJSON(w, http.StatusOK, ds)
+}
+
+func (s *Server) handleLatestClientRelease(w http.ResponseWriter, r *http.Request) {
+	release, err := s.service.UpgradeService.LatestClient(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, release)
+}
+
+func (s *Server) handleUpgradeDevice(w http.ResponseWriter, r *http.Request) {
+	d, err := s.service.DeviceService.GetDevice(r.Context(), currentUser(r), r.PathValue("id"))
+	if err != nil {
+		s.serviceErr(w, err)
+		return
+	}
+	transport, ok := s.cfg.ClientHandler.(*hub.Hub)
+	if !ok || d.Status != agentuse.DeviceOnline || !slices.Contains(d.Capabilities, protocol.CapabilityClientUpgrade) {
+		writeErr(w, http.StatusConflict, "设备离线或 Client 不支持远程升级")
+		return
+	}
+	release, err := s.service.UpgradeService.LatestClient(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	upgrade, err := transport.UpgradeClient(r.Context(), d.ID, release.Version)
+	if err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, upgrade)
 }
 
 func (s *Server) handleCreateDevice(w http.ResponseWriter, r *http.Request) {

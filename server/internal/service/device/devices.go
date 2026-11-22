@@ -241,7 +241,7 @@ func (s *Service) DeviceConnected(ctx context.Context, d agentuse.Device, report
 		}
 	}
 	now := s.Now().Unix()
-	if _, err := database.Exec(ctx, tx, database.DeviceConnectedUpdate, agentuse.DeviceOnline, now, d.ID); err != nil {
+	if _, err := database.Exec(ctx, tx, database.DeviceConnectedUpdate, agentuse.DeviceOnline, now, d.ClientVersion, d.ID); err != nil {
 		return nil, err
 	}
 	if _, err := database.Exec(ctx, tx, database.DeviceConnectedUpdate2, now, d.ID); err != nil {

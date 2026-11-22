@@ -87,6 +87,8 @@ export class Client {
 
   // devices
   listDevices(user) { return this._request("GET", "/api/devices", user); }
+  latestClientRelease(user) { return this._request("GET", "/api/devices/latest-release", user); }
+  upgradeDevice(user, deviceId) { return this._request("POST", `/api/devices/${q(deviceId)}/upgrade`, user); }
   // 添加一台 device,返回的 setup_command 给用户复制到自己电脑上跑。
   createDevice(user, name) { return this._request("POST", "/api/devices", user, name ? { name } : {}); }
   resetDevice(user, deviceId) { return this._request("POST", `/api/devices/${q(deviceId)}/reset`, user); }

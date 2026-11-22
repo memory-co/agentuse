@@ -69,6 +69,10 @@ func (s *Service) Start(ctx context.Context, id, conversation string, request Re
 	return s.startSession(ctx, id, conversation, request, "")
 }
 func (s *Service) startSession(ctx context.Context, id, conversation string, request Request, target string) (Run, error) {
+	if !s.upgradeGate.TryRLock() {
+		return Run{}, fmt.Errorf("Client is restarting for an upgrade")
+	}
+	defer s.upgradeGate.RUnlock()
 	if _, err := s.Endpoints.GetByID(id); err != nil {
 		return Run{}, err
 	}

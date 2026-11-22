@@ -165,6 +165,18 @@ func (c *Client) ListDevices(ctx context.Context, user string) ([]Device, error)
 	return ds, c.do(ctx, user, "GET", "/api/devices", nil, &ds)
 }
 
+func (c *Client) LatestClientRelease(ctx context.Context, user string) (ClientRelease, error) {
+	var release ClientRelease
+	err := c.do(ctx, user, "GET", "/api/devices/latest-release", nil, &release)
+	return release, err
+}
+
+func (c *Client) UpgradeDevice(ctx context.Context, user, deviceID string) (ClientUpgrade, error) {
+	var upgrade ClientUpgrade
+	err := c.do(ctx, user, "POST", "/api/devices/"+esc(deviceID)+"/upgrade", nil, &upgrade)
+	return upgrade, err
+}
+
 // CreateDevice 添加一台 device,返回的 SetupCommand 给用户复制到自己电脑上跑。name 可为空。
 func (c *Client) CreateDevice(ctx context.Context, user, name string) (*Device, error) {
 	var d Device

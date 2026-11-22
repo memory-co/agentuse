@@ -10,6 +10,10 @@ export interface DeviceHarness { harness: string; version: string; harness_revis
 export interface Device {
   id: string; user_id: string; name: string; status: 'pending' | 'online' | 'offline';
   capabilities: string[]; setup_command?: string; setup_token?: string; last_seen_at: number | null; created_at: number; harnesses: DeviceHarness[];
+  client_version?: string; client_upgrade?: ClientUpgrade;
+}
+export interface ClientUpgrade {
+  target_version: string; status: 'downloading' | 'restarting' | 'succeeded' | 'failed'; error?: string;
 }
 
 export type ConversationStatus = 'idle' | 'pending' | 'running' | 'waiting' | 'resolved';

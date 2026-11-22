@@ -1,7 +1,7 @@
 package upgrade
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -14,19 +14,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
+	projectrelease "github.com/memory-co/agentuse/internal/release"
+	"github.com/memory-co/agentuse/internal/version"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 )
 
 // These defaults are fixed to this project's official releases. Tests may inject
 // a local release server through Config, including linker overrides for binaries.
 var githubAPIURL = "https://api.github.com/repos/memory-co/agentuse/releases/latest"
-var githubDownloadURL = "https://github.com/memory-co/agentuse/releases/download"
+var githubDownloadURL = projectrelease.GitHubDownloadURL
 
 type releaseAsset struct {
 	Name string `json:"name"`
@@ -40,40 +40,6 @@ type release struct {
 	Draft      bool           `json:"draft"`
 	Prerelease bool           `json:"prerelease"`
 	Assets     []releaseAsset `json:"assets"`
-}
-
-var stableVersion = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
-
-func versionNumbers(value string) ([]uint64, bool) {
-	match := stableVersion.FindStringSubmatch(value)
-	if match == nil {
-		return nil, false
-	}
-	numbers := make([]uint64, 3)
-	for i := range numbers {
-		var err error
-		numbers[i], err = strconv.ParseUint(match[i+1], 10, 64)
-		if err != nil {
-			return nil, false
-		}
-	}
-	return numbers, true
-}
-func newer(target, current string) bool {
-	next, ok := versionNumbers(target)
-	if !ok {
-		return false
-	}
-	previous, ok := versionNumbers(current)
-	if !ok {
-		return false
-	}
-	for i := range next {
-		if next[i] != previous[i] {
-			return next[i] > previous[i]
-		}
-	}
-	return false
 }
 
 func (s *Service) request(ctx context.Context, address string) (*http.Response, error) {
@@ -116,14 +82,29 @@ func (s *Service) fetchRelease(ctx context.Context) (release, error) {
 	if err = json.Unmarshal(b, &out); err != nil {
 		return out, fmt.Errorf("GitHub 版本信息无效: %w", err)
 	}
-	if _, ok := versionNumbers(out.Tag); !ok || out.Draft || out.Prerelease {
+	if !version.Stable(out.Tag) || out.Draft || out.Prerelease {
 		return out, errors.New("GitHub 未返回有效的正式版本")
 	}
 	return out, nil
 }
 func (s *Service) Latest(ctx context.Context) (agentuse.ServerRelease, error) {
 	r, err := s.fetchRelease(ctx)
-	return agentuse.ServerRelease{Version: r.Tag, CurrentVersion: s.config.Version, Available: newer(r.Tag, s.config.Version), URL: r.URL, Notes: r.Notes, PublishedAt: r.Published}, err
+	return agentuse.ServerRelease{Version: r.Tag, CurrentVersion: s.config.Version, Available: version.Newer(r.Tag, s.config.Version), URL: r.URL, Notes: r.Notes, PublishedAt: r.Published}, err
+}
+
+func (s *Service) LatestClient(ctx context.Context) (agentuse.ClientRelease, error) {
+	s.clientReleaseMu.Lock()
+	defer s.clientReleaseMu.Unlock()
+	if time.Now().Before(s.clientReleaseExpires) {
+		return s.clientRelease, nil
+	}
+	r, err := s.fetchRelease(ctx)
+	if err != nil {
+		return agentuse.ClientRelease{}, err
+	}
+	s.clientRelease = agentuse.ClientRelease{Version: r.Tag}
+	s.clientReleaseExpires = time.Now().Add(5 * time.Minute)
+	return s.clientRelease, nil
 }
 
 func artifactNames() []string {
@@ -156,32 +137,13 @@ func (s *Service) download(ctx context.Context, id string, r release) (Restart, 
 	if err != nil {
 		return plan, err
 	}
-	checks, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	checks, err := io.ReadAll(io.LimitReader(resp.Body, projectrelease.MaxChecksumBytes+1))
 	resp.Body.Close()
 	if err != nil {
 		return plan, err
 	}
-	if len(checks) > 1<<20 {
-		return plan, errors.New("SHA256SUMS 文件过大")
-	}
-	sums := map[string]string{}
-	scanner := bufio.NewScanner(strings.NewReader(string(checks)))
-	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
-		if len(fields) != 2 {
-			return plan, errors.New("SHA256SUMS 格式无效")
-		}
-		name := strings.TrimPrefix(fields[1], "*")
-		if _, exists := sums[name]; exists {
-			return plan, errors.New("SHA256SUMS 包含重复文件")
-		}
-		digest, e := hex.DecodeString(fields[0])
-		if e != nil || len(digest) != sha256.Size {
-			return plan, errors.New("SHA256SUMS 摘要无效")
-		}
-		sums[name] = strings.ToLower(fields[0])
-	}
-	if err = scanner.Err(); err != nil {
+	sums, err := projectrelease.Checksums(bytes.NewReader(checks))
+	if err != nil {
 		return plan, err
 	}
 	if err = os.WriteFile(filepath.Join(plan.Directory, "SHA256SUMS"), checks, 0o600); err != nil {

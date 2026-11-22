@@ -41,6 +41,7 @@ type User struct {
 }
 
 type Device struct {
+	ClientVersion        string  `gorm:"size:128;not null;default:''"`
 	PublicKeyHash        *string `gorm:"size:64;uniqueIndex:devices_public_key"`
 	CredentialGeneration int64   `gorm:"not null;default:1"`
 	ID                   string  `gorm:"size:128;primaryKey"`

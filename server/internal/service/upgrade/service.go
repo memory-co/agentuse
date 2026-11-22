@@ -37,14 +37,17 @@ type Config struct {
 }
 
 type Service struct {
-	DB          *gorm.DB
-	config      Config
-	instanceKey string
-	ctx         context.Context
-	cancel      context.CancelFunc
-	mu          sync.Mutex
-	workers     sync.WaitGroup
-	closed      bool
+	DB                   *gorm.DB
+	config               Config
+	instanceKey          string
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	mu                   sync.Mutex
+	workers              sync.WaitGroup
+	closed               bool
+	clientReleaseMu      sync.Mutex
+	clientRelease        agentuse.ClientRelease
+	clientReleaseExpires time.Time
 }
 
 func New(db *gorm.DB, config Config) *Service {
@@ -74,8 +77,7 @@ func New(db *gorm.DB, config Config) *Service {
 }
 
 func (s *Service) Supported() bool {
-	_, stable := versionNumbers(s.config.Version)
-	return stable && (runtime.GOOS == "linux" || runtime.GOOS == "darwin") && (runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64") && s.config.Executable != "" && s.config.Root != "" && s.config.DistDir != "" && s.config.Restart != nil
+	return version.Stable(s.config.Version) && (runtime.GOOS == "linux" || runtime.GOOS == "darwin") && (runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64") && s.config.Executable != "" && s.config.Root != "" && s.config.DistDir != "" && s.config.Restart != nil
 }
 
 func view(row database.ServerUpgrade) agentuse.ServerUpgrade {
@@ -108,7 +110,7 @@ func (s *Service) State(ctx context.Context, cursor string, limit int) (agentuse
 	out := agentuse.ServerUpgradeState{CurrentVersion: s.config.Version, Platform: runtime.GOOS + "/" + runtime.GOARCH, Supported: s.Supported(), Upgrades: []agentuse.ServerUpgrade{}}
 	if !out.Supported {
 		out.Reason = ErrUnavailable.Error()
-		if _, stable := versionNumbers(s.config.Version); !stable {
+		if !version.Stable(s.config.Version) {
 			out.Reason = "开发构建无法确定升级顺序，请先安装正式版本"
 		}
 	}
@@ -229,7 +231,7 @@ func (s *Service) perform(ctx context.Context, id string) error {
 	if err = s.update(id, map[string]any{"target_version": release.Tag, "release_url": release.URL}); err != nil {
 		return err
 	}
-	if !newer(release.Tag, s.config.Version) {
+	if !version.Newer(release.Tag, s.config.Version) {
 		return s.finish(id, "unchanged", nil)
 	}
 	plan, err := s.download(ctx, id, release)

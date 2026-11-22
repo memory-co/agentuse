@@ -12,6 +12,7 @@ import (
 
 const InitialMigration = "0001_initial"
 const UpgradeMigration = "0002_server_upgrades"
+const ClientVersionMigration = "0005_client_version"
 
 func migrations() []*gormigrate.Migration {
 	return append([]*gormigrate.Migration{{ID: InitialMigration, Migrate: func(db *gorm.DB) error {
@@ -32,7 +33,16 @@ func migrations() []*gormigrate.Migration {
 			db = db.Set("gorm:table_options", "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin")
 		}
 		return db.Migrator().CreateTable(&ServerUpgrade{})
-	}}}, securityMigration(), deviceKeyMigration())
+	}}}, securityMigration(), deviceKeyMigration(), clientVersionMigration())
+}
+
+func clientVersionMigration() *gormigrate.Migration {
+	return &gormigrate.Migration{ID: ClientVersionMigration, Migrate: func(db *gorm.DB) error {
+		if db.Migrator().HasColumn(&Device{}, "ClientVersion") {
+			return nil
+		}
+		return db.Migrator().AddColumn(&Device{}, "ClientVersion")
+	}}
 }
 
 func migrate(db *gorm.DB) error {

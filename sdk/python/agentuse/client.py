@@ -245,6 +245,12 @@ class Client:
     def list_devices(self, user):
         return self._request("GET", "/api/devices", user)
 
+    def latest_client_release(self, user):
+        return self._request("GET", "/api/devices/latest-release", user)
+
+    def upgrade_device(self, user, device_id):
+        return self._request("POST", f"/api/devices/{_q(device_id)}/upgrade", user)
+
     def create_device(self, user, name=None):
         """添加一台 device,返回的 setup_command 给用户复制到自己电脑上跑。"""
         return self._request("POST", "/api/devices", user, _drop_none(name=name))

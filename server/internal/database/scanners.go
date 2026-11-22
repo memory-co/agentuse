@@ -33,7 +33,7 @@ func ScanAttachment(row Scanner) (attachment.Attachment, error) {
 func ScanDevice(row Scanner) (agentuse.Device, error) {
 	var d agentuse.Device
 	var seen sql.NullInt64
-	err := row.Scan(&d.ID, &d.UserID, &d.Name, &d.Status, &seen, &d.CreatedAt)
+	err := row.Scan(&d.ID, &d.UserID, &d.Name, &d.Status, &seen, &d.CreatedAt, &d.ClientVersion)
 	if errors.Is(err, sql.ErrNoRows) {
 		return agentuse.Device{}, ErrNotFound
 	}

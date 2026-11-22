@@ -35,9 +35,9 @@ const ResetDeviceSetupSelect = `SELECT 1 FROM devices WHERE id=?`
 
 const ResetDeviceSetupClause = ` AND user_id=?`
 
-const ResetDeviceSetupUpdate = `UPDATE devices SET public_key_hash=?,setup_token=NULL,key_hash=NULL,status=? WHERE id=?`
+const ResetDeviceSetupUpdate = `UPDATE devices SET public_key_hash=?,setup_token=NULL,key_hash=NULL,status=?,client_version='' WHERE id=?`
 
-const DeviceCols = `SELECT id, user_id, name, status, last_seen_at, created_at FROM devices`
+const DeviceCols = `SELECT id, user_id, name, status, last_seen_at, created_at, client_version FROM devices`
 
 const GetDeviceClause = ` WHERE id = ?`
 
@@ -65,7 +65,7 @@ const DeleteDeviceSelect = "SELECT 1 FROM"
 
 const DeviceConnectedDelete = `DELETE FROM device_capabilities WHERE device_id=?`
 
-const DeviceConnectedUpdate = `UPDATE devices SET status = ?, last_seen_at = ? WHERE id = ?`
+const DeviceConnectedUpdate = `UPDATE devices SET status = ?, last_seen_at = ?, client_version = ? WHERE id = ?`
 
 const DeviceConnectedUpdate2 = `UPDATE device_harnesses SET available = 0, updated_at = ? WHERE device_id = ?`
 

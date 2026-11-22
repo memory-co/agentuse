@@ -20,6 +20,8 @@ agentuse ui --open
 
 回到 Server 管理页面，在设备上启用需要的 harness，再创建 Agent、发送消息。
 
+设备页会显示 Client 上报的版本。支持远程升级的设备在线且有新版时，点击「升级到 …」即可下载安装并自动重连。运行中的会话会阻止重启，可以在会话结束后重试。未上报版本的旧版 Client 需先在目标电脑上手动更新一次。可从 Server 下载 `setup.sh`，执行 `bash setup.sh` 安装新版，再用 `bash setup.sh --service` 重启已注册的 Client。
+
 ### 本地调试
 
 未注册 Server 时也可以启动本机页面：

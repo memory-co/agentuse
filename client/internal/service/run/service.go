@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/memory-co/agentuse/client/internal/service/endpoint"
@@ -25,6 +26,9 @@ type endpointWorker struct {
 // Service owns all endpoint connections. Metadata and execution capacity are
 // shared across workers; one connection's failure does not stop other endpoints.
 type Service struct {
+	Upgrade             func(context.Context, string, func() error) error
+	upgradeInProgress   atomic.Bool
+	upgradeGate         sync.RWMutex
 	ipcClosed           bool
 	contextAdapters     sync.Map
 	ipcMu               sync.Mutex

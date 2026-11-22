@@ -47,11 +47,19 @@ export interface Device {
   user_id: string;
   name: string;
   status: "pending" | "online" | "offline";
+  client_version?: string;
+  client_upgrade?: ClientUpgrade;
   last_seen_at: number | null;
   created_at: number;
   harnesses: DeviceHarness[];
   setup_token?: string;
   setup_command?: string;
+}
+
+export interface ClientUpgrade {
+  target_version: string;
+  status: "downloading" | "restarting" | "succeeded" | "failed";
+  error?: string;
 }
 
 export interface Conversation {
@@ -167,6 +175,8 @@ export declare class Client {
   deleteAgent(user: UserId, agentId: string): Promise<void>;
 
   listDevices(user: UserId): Promise<Device[]>;
+  latestClientRelease(user: UserId): Promise<{ version: string }>;
+  upgradeDevice(user: UserId, deviceId: string): Promise<ClientUpgrade>;
   createDevice(user: UserId, name?: string): Promise<Device>;
   resetDevice(user: UserId, deviceId: string): Promise<Device>;
   setDeviceHarness(user: UserId, deviceId: string, harness: string, enabled: boolean): Promise<Device>;

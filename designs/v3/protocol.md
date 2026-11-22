@@ -32,6 +32,7 @@ WebSocket 傳消息、公共事件和控制；HTTP 讀取固定版本配置及�
 | type | 方向 | 用途 | 確認方式 |
 |---|---|---|---|
 | heartbeat | Client → Server | 在線、執行器、可用容量及活躍綁定 | Server 回 ack |
+| client_upgrade | Server ↔ Client | 請求升級 Client 或回報升級狀態 | 客戶端重連並上報目標版本後確認成功 |
 | message | Server → Client | 指定 Agent 處理既有 conversation message | Client 回 accepted 事件；未受理的失敗或不確定情況回 ack |
 | event | Client → Server | 原樣上報 harnessctl 公共事件 | 關鍵事件由 Server 回 ack；普通 log 不要求確認 |
 | answer | Server → Client | 回答已存在 run 的指定問題 | Client 回 ack；實際狀態看 request 事件 |
@@ -50,6 +51,8 @@ WebSocket 傳消息、公共事件和控制；HTTP 讀取固定版本配置及�
 下例的 c1、m1、v1、s1 為 ID 縮寫，正式傳輸使用完整標識。
 
 ## 三、heartbeat：宣告現在能接什麼
+
+Client 在 heartbeat 的 `client_version` 報告自身版本，`client_upgrade: true` 表示能處理遠程升級。Server 只向已認證、明確聲明支持的設備發送 `{type:"client_upgrade", id:"u:…", target_version:"vX.Y.Z"}`。Client 從官方發布源取得並校驗二進制，在空閒時回報同一 ID 與目標版本及 `status:"restarting"` 後重啟。有錯時回報 `status:"failed"` 及 `error`。Server 以重連後的 heartbeat 確認成功。
 
 ```json
 {"type":"heartbeat","id":"h:1","free_sessions":1,"active":[{"conversation_id":"c1","agent_id":"reviewer","agent_version_id":"v1"}],"harnesses":[{"name":"codex","version":"installed-version","revision":"package-revision"}]}

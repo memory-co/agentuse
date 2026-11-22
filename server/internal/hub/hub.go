@@ -27,24 +27,26 @@ type Hub struct {
 	log            *log.Logger
 	mu             sync.Mutex
 	conns          map[string]*deviceConn
+	clientUpgrades map[string]clientUpgrade
 	authenticating chan struct{}
 }
 type deviceConn struct {
-	d        agentuse.Device
-	ws       *websocket.Conn
-	channel  *securews.Channel
-	peer     securews.Peer
-	cancel   context.CancelFunc
-	sendMu   sync.Mutex
-	wake     chan struct{}
-	capacity protocol.Message
+	d          agentuse.Device
+	ws         *websocket.Conn
+	channel    *securews.Channel
+	peer       securews.Peer
+	cancel     context.CancelFunc
+	sendMu     sync.Mutex
+	wake       chan struct{}
+	capacity   protocol.Message
+	canUpgrade bool
 }
 
 func New(s *service.Service, logger *log.Logger) *Hub {
 	if logger == nil {
 		logger = log.Default()
 	}
-	return &Hub{service: s, log: logger, authBudget: 128, authUpdated: time.Now(), conns: map[string]*deviceConn{}, authenticating: make(chan struct{}, 64)}
+	return &Hub{service: s, log: logger, authBudget: 128, authUpdated: time.Now(), conns: map[string]*deviceConn{}, clientUpgrades: map[string]clientUpgrade{}, authenticating: make(chan struct{}, 64)}
 }
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get(protocol.ProtocolHeader) != protocol.ExecutionProtocol {
@@ -134,6 +136,8 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil || first.Type != protocol.TypeHeartbeat {
 		return
 	}
+	c.d.ClientVersion = first.ClientVersion
+	c.canUpgrade = first.ClientUpgrade
 	channel.Limit = securews.MaxMessage
 	<-h.authenticating
 	authSlot = false
@@ -163,9 +167,14 @@ func (h *Hub) serve(ctx context.Context, c *deviceConn, first protocol.Message) 
 	for _, a := range first.Harnesses {
 		reported = append(reported, deviceservice.ReportedHarness{Name: a.Name, Version: a.Version, Revision: a.Revision, Capabilities: a.Capabilities})
 	}
-	if _, err := h.service.DeviceService.DeviceConnected(ctx, c.d, reported, []string{protocol.ExecutionProtocol, "conversation-attachments-v1"}); err != nil {
+	caps := []string{protocol.ExecutionProtocol, "conversation-attachments-v1"}
+	if c.canUpgrade {
+		caps = append(caps, protocol.CapabilityClientUpgrade)
+	}
+	if _, err := h.service.DeviceService.DeviceConnected(ctx, c.d, reported, caps); err != nil {
 		return err
 	}
+	h.clientReconnected(c)
 	c.capacity = first
 	if err := c.send(ctx, protocol.Message{Type: protocol.TypeAck, ID: first.ID, Status: protocol.AckOK}); err != nil {
 		return err
@@ -293,6 +302,11 @@ func (h *Hub) serve(ctx context.Context, c *deviceConn, first protocol.Message) 
 				if err != nil {
 					return err
 				}
+			case protocol.TypeClientUpgrade:
+				if m.Status == "" {
+					return errors.New("missing client upgrade status")
+				}
+				h.reportClientUpgrade(c, m)
 			default:
 				return errors.New("unexpected client message")
 			}
@@ -364,6 +378,7 @@ func (h *Hub) KickUser(string) { h.KickAll() }
 func (h *Hub) Disconnect(id string) {
 	h.mu.Lock()
 	c := h.conns[id]
+	delete(h.clientUpgrades, id)
 	h.mu.Unlock()
 	if c != nil {
 		c.cancel()

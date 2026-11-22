@@ -192,6 +192,8 @@ func (s *Server) registerAPI() {
 	putFile.Responses["503"] = jsonResponse(503, apiErrorBody{})
 
 	bind("GET", "/api/devices", "list-devices", "列出设备", "device", user, nil, []deviceView{}, 200, s.handleListDevices)
+	bind("GET", "/api/devices/latest-release", "latest-client-release", "查询最新 Client 正式版本", "device", user, nil, agentuse.ClientRelease{}, 200, s.handleLatestClientRelease)
+	bind("POST", "/api/devices/{id}/upgrade", "upgrade-device", "请求在线设备升级 Client", "device", user, nil, agentuse.ClientUpgrade{}, 202, s.handleUpgradeDevice)
 	createDevice := bind("POST", "/api/devices", "create-device", "创建设备并返回私钥正文和注册命令", "device", user, createDeviceBody{}, deviceView{}, 201, s.handleCreateDevice)
 	createDevice.RequestBody.Required = false
 	bind("DELETE", "/api/devices/{id}", "delete-device", "删除设备并断开连接", "device", user, nil, nil, 204, s.handleDeleteDevice)
