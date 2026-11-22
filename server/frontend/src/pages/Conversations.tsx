@@ -286,21 +286,21 @@ function RunView({run,events,questions,messages,inputs,conversationId,onOpenFile
    </span>
    <RunTokenUsage usage={run.usage} compact />
   </button></Dialog.Trigger>
-  <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-50 bg-black/50"/><Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-background p-4 shadow-lg" data-run-detail={run.id}>
-   <div className="flex items-start justify-between"><div><Dialog.Title className="font-semibold">@{run.agent_id} · {t('run.details')}</Dialog.Title><Dialog.Description className="mt-1 text-xs text-muted-foreground">{t(`run.status.${run.status}`)} · {run.harness} · {run.harness_revision}</Dialog.Description></div><Dialog.Close asChild><Button size="icon" variant="ghost" aria-label={t('common.close')}><X className="size-4"/></Button></Dialog.Close></div>
+  <Dialog.Portal><Dialog.Overlay className="fixed inset-0 z-50 bg-black/50"/><Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-x-hidden overflow-y-auto rounded-xl border bg-background p-4 shadow-lg [overflow-wrap:anywhere]" data-run-detail={run.id}>
+   <div className="flex items-start justify-between gap-3"><div className="min-w-0"><Dialog.Title className="font-semibold">@{run.agent_id} · {t('run.details')}</Dialog.Title><Dialog.Description className="mt-1 text-xs text-muted-foreground">{t(`run.status.${run.status}`)} · {run.harness} · {run.harness_revision}</Dialog.Description></div><Dialog.Close asChild><Button size="icon" variant="ghost" className="shrink-0" aria-label={t('common.close')}><X className="size-4"/></Button></Dialog.Close></div>
    <RunTokenUsage usage={run.usage} />
    <dl className="my-4 grid grid-cols-[auto_minmax(0,1fr)] gap-2 text-xs"><dt>{t('run.id')}</dt><dd className="break-all">{run.id}</dd><dt>{t('run.model')}</dt><dd className="break-all" data-run-model>{run.model ?? t('run.modelUnknown')}</dd><dt>{t('run.clientSession')}</dt><dd className="break-all">{run.session_id}</dd><dt>{t('run.device')}</dt><dd className="break-all">{run.device_id}</dd></dl>
-   <section className="my-4 grid gap-2" aria-label={t('run.inputs')}>
+   <section className="my-4 grid grid-cols-1 gap-2" aria-label={t('run.inputs')}>
     <h3 className="text-sm font-medium">{t('run.inputs')} · {inputs.length}</h3>
     {inputs.map(input=>{
      const message=messages.find(m=>m.id===input.message_id);
      return <details key={input.input_id} className="group/input rounded-lg border" data-run-input={input.input_id}>
       <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg p-3 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
        <ChevronRight className="size-3.5 shrink-0 transition-transform group-open/input:rotate-90" />
-       <span className="min-w-0 flex-1 truncate">{message?.author_role==='child_conversation' ? `${t('nest.childAuthor')} · ${message.author_name || t('nest.deletedChild')}` : message?.content || input.message_id}</span>
+       <span className="line-clamp-2 min-w-0 flex-1">{message?.author_role==='child_conversation' ? `${t('nest.childAuthor')} · ${message.author_name || t('nest.deletedChild')}` : message?.content || input.message_id}</span>
        <span className="hidden shrink-0 text-muted-foreground sm:inline">{fmtTime(input.created_at)}</span>
       </summary>
-      <div className="grid gap-3 border-t p-3 text-sm">
+      <div className="grid grid-cols-1 gap-3 border-t p-3 text-sm">
        <p className="break-all text-xs text-muted-foreground">{t('run.inputId')} · {input.input_id}</p>
        <p className="text-xs text-muted-foreground sm:hidden">{fmtTime(input.created_at)}</p>
        {message && <><Markdown>{message.content}</Markdown><MessageFiles files={message.attachments} onOpen={file=>{setOpen(false);onOpenFile(file);}} /></>}
@@ -310,7 +310,7 @@ function RunView({run,events,questions,messages,inputs,conversationId,onOpenFile
    </section>
    {run.output&&<Markdown>{run.output}</Markdown>}
    {run.error&&<p className="text-sm text-destructive">{run.error}</p>}
-   <div className="my-4 grid gap-3">{questions.filter(q=>q.run_id===run.id).map(q=><QuestionView key={q.request_id} q={q} conversationId={conversationId}/>)}</div>
+   <div className="my-4 grid grid-cols-1 gap-3">{questions.filter(q=>q.run_id===run.id).map(q=><QuestionView key={q.request_id} q={q} conversationId={conversationId}/>)}</div>
    {active&&<Button size="sm" variant="outline" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>{t('run.cancel')}</Button>}
    {cancel.isSuccess&&active&&<p className="mt-2 text-xs text-muted-foreground">{t('run.cancelPending')}</p>}
    {cancel.isError&&<ErrorState error={cancel.error}/>}
