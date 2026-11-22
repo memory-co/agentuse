@@ -226,8 +226,8 @@ function MessageView({ m, onOpenFile }: { m: Message; onOpenFile: (file: Attachm
   </details>;
  }
  if(m.author_role==='user') {
-  return <div className="ml-auto grid min-w-0 max-w-[90%] gap-1.5 rounded-2xl rounded-br-md border bg-muted px-4 py-3 text-sm leading-6 sm:max-w-[85%]" title={fmtTime(m.created_at)} data-message-id={m.id}>
-    {targetLabel}<div className="whitespace-pre-wrap break-words">{m.content}</div>
+  return <div className="ml-auto grid min-w-0 max-w-[90%] grid-cols-1 gap-1.5 rounded-2xl rounded-br-md border bg-muted px-4 py-3 text-sm leading-6 sm:max-w-[85%]" title={fmtTime(m.created_at)} data-message-id={m.id}>
+    {targetLabel}<div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{m.content}</div>
     <MessageFiles files={m.attachments} onOpen={onOpenFile} /><MessageErrors message={m}/>
   </div>;
  }
