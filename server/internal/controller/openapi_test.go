@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
@@ -93,6 +94,22 @@ func TestServerDocumentationAuthentication(t *testing.T) {
 	}
 	if code := e.req("invalid", "GET", "/api/docs", nil, nil, "Cookie", cookies[0].String()).StatusCode; code != 401 {
 		t.Fatal("invalid Bearer token must take precedence over a valid cookie", code)
+	}
+}
+
+func TestOfflineOpenAPIMatchesServedDocument(t *testing.T) {
+	e := newEnv(t, Config{FilesDir: t.TempDir()})
+	_, token := e.user("alice", agentuse.RoleUser)
+	var served json.RawMessage
+	if status := e.req(token, "GET", "/api/openapi.json", nil, &served).StatusCode; status != 200 {
+		t.Fatalf("read OpenAPI: %d", status)
+	}
+	offline, err := json.Marshal(OpenAPIDocument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(offline, served) {
+		t.Fatal("offline OpenAPI differs from /api/openapi.json with default settings")
 	}
 }
 

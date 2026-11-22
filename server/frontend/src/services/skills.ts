@@ -1,12 +1,10 @@
 import { queryOptions, useMutation, useQueries, useQuery, type QueryFilters, type UseQueryResult } from '@tanstack/react-query';
-import { api, downloadFile } from '@/lib/api';
+import { api, apiData, downloadFile, multipartBody } from '@/api/client';
 import { queryClient } from '@/lib/query';
 import type { Skill, SkillVersion } from '@/lib/types';
 
 const listKey = ['skills'] as const;
 const versionsKey = (id: string) => ['skill-versions', id] as const;
-const skillPath = (id: string) => `/api/skills/${encodeURIComponent(id)}`;
-
 export function skillChangeQueries(id?: string): QueryFilters[] {
   const list = { queryKey: listKey, exact: true };
   return id ? [list, { queryKey: versionsKey(id), exact: true }] : [list];
@@ -17,13 +15,13 @@ function invalidateSkill(id: string) {
 }
 
 export function useSkills() {
-  return useQuery({ queryKey: listKey, queryFn: ({ signal }) => api<Skill[]>('/api/skills', { signal }) });
+  return useQuery({ queryKey: listKey, queryFn: ({ signal }) => apiData(api.GET('/api/skills', { signal })) });
 }
 
 function skillVersionsOptions(id: string) {
   return queryOptions({
     queryKey: versionsKey(id),
-    queryFn: ({ signal }) => api<SkillVersion[]>(`${skillPath(id)}/versions`, { signal }),
+    queryFn: ({ signal }) => apiData(api.GET('/api/skills/{id}/versions', { params: { path: { id } }, signal })),
     enabled: !!id,
   });
 }
@@ -50,20 +48,18 @@ export function useSkillCatalogVersions(skills: Skill[] | undefined) {
 
 export function useUploadSkill() {
   return useMutation({
-    mutationFn: ({ file, selected }: { file: File; selected: Skill | null }) => {
-      const body = new FormData();
-      body.append('file', file);
-      if (selected) body.append('base_version_id', selected.current_version_id);
-      const path = selected ? `${skillPath(selected.id)}/versions` : '/api/skills';
-      return api<Skill>(path, { method: 'POST', body });
-    },
+    mutationFn: ({ file, selected }: { file: File; selected: Skill | null }) => selected
+      ? apiData(api.POST('/api/skills/{id}/versions', {
+        params: { path: { id: selected.id } }, body: { file, base_version_id: selected.current_version_id }, bodySerializer: multipartBody,
+      }))
+      : apiData(api.POST('/api/skills', { body: { file }, bodySerializer: multipartBody })),
     onSuccess: skill => invalidateSkill(skill.id),
   });
 }
 
 export function useDeleteSkill() {
   return useMutation({
-    mutationFn: (id: string) => api(skillPath(id), { method: 'DELETE' }),
+    mutationFn: (id: string) => apiData(api.DELETE('/api/skills/{id}', { params: { path: { id } } })),
     onSuccess: (_, id) => invalidateSkill(id),
   });
 }

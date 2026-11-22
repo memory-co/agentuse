@@ -47,13 +47,25 @@ type apiAccess struct {
 	description string
 }
 
+// OpenAPIDocument exports the default Server contract without starting a server.
+func OpenAPIDocument() *huma.OpenAPI {
+	s := &Server{mux: http.NewServeMux(), cfg: Config{
+		ClientHandler:                  http.NotFoundHandler(),
+		AttachmentMaxBytes:             defaultAttachmentMaxBytes,
+		AttachmentConversationMaxBytes: defaultAttachmentConversationMaxBytes,
+	}}
+	return s.registerAPI()
+}
+
 // Each binding is the single definition of the runtime route and its OpenAPI
 // operation. Existing handlers keep their HTTP parsing, streaming, and errors.
-func (s *Server) registerAPI() {
+func (s *Server) registerAPI() *huma.OpenAPI {
 	config := huma.DefaultConfig("AgentUse Server API", "1.0.0")
 	config.OpenAPIPath = "/api/openapi"
 	config.DocsPath = "/api/docs"
 	config.SchemasPath = "/api/schemas"
+	// The HTTP handlers write their own response bodies without Huma's $schema field.
+	config.CreateHooks = nil
 	config.Info.Description = "AgentUse Server API。登录管理页面后可使用 cookie 在文档中调试，也可通过 Authorize 输入 Bearer token。Server 对话统一使用 /api/conversations 和 conversation_id；session_id 表示 Client 本地执行会话。设备入口使用 device 命名。消息用 to_agent_ids 和 to_user_ids 指定收件人；只有 Agent 收件人触发执行，实际 run_id 由 Client accepted 返回。"
 	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
 		"cookieAuth":      {Type: "apiKey", In: "cookie", Name: cookieName, Description: "POST /api/login 或登录链接设置的 HttpOnly cookie"},
@@ -64,12 +76,19 @@ func (s *Server) registerAPI() {
 	api := humago.New(&documentationRouter{server: s}, config)
 	// Huma cannot mark an object reference nullable via a field tag.
 	api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(agentuse.RunUsage{}), false, "").Nullable = true
-	api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(agentuse.ServerUpgrade{}), false, "").Nullable = true
+	upgradeState := api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(agentuse.ServerUpgradeState{}), false, "")
+	active := upgradeState.Properties["active"]
+	active.OneOf = []*huma.Schema{{Ref: active.Ref}, {Type: "object", Nullable: true, Enum: []any{nil}}}
+	active.Ref = ""
 	schema := func(v any) *huma.Schema { return api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(v), true, "") }
 	jsonResponse := func(status int, v any) *huma.Response {
 		r := &huma.Response{Description: http.StatusText(status)}
 		if v != nil {
-			r.Content = map[string]*huma.MediaType{"application/json": {Schema: schema(v)}}
+			body := schema(v)
+			if sample := reflect.ValueOf(v); sample.Kind() == reflect.Slice && !sample.IsNil() {
+				body.Nullable = false
+			}
+			r.Content = map[string]*huma.MediaType{"application/json": {Schema: body}}
 		}
 		return r
 	}
@@ -131,9 +150,15 @@ func (s *Server) registerAPI() {
 		})
 		return op
 	}
-	query := func(name, description string) *huma.Param {
-		return &huma.Param{Name: name, In: "query", Description: description, Schema: &huma.Schema{Type: "string"}}
+	query := func(name, description string, schemas ...*huma.Schema) *huma.Param {
+		schema := &huma.Schema{Type: "string"}
+		if len(schemas) > 0 {
+			schema = schemas[0]
+		}
+		return &huma.Param{Name: name, In: "query", Description: description, Schema: schema}
 	}
+	one := 1.0
+	positiveInteger := &huma.Schema{Type: "integer", Minimum: &one}
 	binary := &huma.Schema{Type: "string", Format: "binary"}
 	binaryResponse := func(op *huma.Operation, mediaType string) {
 		op.Responses["200"] = &huma.Response{Description: "文件内容", Content: map[string]*huma.MediaType{mediaType: {Schema: binary}}}
@@ -149,7 +174,7 @@ func (s *Server) registerAPI() {
 	bind("POST", "/api/logout", "logout", "清除登录 cookie", "auth", public, nil, nil, 204, s.handleLogout)
 	bind("GET", "/api/browser/ws", "browser-notifications", "Browser change notifications over WebSocket; fetch data through HTTP APIs", "browser", apiAccess{security: config.Security}, nil, nil, 101, s.handleBrowserWS, query("as", "Acting user ID; administrators only. Authentication uses the login cookie."))
 	bind("GET", "/api/me", "get-current-user", "读取当前用户", "auth", user, nil, agentuse.User{}, 200, s.handleMe)
-	bind("GET", "/api/upgrades", "list-server-upgrades", "查看 Server 版本、当前升级及历史记录", "upgrade", admin, nil, agentuse.ServerUpgradeState{}, 200, s.handleUpgradeState, query("cursor", "上一页的 next_cursor"), query("limit", "每页记录数，1–100，默认 20"))
+	bind("GET", "/api/upgrades", "list-server-upgrades", "查看 Server 版本、当前升级及历史记录", "upgrade", admin, nil, agentuse.ServerUpgradeState{}, 200, s.handleUpgradeState, query("cursor", "上一页的 next_cursor"), query("limit", "每页记录数，1–100，默认 20", positiveInteger))
 	bind("GET", "/api/upgrades/latest", "latest-server-release", "查询 GitHub 最新正式版本", "upgrade", admin, nil, agentuse.ServerRelease{}, 200, s.handleLatestUpgrade)
 	bind("GET", "/api/upgrades/{id}", "get-server-upgrade", "查看异步升级进度和结果", "upgrade", admin, nil, agentuse.ServerUpgrade{}, 200, s.handleGetUpgrade)
 	startUpgrade := bind("POST", "/api/upgrades", "start-server-upgrade", "异步下载、校验、替换并重启 Server", "upgrade", admin, nil, agentuse.ServerUpgrade{}, 202, s.handleStartUpgrade)
@@ -200,17 +225,17 @@ func (s *Server) registerAPI() {
 	bind("POST", "/api/devices/{id}/reset", "reset-device-setup", "撤销旧设备凭据并返回新私钥", "device", user, nil, deviceView{}, 200, s.handleResetDevice)
 	bind("PUT", "/api/devices/{id}/harnesses/{harness}", "toggle-device-harness", "启用或禁用设备的 harness", "device", user, toggleHarnessBody{}, deviceView{}, 200, s.handleToggleHarness)
 	bind("GET", "/api/conversations", "list-conversations", "列出顶层对话或指定父对话的直接子对话", "conversation", conversation, nil, []agentuse.Conversation{}, 200, s.handleListConversations, query("parent_conversation_id", "父对话 ID；由 Agent 创建子对话，返回的 parent_agent_id 固定记录发起者"))
-	bind("POST", "/api/conversations", "create-conversation", "创建会话，可同时发送首条消息", "conversation", conversation, createConversationBody{}, agentuse.CreateConversationResponse{}, 201, s.handleCreateConversation)
+	bind("POST", "/api/conversations", "create-conversation", "创建会话，可同时发送首条消息", "conversation", conversation, agentuse.CreateConversationRequest{}, agentuse.CreateConversationResponse{}, 201, s.handleCreateConversation)
 	contextRoute := bind("GET", "/api/conversations/{id}/messages/{message_id}/agents/{agent_id}/context", "get-message-context", "为本地 session 补齐尚未提供的共享消息", "conversation", apiAccess{security: []map[string][]string{{"executionAccess": {}}}}, nil, agentuse.MessageContext{}, 200, s.handleMessageContext)
 	contextRoute.Parameters = append(contextRoute.Parameters, query("session_id", "Client 实际选择的本地 session ID"))
-	bind("GET", "/api/conversations/{id}", "get-conversation", "读取会话快照", "conversation", conversation, nil, agentuse.ConversationDetail{}, 200, s.handleGetConversation, query("round", "可选的正整数会话内轮次；固定返回该轮的消息范围、执行和结果，不混入后续轮次"), query("view", "summary 返回消息和运行摘要，省略时返回完整快照"))
-	bind("DELETE", "/api/conversations/{id}", "delete-conversation", "删除无活跃执行的会话", "conversation", user, nil, nil, 204, s.handleDeleteConversation, query("recursive", "true 时同时删除直接子对话；所有节点须无活跃执行及对外待通知轮次"))
-	bind("POST", "/api/conversations/{id}/messages", "send-message", "发送消息，明确指定 Agent 和用户收件人", "conversation", conversation, messageBody{}, agentuse.Reply{}, 201, s.handleAddMessage)
+	bind("GET", "/api/conversations/{id}", "get-conversation", "读取会话快照", "conversation", conversation, nil, agentuse.ConversationDetail{}, 200, s.handleGetConversation, query("round", "可选的正整数会话内轮次；固定返回该轮的消息范围、执行和结果，不混入后续轮次", positiveInteger), query("view", "summary 返回消息和运行摘要，省略时返回完整快照", &huma.Schema{Type: "string", Enum: []any{"summary"}}))
+	bind("DELETE", "/api/conversations/{id}", "delete-conversation", "删除无活跃执行的会话", "conversation", user, nil, nil, 204, s.handleDeleteConversation, query("recursive", "true 时同时删除直接子对话；所有节点须无活跃执行及对外待通知轮次", &huma.Schema{Type: "boolean"}))
+	bind("POST", "/api/conversations/{id}/messages", "send-message", "发送消息，明确指定 Agent 和用户收件人", "conversation", conversation, agentuse.MessageRequest{}, agentuse.Reply{}, 201, s.handleAddMessage)
 	bind("PATCH", "/api/conversations/{id}", "rename-conversation", "重命名会话", "conversation", user, renameConversationBody{}, agentuse.Conversation{}, 200, s.handleRenameConversation)
 	bind("POST", "/api/conversations/{id}/resolve", "resolve-conversation", "标记会话已完成", "conversation", user, nil, agentuse.Conversation{}, 200, s.handleResolveConversation)
 	bind("POST", "/api/conversations/{id}/reopen", "reopen-conversation", "重新打开会话", "conversation", user, nil, agentuse.Conversation{}, 200, s.handleReopenConversation)
-	bind("GET", "/api/conversations/{id}/runs/{run_id}", "get-run", "读取 Client 上报的 run", "run", conversation, nil, agentuse.RunDetail{}, 200, s.handleGetRun, query("view", "metadata 返回运行输出、输入及问题，事件另行分页；省略时返回原有的运行和完整事件"))
-	bind("GET", "/api/conversations/{id}/runs/{run_id}/events", "list-run-events", "按游标分页读取某次运行的事件", "run", conversation, nil, agentuse.RunEventPage{}, 200, s.handleRunEvents, query("cursor", "上一页的 next_cursor"), query("limit", "1–50，每页默认 20 条"))
+	bind("GET", "/api/conversations/{id}/runs/{run_id}", "get-run", "读取 Client 上报的 run", "run", conversation, nil, agentuse.RunDetail{}, 200, s.handleGetRun, query("view", "metadata 返回运行输出、输入及问题，事件另行分页；省略时返回原有的运行和完整事件", &huma.Schema{Type: "string", Enum: []any{"metadata"}}))
+	bind("GET", "/api/conversations/{id}/runs/{run_id}/events", "list-run-events", "按游标分页读取某次运行的事件", "run", conversation, nil, agentuse.RunEventPage{}, 200, s.handleRunEvents, query("cursor", "上一页的 next_cursor"), query("limit", "1–50，每页默认 20 条", positiveInteger))
 	eventPayload := bind("GET", "/api/conversations/{id}/runs/{run_id}/events/{event_id}", "download-run-event", "下载单条运行事件的完整 JSON", "run", conversation, nil, nil, 200, s.handleRunEventPayload)
 	binaryResponse(eventPayload, "application/json")
 	bind("POST", "/api/conversations/{id}/runs/{run_id}/cancel", "cancel-run", "发送取消请求，等待 Client 上报结果", "run", user, nil, agentuse.Run{}, 200, s.handleCancelRun)
@@ -235,4 +260,5 @@ func (s *Server) registerAPI() {
 	for _, code := range []int{400, 401, 403, 426} {
 		ws.Responses[strconv.Itoa(code)] = &huma.Response{Description: http.StatusText(code), Content: map[string]*huma.MediaType{"text/plain": {Schema: &huma.Schema{Type: "string"}}}}
 	}
+	return api.OpenAPI()
 }

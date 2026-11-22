@@ -33,7 +33,7 @@ type Attachment struct {
 	DownloadPath     string `json:"download_path"`
 }
 type AttachmentPage struct {
-	Attachments []Attachment `json:"attachments"`
+	Attachments []Attachment `json:"attachments" nullable:"false"`
 	NextCursor  *string      `json:"next_cursor"`
 }
 

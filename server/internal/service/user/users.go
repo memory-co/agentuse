@@ -116,7 +116,7 @@ func (s *Service) ListUsers(ctx context.Context) ([]agentuse.User, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []agentuse.User
+	out := []agentuse.User{}
 	for rows.Next() {
 		u, err := database.ScanUser(rows)
 		if err != nil {

@@ -1,10 +1,15 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { defaultPathSerializer } from 'openapi-fetch';
+import { ApiError, api, apiData, downloadFile, fetchFile, multipartBody } from '@/api/client';
+import type { paths } from '@/api/schema';
 import { actAsHeaders } from '@/lib/actas';
-import { ApiError, api, downloadFile } from '@/lib/api';
 import { clearCurrentUser, queryClient } from '@/lib/query';
 import type { Attachment } from '@/lib/types';
 
-const attachmentPath = (conversationId: string) => `/api/conversations/${encodeURIComponent(conversationId)}/attachments`;
+const attachmentsPath = '/api/conversations/{id}/attachments';
+type Upload = paths[typeof attachmentsPath]['post'];
+type AttachmentPage = paths[typeof attachmentsPath]['get']['responses'][200]['content']['application/json'];
+type UploadedAttachment = Upload['responses'][201]['content']['application/json'];
 const previewKey = (fileId: string) => ['attachment-preview', fileId] as const;
 
 export function attachmentListQuery(conversationId: string) {
@@ -27,7 +32,9 @@ async function listAttachments(conversationId: string, signal: AbortSignal): Pro
   const out: Attachment[] = [];
   let cursor: string | null = null;
   do {
-    const page: { attachments: Attachment[]; next_cursor: string | null } = await api(`${attachmentPath(conversationId)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, { signal });
+    const page: AttachmentPage = await apiData(api.GET(attachmentsPath, {
+      params: { path: { id: conversationId }, query: { cursor: cursor || undefined } }, signal,
+    }));
     out.push(...page.attachments);
     cursor = page.next_cursor;
   } while (cursor);
@@ -49,17 +56,17 @@ export function useAttachmentPreview(file: Attachment) {
     enabled: kind === 'image' || kind === 'text',
     staleTime: Infinity,
     queryFn: async ({ signal }) => {
-      const response = await fetch(file.download_path, { headers: actAsHeaders(file.download_path), signal });
-      if (!response.ok) throw new ApiError(response.status, (await response.json().catch(() => ({}))).error || response.statusText);
+      const response = await fetchFile(file.download_path, signal);
       return kind === 'image' ? response.blob() : response.text();
     },
   });
   return { kind, query };
 }
 
-export function uploadAttachment(conversationId: string, file: File, progress: (percent: number) => void): Promise<Attachment> {
+export function uploadAttachment(conversationId: string, file: File, progress: (percent: number) => void): Promise<UploadedAttachment> {
   return new Promise((resolve, reject) => {
-    const path = attachmentPath(conversationId);
+    const params: Upload['parameters']['path'] = { id: conversationId };
+    const path = defaultPathSerializer(attachmentsPath, params);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', path);
     for (const [key, value] of Object.entries(actAsHeaders(path))) xhr.setRequestHeader(key, value);
@@ -67,13 +74,18 @@ export function uploadAttachment(conversationId: string, file: File, progress: (
     xhr.onerror = () => reject(new Error('Upload interrupted; check the attachment list before retrying.'));
     xhr.onabort = () => reject(new Error('Upload cancelled'));
     xhr.onload = () => {
-      let data: any;
+      let data: unknown;
       try { data = JSON.parse(xhr.responseText); } catch { reject(new Error(xhr.statusText || 'Upload failed')); return; }
       if (xhr.status === 401) clearCurrentUser();
-      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
-      else reject(new ApiError(xhr.status, data.error || xhr.statusText));
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(data as UploadedAttachment);
+      } else {
+        const error = data && typeof data === 'object' && 'error' in data ? data.error : undefined;
+        reject(new ApiError(xhr.status, typeof error === 'string' && error ? error : xhr.statusText));
+      }
     };
-    const body = new FormData(); body.append('file', file); xhr.send(body);
+    const fields: Upload['requestBody']['content']['multipart/form-data'] = { file };
+    xhr.send(multipartBody(fields));
   });
 }
 
@@ -83,7 +95,9 @@ export function useDownloadAttachment() {
 
 export function useDeleteAttachment(conversationId: string) {
   return useMutation({
-    mutationFn: (file: Attachment) => api(`${attachmentPath(conversationId)}/${encodeURIComponent(file.id)}`, { method: 'DELETE' }),
+    mutationFn: (file: Attachment) => apiData(api.DELETE('/api/conversations/{id}/attachments/{attachment_id}', {
+      params: { path: { id: conversationId, attachment_id: file.id } },
+    })),
     onSuccess: (_, file) => {
       queryClient.removeQueries({ queryKey: previewKey(file.id), exact: true });
       invalidateAttachmentList(conversationId);

@@ -1,5 +1,7 @@
 # Server 自升级
 
+升级记录、升级状态及发布信息 DTO 见 [sdk/golang/upgrades.go](../../sdk/golang/upgrades.go)。路由绑定和前端类型见 [DTO 源码索引](api.md#dto-源码索引)。
+
 管理员可从管理页面的「系统升级」操作，也可使用 `agentuse-server upgrade`。两种入口调用同一个异步服务，升级记录保存在数据库中，Server 重启后仍可查看。
 
 ## 页面与 CLI

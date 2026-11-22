@@ -1,15 +1,13 @@
 import { useMutation, useQuery, type QueryFilters } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, apiData } from '@/api/client';
 import { queryClient } from '@/lib/query';
-import type { Conversation, ConversationSummary } from '@/lib/types';
+import type { Conversation } from '@/lib/types';
 
 const keys = {
   list: ['conversations'] as const,
   children: (parent: string) => ['conversations', 'children', parent] as const,
   summary: (id: string) => ['conversations', 'summary', id] as const,
 };
-
-const conversationPath = (id: string) => `/api/conversations/${encodeURIComponent(id)}`;
 
 export type ConversationScope = Pick<Conversation, 'id' | 'parent_conversation_id'>;
 
@@ -20,7 +18,7 @@ export function isInvalidConversationRound(round?: number) {
 export function useConversations() {
   return useQuery({
     queryKey: keys.list,
-    queryFn: ({ signal }) => api<Conversation[]>('/api/conversations', { signal }),
+    queryFn: ({ signal }) => apiData(api.GET('/api/conversations', { signal })),
     refetchOnWindowFocus: false,
   });
 }
@@ -28,7 +26,7 @@ export function useConversations() {
 export function useChildren(parent: string, enabled = true) {
   return useQuery({
     queryKey: keys.children(parent),
-    queryFn: ({ signal }) => api<Conversation[]>(`/api/conversations?parent_conversation_id=${encodeURIComponent(parent)}`, { signal }),
+    queryFn: ({ signal }) => apiData(api.GET('/api/conversations', { params: { query: { parent_conversation_id: parent } }, signal })),
     enabled,
     refetchOnWindowFocus: false,
   });
@@ -37,7 +35,9 @@ export function useChildren(parent: string, enabled = true) {
 export function useConversation(id: string, round?: number) {
   return useQuery({
     queryKey: round === undefined ? keys.summary(id) : [...keys.summary(id), 'round', round],
-    queryFn: ({ signal }) => api<ConversationSummary>(`${conversationPath(id)}?view=summary${round === undefined ? '' : `&round=${round}`}`, { signal }),
+    queryFn: ({ signal }) => apiData(api.GET('/api/conversations/{id}', {
+      params: { path: { id }, query: { view: 'summary', round } }, signal,
+    })),
     enabled: !!id && !isInvalidConversationRound(round),
     refetchOnWindowFocus: false,
   });
@@ -55,7 +55,7 @@ export function invalidateConversation(conversation: ConversationScope) {
 }
 
 export async function createConversation(mode: Conversation['mode']) {
-  const { conversation } = await api<{ conversation: Conversation }>('/api/conversations', { method: 'POST', body: { mode } });
+  const { conversation } = await apiData(api.POST('/api/conversations', { body: { mode } }));
   invalidateConversation(conversation);
   return conversation;
 }
@@ -66,23 +66,25 @@ export async function sendConversationMessage(conversation: ConversationScope, i
   users: string[];
   attachmentIds: string[];
 }) {
-  await api(`${conversationPath(conversation.id)}/messages`, {
-    method: 'POST',
+  await apiData(api.POST('/api/conversations/{id}/messages', {
+    params: { path: { id: conversation.id } },
     body: { prompt: input.prompt, to_agent_ids: input.targets, to_user_ids: input.users, attachment_ids: input.attachmentIds },
-  });
+  }));
   invalidateConversation(conversation);
 }
 
 export function useRenameConversation(id: string) {
   return useMutation({
-    mutationFn: (title: string) => api<Conversation>(conversationPath(id), { method: 'PATCH', body: { title } }),
+    mutationFn: (title: string) => apiData(api.PATCH('/api/conversations/{id}', { params: { path: { id } }, body: { title } })),
     onSuccess: invalidateConversation,
   });
 }
 
 export function useSetConversationResolved(id: string) {
   return useMutation({
-    mutationFn: (resolved: boolean) => api<Conversation>(`${conversationPath(id)}/${resolved ? 'resolve' : 'reopen'}`, { method: 'POST' }),
+    mutationFn: (resolved: boolean) => apiData(api.POST(resolved ? '/api/conversations/{id}/resolve' : '/api/conversations/{id}/reopen', {
+      params: { path: { id } },
+    })),
     onSuccess: invalidateConversation,
   });
 }
@@ -90,7 +92,9 @@ export function useSetConversationResolved(id: string) {
 export function useDeleteConversation() {
   return useMutation({
     mutationFn: (conversation: ConversationScope & Pick<Conversation, 'mode'>) =>
-      api(`${conversationPath(conversation.id)}${conversation.mode === 'collaborative' ? '?recursive=true' : ''}`, { method: 'DELETE' }),
+      apiData(api.DELETE('/api/conversations/{id}', {
+        params: { path: { id: conversation.id }, query: conversation.mode === 'collaborative' ? { recursive: true } : undefined },
+      })),
     onSuccess: (_, conversation) => invalidateConversation(conversation),
   });
 }

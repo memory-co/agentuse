@@ -247,15 +247,30 @@ function MessageErrors({message}:{message:Message}) {
  return Object.entries(message.agent_errors ?? {}).map(([agent,receipt])=><p key={agent} className={cn('break-words text-xs',receipt.uncertain?'text-muted-foreground':'text-destructive')} data-message-error={agent}>@{agent} · {t(receipt.uncertain?'run.unconfirmed':'run.rejected')}：{receipt.error}</p>);
 }
 
+function record(value: unknown): Record<string, unknown> {
+ return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function questionItems(value: unknown) {
+ if (!Array.isArray(value)) return [];
+ return value.flatMap(raw => {
+  const { id, text, multiple, options } = record(raw);
+  if (typeof id !== 'string' || typeof text !== 'string') return [];
+  const labels = Array.isArray(options) ? options.map(option => record(option).label).filter(label => typeof label === 'string') : [];
+  return [{ id, text, multiple: multiple === true, labels }];
+ });
+}
+
 function QuestionView({ q, conversation }: { q: Question; conversation: ConversationScope }) {
  const [answers,setAnswers]=useState<Record<string,string>>({});
- const p=q.payload??{};
+ const p = record(q.payload);
+ const items = questionItems(p.questions);
  const reply=useAnswerRunRequest(conversation,q.run_id,q.request_id);
  const busy=reply.isPending||(reply.isSuccess&&!q.delivery_error);
  return <div className="grid gap-2 rounded-lg border p-3 text-sm">
-  <p className="whitespace-pre-wrap break-words font-medium">{p.message}</p>
-  {q.state!=='pending' ? <p className="text-xs text-muted-foreground">{q.state}{p.answer!==undefined&&` · ${JSON.stringify(p.answer)}`}</p> : p.kind==='permission' ? <div className="flex gap-2"><Button size="sm" disabled={busy} onClick={()=>reply.mutate('allow')}>allow</Button><Button size="sm" variant="outline" disabled={busy} onClick={()=>reply.mutate('deny')}>deny</Button></div> : <form className="grid gap-3" onSubmit={e=>{e.preventDefault();const value=Object.fromEntries((p.questions??[]).map((item:any)=>[item.id,item.multiple?(answers[item.id]??'').split(',').map(x=>x.trim()).filter(Boolean):answers[item.id]]));reply.mutate(value)}}>
-   {(p.questions??[]).map((item:any)=><label key={item.id} className="grid gap-1"><span>{item.text}</span>{item.options?.length>0&&<span className="text-xs text-muted-foreground">{item.options.map((o:any)=>o.label).join(' / ')}</span>}<Input required value={answers[item.id]??''} onChange={e=>setAnswers({...answers,[item.id]:e.target.value})} placeholder={item.multiple?'多个答案用逗号分隔':''}/></label>)}
+  <p className="whitespace-pre-wrap break-words font-medium">{typeof p.message === 'string' && p.message}</p>
+  {q.state!=='pending' ? <p className="text-xs text-muted-foreground">{q.state}{p.answer!==undefined&&` · ${JSON.stringify(p.answer)}`}</p> : p.kind==='permission' ? <div className="flex gap-2"><Button size="sm" disabled={busy} onClick={()=>reply.mutate('allow')}>allow</Button><Button size="sm" variant="outline" disabled={busy} onClick={()=>reply.mutate('deny')}>deny</Button></div> : <form className="grid gap-3" onSubmit={e=>{e.preventDefault();const value=Object.fromEntries(items.map(item=>[item.id,item.multiple?(answers[item.id]??'').split(',').map(x=>x.trim()).filter(Boolean):answers[item.id]]));reply.mutate(value)}}>
+   {items.map(item=><label key={item.id} className="grid gap-1"><span>{item.text}</span>{item.labels.length>0&&<span className="text-xs text-muted-foreground">{item.labels.join(' / ')}</span>}<Input required value={answers[item.id]??''} onChange={e=>setAnswers({...answers,[item.id]:e.target.value})} placeholder={item.multiple?'多个答案用逗号分隔':''}/></label>)}
    <Button size="sm" disabled={busy}>回复</Button>
   </form>}
   {busy&&reply.isSuccess&&<p className="text-xs text-muted-foreground">已发送，等待 client 确认</p>}

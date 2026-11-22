@@ -9,14 +9,14 @@ import (
 type User struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
-	Role      string `json:"role"`
+	Role      string `json:"role" enum:"admin,user"`
 	CreatedAt int64  `json:"created_at"`
 }
 
 type CreateUserRequest struct {
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name,omitempty" required:"true" minLength:"1" maxLength:"191"`
-	Role string `json:"role,omitempty"`
+	Role string `json:"role,omitempty" enum:"admin,user"`
 }
 
 type UserToken struct {
@@ -68,18 +68,18 @@ type Device struct {
 	ID             string          `json:"id"`
 	UserID         string          `json:"user_id"`
 	Name           string          `json:"name"`
-	Status         string          `json:"status"` // pending / online / offline
+	Status         string          `json:"status" enum:"pending,online,offline"`
 	LastSeenAt     *int64          `json:"last_seen_at"`
 	CreatedAt      int64           `json:"created_at"`
 	Harnesses      []DeviceHarness `json:"harnesses"`
-	SetupToken     string          `json:"setup_token,omitempty"` // OpenSSH private key body, returned only on create/reset
-	SetupServerPin string          `json:"setup_server_pin,omitempty"`
-	SetupCommand   string          `json:"setup_command,omitempty"` // Shell command containing the device key, returned only on create/reset
+	SetupToken     string          `json:"setup_token,omitempty" doc:"OpenSSH private key body returned by device creation and reset."`
+	SetupServerPin string          `json:"setup_server_pin,omitempty" doc:"Server CA fingerprint returned with the registration command."`
+	SetupCommand   string          `json:"setup_command,omitempty" doc:"Registration command containing the device key, returned by creation and reset."`
 }
 
 type ClientUpgrade struct {
 	TargetVersion string `json:"target_version"`
-	Status        string `json:"status"`
+	Status        string `json:"status" enum:"downloading,restarting,succeeded,failed"`
 	Error         string `json:"error,omitempty"`
 }
 
@@ -112,7 +112,7 @@ type Conversation struct {
 	ParentConversationID string `json:"parent_conversation_id,omitempty"`
 	ParentAgentID        string `json:"parent_agent_id,omitempty"`
 	Title                string `json:"title"`
-	Status               string `json:"status"` // idle / pending / running / waiting(在等用户回答提问) / resolved(已完成)
+	Status               string `json:"status" enum:"idle,pending,running,waiting,resolved"`
 	CreatedAt            int64  `json:"created_at"`
 	UpdatedAt            int64  `json:"updated_at"`
 }
@@ -159,20 +159,20 @@ type ConversationEvent struct {
 
 // MessageRequest sends text, selected files and an optional reply reference to explicit recipients.
 type MessageRequest struct {
-	ReplyToMessageID string   `json:"reply_to_message_id,omitempty"`
-	AttachmentIDs    []string `json:"attachment_ids,omitempty"`
-	ToAgentIDs       []string `json:"to_agent_ids,omitempty"`
-	ToUserIDs        []string `json:"to_user_ids,omitempty"`
-	Prompt           string   `json:"prompt,omitempty"`
+	ReplyToMessageID string   `json:"reply_to_message_id,omitempty" doc:"回复同一 conversation 中已有的消息"`
+	AttachmentIDs    []string `json:"attachment_ids,omitempty" maxItems:"64" doc:"本条消息选定的同会话附件 ID；省略或空数组表示没有附件"`
+	ToAgentIDs       []string `json:"to_agent_ids,omitempty" doc:"处理本条消息的 Agent ID；仅这些收件人创建执行关系"`
+	ToUserIDs        []string `json:"to_user_ids,omitempty" doc:"已有会话读取权限的用户 ID；不改变会话可见性"`
+	Prompt           string   `json:"prompt,omitempty" doc:"消息文本；两组收件人均省略时只保存备注"`
 }
 
 type CreateConversationRequest struct {
-	Mode                 string   `json:"mode,omitempty" enum:"single,collaborative"`
-	ParentConversationID string   `json:"parent_conversation_id,omitempty"`
+	Mode                 string   `json:"mode,omitempty" enum:"single,collaborative" doc:"single（默认）自己执行；collaborative 协调子对话。子对话只能为 single"`
+	ParentConversationID string   `json:"parent_conversation_id,omitempty" doc:"仅已校验的顶层 Agent 可创建执行子对话；parent_agent_id 由来源自动确定"`
 	Title                string   `json:"title,omitempty"`
-	ToAgentIDs           []string `json:"to_agent_ids,omitempty"`
-	ToUserIDs            []string `json:"to_user_ids,omitempty"`
-	Prompt               string   `json:"prompt,omitempty"`
+	ToAgentIDs           []string `json:"to_agent_ids,omitempty" doc:"处理首条消息的 Agent ID；省略为空数组，重复 ID 去重"`
+	ToUserIDs            []string `json:"to_user_ids,omitempty" doc:"已有会话读取权限的用户 ID；不触发执行"`
+	Prompt               string   `json:"prompt,omitempty" doc:"首条消息文本；省略时创建空会话"`
 }
 
 type CreateConversationResponse struct {
@@ -198,13 +198,13 @@ type ConversationRound struct {
 
 type ConversationDetail struct {
 	Rounds       []ConversationRound `json:"rounds" nullable:"false"`
-	Runs         []Run               `json:"runs"`
+	Runs         []Run               `json:"runs" nullable:"false"`
 	RunInputs    []RunInput          `json:"run_inputs" nullable:"false"`
 	RunCounts    map[string]int      `json:"run_counts"`
 	Conversation Conversation        `json:"conversation"`
-	Messages     []Message           `json:"messages"`
-	Questions    []Question          `json:"questions"`
-	Events       []ConversationEvent `json:"events"`
+	Messages     []Message           `json:"messages" nullable:"false"`
+	Questions    []Question          `json:"questions" nullable:"false"`
+	Events       []ConversationEvent `json:"events" nullable:"false"`
 }
 
 // Question preserves the public harnessctl request snapshot. Use ReplyRunRequest.
@@ -213,7 +213,7 @@ type Question struct {
 	RequestID      string          `json:"request_id"`
 	ConversationID string          `json:"conversation_id"`
 	RunID          string          `json:"run_id"`
-	State          string          `json:"state"`
+	State          string          `json:"state" enum:"pending,replied,expired"`
 	Payload        json.RawMessage `json:"payload"`
 	Answer         json.RawMessage `json:"answer,omitempty"`
 	AnsweredBy     string          `json:"answered_by,omitempty"`

@@ -40,16 +40,21 @@ type Server struct {
 	mux     *http.ServeMux
 }
 
+const (
+	defaultAttachmentMaxBytes             = 100 << 20
+	defaultAttachmentConversationMaxBytes = 1 << 30
+)
+
 func New(st *service.Service, cfg Config) *Server {
 	if cfg.Logger == nil {
 		cfg.Logger = log.Default()
 	}
 
 	if cfg.AttachmentMaxBytes <= 0 {
-		cfg.AttachmentMaxBytes = 100 << 20
+		cfg.AttachmentMaxBytes = defaultAttachmentMaxBytes
 	}
 	if cfg.AttachmentConversationMaxBytes <= 0 {
-		cfg.AttachmentConversationMaxBytes = 1 << 30
+		cfg.AttachmentConversationMaxBytes = defaultAttachmentConversationMaxBytes
 	}
 	cfg.PublicURL = strings.TrimRight(cfg.PublicURL, "/")
 	s := &Server{cfg: cfg, log: cfg.Logger, mux: http.NewServeMux()}
@@ -126,7 +131,7 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"error": msg})
+	writeJSON(w, code, apiErrorBody{Error: msg})
 }
 
 func (s *Server) serviceErr(w http.ResponseWriter, err error) {

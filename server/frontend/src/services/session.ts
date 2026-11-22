@@ -1,12 +1,11 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { setActAs, useActAs } from '@/lib/actas';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, apiData } from '@/api/client';
 import { clearCurrentUser, currentUserKey, queryClient } from '@/lib/query';
-import type { User } from '@/lib/types';
 
 async function readCurrentUser(signal?: AbortSignal) {
   try {
-    return await api<User>('/api/me', { signal });
+    return await apiData(api.GET('/api/me', { signal }));
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) return null;
     throw error;
@@ -29,7 +28,7 @@ export function useActiveUserId() {
 
 export function useLogin(token: string, onLogin: () => void) {
   return useMutation({
-    mutationFn: () => api('/api/login', { method: 'POST', body: { token: token.trim() } }),
+    mutationFn: () => apiData(api.POST('/api/login', { body: { token: token.trim() } })),
     onSuccess: () => {
       onLogin();
       void queryClient.invalidateQueries({ queryKey: currentUserKey, exact: true });
@@ -41,7 +40,7 @@ export function useLogin(token: string, onLogin: () => void) {
 
 export function useLogout() {
   return useMutation({
-    mutationFn: () => api('/api/logout', { method: 'POST' }),
+    mutationFn: () => apiData(api.POST('/api/logout')),
     onSuccess: async () => {
       await queryClient.cancelQueries();
       // Keep the query observed by App so it sees the signed-out state.

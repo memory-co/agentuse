@@ -371,7 +371,7 @@ func (s *Server) handleListConversations(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, 200, out)
 }
 func (s *Server) handleCreateConversation(w http.ResponseWriter, r *http.Request) {
-	var req createConversationBody
+	var req agentuse.CreateConversationRequest
 	if err := readMessageJSON(r, &req); err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -391,7 +391,7 @@ func (s *Server) handleCreateConversation(w http.ResponseWriter, r *http.Request
 	writeJSON(w, 201, out)
 }
 func (s *Server) handleAddMessage(w http.ResponseWriter, r *http.Request) {
-	var req messageBody
+	var req agentuse.MessageRequest
 	if err := readMessageJSON(r, &req); err != nil {
 		writeErr(w, 400, err.Error())
 		return

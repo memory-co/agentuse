@@ -16,6 +16,32 @@ Server 和 Client 分别用 Huma 生成各自的接口文档。启动并登录�
 
 请求、响应、状态码和上传下载格式以运行版本的 OpenAPI 为准。路由与文档共用注册定义，schema 从 Go 类型生成。Client 本机接口使用单独的地址与登录凭据，见 [Client API](../client/api.md)。
 
+## DTO 源码索引
+
+| 要查的内容 | 源文件 |
+|---|---|
+| 每条接口使用的请求体、响应体、参数及状态码 | [openapi.go](../../server/internal/controller/openapi.go) |
+| 登录、设备创建、重命名会话、回复 run 等 HTTP 请求体 | [api_types.go](../../server/internal/controller/api_types.go) |
+| 会话、消息、用户、设备和 Agent 请求及响应 | [sdk/golang/types.go](../../sdk/golang/types.go) |
+| Run 明细、事件分页、Token 用量 | [runs.go](../../sdk/golang/runs.go)、[usage.go](../../sdk/golang/usage.go) |
+| 附件和分页、Skill 和 Agent 版本、Server 升级 | [attachments.go](../../sdk/golang/attachments.go)、[resources.go](../../sdk/golang/resources.go)、[upgrades.go](../../sdk/golang/upgrades.go) |
+| 前端完整接口类型，按 HTTP 方法和路径或 `operationId` 查找 | [api/schema.ts](../../server/frontend/src/api/schema.ts) |
+| 前端 HTTP 请求和具体用法 | [api/client.ts](../../server/frontend/src/api/client.ts)、[services/](../../server/frontend/src/services) |
+
+例如 `POST /api/conversations/{id}/messages` 在路由表中绑定 `MessageRequest` 和 `Reply`。Go DTO 定义 JSON 字段，OpenAPI 从绑定生成接口定义，前端的 `api.POST` 从路径推导参数、请求体和回包。界面使用的常用类型别名见 [lib/types.ts](../../server/frontend/src/lib/types.ts)。
+
+修改 Go DTO 或路由契约后，在 `server/frontend` 重新生成并提交 `src/api/schema.ts`。生成命令直接读取本地 Go 路由定义，无需连接正在运行的 Server。CI 运行 `api:check` 检查生成文件是否同步。
+
+```bash
+cd server/frontend
+npm ci
+npm run api:generate
+npm run api:check
+npm run build
+```
+
+OpenAPI 中的 WebSocket 条目描述 HTTP 握手。设备连接后的消息结构见 [执行协议](../../designs/v3/protocol.md)。
+
 ## 身份与鉴权
 
 脚本使用 `Authorization: Bearer TOKEN`；网页登录后使用 cookie。

@@ -6,7 +6,9 @@ Server 網頁透過 `GET /api/browser/ws` 建立一條 WebSocket，僅接收資�
 
 ## 前端資料層
 
-`server/frontend/src/services/` 按業務集中 HTTP 路徑、TanStack Query 查詢 key 和快取失效規則。`conversations.ts` 提供頂層與子會話列表、會話摘要、輪次及寫入操作。`runs.ts` 提供執行明細、事件分頁、完整事件下載、取消及回覆。`attachments.ts` 提供附件列表、預覽、上傳、下載及刪除，並與 WebSocket 通知共用附件列表的查詢範圍。共用的 `lib/api.ts` 處理請求、身份標頭和 HTTP 錯誤。
+`server/frontend/src/services/` 按業務集中 HTTP 路徑、TanStack Query 查詢 key 和快取失效規則。`conversations.ts` 提供頂層與子會話列表、會話摘要、輪次及寫入操作。`runs.ts` 提供執行明細、事件分頁、完整事件下載、取消及回覆。`attachments.ts` 提供附件列表、預覽、上傳、下載及刪除，並與 WebSocket 通知共用附件列表的查詢範圍。
+
+`src/api/schema.ts` 由 Go DTO 和 Huma 路由綁定生成。`src/api/client.ts` 根據 HTTP 方法和路徑推導請求與回應，集中處理身份標頭和 HTTP 錯誤。產生方式和各 DTO 位置見 [DTO 源碼索引](../../docs/server/api.md#dto-源码索引)。
 
 `agents.ts` 和 `skills.ts` 管理清單與版本。Agent 選擇 Skill 和 Skill 歷史使用同一份逐 Skill 的版本快取。`devices.ts` 管理設備、執行器目錄和 Client 升級。註冊命令只交給設備頁面暫存，共用的設備資料只保存狀態與配置。`upgrades.ts` 管理 Server 升級和歷史。兩種升級的狀態輪詢集中在各自的 service。`session.ts` 和 `users.ts` 管理登入、登出、會話驗證和用戶清單。
 

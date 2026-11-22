@@ -4,6 +4,8 @@ Server 使用 conversation 表示共享对话：保存消息、消息收件人�
 
 Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、`/api/session` 不注册、不跳转，也不提供兼容别名。运行中 Server 的 `/api/docs` 和 `/api/openapi.json` 提供完整接口定义。
 
+会话与消息 DTO 见 [sdk/golang/types.go](../../sdk/golang/types.go)，Run、事件与分页 DTO 见 [sdk/golang/runs.go](../../sdk/golang/runs.go)。请求与回包的路由绑定及前端类型见 [DTO 源码索引](api.md#dto-源码索引)。
+
 ## HTTP 接口
 
 | 方法 | 路径 | 用途 |

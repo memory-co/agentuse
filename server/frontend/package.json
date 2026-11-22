@@ -4,6 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "api:generate": "node scripts/generate-api.mjs",
+    "api:check": "node scripts/generate-api.mjs --check",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build && node -e \"require('fs').writeFileSync('dist/.gitkeep', '')\"",
     "preview": "vite preview --host 127.0.0.1"
@@ -24,6 +26,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "lucide-react": "^0.454.0",
+    "openapi-fetch": "0.17.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
@@ -36,6 +39,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.20",
+    "openapi-typescript": "7.13.0",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.14",
     "tailwindcss-animate": "^1.0.7",

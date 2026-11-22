@@ -10,7 +10,7 @@
 
 服务默认监听 `:8080`。安装脚本支持可选的管理员密码设置，输入密码后后台启动或重启脚本管理的 Server；回车跳过则保持手动启动。未设置密码时，首次启动会创建管理员，并在日志中显示登录令牌和登录链接。登录管理页面后，访问 `/api/docs` 查看并调试 API；也可使用用户 Bearer token 读取 `/api/openapi.json` 或 `/api/openapi.yaml`。
 
-[API 手册](api.md)集中说明鉴权、设备、Agent、Skill、用户和 WebSocket 入口；消息和文件接口由对应专题说明。
+[API 手册](api.md)集中说明鉴权、设备、Agent、Skill、用户和 WebSocket 入口。[DTO 源码索引](api.md#dto-源码索引)可以直接查 Go 定义、接口绑定和前端生成类型。
 
 [Client 使用文档](../client/README.md) 说明执行设备如何注册、启动及查看本机执行记录。开发和协议资料位于 [Server 设计](../../designs/v3/server-main.md)。
 

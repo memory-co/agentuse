@@ -8,6 +8,8 @@ Client–Server WS 加密开关、设备证书及基于 HMAC 票据与 run 记�
 
 Server HTTP API 通過 Huma 註冊，從共用的請求和響應 Go 類型自動生成 OpenAPI。用戶登錄後可打開 `/api/docs` 交互文檔，或讀取 `/api/openapi.json`、`/api/openapi.yaml` 和 `/api/schemas/{schema}.json`。文檔入口沿用用戶 cookie / Bearer 鑒權；每個操作分別標明用戶與設備身份的適用範圍。文件接口使用 multipart 或二進制格式，WebSocket 入口僅描述 HTTP 握手。
 
+前端 API 型別從同一份 OpenAPI 生成，CI 檢查型別是否同步。Go DTO、路由綁定和生成檔位置見 [DTO 源碼索引](../../docs/server/api.md#dto-源码索引)。
+
 > 本文定義 Server 的業務劃分。嵌套 conversation 模型已實作，見 [conversation 設計](server-conversation.md#父子對話)；其他已實現鏈路仍按各自說明。controller 處理傳輸和身份，service 按下表組織業務與事務，database 保存 GORM 模型、版本遷移、查詢方言與行解碼。Client 職責見 [client-main.md](client-main.md)。
 
 Conversation 表示共享對話，由 conversationService 管理；原 session 業務整體改用此名稱，session 專指 client 對應 Codex/Claude Code 的原生執行會話，見 [client-session.md](client-session.md)；server 不增加 sessionService 或 sessions 表。
