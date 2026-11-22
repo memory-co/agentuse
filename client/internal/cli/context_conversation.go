@@ -21,6 +21,7 @@ Available in a collaborative root conversation:
   context conversation list
   context conversation read CHILD_ID [--round N]
   context conversation send CHILD_ID --agents IDS MESSAGE
+  context conversation resolve CHILD_ID --round N
 
 Each child is dedicated to one original objective and its deliverables. Create a
 new child for every new independent objective, even when the Agent, repository,
@@ -33,7 +34,9 @@ a new child and pass the relevant facts and artifact references in its assignmen
 Delegate work, briefly report the assigned children, and end this run immediately.
 Do not poll, sleep, or repeatedly read/list to wait for children. Server sends a
 notification when a child round containing your delegated work completes.
-Read that round when notified.
+Read the notified round and confirm the original objective is met before using
+resolve with that round number. Only the creating coordinator may resolve the
+child, and the reported round must still be the latest one.
 `
 const childConversationUsage = `Execute the assigned task directly; child conversations cannot create children.
 If blocked or clarification is needed, explain it in your final response and end
@@ -72,7 +75,7 @@ func runContextConversation(ctx context.Context, path, run string, args []string
 	var round int64
 	switch op {
 	case "agents", "list":
-	case "read":
+	case "read", "resolve":
 		fs.Int64Var(&round, "round", 0, "指定子会话轮次")
 	case "create":
 		fs.StringVar(&title, "title", "", "子会话标题")
@@ -115,6 +118,9 @@ func runContextConversation(ctx context.Context, path, run string, args []string
 	}
 	if op == "read" && len(values) != 1 {
 		return command.UsageErr("%s 需要 CHILD_ID", op)
+	}
+	if op == "resolve" && (len(values) != 1 || round <= 0) {
+		return command.UsageErr("resolve CHILD_ID --round N（N 必须为正整数）")
 	}
 	if op == "send" && len(values) < 2 {
 		return command.UsageErr("send CHILD_ID --agents IDS MESSAGE")
@@ -168,6 +174,8 @@ func runContextConversation(ctx context.Context, path, run string, args []string
 		}
 	case "send":
 		result, err = client.SendMessage(ctx, "", values[0], sdk.MessageRequest{Prompt: strings.Join(values[1:], " "), ToAgentIDs: ids(agents), ToUserIDs: ids(users)})
+	case "resolve":
+		result, err = client.ResolveChildConversation(ctx, values[0], round)
 	}
 	if err != nil {
 		return err

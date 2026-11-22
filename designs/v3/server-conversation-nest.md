@@ -28,7 +28,9 @@ sequenceDiagram
     else 新的獨立目標
         P->>S: context conversation create --agents IDS NEW_OBJECTIVE
         S->>C: 新子對話的普通 message
-    else 已獲得足夠結果
+    else 已確認原目標達成
+        P->>S: context conversation resolve CHILD_ID --round N
+        S-->>P: 子對話 status=resolved
         P->>P: 匯總並回覆用戶
     end
 ```
@@ -51,14 +53,12 @@ may execute multiple children. Keep each child ID with its original objective.
 Use send only for clarification, additional requirements, corrections, review
 feedback, or retries for that original objective. If the scope is unclear, prefer
 a new child and pass the relevant facts and artifact references in its assignment.
-Server sends one child_conversation notification after every
-completed child round that contains work you assigned. Read CHILD_ID --round N, review all results and failures,
-answer child questions with send CHILD_ID --agents IDS MESSAGE, and consolidate.
-A completed round is not proof of success. After creating children or sending
-a follow-up for the original objective, briefly report the assignments and end this run immediately.
-Do not poll, sleep, or repeatedly read/list to wait for results. Server will
-deliver a child round notification; read that round when notified. Respond or
-send feedback for its original objective; create a new child for independent work.
+Server sends a child_conversation notification when a child round containing
+work you assigned completes. Read CHILD_ID --round N and review its results and
+failures. When the original objective is met, resolve CHILD_ID --round N before
+reporting completion. Use send for any unfinished work on the original objective.
+After creating children or sending a follow-up, briefly report the assignments
+and end this run. Server will notify you when the child round completes.
 ```
 
 子 Agent 的核心指令：
@@ -90,10 +90,13 @@ Client 將裸 context 放入每個 session 的 PATH，綁定 endpoint、conversa
 | context conversation list | 列出直接子對話，包含空對話 |
 | context conversation read CHILD_ID [--round N] | 讀取完整對話或指定輪次範圍 |
 | context conversation send CHILD_ID --agents IDS MESSAGE | 為原目標澄清、補充、修正或重試；未結束時加入當輪，已結束則開始下一輪 |
+| context conversation resolve CHILD_ID --round N | 創建者確認結果達成原目標後，將子對話標記為 resolved |
 
 這組管理子對話的命令僅 collaborative 根可用。single 根與 single 子對話保留 status、attachment 等執行能力；子對話 help 提示自行執行並正常結束，create 等操作由 CLI 和 Server 同時拒絕。
 
 create 省略消息及收件人可先建空子對話，此時沒有 round。create/send 的成功結果若包含 Agent 輸入會有 round.seq，協調者可保留它作為後續通知與結果的輪次標識。原生 run UUID 仍只能由 accepted 產生。
+
+`resolve` 沿用 `POST /api/conversations/{id}/resolve?round=N`。Server 在更新狀態的同一事務確認調用者是創建者、子對話已空閒、指定輪次仍是最新且已回報。再次向已完成的子對話派發原目標的補充工作會開始新的一輪。
 
 ```bash
 context conversation agents

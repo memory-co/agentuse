@@ -232,7 +232,9 @@ func (s *Server) registerAPI() *huma.OpenAPI {
 	bind("DELETE", "/api/conversations/{id}", "delete-conversation", "删除无活跃执行的会话", "conversation", user, nil, nil, 204, s.handleDeleteConversation, query("recursive", "true 时同时删除直接子对话；所有节点须无活跃执行及对外待通知轮次", &huma.Schema{Type: "boolean"}))
 	bind("POST", "/api/conversations/{id}/messages", "send-message", "发送消息，明确指定 Agent 和用户收件人", "conversation", conversation, agentuse.MessageRequest{}, agentuse.Reply{}, 201, s.handleAddMessage)
 	bind("PATCH", "/api/conversations/{id}", "rename-conversation", "重命名会话", "conversation", user, renameConversationBody{}, agentuse.Conversation{}, 200, s.handleRenameConversation)
-	bind("POST", "/api/conversations/{id}/resolve", "resolve-conversation", "标记会话已完成", "conversation", user, nil, agentuse.Conversation{}, 200, s.handleResolveConversation)
+	resolve := bind("POST", "/api/conversations/{id}/resolve", "resolve-conversation", "标记会话已完成", "conversation", conversation, nil, agentuse.Conversation{}, 200, s.handleResolveConversation,
+		query("round", "协调者必填，指定自己创建的子会话最新且已回报的轮次", positiveInteger))
+	resolve.Description = "用户可标记有权限的空闲会话。协调者可使用活动 run 的执行票据标记自己创建的直接子会话，需要指定最新且已回报的轮次。"
 	bind("POST", "/api/conversations/{id}/reopen", "reopen-conversation", "重新打开会话", "conversation", user, nil, agentuse.Conversation{}, 200, s.handleReopenConversation)
 	bind("GET", "/api/conversations/{id}/runs/{run_id}", "get-run", "读取 Client 上报的 run", "run", conversation, nil, agentuse.RunDetail{}, 200, s.handleGetRun, query("view", "metadata 返回运行输出、输入及问题，事件另行分页；省略时返回原有的运行和完整事件", &huma.Schema{Type: "string", Enum: []any{"metadata"}}))
 	bind("GET", "/api/conversations/{id}/runs/{run_id}/events", "list-run-events", "按游标分页读取某次运行的事件", "run", conversation, nil, agentuse.RunEventPage{}, 200, s.handleRunEvents, query("cursor", "上一页的 next_cursor"), query("limit", "1–50，每页默认 20 条", positiveInteger))

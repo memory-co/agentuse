@@ -180,11 +180,14 @@ context conversation send CHILD_ID --agents coder "Use cursor pagination"
 
 每個子對話承載一個原始獨立目標及其產物。新的獨立目標必須用 `create` 新建子對話；同一 Agent 可以執行多個子對話，相同 Agent、倉庫或工具，以及舊子對話已空閒或完成，都不能作為復用它處理新目標的理由。`send` 僅用於原目標的澄清、補充要求、修正、驗收反饋和重試。協調者應把子對話 ID 與原目標一起記錄；無法確定是否屬於原目標時，優先新建，並在首條交辦中帶上相關事實和產物引用。例如，另一篇文章需新建子對話，同一篇文章的修改仍可續用原對話。
 
-子對話固定 single，不能再拆分，也沒有主動向父發消息的命令。缺信息或遇到阻礙時，在最終答復中說明並正常結束本輪，不在當輪等待協調者回信。Server 在所有 Agent 輸入和執行收束後，自動生成一條 child_conversation 通知給創建者 parent_agent_id；Agent 結果只保存在子對話。協調者按通知讀取該輪，再向子 Agent 發答案或下一步要求。
+子對話固定 single。缺信息或遇到阻礙時，子 Agent 在最終答復中說明並正常結束本輪。含有協調者交辦工作的輪次收束後，Server 自動發送 `child_conversation` 通知給創建者 `parent_agent_id`，結果保留在子對話。協調者用通知上的子對話 ID 和輪次執行 `read`。確認原目標已達成後執行 `resolve`，需要繼續時用 `send` 交辦下一輪。
 
 ```bash
 context conversation read CHILD_ID --round 1
+context conversation resolve CHILD_ID --round 1
 ```
+
+`resolve` 要求 `--round N`，只有創建該子對話的協調者可以通過活動 run 執行。該輪必須是子對話最新、已結束且已回報的一輪。如果又開始了新的輪次，請根據新一輪結果重新判斷。
 
 create/send 有 Agent 輸入時會返回 round.seq；空對話、備註、上傳文件不啟動一輪。read --round N 僅返回指定輪次的消息與執行範圍，不混入下一輪。輪次完成不代表業務成功；原生人工請求仍走 request/reply，不視為輪次完成。
 

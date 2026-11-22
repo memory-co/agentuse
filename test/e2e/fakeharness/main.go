@@ -135,7 +135,7 @@ func claudeTurns(args []string, resume string, stdin *bufio.Reader) int {
 		}
 
 		if strings.HasPrefix(prompt, "Child conversation ") {
-			b, err := contextConversationReadNotification(instructionText)
+			b, err := contextConversationReviewNotification(instructionText)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				return 2

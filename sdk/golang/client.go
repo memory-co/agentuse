@@ -231,6 +231,13 @@ func (c *Client) ResolveConversation(ctx context.Context, user, conversationID s
 	return &s, c.do(ctx, user, "POST", "/api/conversations/"+esc(conversationID)+"/resolve", nil, &s)
 }
 
+// ResolveChildConversation marks a direct child resolved from its creating coordinator's active run.
+func (c *Client) ResolveChildConversation(ctx context.Context, conversationID string, round int64) (*Conversation, error) {
+	var s Conversation
+	path := "/api/conversations/" + esc(conversationID) + "/resolve?round=" + strconv.FormatInt(round, 10)
+	return &s, c.do(ctx, "", "POST", path, nil, &s)
+}
+
 // ReopenConversation 取消已完成，回到 idle。
 func (c *Client) ReopenConversation(ctx context.Context, user, conversationID string) (*Conversation, error) {
 	var s Conversation

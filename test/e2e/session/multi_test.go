@@ -345,7 +345,7 @@ func TestMultiNativeSteerQuestionAndNestedConversation(t *testing.T) {
 		return notifications == 1
 	})
 	children, err := c.ListChildren(ctx, user, parent.Conversation.ID)
-	if err != nil || len(children) != 1 || children[0].ParentAgentID != "native" || children[0].Mode != "single" {
+	if err != nil || len(children) != 1 || children[0].ParentAgentID != "native" || children[0].Mode != "single" || children[0].Status != agentuse.ConversationResolved {
 		t.Fatal(children, err)
 	}
 	child, err := c.GetConversation(ctx, user, childID)

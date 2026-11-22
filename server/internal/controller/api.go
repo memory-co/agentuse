@@ -490,7 +490,24 @@ func (s *Server) handleRenameConversation(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleResolveConversation(w http.ResponseWriter, r *http.Request) {
-	v, err := s.service.ConversationService.ResolveConversation(r.Context(), currentUser(r), r.PathValue("id"))
+	id := r.PathValue("id")
+	var v agentuse.Conversation
+	var err error
+	if source := currentSource(r); source != nil {
+		raw := r.URL.Query()["round"]
+		if len(raw) != 1 {
+			writeErr(w, http.StatusBadRequest, "round must be a positive integer")
+			return
+		}
+		seq, parseErr := strconv.ParseInt(raw[0], 10, 64)
+		if parseErr != nil || seq <= 0 {
+			writeErr(w, http.StatusBadRequest, "round must be a positive integer")
+			return
+		}
+		v, err = s.service.ConversationService.ResolveChildConversation(r.Context(), *source, id, seq)
+	} else {
+		v, err = s.service.ConversationService.ResolveConversation(r.Context(), currentUser(r), id)
+	}
 	if err != nil {
 		s.serviceErr(w, err)
 		return

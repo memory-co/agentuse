@@ -193,3 +193,106 @@ func TestNestedConversationAPISourceScopesAndIndependentFiles(t *testing.T) {
 		t.Fatal("forged lineage field accepted", code)
 	}
 }
+
+func TestCreatingCoordinatorResolvesLatestReportedChildRound(t *testing.T) {
+	f := attachmentEnv(t, 4096, 16384)
+	ctx := context.Background()
+	human := sdk.New(f.e.ts.URL, f.token)
+	peerAgent, err := human.CreateAgent(ctx, "", sdk.CreateAgentRequest{Name: "Peer", DeviceID: f.d.ID, Harness: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := human.CreateConversation(ctx, "", sdk.CreateConversationRequest{Mode: "collaborative", Prompt: "Coordinate", ToAgentIDs: []string{f.agent}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	accept := func(message, session string) (*sdk.Client, func()) {
+		t.Helper()
+		input, err := f.e.st.RunService.DispatchMessage(ctx, f.d)
+		if err != nil || input.MessageID != message {
+			t.Fatal("unexpected dispatch", input.MessageID, err)
+		}
+		runID := uuid.NewString()
+		report := func(seq int64, event map[string]any) {
+			t.Helper()
+			raw, err := json.Marshal(event)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.e.st.ConversationService.ReportClientEvent(ctx, f.d.ID, protocol.ClientEvent{
+				AccessToken: input.Access.Token, ConversationID: input.ConversationID, MessageID: input.MessageID,
+				AgentID: input.AgentID, AgentVersionID: input.AgentVersionID, Revision: "test", SessionID: session, Seq: seq, Event: raw,
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		report(1, map[string]any{"type": "accepted", "run_id": runID, "input_id": "one", "text": input.Content})
+		client := sdk.New(f.e.ts.URL, input.Access.Token)
+		client.Source = &sdk.ConversationSource{ConversationID: input.ConversationID, AgentID: input.AgentID, SessionID: session, RunID: runID}
+		return client, func() {
+			report(2, map[string]any{"type": "result", "run_id": runID, "input_ids": []string{"one"}, "status": "completed", "output": "Done"})
+		}
+	}
+	coordinator, finishAssignment := accept(parent.Message.ID, "assigned")
+	child, err := coordinator.CreateConversation(ctx, "", sdk.CreateConversationRequest{
+		ParentConversationID: parent.Conversation.ID, Prompt: "Execute", ToAgentIDs: []string{f.agent},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := child.Conversation.ID
+	if _, err = coordinator.ResolveConversation(ctx, "", id); !sdk.IsStatus(err, 400) {
+		t.Fatal("round is required for a coordinator", err)
+	}
+	if _, err = coordinator.ResolveChildConversation(ctx, id, 1); !sdk.IsStatus(err, 409) {
+		t.Fatal("unfinished round can be resolved", err)
+	}
+	leaf, finishChild := accept(child.Message.ID, "child-first")
+	if _, err = leaf.ResolveChildConversation(ctx, id, 1); !sdk.IsStatus(err, 403) {
+		t.Fatal("leaf can resolve itself with the creator's Agent ID", err)
+	}
+	peerInput, err := human.SendMessage(ctx, "", parent.Conversation.ID, sdk.MessageRequest{Prompt: "Review separately", ToAgentIDs: []string{peerAgent.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer, _ := accept(peerInput.Message.ID, "peer")
+	finishAssignment()
+	finishChild()
+	first, err := human.GetConversationRound(ctx, "", id, 1)
+	if err != nil || first.Conversation.Status != sdk.ConversationIdle || len(first.Rounds) != 1 || first.Rounds[0].ParentDelivery != "delivered" {
+		t.Fatal("child should be idle when its notification is delivered", first, err)
+	}
+	if _, err = peer.ResolveChildConversation(ctx, id, 1); !sdk.IsStatus(err, 403) {
+		t.Fatal("Agent in the same parent can resolve a child it did not create", err)
+	}
+	if _, err = coordinator.ResolveChildConversation(ctx, id, 1); !sdk.IsStatus(err, 403) {
+		t.Fatal("ended run can resolve a child", err)
+	}
+	reviewer, _ := accept(first.Rounds[0].ParentMessageID, "review-notice")
+	if _, err = reviewer.ResolveChildConversation(ctx, parent.Conversation.ID, 1); !sdk.IsStatus(err, 403) {
+		t.Fatal("coordinator can mark its parent resolved", err)
+	}
+	for range 2 {
+		v, err := reviewer.ResolveChildConversation(ctx, id, 1)
+		if err != nil || v.Status != sdk.ConversationResolved {
+			t.Fatal("child resolution or retry failed", v, err)
+		}
+	}
+	followUp, err := reviewer.SendMessage(ctx, "", id, sdk.MessageRequest{Prompt: "Continue original work", ToAgentIDs: []string{f.agent}})
+	if err != nil || followUp.Round == nil || followUp.Round.Seq != 2 {
+		t.Fatal("follow-up did not start round two", followUp, err)
+	}
+	_, finishFollowUp := accept(followUp.Message.ID, "child-second")
+	finishFollowUp()
+	if _, err = reviewer.ResolveChildConversation(ctx, id, 1); !sdk.IsStatus(err, 409) {
+		t.Fatal("old report can resolve a newer finished round", err)
+	}
+	v, err := human.ResolveConversation(ctx, "", id)
+	if err != nil || v.Status != sdk.ConversationResolved {
+		t.Fatal("manual resolution failed", v, err)
+	}
+	v, err = human.ReopenConversation(ctx, "", id)
+	if err != nil || v.Status != sdk.ConversationIdle {
+		t.Fatal("manual reopening failed", v, err)
+	}
+}

@@ -16,7 +16,8 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 | GET / DELETE | `/api/conversations/{id}` | 读取完整快照 / 删除对话 |
 | PATCH | `/api/conversations/{id}` | 使用 `{"title":"新名称"}` 重命名当前对话 |
 | POST | `/api/conversations/{id}/messages` | 发送消息，明确指定收件人与附件 |
-| POST | `/api/conversations/{id}/resolve`、`reopen` | 标记完成 / 重新打开 |
+| POST | `/api/conversations/{id}/resolve` | 用户标记完成。创建者 Agent 可用活动 run 的执行票据和 `?round=N` 确认子会话完成 |
+| POST | `/api/conversations/{id}/reopen` | 用户重新打开会话 |
 | GET | `/api/conversations/{id}/runs/{run_id}` | 读取 run 及事件，`view=metadata` 改为读取运行、输入和问题 |
 | GET | `/api/conversations/{id}/runs/{run_id}/events` | 按事件 ID 升序读取，使用 `cursor` 接在上一页之后，`limit` 默认 20，最大 50 |
 | GET | `/api/conversations/{id}/runs/{run_id}/events/{event_id}` | 下载该次运行的单条完整事件 JSON |
@@ -75,6 +76,8 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 每个 conversation 有本地递增的 rounds。第一条含 Agent 收件人的输入开始一轮；尚未结束时的追加输入属于同一轮。所有 run 和投递均已收束时固定 end_message_seq/finished_at，每轮只生成一次父通知。失败、取消和已确认拒绝也会结束；离线、unknown 和原生人工等待不会。空会话、备注、仅用户收件人、文件上传、标记完成不产生轮次通知。
 
 子 Agent 缺少信息时在最终回复中说明问题并正常结束，协调者收到通知后读取该轮，再通过普通 send 指定子 Agent 发出答案，开始下一轮。整轮结束不等于任务成功，需要检查所有消息、runs、run_inputs 和消息上的 agent_errors。
+
+协调者审核结果并确认子会话的原目标已经达成后，可通过 `POST /api/conversations/{id}/resolve?round=N` 标记该子会话为 `resolved`。Server 要求执行者是 `parent_agent_id`，当前 run 属于该父会话，`N` 是子会话最新且已结束并回报的一轮。存在更新轮次或子会话仍忙时返回 `409`。用户点击「标记完成」时直接调用同一接口，省略 `round`。
 
 `GET /api/conversations/C?round=N` 只返回该轮范围内的消息、关联投递、run、事件和问题，rounds 只有该轮；不存在返回 404，非法轮次返回 400。消息范围在结束后固定，不混入下一轮。conversation 的状态和 parent_delivery 仍是当前投影。页面的轮次视图只读，可返回完整会话。
 

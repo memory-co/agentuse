@@ -56,7 +56,7 @@ message、request、log 是執行記錄，不能都變成普通聊天消息。ca
 
 ## 狀態和刪除
 
-Conversation 狀態是實際 run 與未完成輸入的聚合投影，優先 waiting、running、pending，再到 idle；resolved 是用戶的完成標記。投影由 conversationService 通過 runService 查詢當前狀態後更新，run 狀態變化和最終結果事件都觸發重算；重算讀取當前實際 run 和未完成輸入集合，不用舊事件直接覆蓋投影。idle 不表示歷史任務全部成功。
+Conversation 狀態是實際 run 與未完成輸入的聚合投影，優先 waiting、running、pending，再到 idle。`resolved` 由用戶標記，也可由創建者 Agent 審核子對話回報後標記。投影由 conversationService 通過 runService 查詢當前狀態後更新，run 狀態變化和最終結果事件都觸發重算。`idle` 表示當前沒有待處理的輸入或執行。
 
 有活躍 run 或待領取/待受理輸入時拒絕刪除，檢查與刪除共用事務；回覆消費前也要重新檢查對話是否存在，已刪除的對話不恢復創建。刪除對話由 conversationService 協調相關 service，在同一事務內清理消息、run、run_inputs、事件、問題及輔助記錄；本地目錄或 S3 對象前綴由 fileService 清理。父子節點的刪除規則統一見下文「父子對話」。
 
@@ -86,7 +86,8 @@ parent_conversation_id 為空表示頂層對話；非空時表示直接執行任
 | GET | /api/conversations/{id} | 讀取普通對話快照，含 parent_conversation_id 及 rounds |
 | GET | /api/conversations/{id}?round=N | 讀取第 N 輪的消息及執行範圍，N 必須為正整數 |
 | POST | /api/conversations/{id}/messages | 明確選擇收件人及附件，發送普通消息 |
-| POST | /api/conversations/{id}/resolve、reopen | 操作該對話自身的完成標記 |
+| POST | /api/conversations/{id}/resolve | 用戶標記完成，或由創建者 Agent 指定 `round=N` 確認子對話完成 |
+| POST | /api/conversations/{id}/reopen | 用戶重新打開對話 |
 | DELETE | /api/conversations/{id} | 刪除無子對話且可刪除的對話 |
 | DELETE | /api/conversations/{id}?recursive=true | 顯式刪除該對話及整個子樹 |
 
@@ -119,7 +120,7 @@ parent_conversation_id 為空表示頂層對話；非空時表示直接執行任
 3. 只有當本對話沒有 running/waiting run，也沒有 pending/sent/unknown/accepted 投遞時，才在同一事務固定 end_message_seq、finished_at。結果消息、run/投遞狀態與輪次結束邊界一起提交；後續輸入開始下一輪，不再改寫已結束區間。
 4. completed、failed、cancelled 及已確認的投遞拒絕均可使一輪收束。投遞 unknown、設備離線、排隊和原生人工請求均不算結束。沒有 result 的拒絕不捏造 Agent 回覆或 run，原因保留在投遞記錄中。
 
-「輪次結束」只表示所有執行已收束，不等於任務成功，也不等於用戶標記 resolved。子 Agent 遇到缺失信息或阻礙時，在最終答復中說明問題並正常結束，不能一邊等待協調者回信、一邊佔住同一輪。Server 通知父側後，協調者讀取結果並用普通 send 向該子對話指定 Agent 發送答案，開始下一輪。原生人工授權/提問保留原有 request/reply 鏈路，等待期間不發結束通知。
+「輪次結束」表示所有執行已收束。Server 通知父側後，協調者讀取並判斷結果。原目標已達成時，創建者 Agent 可以用活動 run 票據指定最新已回報的輪次，將子對話標記為 `resolved`。有問題或需要返工時，用普通 `send` 向子對話發送下一輪輸入。原生人工授權和提問仍通過 request/reply 處理，回答後繼續當前輪次。
 
 父消息示例：
 

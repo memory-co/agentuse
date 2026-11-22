@@ -352,7 +352,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 标记会话已完成 */
+        /**
+         * 标记会话已完成
+         * @description 用户可标记有权限的空闲会话。协调者可使用活动 run 的执行票据标记自己创建的直接子会话，需要指定最新且已回报的轮次。
+         */
         post: operations["resolve-conversation"];
         delete?: never;
         options?: never;
@@ -3553,8 +3556,19 @@ export interface operations {
     };
     "resolve-conversation": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 协调者必填，指定自己创建的子会话最新且已回报的轮次 */
+                round?: number;
+            };
             header?: {
+                /** @description 设备对话协作的实际执行来源；资源准备及本会话文件读取可省略 */
+                "X-Agentuse-Agent"?: string;
+                /** @description 设备对话协作的实际执行来源；资源准备及本会话文件读取可省略 */
+                "X-Agentuse-Conversation"?: string;
+                /** @description 设备对话协作的实际执行来源；资源准备及本会话文件读取可省略 */
+                "X-Agentuse-Run"?: string;
+                /** @description 设备对话协作的实际执行来源；资源准备及本会话文件读取可省略 */
+                "X-Agentuse-Session"?: string;
                 /** @description 仅管理员用户令牌可代为此用户执行；用户不存在时自动创建。设备不支持代为用户。 */
                 "X-Agentuse-User"?: string;
             };

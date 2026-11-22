@@ -336,6 +336,8 @@ context conversation send CHILD_ID --agents coder "使用游标分页"
 context conversation read CHILD_ID --round 1
 ```
 
+创建该子会话的协调者确认原目标已达成后，可执行 `context conversation resolve CHILD_ID --round 1`，其中轮次号取自通知。Server 校验这仍是子会话最新且已结束、已回报的一轮，成功时返回状态为 `resolved` 的子会话。
+
 每个子会话承载一个原始独立目标及其产物。新目标必须用 `create` 创建新子会话，即使复用同一个 Agent、仓库或工具，或已有子会话已空闲、完成。`send` 仅用于原目标的澄清、补充要求、修正、验收反馈和重试。记录子会话 ID 时同时记录原目标；无法确定范围时，优先新建并在首条消息中携带相关事实和产物引用。例如，不同文章使用不同子会话，同一篇文章的返工继续使用原来的子会话。
 
 子 Agent 不调用向父发消息的工具。需要澄清或遇到阻碍时，在最终回复中说明并正常结束本轮，不在同一轮等待协调者。Server 只在该子会话所有输入和 Agent 执行收束后自动生成一条 `child_conversation` 通知；Agent 结果保留在子会话。协调者读取该轮，向子会话指定 Agent 发送答案后开始下一轮。目标固定为 `parent_agent_id`，父 run 已结束也能继续处理。

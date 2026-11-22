@@ -27,7 +27,15 @@ func (s *Service) PrepareMessage(ctx context.Context, tx *gorm.DB, p run.Message
 		return out, err
 	}
 	if source.AuthorRole == agentuse.RoleChildConversationMsg {
-		instructions += fmt.Sprintf("\n# Child conversation round finished\nThis notification is from the child conversation, not an Agent speaking in this conversation. Read the completed interval with context conversation read %s --round %d before responding. Files remain in that child's tree; use context attachment list --conversation %s and context attachment download PATH --conversation %s.\n", source.AuthorConversationID, source.AuthorRoundSeq, source.AuthorConversationID, source.AuthorConversationID)
+		instructions += fmt.Sprintf(`
+# Child conversation round finished
+Read the result of this child conversation's reported round before responding.
+context conversation read %[1]s --round %[2]d
+If the child's original objective is met, mark it resolved.
+context conversation resolve %[1]s --round %[2]d
+Files remain in the child's tree. Use context attachment list --conversation %[1]s
+and context attachment download PATH --conversation %[1]s.
+`, source.AuthorConversationID, source.AuthorRoundSeq)
 	}
 	if ss.ParentConversationID != "" {
 		instructions += fmt.Sprintf("\n# Parent conversation\nParent: %s\nTo inspect input files retained there, use context attachment list --conversation parent and context attachment download PATH --conversation parent.\n", ss.ParentConversationID)
@@ -73,15 +81,19 @@ MESSAGE only for clarification, additional requirements, corrections, review
 feedback, or retries that serve that child's original objective. If the scope is
 unclear, prefer a new child and include the relevant facts and artifact references
 in its initial assignment instead of inheriting an unrelated execution context.
-Review results and consolidate the response. Server sends one child_conversation notification
-when a child round containing work you assigned completes. Read it with context conversation read CHILD_ID --round N;
-a completed round may contain questions or failed executions and is not proof of success. Only you may create execution children.
-After creating children or sending a follow-up for the original objective, briefly tell the user what you
-delegated and end this run immediately. Do not wait for child completion, poll,
-sleep, or repeatedly read/list to keep this run alive. Server will deliver a child
-round notification and invoke you again if this run has ended. On that notification,
-read the specified completed round and respond or send feedback about that child's
-original objective. Create a new child for any new independent objective.
+Server sends one child_conversation notification when a child round containing
+work you assigned completes. Read the reported round with context conversation
+read CHILD_ID --round N. Review its results, unresolved questions, and failures
+against the original objective. If the objective is met, run context conversation
+resolve CHILD_ID --round N before reporting completion. Use the reported round
+number. If a newer round has started, handle that round's result before trying
+again. For work that is still open, respond or send follow-up for the same
+objective. Create a new child for an independent objective.
+After creating children or sending a follow-up for the original objective,
+briefly tell the user what you delegated and end this run immediately. Do not
+wait for child completion, poll, sleep, or repeatedly read/list to keep this run
+alive. Server will deliver a child round notification and invoke you again if
+this run has ended.
 No Server identity or credentials need to be supplied to the context commands.
 `
 const singlePolicy = `# Conversation execution policy: single
