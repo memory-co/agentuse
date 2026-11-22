@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { actAsHeaders } from '@/lib/actas';
 import { ApiError, api, downloadFile } from '@/lib/api';
-import { queryClient } from '@/lib/query';
+import { clearCurrentUser, queryClient } from '@/lib/query';
 import type { Attachment } from '@/lib/types';
 
 const attachmentPath = (conversationId: string) => `/api/conversations/${encodeURIComponent(conversationId)}/attachments`;
@@ -69,7 +69,7 @@ export function uploadAttachment(conversationId: string, file: File, progress: (
     xhr.onload = () => {
       let data: any;
       try { data = JSON.parse(xhr.responseText); } catch { reject(new Error(xhr.statusText || 'Upload failed')); return; }
-      if (xhr.status === 401) queryClient.setQueryData(['me'], null);
+      if (xhr.status === 401) clearCurrentUser();
       if (xhr.status >= 200 && xhr.status < 300) resolve(data);
       else reject(new ApiError(xhr.status, data.error || xhr.statusText));
     };

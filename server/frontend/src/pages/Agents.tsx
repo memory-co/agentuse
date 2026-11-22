@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,14 +9,12 @@ import { Command, CommandInput, CommandList, CommandItem, CommandEmpty } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Confirm, ErrorState, Loading } from '@/components/Shared';
-import { api } from '@/lib/api';
-import { queryClient } from '@/lib/query';
-import type { Agent, AgentVersion, Skill, SkillVersion, User, Device } from '@/lib/types';
+import type { Agent, AgentVersion, User, Device } from '@/lib/types';
 import { t, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-
-export const useAgents = () => useQuery({ queryKey: ['agents'], queryFn: () => api<Agent[]>('/api/agents'), staleTime: 30_000 });
-const refresh = () => queryClient.invalidateQueries({ queryKey: ['agents'] });
+import { useAgents, useAgentVersions, useDeleteAgent, useSaveAgent } from '@/services/agents';
+import { useDevices } from '@/services/devices';
+import { useSkillCatalogVersions, useSkills } from '@/services/skills';
 
 // 运行时 = 某台 device + 上面可用并已开启的某个 harness,下拉框的值写成 "device_id/harness"。
 type Runtime = { device_id: string; harness: string };
@@ -51,25 +48,26 @@ function RuntimeSelect({ value, onChange, devices, userId, className }: { value:
 export function Agents({ me }: { me: User }) {
  const t = useT();
  const agents = useAgents();
- const devices = useQuery({queryKey:['devices'],queryFn:()=>api<Device[]>('/api/devices')});
- const skills = useQuery({queryKey:['skills'],queryFn:()=>api<Skill[]>('/api/skills')});
- const versions = useQuery({queryKey:['skill-versions',skills.data?.map(s=>s.current_version_id)],enabled:!!skills.data,queryFn:async()=> (await Promise.all((skills.data||[]).map(s=>api<SkillVersion[]>(`/api/skills/${s.id}/versions`)))).flat()});
+ const devices = useDevices();
+ const skills = useSkills();
+ const versions = useSkillCatalogVersions(skills.data);
  const empty = {id:'',name:'',description:'',runtime:'',model:'',instructions:'',skills:[] as string[]};
  const [form,setForm] = useState(empty);
  const [editing,setEditing] = useState<Agent|null>(null);
  const [historyID,setHistoryID] = useState('');
- const history = useQuery({queryKey:['agent-versions',historyID],enabled:!!historyID,queryFn:()=>api<AgentVersion[]>(`/api/agents/${historyID}/versions`)});
+ const history = useAgentVersions(historyID);
  const label = (zh:string,en:string)=> t('nav.language')==='English'?zh:en;
  function load(a:Agent,v?:AgentVersion){setEditing(a);setForm({id:a.id,name:v?.name??a.name,description:v?.description??a.description,runtime:rtKey({device_id:v?.device_id??a.device_id??'',harness:v?.harness??a.harness}),model:v?.model??a.model??'',instructions:v?.instructions??a.instructions??'',skills:(v?.skills??a.skills??[]).map(s=>s.skill_version_id)});}
- const save = useMutation({mutationFn:()=>{
-  const selected=form.skills.map(id=>{const v=versions.data?.find(v=>v.id===id);if(!v) {const old=editing?.skills.find(s=>s.skill_version_id===id);if(old)return old;throw new Error('Unknown skill version');}return {skill_id:v.skill_id,skill_version_id:v.id};});
-  const body={name:form.name.trim(),description:form.description,...parseRt(form.runtime),model:form.model.trim(),instructions:form.instructions,skills:selected};
-  return editing?api(`/api/agents/${editing.id}/versions`,{method:'POST',body:{base_version_id:editing.current_version_id,...body}}):api('/api/agents',{method:'POST',body:{id:form.id.trim(),...body}});
- },onSuccess:()=>{setForm(empty);setEditing(null);void refresh();void queryClient.invalidateQueries({queryKey:['agent-versions']});}});
- const del=useMutation({mutationFn:(id:string)=>api(`/api/agents/${id}`,{method:'DELETE'}),onSuccess:refresh});
+ const save = useSaveAgent();
+ const del = useDeleteAgent();
+ const submit = () => {
+  const { runtime, skills: skillVersionIds, ...fields } = form;
+  const draft = { ...fields, ...parseRt(runtime), skillVersionIds };
+  save.mutate({ draft, editing, versions: versions.data }, { onSuccess: () => { setForm(empty); setEditing(null); } });
+ };
  return <div className="grid grid-cols-1 gap-4 sm:gap-5">
   <Card><CardHeader><CardTitle>{editing?label('发布 agent 新版本','Publish agent version'):t('agents.newTitle')}</CardTitle><CardDescription>{t('agents.newText')}</CardDescription></CardHeader><CardContent>
-  <form className="grid gap-3" onSubmit={e=>{e.preventDefault();save.mutate();}}>
+  <form className="grid gap-3" onSubmit={e=>{e.preventDefault();submit();}}>
    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.5fr)]">
     <Input aria-label="Agent ID" placeholder={t('agents.idPlaceholder')} value={form.id} disabled={!!editing} onChange={e=>setForm({...form,id:e.target.value})}/>
     <Input aria-label={t('common.name')} placeholder={t('agents.namePlaceholder')} required value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { queryClient } from '@/lib/query';
+import { currentUserKey, queryClient, usersKey } from '@/lib/query';
 
 // 管理员「代为某个用户」:选中后除了 /api/me、/api/users 和登录登出，所有请求都带 X-Agentuse-User(见 designs/v3/server-user.md)。
 // 记在 localStorage 里，刷新不丢;空串表示管理员自己。
@@ -14,7 +14,7 @@ export function setActAs(id: string) {
   try { if (id) localStorage.setItem(KEY, id); else localStorage.removeItem(KEY); } catch { /* 无痕模式 */ }
   listeners.forEach(l => l());
   // 换了身份，除了 me / users 之外的数据都要重新拿。
-  queryClient.removeQueries({ predicate: q => q.queryKey[0] !== 'me' && q.queryKey[0] !== 'users' });
+  queryClient.removeQueries({ predicate: q => q.queryKey[0] !== currentUserKey[0] && q.queryKey[0] !== usersKey[0] });
 }
 export const useActAs = () => useSyncExternalStore(l => { listeners.add(l); return () => listeners.delete(l); }, getActAs);
 

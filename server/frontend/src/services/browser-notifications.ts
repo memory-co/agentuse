@@ -1,8 +1,13 @@
 import type { QueryFilters } from '@tanstack/react-query';
 import { queryClient } from '@/lib/query';
+import { agentChangeQueries } from '@/services/agents';
 import { attachmentListQuery } from '@/services/attachments';
 import { conversationChangeQueries } from '@/services/conversations';
+import { deviceChangeQuery } from '@/services/devices';
 import { runChangeQueries } from '@/services/runs';
+import { skillChangeQueries } from '@/services/skills';
+import { upgradeChangeQuery } from '@/services/upgrades';
+import { userChangeQuery } from '@/services/users';
 
 type Change = { resource: string; id?: string; parent_conversation_id?: string; detail_only?: boolean };
 
@@ -16,15 +21,11 @@ function queriesForChange(change: Change): QueryFilters[] {
       return detailOnly ? runs : [...conversationChangeQueries(id, parent), ...runs];
     }
     case 'attachments': return id ? [attachmentListQuery(id)] : [];
-    case 'agents':
-      return id ? [{ queryKey: ['agents'], exact: true }, { queryKey: ['agent-versions', id], exact: true }]
-        : [{ queryKey: ['agents'], exact: true }];
-    case 'skills':
-      return id ? [{ queryKey: ['skills'], exact: true }, { queryKey: ['skill-versions', id], exact: true }]
-        : [{ queryKey: ['skills'], exact: true }];
-    case 'devices':
-    case 'users': return [{ queryKey: [resource], exact: true }];
-    case 'upgrades': return [{ queryKey: ['upgrades'] }];
+    case 'agents': return agentChangeQueries(id);
+    case 'skills': return skillChangeQueries(id);
+    case 'devices': return [deviceChangeQuery];
+    case 'users': return [userChangeQuery];
+    case 'upgrades': return [upgradeChangeQuery];
     default: return [];
   }
 }

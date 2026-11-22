@@ -8,9 +8,11 @@ Server 網頁透過 `GET /api/browser/ws` 建立一條 WebSocket，僅接收資�
 
 `server/frontend/src/services/` 按業務集中 HTTP 路徑、TanStack Query 查詢 key 和快取失效規則。`conversations.ts` 提供頂層與子會話列表、會話摘要、輪次及寫入操作。`runs.ts` 提供執行明細、事件分頁、完整事件下載、取消及回覆。`attachments.ts` 提供附件列表、預覽、上傳、下載及刪除，並與 WebSocket 通知共用附件列表的查詢範圍。共用的 `lib/api.ts` 處理請求、身份標頭和 HTTP 錯誤。
 
+`agents.ts` 和 `skills.ts` 管理清單與版本。Agent 選擇 Skill 和 Skill 歷史使用同一份逐 Skill 的版本快取。`devices.ts` 管理設備、執行器目錄和 Client 升級。註冊命令只交給設備頁面暫存，共用的設備資料只保存狀態與配置。`upgrades.ts` 管理 Server 升級和歷史。兩種升級的狀態輪詢集中在各自的 service。`session.ts` 和 `users.ts` 管理登入、登出、會話驗證和用戶清單。
+
 `hooks/use-browser-notifications.ts` 管理 WebSocket 連線、重連和身份切換。`services/browser-notifications.ts` 將通知路由到各業務定義的查詢範圍，並合併同一查詢的待刷新通知。會話寫入復用相同的會話查詢範圍。頂層或子會話列表有獨立的查詢 key，會話摘要及指定輪次則按會話 ID 查找。
 
-畫面保存展開狀態、頁面游標和表單草稿，透過參數決定查詢是否啟用。伺服器資料的生命週期由 TanStack Query 管理，語言和 Acting as 等少量跨頁偏好使用現有的 React 訂閱及本機儲存。
+畫面保存展開狀態、頁面游標和表單草稿，透過參數決定查詢是否啟用。通用視覺元件使用 `components/ui/` 中的 shadcn/ui 原始碼。伺服器資料的生命週期由 TanStack Query 管理，語言和 Acting as 等少量跨頁偏好使用 React 訂閱及本機儲存。
 
 ## 身份與權限
 
@@ -34,7 +36,7 @@ Server 網頁透過 `GET /api/browser/ws` 建立一條 WebSocket，僅接收資�
 {"type":"changed","changes":[{"resource":"conversations","id":"child_conversation_uuid","parent_conversation_id":"parent_conversation_uuid"}]}
 ```
 
-`resource` 包含 `conversations`、`attachments`、`agents`、`skills`、`devices`、`users`。`id` 指對應資源，附件通知的 id 是 conversation ID；有父對話時附 parent_conversation_id。嵌套對話視圖使用 conversation 資源，不再有獨立 works 資源通知。通知不包含消息正文、附件內容、日誌、執行結果或憑證。
+`resource` 包含 `conversations`、`attachments`、`agents`、`skills`、`devices`、`users` 和 `upgrades`。`id` 指對應資源，附件通知的 id 是 conversation ID；有父對話時附 parent_conversation_id。嵌套對話視圖使用 conversation 資源，不再有獨立 works 資源通知。通知不包含消息正文、附件內容、日誌、執行結果或憑證。
 
 前端只重新讀取受通知影響且目前啟用的查詢。對話變更更新該對話摘要、已打開的執行詳情及其所在的頂層或子對話列表。執行中的 `log`、`message` 事件只保存執行歷史，通知帶有 `detail_only: true`。收到這類通知時，只重新讀取該對話中目前展開的執行事件頁。執行詳情在打開時載入，事件按 ID 游標每頁讀取 20 條。附件變更只更新該對話文件列表。遞歸刪除提交後通知被刪除節點及相關列表，刪除通知使用刪除前的父對話 ID。Agent 回覆和 run detail 的輸出使用 Markdown 顯示，支援 GFM 表格、清單、連結及程式碼區塊；使用者消息仍顯示原文。停用原始 HTML，保留安全 URL 過濾，不使用 dangerouslySetInnerHTML。
 
@@ -44,7 +46,7 @@ Service 在交易提交成功後發布通知；回滾不發布。設備的 accep
 
 每條連線將 250 毫秒內同一資源／ID 的變更合併為一項。完整的對話變更涵蓋只涉及詳情的變更。已保存的執行事件重送時照常確認，但不再發佈變更。查詢還在進行時收到的通知，合併到該次查詢完成後的下一次讀取。每條連線的待送項目有數量上限；溢出時合併為 `{"resource":"reset"}`，要求前端重新讀取啟用的查詢。慢連線的寫入會超時關閉，不阻塞資料提交，也不無限緩存日誌。
 
-前端移除固定 HTTP 輪詢。WebSocket 斷線後以退避方式重連，收到 ready 後補讀；失效登入透過 HTTP 確認後返回登入頁。ping/pong 僅維持連線，不定時查詢所有資源。不新增 ACK、通知資料表、事件重放或另一套資料同步協議，資料庫仍是事實來源。
+會話資料由 WebSocket 通知觸發補讀。WebSocket 斷線後以退避方式重連，收到 ready 後補讀；失效登入透過 HTTP 確認後返回登入頁。ping/pong 僅維持連線，不定時查詢所有資源。不新增 ACK、通知資料表、事件重放或另一套資料同步協議，資料庫仍是事實來源。
 
 目前通知後仍讀取既有 HTTP 快照；此變更消除無變化時的輪詢，不宣稱已將會話詳情改成增量 API。Server 重啟不保留通知佇列，瀏覽器重連補讀即可恢復。
 

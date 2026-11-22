@@ -1,30 +1,25 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { CopyBlock, ErrorState, Loading } from '@/components/Shared';
-import { api } from '@/lib/api';
-import { queryClient } from '@/lib/query';
+import { useCreateUser, useUsers } from '@/services/users';
 import type { Role, User } from '@/lib/types';
 import { fmtTime } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 
 export function Users(_: { me: User }) {
   const t = useT();
-  const users = useQuery({ queryKey: ['users'], queryFn: () => api<User[]>('/api/users') });
+  const users = useUsers();
   const [form, setForm] = useState({ id: '', name: '', role: 'user' as Role });
-  const add = useMutation({
-    mutationFn: () => api<{ user: User; login_url: string }>('/api/users', { method: 'POST', body: { id: form.id.trim(), name: form.name.trim(), role: form.role } }),
-    onSuccess: () => { setForm({ ...form, id: '', name: '' }); void queryClient.invalidateQueries({ queryKey: ['users'] }); },
-  });
+  const add = useCreateUser();
   return <div className="grid grid-cols-1 gap-4">
     <Card>
       <CardHeader><CardTitle className="text-base">{t('users.newTitle')}</CardTitle></CardHeader>
       <CardContent className="grid gap-3">
-        <form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); add.mutate(); }}>
+        <form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); add.mutate(form, { onSuccess: () => setForm(current => ({ ...current, id: '', name: '' })) }); }}>
           <Input className="min-w-64 flex-1" placeholder={t('users.idPlaceholder')} value={form.id} onChange={e => setForm({ ...form, id: e.target.value })} />
           <Input className="w-40" placeholder={t('users.namePlaceholder')} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
           <Select value={form.role} onValueChange={v => setForm({ ...form, role: v as Role })}>

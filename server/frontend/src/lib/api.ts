@@ -1,4 +1,4 @@
-import { queryClient } from '@/lib/query';
+import { clearCurrentUser } from '@/lib/query';
 import { actAsHeaders } from '@/lib/actas';
 
 export class ApiError extends Error {
@@ -18,7 +18,7 @@ export async function api<T = unknown>(path: string, opts: { method?: string; bo
     if (opts.signal?.aborted) throw error;
     return {};
   });
-  if (r.status === 401 && path !== '/api/login' && path !== '/api/me') queryClient.setQueryData(['me'], null);
+  if (r.status === 401 && path !== '/api/login' && path !== '/api/me') clearCurrentUser();
   if (!r.ok) throw new ApiError(r.status, data.error || r.statusText);
   return data as T;
 }
@@ -26,7 +26,7 @@ export async function api<T = unknown>(path: string, opts: { method?: string; bo
 export async function downloadFile(path: string, filename: string) {
   const res = await fetch(path, { headers: actAsHeaders(path) });
   if (!res.ok) {
-    if (res.status === 401) queryClient.setQueryData(['me'], null);
+    if (res.status === 401) clearCurrentUser();
     const data = await res.json().catch(() => ({}));
     throw new ApiError(res.status, data.error || res.statusText);
   }

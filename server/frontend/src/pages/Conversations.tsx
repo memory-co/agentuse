@@ -13,15 +13,14 @@ import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Confirm, ErrorState, Loading, StatusBadge } from '@/components/Shared';
-import { useActAs } from '@/lib/actas';
-import { queryClient } from '@/lib/query';
-import { useAgents } from '@/pages/Agents';
+import { useAgents } from '@/services/agents';
 import {
   createConversation, isInvalidConversationRound, sendConversationMessage, useChildren, useConversation,
   useDeleteConversation, useSetConversationResolved, type ConversationScope,
 } from '@/services/conversations';
 import { useAnswerRunRequest, useCancelRun, useRunDetails } from '@/services/runs';
-import type { Message, Question, Conversation, ConversationStatus, ConversationRound, Run, User, Attachment } from '@/lib/types';
+import { useActiveUserId } from '@/services/session';
+import type { Message, Question, Conversation, ConversationStatus, ConversationRound, Run, Attachment } from '@/lib/types';
 import { cn, fmtTime } from '@/lib/utils';
 import { t, useT } from '@/lib/i18n';
 
@@ -32,8 +31,7 @@ export const statusLabel = (s: ConversationStatus) => t(`conversation.status.${s
 export function NewConversation({ onCreated }: { onCreated: (id: string) => void }) {
   const t = useT();
   const agents = useAgents();
-  const actAs = useActAs();
-  const sender = actAs || queryClient.getQueryData<User>(['me'])?.id;
+  const sender = useActiveUserId();
 
   const [mode,setMode]=useState<Conversation['mode']>('single');
   const fileDraft = useMessageFiles();
@@ -75,8 +73,7 @@ export function NewConversation({ onCreated }: { onCreated: (id: string) => void
 /** Conversation messages, nested conversations and files. */
 export function ConversationView({ id, selectedRound, onDeleted }: { id: string; selectedRound?: number; onDeleted: () => void }) {
   const t = useT();
-  const actAs = useActAs();
-  const sender = actAs || queryClient.getQueryData<User>(['me'])?.id;
+  const sender = useActiveUserId();
   const agents = useAgents();
   const fileDraft = useMessageFiles();
   const [selectedFile, setSelectedFile] = useState<Attachment | null>(null);

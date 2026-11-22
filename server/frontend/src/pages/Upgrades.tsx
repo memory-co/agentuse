@@ -1,35 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowUpCircle, ExternalLink, LoaderCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, ErrorState, Loading, StatusBadge } from '@/components/Shared';
-import { api } from '@/lib/api';
 import { useT } from '@/lib/i18n';
-import { queryClient } from '@/lib/query';
 import { fmtTime } from '@/lib/utils';
+import { useCheckServerRelease, useServerUpgrades, useStartServerUpgrade } from '@/services/upgrades';
 
-type UpgradeStatus = 'checking' | 'downloading' | 'prepared' | 'installing' | 'restarting' | 'succeeded' | 'failed' | 'unchanged';
-type Upgrade = {
-  id: string; from_version: string; target_version: string; status: UpgradeStatus; release_url: string;
-  downloaded_bytes: number; total_bytes: number; error: string; requested_by: string;
-  created_at: number; updated_at: number; completed_at: number | null;
-};
-type State = {
-  current_version: string; platform: string; supported: boolean; reason: string;
-  active: Upgrade | null; upgrades: Upgrade[]; next_cursor: string | null;
-};
-type Release = { version: string; current_version: string; available: boolean; url: string; notes: string; published_at: string };
 const bytes = (value: number) => value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KiB` : `${(value / 1024 / 1024).toFixed(1)} MiB`;
 
 export function Upgrades() {
   const t = useT();
   const [cursor, setCursor] = useState('');
-  const state = useQuery({
-    queryKey: ['upgrades', cursor],
-    queryFn: () => api<State>(`/api/upgrades${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
-    refetchInterval: query => query.state.data?.active || query.state.error ? 1500 : false,
-  });
+  const state = useServerUpgrades(cursor);
   const loadedVersion = useRef<string>();
   useEffect(() => {
     const current = state.data?.current_version;
@@ -37,11 +20,8 @@ export function Upgrades() {
     if (loadedVersion.current && loadedVersion.current !== current) location.reload();
     loadedVersion.current = current;
   }, [state.data?.current_version]);
-  const check = useMutation({ mutationFn: () => api<Release>('/api/upgrades/latest') });
-  const start = useMutation({
-    mutationFn: () => api<Upgrade>('/api/upgrades', { method: 'POST' }),
-    onSuccess: () => { setCursor(''); void queryClient.invalidateQueries({ queryKey: ['upgrades'] }); },
-  });
+  const check = useCheckServerRelease();
+  const start = useStartServerUpgrade();
   if (state.isPending) return <Loading />;
   if (!state.data) return <ErrorState error={state.error} />;
   const data = state.data;
@@ -71,7 +51,7 @@ export function Upgrades() {
         </dl>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" disabled={check.isPending || !!active} onClick={() => check.mutate()}>{check.isPending ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}{t('upgrade.check')}</Button>
-          <Button disabled={!data.supported || !!active || start.isPending || (check.isSuccess && !available)} onClick={() => start.mutate()}>{start.isPending || active ? <LoaderCircle className="animate-spin" /> : <ArrowUpCircle />}{t('upgrade.start')}</Button>
+          <Button disabled={!data.supported || !!active || start.isPending || (check.isSuccess && !available)} onClick={() => start.mutate(undefined, { onSuccess: () => setCursor('') })}>{start.isPending || active ? <LoaderCircle className="animate-spin" /> : <ArrowUpCircle />}{t('upgrade.start')}</Button>
         </div>
         {!data.supported && <p className="text-sm text-muted-foreground">{data.reason}</p>}
         {state.isError && <p className="flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />{t('upgrade.reconnecting')}</p>}

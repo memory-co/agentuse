@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowLeftRight, ArrowUpCircle, Bot, Boxes, Check, ChevronRight, Languages, LogOut, Menu, MonitorSmartphone, Plus, Users as UsersIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ConversationRename } from '@/components/ConversationRename';
@@ -13,15 +12,15 @@ import {
   SidebarProvider, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar';
 import { useBrowserNotifications } from '@/hooks/use-browser-notifications';
-import { api, ApiError } from '@/lib/api';
 import { setActAs, useActAs } from '@/lib/actas';
-import { queryClient } from '@/lib/query';
 import { cn } from '@/lib/utils';
 import type { Conversation, User } from '@/lib/types';
 import { Login } from '@/pages/Login';
 import { Devices } from '@/pages/Devices';
 import { ConversationView, NewConversation, STATUS_TONE, statusLabel } from '@/pages/Conversations';
 import { useChildren, useConversation, useConversations } from '@/services/conversations';
+import { useCurrentUser, useLogout } from '@/services/session';
+import { useUsers } from '@/services/users';
 import { Agents } from '@/pages/Agents';
 import { Skills } from '@/pages/Skills';
 import { Harnesses } from '@/pages/Harnesses';
@@ -31,11 +30,7 @@ import { getLocale, setLocale, useT } from '@/lib/i18n';
 
 // 进门先问 GET /api/me:401 显示登录页，否则是壳。admin 和普通用户共用这一套，只是导航项不同。
 export function App() {
-  const me = useQuery({
-    queryKey: ['me'],
-    queryFn: () => api<User>('/api/me').catch(e => { if (e instanceof ApiError && e.status === 401) return null; throw e; }),
-    staleTime: Infinity,
-  });
+  const me = useCurrentUser();
   if (me.isPending) return <div className="flex min-h-dvh items-center justify-center"><Loading /></div>;
   if (!me.data) return <Login />;
   return <ShellProvider><Shell me={me.data} /></ShellProvider>;
@@ -156,10 +151,7 @@ function SidebarBody({ me, pages, route, parentId, conversations, onNavigate, on
   const actAs = useActAs();
   const admin = me.role === 'admin';
   const nav = (r: Route) => { go(r); onNavigate(); };
-  const logout = useMutation({
-    mutationFn: () => api('/api/logout', { method: 'POST' }),
-    onSuccess: () => { setActAs(''); queryClient.clear(); queryClient.setQueryData(['me'], null); },
-  });
+  const logout = useLogout();
   return <>
     <SidebarHeader className="pb-3 pt-3">
       <SidebarMenu>
@@ -287,7 +279,7 @@ function ActAsPicker({ me, value }: { me: User; value: string }) {
   const t = useT();
   const admin = me.role === 'admin';
   const [open, setOpen] = useState(false);
-  const users = useQuery({ queryKey: ['users'], queryFn: () => api<User[]>('/api/users'), enabled: admin });
+  const users = useUsers(admin);
   const acting = value ? users.data?.find(u => u.id === value) : undefined;
   const name = value ? acting?.name || value : admin ? t('actAs.self', { name: me.name }) : me.name;
   const pick = (id: string) => { setOpen(false); if (id !== value) { setActAs(id); go({ page: 'new' }); } };
