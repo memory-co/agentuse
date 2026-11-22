@@ -3,18 +3,20 @@ import { queryClient } from '@/lib/query';
 import { useActAs } from '@/lib/actas';
 import { api, ApiError } from '@/lib/api';
 
-type Change = { resource: string; id?: string; parent_conversation_id?: string };
+type Change = { resource: string; id?: string; parent_conversation_id?: string; detail_only?: boolean };
 
-function refresh(changes: Change[], stillCurrent: () => boolean) {
+function refresh(changes: Change[], waiting: Set<string>, stillCurrent: () => boolean) {
   const keys = new Map<string, readonly unknown[]>();
   const add = (key: readonly unknown[]) => { keys.set(JSON.stringify(key), key); };
   const reset = changes.some(change => change.resource === 'reset');
   for (const change of changes) {
     switch (change.resource) {
       case 'conversations':
-        add(['conversations']);
         if (change.id) add(['conversations', change.id]);
-        if (change.parent_conversation_id) add(['conversations', 'children', change.parent_conversation_id]);
+        if (!change.detail_only) {
+          if (change.parent_conversation_id) add(['conversations', 'children', change.parent_conversation_id]);
+          else add(['conversations']);
+        }
         break;
       case 'attachments': if (change.id) add(['attachments', change.id]); break;
       case 'agents':
@@ -32,11 +34,16 @@ function refresh(changes: Change[], stillCurrent: () => boolean) {
   }
   const predicate = (query: { queryKey: readonly unknown[] }) => reset
     || keys.has(JSON.stringify(query.queryKey));
-  // Cancel an older in-flight snapshot, including a query with no cached data,
-  // so its completion cannot hide a notification that arrived during that GET.
-  void queryClient.cancelQueries({ predicate }).then(() => {
-    if (stillCurrent()) void queryClient.invalidateQueries({ predicate });
-  });
+  for (const query of queryClient.getQueryCache().findAll({ predicate })) {
+    if (waiting.has(query.queryHash)) continue;
+    waiting.add(query.queryHash);
+    const inFlight = query.state.fetchStatus === 'fetching' ? query.promise : undefined;
+    // Keep one trailing refresh for changes that arrive during a read.
+    void Promise.resolve(inFlight).catch(() => undefined).then(() => {
+      waiting.delete(query.queryHash);
+      if (stillCurrent()) void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false });
+    });
+  }
 }
 
 // One notification socket per authenticated application. HTTP remains the data
@@ -54,6 +61,7 @@ export function useBrowserNotifications(userID: string) {
       url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       if (actingAs) url.searchParams.set('as', actingAs);
       const current = new WebSocket(url);
+      const waiting = new Set<string>();
       socket = current;
       current.onmessage = event => {
         if (stopped || socket !== current) return;
@@ -61,9 +69,9 @@ export function useBrowserNotifications(userID: string) {
           const notice = JSON.parse(event.data) as { type: string; changes?: Change[] };
           if (notice.type === 'ready') {
             delay = 1000;
-            refresh([{ resource: 'reset' }], () => !stopped && socket === current);
+            refresh([{ resource: 'reset' }], waiting, () => !stopped && socket === current);
           } else if (notice.type === 'changed' && Array.isArray(notice.changes)) {
-            refresh(notice.changes, () => !stopped && socket === current);
+            refresh(notice.changes, waiting, () => !stopped && socket === current);
           }
         } catch { /* Ignore malformed notifications; reconnect reconciles state. */ }
       };

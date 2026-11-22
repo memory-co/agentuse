@@ -10,6 +10,7 @@ type Change struct {
 	Resource             string `json:"resource"`
 	ID                   string `json:"id,omitempty"`
 	ParentConversationID string `json:"parent_conversation_id,omitempty"`
+	DetailOnly           bool   `json:"detail_only,omitempty"`
 }
 
 type Subscription struct {
@@ -74,11 +75,16 @@ func (b *Broker) Publish(change Change, owners ...string) {
 		}
 		sub.mu.Lock()
 		if _, reset := sub.pending["reset"]; !reset {
-			if len(sub.pending) >= 128 {
+			key := change.Resource + ":" + change.ID
+			if previous, exists := sub.pending[key]; exists {
+				if !change.DetailOnly || previous.DetailOnly {
+					sub.pending[key] = change
+				}
+			} else if len(sub.pending) >= 128 {
 				clear(sub.pending)
 				sub.pending["reset"] = Change{Resource: "reset"}
 			} else {
-				sub.pending[change.Resource+":"+change.ID] = change
+				sub.pending[key] = change
 			}
 		}
 		sub.mu.Unlock()

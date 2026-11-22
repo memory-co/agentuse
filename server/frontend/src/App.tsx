@@ -114,6 +114,7 @@ function Shell({ me }: { me: User }) {
     queryKey: ['conversations', route.page === 'conversation' ? route.id : ''],
     queryFn: () => api<ConversationDetail>(`/api/conversations/${route.page === 'conversation' ? route.id : ''}`),
     enabled: route.page === 'conversation',
+    refetchOnWindowFocus: false,
   });
   const current = route.page === 'conversation' ? detail.data?.conversation : undefined;
   const viewingRound = route.page === 'conversation' && new URLSearchParams(location.hash.split('?')[1]).has('round');

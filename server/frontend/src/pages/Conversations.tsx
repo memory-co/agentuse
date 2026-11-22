@@ -24,9 +24,9 @@ import { t, useT } from '@/lib/i18n';
 
 export const STATUS_TONE: Record<ConversationStatus, 'ok' | 'warn' | 'run' | 'muted'> = { idle: 'ok', pending: 'warn', running: 'run', waiting: 'warn', resolved: 'muted' };
 export const statusLabel = (s: ConversationStatus) => t(`conversation.status.${s}`);
-export const useConversations = () => useQuery({ queryKey: ['conversations'], queryFn: () => api<Conversation[]>('/api/conversations') });
+export const useConversations = () => useQuery({ queryKey: ['conversations'], queryFn: () => api<Conversation[]>('/api/conversations'), refetchOnWindowFocus: false });
 export const useChildren = (parent: string, enabled=true) => useQuery({
-  queryKey: ['conversations', 'children', parent], queryFn: () => api<Conversation[]>(`/api/conversations?parent_conversation_id=${encodeURIComponent(parent)}`), enabled,
+  queryKey: ['conversations', 'children', parent], queryFn: () => api<Conversation[]>(`/api/conversations?parent_conversation_id=${encodeURIComponent(parent)}`), enabled, refetchOnWindowFocus: false,
 });
 const refresh = () => queryClient.invalidateQueries({ queryKey: ['conversations'] });
 
@@ -103,7 +103,7 @@ export function ConversationView({ id, onDeleted }: { id: string; onDeleted: () 
   const roundParam = new URLSearchParams(location.hash.split('?')[1] ?? '').get('round');
   const selectedRound = roundParam === null ? undefined : Number(roundParam);
   const invalidRound = selectedRound !== undefined && (!Number.isSafeInteger(selectedRound) || selectedRound <= 0);
-  const q = useQuery({ queryKey: selectedRound === undefined ? ['conversations', id] : ['conversations', id, 'round', selectedRound], queryFn: () => api<Detail>(`/api/conversations/${id}${selectedRound === undefined ? '' : `?round=${selectedRound}`}`), enabled: !invalidRound });
+  const q = useQuery({ queryKey: selectedRound === undefined ? ['conversations', id] : ['conversations', id, 'round', selectedRound], queryFn: () => api<Detail>(`/api/conversations/${id}${selectedRound === undefined ? '' : `?round=${selectedRound}`}`), enabled: !invalidRound, refetchOnWindowFocus: false });
   const children=useChildren(id,q.data?.conversation.mode==='collaborative');
   const reply = useMutation({
     mutationFn: async ({prompt,targets,users}: {prompt:string;targets:string[];users:string[]}) => {const attachment_ids=await fileDraft.upload(id);const body={prompt,to_agent_ids:targets,to_user_ids:users,attachment_ids};return api(`/api/conversations/${id}/messages`, { method:'POST', body });},

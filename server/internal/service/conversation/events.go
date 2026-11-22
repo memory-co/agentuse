@@ -20,7 +20,14 @@ func (s *Service) ReportClientEvent(ctx context.Context, device string, envelope
 
 type conversationEvents struct{ service *Service }
 
+func detailOnly(event run.ExecutionFacts) bool {
+	return event.Type == "log" || event.Type == "message"
+}
+
 func (c conversationEvents) Applied(ctx context.Context, tx *gorm.DB, envelope protocol.ClientEvent, event run.ExecutionFacts, completed *agentuse.Run) error {
+	if detailOnly(event) {
+		return nil
+	}
 	s := c.service
 	if completed != nil {
 		conversation, err := s.LookupConversation(ctx, tx, agentuse.User{Role: agentuse.RoleAdmin}, completed.ConversationID)
@@ -66,10 +73,10 @@ func (c conversationEvents) Applied(ctx context.Context, tx *gorm.DB, envelope p
 	return s.ProjectStatus(ctx, tx, envelope.ConversationID, s.Now().Unix())
 }
 
-func (c conversationEvents) Committed(ctx context.Context, conversation string, result bool) {
+func (c conversationEvents) Committed(ctx context.Context, conversation string, event run.ExecutionFacts) {
 	s := c.service
-	s.NotifyConversation(ctx, conversation)
-	if result {
+	s.notifyConversation(ctx, conversation, detailOnly(event))
+	if event.Type == "result" {
 		if err := s.ReconcileRoundNotifications(ctx); err != nil {
 			s.Log.Printf("round notification pending for %s: %v", conversation, err)
 		}

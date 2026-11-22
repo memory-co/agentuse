@@ -138,6 +138,47 @@ func TestBrowserNotificationsScopeCoalescingAndReconnect(t *testing.T) {
 	}
 }
 
+func TestBrowserNotificationsScopeProgressAndIgnoreReplays(t *testing.T) {
+	f := attachmentEnv(t, 1024, 4096)
+	ctx := context.Background()
+	if _, err := f.e.st.ConversationService.SendMessage(ctx, f.u, f.conversation.ID, "input", []string{f.agent}, nil, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	p, err := f.e.st.RunService.DispatchMessage(ctx, f.d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, stop := f.e.st.BrowserChanges.Subscribe(f.u.ID, false)
+	defer stop()
+	const run = "550e8400-e29b-41d4-a716-446655440000"
+	envelope := protocol.ClientEvent{ConversationID: f.conversation.ID, SessionID: "native", AgentID: f.agent, AgentVersionID: p.AgentVersionID, Revision: "reported", MessageID: p.MessageID}
+	for i, event := range []map[string]any{
+		{"type": "accepted", "run_id": run, "input_id": "input", "text": "input"},
+		{"type": "log", "run_id": run, "message": "debug output"},
+		{"type": "message", "run_id": run, "text": "progress"},
+	} {
+		envelope.Seq = int64(i + 1)
+		envelope.Event, _ = json.Marshal(event)
+		if err := f.e.st.ConversationService.ReportClientEvent(ctx, f.d.ID, envelope); err != nil {
+			t.Fatal(err)
+		}
+		changes := sub.Drain()
+		if len(changes) != 1 || changes[0].ID != f.conversation.ID || changes[0].DetailOnly != (i != 0) {
+			t.Fatalf("incorrect notification for %s: %+v", event["type"], changes)
+		}
+		if err := f.e.st.ConversationService.ReportClientEvent(ctx, f.d.ID, envelope); err != nil {
+			t.Fatal("same event must still be acknowledged", err)
+		}
+		if changes := sub.Drain(); len(changes) != 0 {
+			t.Fatalf("duplicate %s notified the browser: %+v", event["type"], changes)
+		}
+	}
+	detail, err := f.e.st.ConversationService.ReadConversation(ctx, f.u, f.conversation.ID)
+	if err != nil || len(detail.Events) != 3 || detail.Events[1].Kind != "log" || detail.Events[2].Kind != "message" {
+		t.Fatal("execution history changed", detail.Events, err)
+	}
+}
+
 func TestBrowserNotificationsIncludeCommittedClientResults(t *testing.T) {
 	f := attachmentEnv(t, 1024, 4096)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

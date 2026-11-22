@@ -13,10 +13,11 @@ func TestAudienceIsolationCoalescingAndAdminOnlyChanges(t *testing.T) {
 	defer closeOther()
 	admin, closeAdmin := broker.Subscribe("admin", true)
 	defer closeAdmin()
+	broker.Publish(Change{Resource: "conversations", ID: "child", ParentConversationID: "parent", DetailOnly: true}, "owner")
 	broker.Publish(Change{Resource: "conversations", ID: "child", ParentConversationID: "parent"}, "owner")
-	broker.Publish(Change{Resource: "conversations", ID: "child", ParentConversationID: "parent"}, "owner")
+	broker.Publish(Change{Resource: "conversations", ID: "child", ParentConversationID: "parent", DetailOnly: true}, "owner")
 	broker.Publish(Change{Resource: "users", ID: "owner"})
-	if changes := owner.Drain(); len(changes) != 1 || changes[0].ParentConversationID != "parent" {
+	if changes := owner.Drain(); len(changes) != 1 || changes[0].ParentConversationID != "parent" || changes[0].DetailOnly {
 		t.Fatal("owner scope or duplicate coalescing changed", changes)
 	}
 	if changes := other.Drain(); len(changes) != 0 {

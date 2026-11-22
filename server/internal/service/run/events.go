@@ -32,7 +32,7 @@ type ExecutionFacts struct {
 
 type ExecutionEventConsumer interface {
 	Applied(context.Context, *gorm.DB, protocol.ClientEvent, ExecutionFacts, *agentuse.Run) error
-	Committed(context.Context, string, bool)
+	Committed(context.Context, string, ExecutionFacts)
 }
 
 // applyClientEvent projects only execution tables and delegates conversation effects.
@@ -59,6 +59,7 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 			return fmt.Errorf("invalid client run UUID")
 		}
 	}
+	applied := false
 	err := s.Database.Tx(ctx, func(tx *gorm.DB) error {
 		var completed *agentuse.Run
 		var existing, existingConversation, existingAgent, existingVersion, existingMessage string
@@ -228,10 +229,14 @@ func (s *Service) ApplyClientEvent(ctx context.Context, device string, envelope 
 		if _, err = database.Exec(ctx, tx, `INSERT INTO run_events(conversation_id,session_id,run_id,agent_id,agent_version_id,device_id,event_seq,message_id,kind,payload,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, envelope.ConversationID, envelope.SessionID, event.RunID, envelope.AgentID, envelope.AgentVersionID, device, envelope.Seq, envelope.MessageID, event.Type, string(envelope.Event), now); err != nil {
 			return err
 		}
-		return consumer.Applied(ctx, tx, envelope, event, completed)
+		if err := consumer.Applied(ctx, tx, envelope, event, completed); err != nil {
+			return err
+		}
+		applied = true
+		return nil
 	})
-	if err == nil {
-		consumer.Committed(ctx, envelope.ConversationID, event.Type == "result")
+	if err == nil && applied {
+		consumer.Committed(ctx, envelope.ConversationID, event)
 	}
 	return err
 }
