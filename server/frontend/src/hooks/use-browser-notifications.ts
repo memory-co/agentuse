@@ -2,57 +2,7 @@ import { useEffect } from 'react';
 import { queryClient } from '@/lib/query';
 import { useActAs } from '@/lib/actas';
 import { api, ApiError } from '@/lib/api';
-
-type Change = { resource: string; id?: string; parent_conversation_id?: string; detail_only?: boolean };
-
-function refresh(changes: Change[], waiting: Set<string>, stillCurrent: () => boolean) {
-  const keys = new Set<string>();
-  const conversations = new Set<string>();
-  const eventConversations = new Set<string>();
-  const add = (key: readonly unknown[]) => { keys.add(JSON.stringify(key)); };
-  const reset = changes.some(change => change.resource === 'reset');
-  for (const change of changes) {
-    switch (change.resource) {
-      case 'conversations':
-        if (change.id) eventConversations.add(change.id);
-        if (!change.detail_only) {
-          if (change.id) conversations.add(change.id);
-          if (change.parent_conversation_id) add(['conversations', 'children', change.parent_conversation_id]);
-          else add(['conversations']);
-        }
-        break;
-      case 'attachments': if (change.id) add(['attachments', change.id]); break;
-      case 'agents':
-        add(['agents']);
-        if (change.id) add(['agent-versions', change.id]);
-        break;
-      case 'skills':
-        add(['skills']);
-        if (change.id) add(['skill-versions', change.id]);
-        break;
-      case 'devices': add(['devices']); break;
-      case 'users': add(['users']); break;
-      case 'upgrades': for (const query of queryClient.getQueryCache().findAll({ queryKey: ['upgrades'] })) add(query.queryKey); break;
-    }
-  }
-  const predicate = ({ queryKey }: { queryKey: readonly unknown[] }) => {
-    const [resource, id] = queryKey;
-    return reset || keys.has(JSON.stringify(queryKey)) || (typeof id === 'string' && (
-      ((resource === 'conversations' || resource === 'run-details') && conversations.has(id))
-      || (resource === 'run-events' && eventConversations.has(id))
-    ));
-  };
-  for (const query of queryClient.getQueryCache().findAll({ predicate })) {
-    if (waiting.has(query.queryHash)) continue;
-    waiting.add(query.queryHash);
-    const inFlight = query.state.fetchStatus === 'fetching' ? query.promise : undefined;
-    // Keep one trailing refresh for changes that arrive during a read.
-    void Promise.resolve(inFlight).catch(() => undefined).then(() => {
-      waiting.delete(query.queryHash);
-      if (stillCurrent()) void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true }, { cancelRefetch: false });
-    });
-  }
-}
+import { createBrowserQueryRefresh, type BrowserNotice } from '@/services/browser-notifications';
 
 // One notification socket per authenticated application. HTTP remains the data
 // source; ready always reconciles active queries, including after a disconnect.
@@ -69,17 +19,17 @@ export function useBrowserNotifications(userID: string) {
       url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       if (actingAs) url.searchParams.set('as', actingAs);
       const current = new WebSocket(url);
-      const waiting = new Set<string>();
+      const refresh = createBrowserQueryRefresh(() => !stopped && socket === current);
       socket = current;
       current.onmessage = event => {
         if (stopped || socket !== current) return;
         try {
-          const notice = JSON.parse(event.data) as { type: string; changes?: Change[] };
+          const notice = JSON.parse(event.data) as BrowserNotice;
           if (notice.type === 'ready') {
             delay = 1000;
-            refresh([{ resource: 'reset' }], waiting, () => !stopped && socket === current);
+            refresh([{ resource: 'reset' }]);
           } else if (notice.type === 'changed' && Array.isArray(notice.changes)) {
-            refresh(notice.changes, waiting, () => !stopped && socket === current);
+            refresh(notice.changes);
           }
         } catch { /* Ignore malformed notifications; reconnect reconciles state. */ }
       };

@@ -14,34 +14,20 @@ import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Confirm, ErrorState, Loading, StatusBadge } from '@/components/Shared';
-import { api } from '@/lib/api';
 import { useActAs } from '@/lib/actas';
 import { queryClient } from '@/lib/query';
 import { useAgents } from '@/pages/Agents';
-import type { Message, Question, Conversation, ConversationSummary, ConversationStatus, ConversationRound, Run, RunDetail, User, Attachment } from '@/lib/types';
+import {
+  createConversation, isInvalidConversationRound, sendConversationMessage, useChildren, useConversation,
+  useDeleteConversation, useSetConversationResolved, type ConversationScope,
+} from '@/services/conversations';
+import { useAnswerRunRequest, useCancelRun, useRunDetails } from '@/services/runs';
+import type { Message, Question, Conversation, ConversationStatus, ConversationRound, Run, User, Attachment } from '@/lib/types';
 import { cn, fmtTime } from '@/lib/utils';
 import { t, useT } from '@/lib/i18n';
 
 export const STATUS_TONE: Record<ConversationStatus, 'ok' | 'warn' | 'run' | 'muted'> = { idle: 'ok', pending: 'warn', running: 'run', waiting: 'warn', resolved: 'muted' };
 export const statusLabel = (s: ConversationStatus) => t(`conversation.status.${s}`);
-export const useConversations = () => useQuery({ queryKey: ['conversations'], queryFn: () => api<Conversation[]>('/api/conversations'), refetchOnWindowFocus: false });
-export const useChildren = (parent: string, enabled=true) => useQuery({
-  queryKey: ['conversations', 'children', parent], queryFn: () => api<Conversation[]>(`/api/conversations?parent_conversation_id=${encodeURIComponent(parent)}`), enabled, refetchOnWindowFocus: false,
-});
-const invalidRound = (round?: number) => round !== undefined && (!Number.isSafeInteger(round) || round <= 0);
-export function useConversation(id: string, round?: number) {
-  return useQuery({
-    queryKey: round === undefined ? ['conversations', id] : ['conversations', id, 'round', round],
-    queryFn: ({ signal }) => api<ConversationSummary>(`/api/conversations/${encodeURIComponent(id)}?view=summary${round === undefined ? '' : `&round=${round}`}`, { signal }),
-    enabled: !!id && !invalidRound(round),
-    refetchOnWindowFocus: false,
-  });
-}
-const refresh = () => queryClient.invalidateQueries({ queryKey: ['conversations'] });
-const refreshRun = (conversationId: string, runId: string) => {
-  void queryClient.invalidateQueries({ queryKey: ['run-details', conversationId, runId], exact: true });
-  void refresh();
-};
 
 /** 新会话：选 agent,写第一句话。 */
 export function NewConversation({ onCreated }: { onCreated: (id: string) => void }) {
@@ -52,21 +38,19 @@ export function NewConversation({ onCreated }: { onCreated: (id: string) => void
 
   const [mode,setMode]=useState<Conversation['mode']>('single');
   const fileDraft = useMessageFiles();
-  const draft = useRef<string | null>(null);
+  const draft = useRef<Conversation | null>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
   const add = useMutation({
     mutationFn: async ({prompt, targets, users}: {prompt:string;targets:string[];users:string[]}) => {
       if (!draft.current) {
-        const r = await api<{conversation: Conversation}>('/api/conversations', {method: 'POST', body: {mode}});
-        draft.current = r.conversation.id; setDraftId(r.conversation.id); void refresh();
+        draft.current = await createConversation(mode);
+        setDraftId(draft.current.id);
       }
-      const id = draft.current;
-      const attachment_ids = await fileDraft.upload(id);
-      const body={prompt,to_agent_ids:targets,to_user_ids:users,attachment_ids};
-      await api(`/api/conversations/${id}/messages`, {method: 'POST', body});
-      return {conversation: {id} as Conversation};
+      const attachmentIds = await fileDraft.upload(draft.current.id);
+      await sendConversationMessage(draft.current, { prompt, targets, users, attachmentIds });
+      return draft.current.id;
     },
-    onSuccess: r => { void refresh(); onCreated(r.conversation.id); },
+    onSuccess: onCreated,
   });
   return <div className="conversation-column flex flex-1 flex-col justify-center gap-7 py-10">
     <div className="grid gap-2">
@@ -116,15 +100,20 @@ export function ConversationView({ id, selectedRound, onDeleted }: { id: string;
   const q = useConversation(id, selectedRound);
   const children=useChildren(id,q.data?.conversation.mode==='collaborative');
   const reply = useMutation({
-    mutationFn: async ({prompt,targets,users}: {prompt:string;targets:string[];users:string[]}) => {const attachment_ids=await fileDraft.upload(id);const body={prompt,to_agent_ids:targets,to_user_ids:users,attachment_ids};return api(`/api/conversations/${id}/messages`, { method:'POST', body });},
-    onSuccess: () => { fileDraft.clear(); void refresh(); },
+    mutationFn: async ({ conversation, prompt, targets, users }: {
+      conversation: ConversationScope; prompt: string; targets: string[]; users: string[];
+    }) => {
+      const attachmentIds = await fileDraft.upload(conversation.id);
+      await sendConversationMessage(conversation, { prompt, targets, users, attachmentIds });
+    },
+    onSuccess: fileDraft.clear,
   });
-  const del = useMutation({ mutationFn: () => api(`/api/conversations/${id}${q.data?.conversation.mode==='collaborative'?'?recursive=true':''}`, { method: 'DELETE' }), onSuccess: () => { void refresh(); onDeleted(); } });
-  const resolve = useMutation({ mutationFn: (done: boolean) => api(`/api/conversations/${id}/${done ? 'resolve' : 'reopen'}`, { method: 'POST' }), onSuccess: () => { void refresh(); } });
+  const del = useDeleteConversation();
+  const resolve = useSetConversationResolved(id);
   const bottom = useRef<HTMLDivElement>(null);
   const count = q.data?.messages.length ?? 0;
   useEffect(() => { if(selectedRound === undefined) bottom.current?.scrollIntoView({block:'end'}); }, [count,selectedRound]);
-  if (invalidRound(selectedRound)) return <ErrorState error={t('nest.invalidRound')} />;
+  if (isInvalidConversationRound(selectedRound)) return <ErrorState error={t('nest.invalidRound')} />;
   if (q.isPending) return <div className="px-6"><Loading /></div>;
   if (q.isError) return <div className="px-6 py-6"><ErrorState error={q.error} /></div>;
   const { conversation: x, messages } = q.data;
@@ -147,7 +136,7 @@ export function ConversationView({ id, selectedRound, onDeleted }: { id: string;
             {selectedRound === undefined && settled && <Button variant="ghost" size="sm" className="gap-1.5 px-2" disabled={resolve.isPending} onClick={() => resolve.mutate(x.status === 'idle')}>
               {x.status === 'idle' ? <><CircleCheck />{t('conversation.resolve')}</> : <><RotateCcw />{t('conversation.reopen')}</>}
             </Button>}
-            {selectedRound === undefined && settled && <Confirm title={t('conversation.deleteTitle')} description={t(x.mode==='collaborative'?'nest.deleteTree':'conversation.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate()}>
+            {selectedRound === undefined && settled && <Confirm title={t('conversation.deleteTitle')} description={t(x.mode==='collaborative'?'nest.deleteTree':'conversation.deleteText')} action={t('common.delete')} onConfirm={() => del.mutate(x, { onSuccess: onDeleted })}>
               <Button variant="ghost" size="icon" className="size-8 text-destructive" aria-label={t('conversation.delete')}><Trash2 /></Button>
             </Confirm>}
           </div>
@@ -157,14 +146,14 @@ export function ConversationView({ id, selectedRound, onDeleted }: { id: string;
         {(del.isError||resolve.isError) && <ErrorState error={del.error||resolve.error}/>}
 
         {messages.map(m=><div key={m.id} className="grid min-w-0 grid-cols-1 gap-2">{x.parent_conversation_id && q.data.rounds.filter(round => round.start_message_seq === m.seq).map(round => <RoundStatus key={round.seq} round={round} />)}<MessageView m={m} onOpenFile={openFiles}/>
-        {q.data.runs.filter(r=>r.first_message_id===m.id).map(run=><RunView key={run.id} run={run} messages={messages} round={selectedRound} onOpenFile={openFiles} conversationId={id}/>)}
+        {q.data.runs.filter(r=>r.first_message_id===m.id).map(run=><RunView key={run.id} run={run} messages={messages} round={selectedRound} onOpenFile={openFiles} conversation={x}/>)}
         </div>)}
         <div ref={bottom} />
       </div>
     </div>
     {selectedRound === undefined && <div ref={composer} className="conversation-column pb-4 pt-2 sm:pb-6">
       {reply.isError && <div className="pb-2"><ErrorState error={reply.error} /></div>}
-      <MentionComposer files={fileDraft.files} onFiles={fileDraft.addFiles} onRemoveFile={fileDraft.remove} key={`${id}:${sender}`} initialTargets={initialTargets} agents={agents.data??[]} users={[...new Set([x.user_id, x.created_by, ...messages.flatMap(m => [m.author_user_id, ...m.to_user_ids])].filter((value): value is string => !!value))]} placeholder={t('conversation.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets,users)=>reply.mutateAsync({prompt,targets,users})}/>
+      <MentionComposer files={fileDraft.files} onFiles={fileDraft.addFiles} onRemoveFile={fileDraft.remove} key={`${id}:${sender}`} initialTargets={initialTargets} agents={agents.data??[]} users={[...new Set([x.user_id, x.created_by, ...messages.flatMap(m => [m.author_user_id, ...m.to_user_ids])].filter((value): value is string => !!value))]} placeholder={t('conversation.replyPlaceholder')} busy={reply.isPending} onSend={(prompt,targets,users)=>reply.mutateAsync({conversation:x,prompt,targets,users})}/>
 
     </div>}
    </div>
@@ -263,10 +252,10 @@ function MessageErrors({message}:{message:Message}) {
  return Object.entries(message.agent_errors ?? {}).map(([agent,receipt])=><p key={agent} className={cn('break-words text-xs',receipt.uncertain?'text-muted-foreground':'text-destructive')} data-message-error={agent}>@{agent} · {t(receipt.uncertain?'run.unconfirmed':'run.rejected')}：{receipt.error}</p>);
 }
 
-function QuestionView({ q, conversationId }: { q: Question; conversationId: string }) {
+function QuestionView({ q, conversation }: { q: Question; conversation: ConversationScope }) {
  const [answers,setAnswers]=useState<Record<string,string>>({});
  const p=q.payload??{};
- const reply=useMutation({mutationFn:(answer:unknown)=>api(`/api/conversations/${conversationId}/runs/${q.run_id}/requests/${encodeURIComponent(q.request_id)}/reply`,{method:'POST',body:{answer}}),onSuccess:()=>refreshRun(conversationId,q.run_id)});
+ const reply=useAnswerRunRequest(conversation,q.run_id,q.request_id);
  const busy=reply.isPending||(reply.isSuccess&&!q.delivery_error);
  return <div className="grid gap-2 rounded-lg border p-3 text-sm">
   <p className="whitespace-pre-wrap break-words font-medium">{p.message}</p>
@@ -280,9 +269,9 @@ function QuestionView({ q, conversationId }: { q: Question; conversationId: stri
  </div>;
 }
 
-type RunViewProps = { run: Run; messages: Message[]; round?: number; conversationId: string; onOpenFile: (file: Attachment) => void };
+type RunViewProps = { run: Run; messages: Message[]; round?: number; conversation: ConversationScope; onOpenFile: (file: Attachment) => void };
 
-function RunView({run,messages,round,conversationId,onOpenFile}:RunViewProps){
+function RunView({run,messages,round,conversation,onOpenFile}:RunViewProps){
  const t=useT();
  const [open,setOpen]=useState(false);
  const active=['running','waiting'].includes(run.status);
@@ -299,21 +288,15 @@ function RunView({run,messages,round,conversationId,onOpenFile}:RunViewProps){
    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><Dialog.Title className="font-semibold">@{run.agent_id} · {t('run.details')}</Dialog.Title><Dialog.Description className="mt-1 text-xs text-muted-foreground">{t(`run.status.${run.status}`)} · {run.harness} · {run.harness_revision}</Dialog.Description></div><Dialog.Close asChild><Button size="icon" variant="ghost" className="shrink-0" aria-label={t('common.close')}><X className="size-4"/></Button></Dialog.Close></div>
    <RunTokenUsage usage={run.usage} />
    <dl className="my-4 grid grid-cols-[auto_minmax(0,1fr)] gap-2 text-xs"><dt>{t('run.id')}</dt><dd className="break-all">{run.id}</dd><dt>{t('run.model')}</dt><dd className="break-all" data-run-model>{run.model ?? t('run.modelUnknown')}</dd><dt>{t('run.clientSession')}</dt><dd className="break-all">{run.session_id}</dd><dt>{t('run.device')}</dt><dd className="break-all">{run.device_id}</dd></dl>
-   {open && <RunDetails run={run} messages={messages} round={round} conversationId={conversationId} onOpenFile={file=>{setOpen(false);onOpenFile(file);}} />}
+   {open && <RunDetails run={run} messages={messages} round={round} conversation={conversation} onOpenFile={file=>{setOpen(false);onOpenFile(file);}} />}
   </Dialog.Content></Dialog.Portal>
  </Dialog.Root></section>;
 }
 
-function RunDetails({run,messages,round,conversationId,onOpenFile}:RunViewProps){
+function RunDetails({run,messages,round,conversation,onOpenFile}:RunViewProps){
  const t=useT();
- const path = `/api/conversations/${encodeURIComponent(conversationId)}/runs/${encodeURIComponent(run.id)}`;
- const details = useQuery({
-  queryKey: ['run-details', conversationId, run.id],
-  queryFn: ({ signal }) => api<RunDetail>(`${path}?view=metadata`, { signal }),
-  gcTime: 0,
-  refetchOnWindowFocus: false,
- });
- const cancel=useMutation({mutationFn:()=>api(`${path}/cancel`,{method:'POST'}),onSuccess:()=>refreshRun(conversationId,run.id)});
+ const details = useRunDetails(conversation.id, run.id);
+ const cancel=useCancelRun(conversation,run.id);
  const active=['running','waiting'].includes(run.status);
  const inputs = details.data?.inputs.filter(input => round === undefined || messages.some(message => message.id === input.message_id)) ?? [];
  const output = details.data?.run.output;
@@ -340,11 +323,11 @@ function RunDetails({run,messages,round,conversationId,onOpenFile}:RunViewProps)
    </section>
    {output&&<Markdown>{output}</Markdown>}
    {error&&<p className="text-sm text-destructive">{error}</p>}
-   <div className="my-4 grid grid-cols-1 gap-3">{details.data.questions?.map(q=><QuestionView key={q.request_id} q={q} conversationId={conversationId}/>)}</div>
+   <div className="my-4 grid grid-cols-1 gap-3">{details.data.questions?.map(q=><QuestionView key={q.request_id} q={q} conversation={conversation}/>)}</div>
   </>}
   {active&&<Button size="sm" variant="outline" disabled={cancel.isPending} onClick={()=>cancel.mutate()}>{t('run.cancel')}</Button>}
   {cancel.isSuccess&&active&&<p className="mt-2 text-xs text-muted-foreground">{t('run.cancelPending')}</p>}
   {cancel.isError&&<ErrorState error={cancel.error}/>}
-  <RunEvents conversationId={conversationId} runId={run.id} />
+  <RunEvents conversationId={conversation.id} runId={run.id} />
  </>;
 }

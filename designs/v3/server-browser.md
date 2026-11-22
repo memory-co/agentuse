@@ -1,8 +1,16 @@
-# 瀏覽器通知與 Markdown 顯示
+# 瀏覽器資料層、通知與 Markdown 顯示
 
 > 本稿對應當前通知機制。變更資源使用 parent_conversation_id 表示父對話，見 [父子 conversation 設計](server-conversation.md#父子對話) 一併替換。
 
 Server 網頁透過 `GET /api/browser/ws` 建立一條 WebSocket，僅接收資料變更通知。發消息、回覆問題、上傳文件及讀取具體內容仍走既有 HTTP API；此入口與設備領任務的 WebSocket 分開。
+
+## 前端資料層
+
+`server/frontend/src/services/` 按業務集中 HTTP 路徑、TanStack Query 查詢 key 和快取失效規則。`conversations.ts` 提供頂層與子會話列表、會話摘要、輪次及寫入操作。`runs.ts` 提供執行明細、事件分頁、完整事件下載、取消及回覆。共用的 `lib/api.ts` 處理請求、身份標頭和 HTTP 錯誤。
+
+`hooks/use-browser-notifications.ts` 管理 WebSocket 連線、重連和身份切換。`services/browser-notifications.ts` 將通知路由到各業務定義的查詢範圍，並合併同一查詢的待刷新通知。會話寫入復用相同的會話查詢範圍。頂層或子會話列表有獨立的查詢 key，會話摘要及指定輪次則按會話 ID 查找。
+
+畫面保存展開狀態、頁面游標和表單草稿，透過參數決定查詢是否啟用。伺服器資料的生命週期由 TanStack Query 管理，語言和 Acting as 等少量跨頁偏好使用現有的 React 訂閱及本機儲存。
 
 ## 身份與權限
 

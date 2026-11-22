@@ -144,7 +144,7 @@ sequenceDiagram
     R-->>Client: 提交後 ACK
 ```
 
-瀏覽器透過獨立 WebSocket 接收變更通知，再由既有 HTTP API 讀取資料；詳見 [瀏覽器通知與 Markdown 顯示](server-browser.md)。
+瀏覽器透過獨立 WebSocket 接收變更通知，再由 HTTP API 讀取資料。前端的會話及執行 services 管理 API 請求和查詢範圍，詳見[瀏覽器資料層與通知](server-browser.md)。
 
 ## 四、當前源碼組織
 

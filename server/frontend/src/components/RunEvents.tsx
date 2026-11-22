@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowDownToLine, ChevronRight, CircleHelp, FileJson2, FileText, Flag, MessageSquare } from 'lucide-react';
 import { ErrorState, Loading } from '@/components/Shared';
 import { Button } from '@/components/ui/button';
-import { api, downloadFile } from '@/lib/api';
-import type { RunEventPage, RunEventPreview } from '@/lib/types';
+import type { RunEventPreview } from '@/lib/types';
+import { useDownloadRunEvent, useRunEvents } from '@/services/runs';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 
@@ -51,10 +50,10 @@ const eventIcons: Record<string, typeof FileText> = {
   log: FileText,
 };
 
-function EventRow({ event, payloadURL }: { event: RunEventPreview; payloadURL: string }) {
+function EventRow({ event, conversationId, runId }: { event: RunEventPreview; conversationId: string; runId: string }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const download = useMutation({ mutationFn: () => downloadFile(payloadURL, `run-event-${event.id}.json`) });
+  const download = useDownloadRunEvent(conversationId, runId);
   const title = eventTitle(event);
   const topic = textAt(event.payload, ['topic']);
   const level = textAt(event.payload, ['level']);
@@ -90,7 +89,7 @@ function EventRow({ event, payloadURL }: { event: RunEventPreview; payloadURL: s
       {open && <div className="mb-3 ml-11 min-w-0 rounded-lg border bg-muted/20" data-event-detail>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2 text-[11px] text-muted-foreground">
           <span className="inline-flex items-center gap-1.5"><FileJson2 className="size-3.5" aria-hidden="true" />{t(event.payload_preview ? 'run.eventPreview' : 'run.eventJson')}</span>
-          {event.payload_preview ? <Button variant="link" size="sm" className="h-auto p-0" disabled={download.isPending} onClick={() => download.mutate()}>{t('run.eventDownload')}</Button>
+          {event.payload_preview ? <Button variant="link" size="sm" className="h-auto p-0" disabled={download.isPending} onClick={() => download.mutate(event.id)}>{t('run.eventDownload')}</Button>
             : <span>{t('run.eventTitleSource')} <code>{title.path}</code></span>}
         </div>
         <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-5 [overflow-wrap:anywhere]">{event.payload_preview ?? JSON.stringify(event.payload ?? null)}</pre>
@@ -104,14 +103,7 @@ export function RunEvents({ conversationId, runId }: { conversationId: string; r
   const [expanded, setExpanded] = useState(true);
   const [cursors, setCursors] = useState(['']);
   const cursor = cursors[cursors.length - 1];
-  const path = `/api/conversations/${encodeURIComponent(conversationId)}/runs/${encodeURIComponent(runId)}/events`;
-  const page = useQuery({
-    queryKey: ['run-events', conversationId, runId, cursor],
-    queryFn: ({ signal }) => api<RunEventPage>(`${path}?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, { signal }),
-    enabled: expanded,
-    gcTime: 0,
-    refetchOnWindowFocus: false,
-  });
+  const page = useRunEvents(conversationId, runId, cursor, expanded);
   const data = page.data;
   const next = data?.next_cursor;
   const events = data?.events ?? [];
@@ -128,7 +120,7 @@ export function RunEvents({ conversationId, runId }: { conversationId: string; r
     </div>}
     {page.isPending ? <Loading /> : page.isError ? <ErrorState error={page.error} />
       : events.length ? <ol className="relative mt-3 min-w-0 before:absolute before:bottom-6 before:left-[17px] before:top-6 before:w-px before:bg-border">
-        {events.map(event => <EventRow key={event.id} event={event} payloadURL={`${path}/${encodeURIComponent(event.id)}`} />)}
+        {events.map(event => <EventRow key={event.id} event={event} conversationId={conversationId} runId={runId} />)}
       </ol> : <p className="py-4 text-xs text-muted-foreground">{t('run.noEvents')}</p>}
   </details>;
 }
