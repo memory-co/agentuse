@@ -1,0 +1,42 @@
+{
+  "name": "pi",
+  "version": "0.1.0",
+  "protocol": "harnessctl/3",
+  "entrypoint": "harnessctl",
+  "platforms": [
+    "linux"
+  ],
+  "requires": {
+    "python": ">=3.9",
+    "bin": [
+      "pi"
+    ]
+  },
+  "tested_backend_version": "1.6.0",
+  "requests": [
+    "permission",
+    "question"
+  ],
+  "commands": [
+    "init",
+    "send",
+    "cancel",
+    "status",
+    "reply"
+  ],
+  "stdin": [
+    "send",
+    "reply"
+  ],
+  "events": {
+    "schema": "event.schema.json",
+    "documentation": "EVENT.md",
+    "types": [
+      "accepted",
+      "message",
+      "request",
+      "result",
+      "log"
+    ]
+  }
+}

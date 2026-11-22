@@ -1,0 +1,610 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "harnessctl public event",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/accepted"
+    },
+    {
+      "$ref": "#/$defs/message"
+    },
+    {
+      "$ref": "#/$defs/permissionPending"
+    },
+    {
+      "$ref": "#/$defs/permissionReplied"
+    },
+    {
+      "$ref": "#/$defs/permissionExpired"
+    },
+    {
+      "$ref": "#/$defs/questionPending"
+    },
+    {
+      "$ref": "#/$defs/questionReplied"
+    },
+    {
+      "$ref": "#/$defs/questionExpired"
+    },
+    {
+      "$ref": "#/$defs/result"
+    },
+    {
+      "$ref": "#/$defs/log"
+    }
+  ],
+  "$defs": {
+    "option": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "description"
+      ],
+      "additionalProperties": false
+    },
+    "question": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string"
+        },
+        "header": {
+          "type": "string"
+        },
+        "multiple": {
+          "type": "boolean"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/option"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "header",
+        "multiple",
+        "options"
+      ],
+      "additionalProperties": false
+    },
+    "accepted": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "accepted"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "input_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "run_id",
+        "input_id",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "message": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "message"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "message_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "run_id",
+        "message_id",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "input_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "cancelled",
+            "failed"
+          ]
+        },
+        "output": {
+          "type": "string"
+        },
+        "model": {
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "usage": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "input_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "output_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cache_read_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cache_write_tokens": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "cost_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "run_id",
+        "input_ids",
+        "status",
+        "output",
+        "usage",
+        "cost_usd",
+        "error"
+      ],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "enum": [
+                "completed",
+                "cancelled"
+              ]
+            },
+            "error": {
+              "const": null
+            }
+          }
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "failed"
+            },
+            "error": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "log": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "log"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "topic": {
+          "type": "string",
+          "minLength": 1
+        },
+        "level": {
+          "enum": [
+            "debug",
+            "info",
+            "warning",
+            "error"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "run_id",
+        "topic",
+        "level",
+        "message",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "permissionPending": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "permission"
+        },
+        "state": {
+          "const": "pending"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "run_id",
+        "request_id",
+        "kind",
+        "state",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "permissionReplied": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "permission"
+        },
+        "state": {
+          "const": "replied"
+        },
+        "message": {
+          "type": "string"
+        },
+        "answer": {
+          "enum": [
+            "allow",
+            "deny"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "run_id",
+        "request_id",
+        "kind",
+        "state",
+        "message",
+        "answer"
+      ],
+      "additionalProperties": false
+    },
+    "permissionExpired": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "permission"
+        },
+        "state": {
+          "const": "expired"
+        },
+        "message": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "run_id",
+        "request_id",
+        "kind",
+        "state",
+        "message",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "questionPending": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "question"
+        },
+        "state": {
+          "const": "pending"
+        },
+        "message": {
+          "type": "string"
+        },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/question"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "run_id",
+        "request_id",
+        "kind",
+        "state",
+        "message",
+        "questions"
+      ],
+      "additionalProperties": false
+    },
+    "questionReplied": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "question"
+        },
+        "state": {
+          "const": "replied"
+        },
+        "message": {
+          "type": "string"
+        },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/question"
+          }
+        },
+        "answer": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "run_id",
+        "request_id",
+        "kind",
+        "state",
+        "message",
+        "questions",
+        "answer"
+      ],
+      "additionalProperties": false
+    },
+    "questionExpired": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "request"
+        },
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "question"
+        },
+        "state": {
+          "const": "expired"
+        },
+        "message": {
+          "type": "string"
+        },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/question"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "ts",
+        "run_id",
+        "request_id",
+        "kind",
+        "state",
+        "message",
+        "questions",
+        "reason"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

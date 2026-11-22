@@ -11,7 +11,7 @@ import tempfile
 import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
-ADAPTERS=('codex','claudecode','agy')
+ADAPTERS=('codex','claudecode','agy','pi')
 TYPES={'accepted','message','request','result','log'}
 SCHEMA=json.loads((ROOT/'event.schema.json').read_text())
 

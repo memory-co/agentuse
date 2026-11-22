@@ -50,7 +50,7 @@ func (a Adapter) CanAsk() bool   { return len(a.Manifest.Requests) > 0 }
 var packagesMu sync.Mutex
 
 // AgentUse's registry key remains claude; the independently named package is claudecode.
-var builtinPackages = map[string]string{"claude": "claudecode", "codex": "codex", "agy": "agy"}
+var builtinPackages = map[string]string{"claude": "claudecode", "codex": "codex", "agy": "agy", "pi": "pi"}
 
 func HarnessRoot(cfg Config) string {
 	if cfg.ConfigPath != "" {

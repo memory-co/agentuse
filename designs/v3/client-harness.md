@@ -15,7 +15,7 @@ harnessService 只接收準備好的 UTF-8 文本、工作目錄、適配器和�
 
 內置包從 client 二進制釋放；自定義 <name>/local/ 優先，local/disabled 可禁用。啓動時校驗協議、入口、平臺及聲明的依賴，固定可用性和內容版本；local 包複製到內容版本目錄，防止運行中編輯改變隨後執行的代碼。修改包或依賴配置後重啓 client，不提供重新探測或熱切換。
 
-AgentUse 來源註冊名沿用 codex、claude，獨立包分別爲 codex、claudecode。每個獨立包可單獨分發，不依賴 AgentUse Go 模塊。當前內置包需要 Linux、Python 3.9+ 和已配置的原生 CLI。
+AgentUse 內置執行器名稱包括 `codex`、`claude`、`agy` 和 `pi`。`claude` 對應獨立包 `claudecode`，其餘獨立包與執行器同名。每個獨立包可單獨分發。當前內置包需要 Linux、Python 3.9+ 和已配置的原生 CLI。[Pi 適配器](../../harnessctl/harness/pi/README.md)
 
 ## 五個命令（harnessctl/3）
 

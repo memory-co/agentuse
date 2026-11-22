@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import tarfile
 
-ADAPTERS = ('codex', 'claudecode', 'agy')
+ADAPTERS = ('codex', 'claudecode', 'agy', 'pi')
 
 
 def build(output, adapter):

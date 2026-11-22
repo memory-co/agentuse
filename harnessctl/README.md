@@ -1,6 +1,6 @@
 # harnessctl/3：本机 Harness CLI 协议
 
-> 当前实现为 harnessctl/3：必须先 init，send 只提交正文，不兼容旧版 send 的配置参数。Codex 包版本为 0.4.2，Claude Code 包版本为 0.4.1，Antigravity CLI（agy）包版本为 0.1.0。公共事件仍为五种；result 新增 model 字段，返回每次执行的原生模型信息。
+> 当前实现为 harnessctl/3。必须先 init，send 只提交正文。内置适配器有 Codex 0.4.2、Claude Code 0.4.1、Antigravity CLI（agy）0.1.0 和 Pi 0.1.0。result 的 model 字段返回原生模型信息。
 
 上层先用 init 将工作目录、模型和可选资源绑定到一个事件文件地址，之后只向该地址发送消息、取消执行、查询状态和回复请求。原生首次启动、运行中补充输入、排队、上下文恢复以及后台进程回收，全部由适配器决定。
 
@@ -25,13 +25,14 @@ harnessctl/
 │   │   ├── README.md
 │   │   ├── LICENSE
 │   │   └── lib/{runtime.py,claudecode.py}
-│   └── agy/                        完整独立包
+│   ├── agy/                        完整独立包
+│   └── pi/                         完整独立包
 └── tests/                          仓库测试，不进入发布包
 ```
 
 **每个 `harness/<name>/` 目录就是一个分发包。** 单独复制其中一个目录即可运行，不依赖父目录、其他适配器、AgentUse 模块或服务。入口只加载包内 lib，不使用包外符号链接或运行时下载补齐依赖。包按只读使用，运行状态保存在调用方的事件文件旁边。
 
-当前依赖 Linux、Python 3.9+ 标准库以及用户安装并配置认证的原生 codex、claude 或 agy。无 Go/Node.js 包依赖。原生 CLI 自身的依赖仍需满足。manifest 声明 harnessctl/3、五个命令、stdin 支持、平台、基础依赖和实测后端版本，不让上层选择原生传输或投递策略。认证沿用原生 CLI 的配置和继承环境，不通过本协议传密钥。
+当前依赖 Linux、Python 3.9+ 标准库以及用户安装并配置认证的原生 CLI（`codex`、`claude`、`agy` 或 `pi`）。原生 CLI 自身的依赖仍需满足。manifest 声明 harnessctl/3、五个命令、stdin 支持、平台、基础依赖和实测后端版本。认证沿用原生 CLI 的配置和继承环境。
 
 ## 2. 公开命令
 
@@ -140,6 +141,8 @@ init 不启动守护进程或原生会话，不写 accepted/result，不分配 r
 注册 Codex 技能根目录只作用于本适配器管理的原生进程；不能改其他会话的全局技能配置。Claude 的插件是适配器生成的技能容器，不执行来源目录中的插件安装器或额外 hook。原生能力不足时明确报错，不退化为把资源写进 cwd 或仅拼接一段“请自行查找技能”的提示词。
 
 agy 使用 ACP 原生会话附加指令及指向私有技能快照的索引，模型按需读 SKILL.md。忙时输入依序进入独立 run，工具权限回覆通过 ACP 转换。详细行为见 [agy 适配器](harness/agy/README.md)。
+
+Pi 使用 JSONL RPC，并通过 `--append-system-prompt` 和 `--skill` 加载资源快照。忙时输入依序进入独立 run，扩展的确认和提问可通过 `reply` 回覆。[Pi 适配器](harness/pi/README.md)
 
 各适配器统一的是附加指令和可发现的技能集合，不强求原生指令优先级、技能展示名称或目录继承行为完全一致。恢复必须继续使用初始化时的资源；不在同一原生会话中尝试替换历史系统提示词。
 
@@ -262,6 +265,7 @@ cd harnessctl/dist
 sha256sum -c harnessctl-codex-0.4.2-linux.tar.gz.sha256
 sha256sum -c harnessctl-claudecode-0.4.1-linux.tar.gz.sha256
 sha256sum -c harnessctl-agy-0.1.0-linux.tar.gz.sha256
+sha256sum -c harnessctl-pi-0.1.0-linux.tar.gz.sha256
 ```
 
 每个压缩包只包含对应的独立适配器目录，使用固定时间和属主元数据，可重复构建。安装/解压不自动执行代码。测试仅复制独立目录到仓库外，并隐藏其他适配器；除现有 stdin、忙时补充、取消、回复、失联和独立归档验证外，还必须覆盖：

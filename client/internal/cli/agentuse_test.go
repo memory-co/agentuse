@@ -45,10 +45,10 @@ func TestAgentuseCommands(t *testing.T) {
 	// harnesses:没装的内置 harness 也列出来
 	var hs []harnessservice.HarnessInfo
 	code, out, _ := run("harnesses", "-json")
-	if err := json.Unmarshal([]byte(out), &hs); code != 0 || err != nil || len(hs) != 3 {
+	if err := json.Unmarshal([]byte(out), &hs); code != 0 || err != nil || len(hs) != 4 {
 		t.Fatalf("harnesses -json: %d %q", code, out)
 	}
-	for i, name := range []string{"agy", "claude", "codex"} {
+	for i, name := range []string{"agy", "claude", "codex", "pi"} {
 		if hs[i].Name != name || hs[i].Found {
 			t.Fatalf("unexpected harness: %+v", hs[i])
 		}
