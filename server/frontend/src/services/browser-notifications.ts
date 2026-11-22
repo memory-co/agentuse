@@ -1,5 +1,6 @@
 import type { QueryFilters } from '@tanstack/react-query';
 import { queryClient } from '@/lib/query';
+import { attachmentListQuery } from '@/services/attachments';
 import { conversationChangeQueries } from '@/services/conversations';
 import { runChangeQueries } from '@/services/runs';
 
@@ -14,7 +15,7 @@ function queriesForChange(change: Change): QueryFilters[] {
       const runs = id ? [runChangeQueries(id, !!detailOnly)] : [];
       return detailOnly ? runs : [...conversationChangeQueries(id, parent), ...runs];
     }
-    case 'attachments': return id ? [{ queryKey: ['attachments', id], exact: true }] : [];
+    case 'attachments': return id ? [attachmentListQuery(id)] : [];
     case 'agents':
       return id ? [{ queryKey: ['agents'], exact: true }, { queryKey: ['agent-versions', id], exact: true }]
         : [{ queryKey: ['agents'], exact: true }];

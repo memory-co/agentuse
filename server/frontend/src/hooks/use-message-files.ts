@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { uploadAttachment } from '@/lib/attachments';
-import { queryClient } from '@/lib/query';
+import { invalidateAttachmentList, uploadAttachment } from '@/services/attachments';
 import { useT } from '@/lib/i18n';
 import type { Attachment } from '@/lib/types';
 
@@ -36,7 +35,7 @@ export function useMessageFiles() {
         if (attachment) ids.push(attachment.id);
       }
       return ids;
-    } finally { void queryClient.invalidateQueries({ queryKey: ['attachments', conversation] }); }
+    } finally { invalidateAttachmentList(conversation); }
   };
   return { files, addFiles, addExisting, remove, clear, upload };
 }

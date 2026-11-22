@@ -1,18 +1,14 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, Download, Folder, FolderOpen, Search, Trash2, X, Plus, ZoomIn, ZoomOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Confirm, ErrorState, Loading } from '@/components/Shared';
 import { FileIcon } from '@/components/MessageFiles';
-import { api, ApiError } from '@/lib/api';
-import { actAsHeaders } from '@/lib/actas';
-import { downloadAttachment } from '@/lib/attachments';
-import { queryClient } from '@/lib/query';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { Attachment } from '@/lib/types';
+import { attachmentPreviewKind, useAttachmentPreview, useAttachments, useDeleteAttachment, useDownloadAttachment } from '@/services/attachments';
 
 interface FileNode { name: string; path: string; children: Map<string, FileNode>; file?: Attachment }
 function fileTree(files: Attachment[]) {
@@ -35,22 +31,9 @@ const sortedNodes = (nodes: Map<string, FileNode>) => Array.from(nodes.values())
   Number(!!a.file) - Number(!!b.file)
   || (a.name === 'user_input' ? -1 : b.name === 'user_input' ? 1 : a.name.localeCompare(b.name)));
 
-const isPreviewImage = (file: Attachment) => /^image\/(png|jpeg|gif|webp|avif)$/.test(file.content_type);
-const maxImagePreviewBytes = 16 * 1024 * 1024;
-
 function FilePreview({ file, fitWidth }: { file: Attachment; fitWidth: boolean }) {
   const t = useT();
-  const image = isPreviewImage(file);
-  const text = file.content_type.startsWith('text/') || /application\/(json|xml)/.test(file.content_type);
-  const tooLarge = file.size_bytes > (image ? maxImagePreviewBytes : 512 * 1024);
-  const preview = useQuery({
-    queryKey: ['attachment-preview', file.id], enabled: (image || text) && !tooLarge, staleTime: Infinity,
-    queryFn: async ({ signal }) => {
-      const response = await fetch(file.download_path, { headers: actAsHeaders(file.download_path), signal });
-      if (!response.ok) throw new ApiError(response.status, (await response.json().catch(() => ({}))).error || response.statusText);
-      return image ? response.blob() : response.text();
-    },
-  });
+  const { kind, query: preview } = useAttachmentPreview(file);
   const [url, setUrl] = useState('');
   useEffect(() => {
     if (!(preview.data instanceof Blob)) { setUrl(''); return; }
@@ -58,25 +41,27 @@ function FilePreview({ file, fitWidth }: { file: Attachment; fitWidth: boolean }
     setUrl(next);
     return () => URL.revokeObjectURL(next);
   }, [preview.data]);
-  if (tooLarge || (!image && !text)) return <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">{t(tooLarge ? 'attachment.tooLarge' : 'attachment.noPreview')}</div>;
+  if (kind === 'tooLarge' || kind === 'noPreview') return <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">{t(kind === 'tooLarge' ? 'attachment.tooLarge' : 'attachment.noPreview')}</div>;
   if (preview.isError) return <div className="p-6"><ErrorState error={preview.error} /></div>;
   if (preview.isPending) return <div className="flex h-full items-center justify-center"><Loading /></div>;
-  return image
+  return kind === 'image'
     ? <div className={cn('p-4 sm:p-6', !fitWidth && 'flex h-full items-center justify-center')}>
         <img src={url} alt={file.filename} className={cn('rounded-md', fitWidth ? 'h-auto w-full' : 'max-h-full max-w-full object-contain')} />
       </div>
     : <pre className="min-h-full whitespace-pre-wrap break-words p-4 font-mono text-xs leading-6 sm:p-6 sm:text-sm">{typeof preview.data === 'string' ? preview.data : ''}</pre>;
 }
 
-interface FileBrowserProps {
-  conversation: string; files: Attachment[]; pending: boolean; error: unknown; selected: Attachment | null;
+interface FileManagerProps {
+  conversation: string; selected: Attachment | null;
   onSelect: (file: Attachment | null) => void; onAttach: (file: Attachment) => void; busy?: boolean; readOnly?: boolean; referenced: Set<string>;
 }
 
-export function FileManager({ open, onOpenChange, onRestoreFocus, ...props }: FileBrowserProps & {
+export function FileManager({ open, onOpenChange, onRestoreFocus, ...props }: FileManagerProps & {
   open: boolean; onOpenChange: (open: boolean) => void; onRestoreFocus: () => void;
 }) {
   const t = useT();
+  const attachments = useAttachments(props.conversation, open);
+  const files = attachments.data ?? [];
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
     <Dialog.Portal>
       <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45 backdrop-blur-sm" />
@@ -88,17 +73,19 @@ export function FileManager({ open, onOpenChange, onRestoreFocus, ...props }: Fi
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
           <FolderOpen className="size-4 text-muted-foreground" />
           <Dialog.Title className="text-sm font-semibold">{t('attachment.manager')}</Dialog.Title>
-          <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{props.files.length}</span>
+          <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{files.length}</span>
           <Dialog.Description className="sr-only">{t('attachment.managerDescription')}</Dialog.Description>
           <Dialog.Close asChild><Button variant="ghost" size="icon" className="ml-auto size-8" aria-label={t('attachment.close')}><X /></Button></Dialog.Close>
         </header>
-        <FileBrowser {...props} />
+        <FileBrowser {...props} files={files} pending={attachments.isPending} error={attachments.error} />
       </Dialog.Content>
     </Dialog.Portal>
   </Dialog.Root>;
 }
 
-function FileBrowser({ conversation, files, pending, error, selected, onSelect, onAttach, busy, readOnly, referenced }: FileBrowserProps) {
+function FileBrowser({ conversation, files, pending, error, selected, onSelect, onAttach, busy, readOnly, referenced }: FileManagerProps & {
+  files: Attachment[]; pending: boolean; error: unknown;
+}) {
   const t = useT();
   const [search, setSearch] = useState('');
   const [folder, setFolder] = useState('');
@@ -121,15 +108,8 @@ function FileBrowser({ conversation, files, pending, error, selected, onSelect, 
   };
   collectPaths(roots);
   const focusPath = visiblePaths.has(focused) ? focused : visiblePaths.values().next().value;
-  const download = useMutation({ mutationFn: downloadAttachment });
-  const remove = useMutation({
-    mutationFn: (file: Attachment) => api(`/api/conversations/${conversation}/attachments/${file.id}`, { method: 'DELETE' }),
-    onSuccess: (_, file) => {
-      if (selected?.id === file.id) { setFolder(file.relative_path.split('/').slice(0, -1).join('/')); onSelect(null); setPane('files'); }
-      queryClient.removeQueries({ queryKey: ['attachment-preview', file.id] });
-      void queryClient.invalidateQueries({ queryKey: ['attachments', conversation] });
-    },
-  });
+  const download = useDownloadAttachment();
+  const remove = useDeleteAttachment(conversation);
   useEffect(() => {
     setFitWidth(false);
     if (!selected) return;
@@ -143,9 +123,15 @@ function FileBrowser({ conversation, files, pending, error, selected, onSelect, 
 
   const navigate = (directory: string) => {
     setFolder(directory); onSelect(null); setPane('files'); setSearch('');
+    remove.reset();
     setCollapsed(current => new Set([...current].filter(value => directory !== value && !directory.startsWith(`${value}/`))));
   };
   const choose = (file: Attachment) => { onSelect(file); setPane('preview'); download.reset(); remove.reset(); };
+  const deleteFile = (file: Attachment) => remove.mutate(file, { onSuccess: () => {
+    setFolder(file.relative_path.split('/').slice(0, -1).join('/'));
+    onSelect(null);
+    setPane('files');
+  } });
   const onTreeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const active = document.activeElement as HTMLElement;
     const items = Array.from(treeRef.current?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? []);
@@ -228,7 +214,7 @@ function FileBrowser({ conversation, files, pending, error, selected, onSelect, 
             <FileIcon mime={selectedFile.content_type} className="size-5 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium" title={selectedFile.relative_path}>{selectedFile.filename}</p><p className="mt-1 truncate text-xs text-muted-foreground">{selectedFile.size_bytes.toLocaleString()} B{selectedFile.created_by_agent_id && ` · @${selectedFile.created_by_agent_id}`}</p></div>
             <div className="flex w-full flex-wrap items-center gap-1 sm:w-auto">
-              {isPreviewImage(selectedFile) && selectedFile.size_bytes <= maxImagePreviewBytes && (
+              {attachmentPreviewKind(selectedFile) === 'image' && (
                 <Button variant="outline" size="sm" onClick={() => setFitWidth(current => !current)}>
                   {fitWidth ? <ZoomOut /> : <ZoomIn />}
                   {t(fitWidth ? 'attachment.fitImage' : 'attachment.fitWidth')}
@@ -236,7 +222,7 @@ function FileBrowser({ conversation, files, pending, error, selected, onSelect, 
               )}
               <Button variant="outline" size="sm" disabled={download.isPending} onClick={() => download.mutate(selectedFile)}><Download />{t('attachment.download')}</Button>
               {!readOnly && <Button variant="ghost" size="sm" disabled={busy} onClick={() => onAttach(selectedFile)}><Plus />{t('attachment.attach')}</Button>}
-              {!readOnly && !referenced.has(selectedFile.id) && <Confirm title={t('attachment.delete')} description={selectedFile.relative_path} onConfirm={() => remove.mutate(selectedFile)}><Button size="icon" variant="ghost" className="size-8 text-destructive" aria-label={t('attachment.delete')} disabled={remove.isPending}><Trash2 /></Button></Confirm>}
+              {!readOnly && !referenced.has(selectedFile.id) && <Confirm title={t('attachment.delete')} description={selectedFile.relative_path} onConfirm={() => deleteFile(selectedFile)}><Button size="icon" variant="ghost" className="size-8 text-destructive" aria-label={t('attachment.delete')} disabled={remove.isPending}><Trash2 /></Button></Confirm>}
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-auto bg-muted/10"><FilePreview key={selectedFile.id} file={selectedFile} fitWidth={fitWidth} /></div>

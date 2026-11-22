@@ -6,7 +6,7 @@ Server 網頁透過 `GET /api/browser/ws` 建立一條 WebSocket，僅接收資�
 
 ## 前端資料層
 
-`server/frontend/src/services/` 按業務集中 HTTP 路徑、TanStack Query 查詢 key 和快取失效規則。`conversations.ts` 提供頂層與子會話列表、會話摘要、輪次及寫入操作。`runs.ts` 提供執行明細、事件分頁、完整事件下載、取消及回覆。共用的 `lib/api.ts` 處理請求、身份標頭和 HTTP 錯誤。
+`server/frontend/src/services/` 按業務集中 HTTP 路徑、TanStack Query 查詢 key 和快取失效規則。`conversations.ts` 提供頂層與子會話列表、會話摘要、輪次及寫入操作。`runs.ts` 提供執行明細、事件分頁、完整事件下載、取消及回覆。`attachments.ts` 提供附件列表、預覽、上傳、下載及刪除，並與 WebSocket 通知共用附件列表的查詢範圍。共用的 `lib/api.ts` 處理請求、身份標頭和 HTTP 錯誤。
 
 `hooks/use-browser-notifications.ts` 管理 WebSocket 連線、重連和身份切換。`services/browser-notifications.ts` 將通知路由到各業務定義的查詢範圍，並合併同一查詢的待刷新通知。會話寫入復用相同的會話查詢範圍。頂層或子會話列表有獨立的查詢 key，會話摘要及指定輪次則按會話 ID 查找。
 

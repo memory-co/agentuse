@@ -1,11 +1,10 @@
 import { Markdown } from '@/components/Markdown';
 import { useEffect, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Bot, ChevronRight, CircleCheck, FolderOpen, LoaderCircle, MessagesSquare, RotateCcw, Trash2, UserRound, X } from 'lucide-react';
 import { MentionComposer } from '@/components/MentionComposer';
 import { FileManager } from '@/components/FileManager';
-import { listAttachments } from '@/lib/attachments';
 import { useMessageFiles } from '@/hooks/use-message-files';
 import { MessageFiles } from '@/components/MessageFiles';
 import { RunEvents } from '@/components/RunEvents';
@@ -85,7 +84,6 @@ export function ConversationView({ id, selectedRound, onDeleted }: { id: string;
   const [childrenOpen, setChildrenOpen] = useState(false);
   const fileReturnFocus = useRef<HTMLElement | null>(null);
   const composer = useRef<HTMLDivElement>(null);
-  const attachments = useQuery({ queryKey: ['attachments', id], queryFn: () => listAttachments(id), enabled: filesOpen });
   const openFiles = (file?: Attachment) => {
     fileReturnFocus.current = document.activeElement as HTMLElement | null;
     if (file) setSelectedFile(file);
@@ -169,7 +167,7 @@ export function ConversationView({ id, selectedRound, onDeleted }: { id: string;
        </SheetContent>
      </Sheet>
    </>}
-   <FileManager open={filesOpen} onOpenChange={setFilesOpen} conversation={id} files={attachments.data ?? []} pending={attachments.isPending} error={attachments.error}
+   <FileManager open={filesOpen} onOpenChange={setFilesOpen} conversation={id}
      selected={selectedFile} onSelect={setSelectedFile} onAttach={attachFile} busy={reply.isPending} readOnly={selectedRound !== undefined}
      onRestoreFocus={() => { if (fileReturnFocus.current?.isConnected) fileReturnFocus.current.focus({ preventScroll: true }); }}
      referenced={new Set(messages.flatMap(message => message.attachments.map(file => file.id)))} />
