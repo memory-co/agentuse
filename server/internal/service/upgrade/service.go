@@ -111,7 +111,7 @@ func (s *Service) State(ctx context.Context, cursor string, limit int) (agentuse
 	if !out.Supported {
 		out.Reason = ErrUnavailable.Error()
 		if !version.Stable(s.config.Version) {
-			out.Reason = "开发构建无法确定升级顺序，请先安装正式版本"
+			out.Reason = "当前为开发构建，无法与正式版比较，网页自升级不可用。"
 		}
 	}
 	var err error

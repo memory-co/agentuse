@@ -46,7 +46,9 @@ export function Upgrades() {
   if (!state.data) return <ErrorState error={state.error} />;
   const data = state.data;
   const active = data.active;
-  const available = check.data && check.data.version !== data.current_version && check.data.available;
+  const release = check.data?.current_version === data.current_version ? check.data : undefined;
+  const available = release?.available ?? false;
+  const currentLatest = release && release.version.replace(/^v/, '') === data.current_version.replace(/^v/, '');
   return <div className="grid min-w-0 gap-5 [overflow-wrap:anywhere]" data-upgrades-page>
     <Card>
       <CardHeader>
@@ -57,7 +59,15 @@ export function Upgrades() {
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-2 text-sm">
           <dt className="text-muted-foreground">{t('upgrade.current')}</dt><dd className="break-all font-medium" data-current-version>{data.current_version}</dd>
           <dt className="text-muted-foreground">{t('upgrade.platform')}</dt><dd>{data.platform}</dd>
-          {check.data && <><dt className="text-muted-foreground">{t('upgrade.latest')}</dt><dd className="flex flex-wrap items-center gap-2"><span>{check.data.version}</span><StatusBadge tone={available ? 'warn' : 'ok'}>{t(available ? 'upgrade.available' : 'upgrade.currentLatest')}</StatusBadge>{check.data.url && <a href={check.data.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-muted-foreground underline">{t('upgrade.releaseNotes')}<ExternalLink className="size-3" /></a>}</dd></>}
+          {release && <>
+            <dt className="text-muted-foreground">{t('upgrade.latest')}</dt>
+            <dd className="flex flex-wrap items-center gap-2">
+              <span>{release.version}</span>
+              {available && <StatusBadge tone="warn">{t('upgrade.available')}</StatusBadge>}
+              {currentLatest && <StatusBadge tone="ok">{t('upgrade.currentLatest')}</StatusBadge>}
+              {release.url && <a href={release.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-muted-foreground underline">{t('upgrade.releaseNotes')}<ExternalLink className="size-3" /></a>}
+            </dd>
+          </>}
         </dl>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" disabled={check.isPending || !!active} onClick={() => check.mutate()}>{check.isPending ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}{t('upgrade.check')}</Button>
