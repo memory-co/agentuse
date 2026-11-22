@@ -12,6 +12,7 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 | GET | `/api/conversations?parent_conversation_id=P` | 直接子对话列表 |
 | GET | `/api/conversations/{id}?round=N` | 读取指定轮次的消息及执行范围 |
 | GET / DELETE | `/api/conversations/{id}` | 读取完整快照 / 删除对话 |
+| PATCH | `/api/conversations/{id}` | 使用 `{"title":"新名称"}` 重命名当前对话 |
 | POST | `/api/conversations/{id}/messages` | 发送消息，明确指定收件人与附件 |
 | POST | `/api/conversations/{id}/resolve`、`reopen` | 标记完成 / 重新打开 |
 | GET | `/api/conversations/{id}/runs/{run_id}` | 读取 run 及事件 |
@@ -22,6 +23,8 @@ Server 对话接口统一使用 `/api/conversations`。旧的 `/api/sessions`、
 | GET / DELETE | `/api/conversations/{id}/attachments/{attachment_id}` | 附件元数据 / 删除未引用附件 |
 | GET | `/api/conversations/{id}/attachments/{attachment_id}/content` | 下载附件内容 |
 | GET / PUT | `/api/conversations/{id}/files/{path...}` | 按路径读写通用 conversation 文件 |
+
+父会话与子会话都可在完整会话页的标题旁重命名。接口仅接受有该会话权限的用户凭据，去除标题首尾空白后保存并返回会话对象。重命名只更新 `title`。
 
 ## 多 Agent 共享消息示例
 

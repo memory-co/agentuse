@@ -95,6 +95,37 @@ func TestConversationsReplaceServerSessionRoutesAndFields(t *testing.T) {
 	}
 }
 
+func TestRenameConversation(t *testing.T) {
+	e := newEnv(t, Config{FilesDir: t.TempDir()})
+	_, owner := e.user("owner", sdk.RoleUser)
+	_, other := e.user("other", sdk.RoleUser)
+	var created sdk.CreateConversationResponse
+	if code := e.req(owner, "POST", "/api/conversations", map[string]string{"prompt": "Initial message"}, &created).StatusCode; code != http.StatusCreated {
+		t.Fatal(code)
+	}
+	path := "/api/conversations/" + created.Conversation.ID
+	body := map[string]string{"title": "  網誌配圖調整  "}
+	if code := e.code(other, "PATCH", path, body); code != http.StatusNotFound {
+		t.Fatalf("unrelated user got status %d", code)
+	}
+	if code := e.code(owner, "PATCH", path, map[string]string{"title": "   "}); code != http.StatusBadRequest {
+		t.Fatalf("blank name got status %d", code)
+	}
+	var renamed sdk.Conversation
+	if code := e.req(owner, "PATCH", path, body, &renamed).StatusCode; code != http.StatusOK ||
+		renamed.Title != "網誌配圖調整" || renamed.ID != created.Conversation.ID || renamed.Status != created.Conversation.Status {
+		t.Fatal(code, renamed)
+	}
+	if code := e.code(owner, "POST", path+"/messages", map[string]string{"prompt": "Follow-up"}); code != http.StatusCreated {
+		t.Fatal(code)
+	}
+	var detail sdk.ConversationDetail
+	if code := e.req(owner, "GET", path, nil, &detail).StatusCode; code != http.StatusOK ||
+		detail.Conversation.Title != renamed.Title || len(detail.Messages) != 2 || detail.Messages[0].Content != "Initial message" {
+		t.Fatal(code, detail)
+	}
+}
+
 func TestDeviceRoutesUseOnlyV3ResourceNames(t *testing.T) {
 	e := newEnv(t, Config{FilesDir: t.TempDir()})
 	_, token := e.user("device-owner", sdk.RoleUser)

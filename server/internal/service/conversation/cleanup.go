@@ -13,8 +13,3 @@ func (s *Service) DetachDeviceAttachments(ctx context.Context, tx *gorm.DB, devi
 	_, err := database.Exec(ctx, tx, `UPDATE attachments SET device_id=NULL WHERE device_id=?`, device)
 	return err
 }
-
-func (s *Service) RenameConversation(ctx context.Context, tx *gorm.DB, id, title string) error {
-	_, err := database.Exec(ctx, tx, database.RenameConversationUpdate, title, id)
-	return err
-}

@@ -75,6 +75,18 @@ func TestNestedConversationAPISourceScopesAndIndependentFiles(t *testing.T) {
 		t.Fatal(child)
 	}
 	accept(other, childClient, "child-session")
+	renameBody := map[string]string{"title": "New child title"}
+	childPath := "/api/conversations/" + child.Conversation.ID
+	if code := e.code(childClient.Token, "PATCH", childPath, renameBody); code != 401 {
+		t.Fatal("execution token can rename conversation", code)
+	}
+	if code := e.code(token, "PATCH", childPath, renameBody); code != 200 {
+		t.Fatal("owner could not rename child conversation", code)
+	}
+	children, err := human.ListChildren(ctx, "", parent.Conversation.ID)
+	if err != nil || len(children) != 1 || children[0].ID != child.Conversation.ID || children[0].Title != renameBody["title"] {
+		t.Fatal("rename not reflected in children list", children, err)
+	}
 	for _, client := range []*sdk.Client{human, childClient} {
 		if _, err = client.CreateConversation(ctx, "", sdk.CreateConversationRequest{ParentConversationID: parent.Conversation.ID}); !sdk.IsStatus(err, 403) {
 			t.Fatal("source bypass", err)

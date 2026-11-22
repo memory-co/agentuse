@@ -206,6 +206,7 @@ func (s *Server) registerAPI() {
 	bind("GET", "/api/conversations/{id}", "get-conversation", "读取消息、执行、投递、事件和问题的统一快照", "conversation", conversation, nil, agentuse.ConversationDetail{}, 200, s.handleGetConversation, query("round", "可选的正整数会话内轮次；固定返回该轮的消息范围、执行和结果，不混入后续轮次"))
 	bind("DELETE", "/api/conversations/{id}", "delete-conversation", "删除无活跃执行的会话", "conversation", user, nil, nil, 204, s.handleDeleteConversation, query("recursive", "true 时同时删除直接子对话；所有节点须无活跃执行及对外待通知轮次"))
 	bind("POST", "/api/conversations/{id}/messages", "send-message", "发送消息，明确指定 Agent 和用户收件人", "conversation", conversation, messageBody{}, agentuse.Reply{}, 201, s.handleAddMessage)
+	bind("PATCH", "/api/conversations/{id}", "rename-conversation", "重命名会话", "conversation", user, renameConversationBody{}, agentuse.Conversation{}, 200, s.handleRenameConversation)
 	bind("POST", "/api/conversations/{id}/resolve", "resolve-conversation", "标记会话已完成", "conversation", user, nil, agentuse.Conversation{}, 200, s.handleResolveConversation)
 	bind("POST", "/api/conversations/{id}/reopen", "reopen-conversation", "重新打开会话", "conversation", user, nil, agentuse.Conversation{}, 200, s.handleReopenConversation)
 	bind("GET", "/api/conversations/{id}/runs/{run_id}", "get-run", "读取 Client 上报的 run 及事件", "run", conversation, nil, agentuse.RunDetail{}, 200, s.handleGetRun)

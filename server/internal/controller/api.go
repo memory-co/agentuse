@@ -459,6 +459,20 @@ func (s *Server) conversationInScope(w http.ResponseWriter, r *http.Request, id 
 	}
 	return true
 }
+func (s *Server) handleRenameConversation(w http.ResponseWriter, r *http.Request) {
+	var req renameConversationBody
+	if err := readMessageJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	conversation, err := s.service.ConversationService.RenameConversation(r.Context(), currentUser(r), r.PathValue("id"), req.Title)
+	if err != nil {
+		s.serviceErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, conversation)
+}
+
 func (s *Server) handleResolveConversation(w http.ResponseWriter, r *http.Request) {
 	v, err := s.service.ConversationService.ResolveConversation(r.Context(), currentUser(r), r.PathValue("id"))
 	if err != nil {

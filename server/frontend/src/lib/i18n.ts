@@ -63,6 +63,7 @@ const zh = {
 
   'common.loading': '加载中…', 'common.cancel': '取消', 'common.ok': '确定', 'common.delete': '删除', 'common.copy': '复制', 'common.copyFailed': '复制失败', 'common.close': '关闭',
   'common.name': '名字', 'common.description': '说明', 'common.user': '用户', 'common.admin': '管理员', 'common.normalUser': '普通用户', 'common.create': '创建', 'common.new': '新建',
+  'common.save': '保存',
   'nav.new': '新会话', 'nav.agents': 'Agent', 'nav.skills': 'Skills', 'nav.devices': '连接设备', 'nav.harnesses': '执行器', 'nav.users': '用户',
   'nav.conversations': '会话', 'nav.sessionsFailed': '会话加载失败', 'nav.noConversations': '让 agent 帮你干点活', 'nav.logout': '退出', 'nav.language': 'English',
   'nav.sheetTitle': '导航', 'nav.sheetText': '侧栏导航', 'nav.toggleSidebar': '展开或收起侧栏',
@@ -120,6 +121,7 @@ const zh = {
   'conversation.noAgents': '还没有自己的 agent,先去左边「Agent」建一个，或者直接填别人的 agent id。',
   'conversation.metaHarness': '执行器 {harness}', 'conversation.metaOnBehalf': '{by} 发起，跑在 {owner} 的设备上', 'conversation.metaDevice': '连接设备 {id}', 'conversation.metaHarnessSession': '执行器会话 {id}',
   'conversation.deleteTitle': '删除这个会话?', 'conversation.deleteText': '只删 agentuse 里的记录。', 'conversation.delete': '删除会话',
+  'conversation.rename': '重命名会话', 'conversation.name': '会话名称',
   'conversation.replyPlaceholder': '接着说，回车发送', 'conversation.busyPlaceholder': '补充说明，会在它下一步之前送达', 'conversation.steerDelivered': '已送达', 'conversation.steerPending': '等待送达', 'conversation.deviceGone': '原来的连接设备已删除，这个会话不能继续。',
   'conversation.deviceOffline': '连接设备离线，上线后才会开始。', 'conversation.progress': '过程 {n} 条', 'conversation.failed': '失败',
   'question.other': '其他，自己写', 'question.submit': '回答', 'question.sending': '已回答，等待送达', 'question.answered': '已回答', 'question.expired': '没有回答，已过期', 'question.ask': '问', 'question.answer': '答',
@@ -205,6 +207,7 @@ const en: Record<Key, string> = {
 
   'common.loading': 'Loading…', 'common.cancel': 'Cancel', 'common.ok': 'OK', 'common.delete': 'Delete', 'common.copy': 'Copy', 'common.copyFailed': 'Copy failed', 'common.close': 'Close',
   'common.name': 'Name', 'common.description': 'Description', 'common.user': 'User', 'common.admin': 'Admin', 'common.normalUser': 'User', 'common.create': 'Create', 'common.new': 'Create',
+  'common.save': 'Save',
   'nav.new': 'New conversation', 'nav.agents': 'Agents', 'nav.skills': 'Skills', 'nav.devices': 'Devices', 'nav.harnesses': 'Harnesses', 'nav.users': 'Users',
   'nav.conversations': 'Conversations', 'nav.sessionsFailed': 'Failed to load conversations', 'nav.noConversations': 'Ask an agent to do something', 'nav.logout': 'Log out', 'nav.language': '中文',
   'nav.sheetTitle': 'Navigation', 'nav.sheetText': 'Sidebar navigation', 'nav.toggleSidebar': 'Toggle sidebar',
@@ -262,6 +265,7 @@ const en: Record<Key, string> = {
   'conversation.noAgents': "You have no agents yet. Create one under “Agents” on the left, or enter someone else's agent id.",
   'conversation.metaHarness': 'harness {harness}', 'conversation.metaOnBehalf': "started by {by}, runs on {owner}'s machine", 'conversation.metaDevice': 'device {id}', 'conversation.metaHarnessSession': 'harness session {id}',
   'conversation.deleteTitle': 'Delete this conversation?', 'conversation.deleteText': 'Only the record in agentuse is deleted.', 'conversation.delete': 'Delete conversation',
+  'conversation.rename': 'Rename conversation', 'conversation.name': 'Conversation name',
   'conversation.replyPlaceholder': 'Reply, Enter to send', 'conversation.busyPlaceholder': 'Add a note, delivered before its next step', 'conversation.steerDelivered': 'Delivered', 'conversation.steerPending': 'Waiting to deliver', 'conversation.deviceGone': 'The original device was deleted, so this conversation cannot continue.',
   'conversation.deviceOffline': 'The device is offline; this starts once it comes back online.', 'conversation.progress': '{n} progress updates', 'conversation.failed': 'Failed',
   'question.other': 'Other, write your own', 'question.submit': 'Answer', 'question.sending': 'Answered, waiting to deliver', 'question.answered': 'Answered', 'question.expired': 'Not answered, expired', 'question.ask': 'Q', 'question.answer': 'A',

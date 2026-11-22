@@ -3,10 +3,39 @@ package conversation
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/database"
 )
+
+func (s *Service) RenameConversation(ctx context.Context, u agentuse.User, id, title string) (agentuse.Conversation, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return agentuse.Conversation{}, fmt.Errorf("会话名称不能为空")
+	}
+	tx, err := database.Begin(ctx, s.DB)
+	if err != nil {
+		return agentuse.Conversation{}, err
+	}
+	defer tx.Rollback()
+	conversation, err := s.LookupConversation(ctx, tx, u, id)
+	if err != nil || conversation.Title == title {
+		return conversation, err
+	}
+	if _, err = database.Exec(ctx, tx, database.RenameConversationUpdate, title, id); err != nil {
+		return agentuse.Conversation{}, err
+	}
+	if err := tx.Commit().Error; err != nil {
+		return agentuse.Conversation{}, err
+	}
+	conversation.Title = title
+	s.PublishConversationChange(conversation, "conversations")
+	if conversation.ParentConversationID != "" {
+		s.NotifyConversation(ctx, conversation.ParentConversationID)
+	}
+	return conversation, nil
+}
 
 // ResolveConversation 把 idle 的会话标记为已完成;已经是已完成的直接返回。协调者不能标记。
 func (s *Service) ResolveConversation(ctx context.Context, u agentuse.User, id string) (agentuse.Conversation, error) {

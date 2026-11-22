@@ -24,6 +24,10 @@ type createConversationBody struct {
 	Prompt               string   `json:"prompt,omitempty" doc:"首条消息文本；省略时创建空会话"`
 }
 
+type renameConversationBody struct {
+	Title string `json:"title" doc:"新的会话名称，去除首尾空白后不能为空"`
+}
+
 type messageBody struct {
 	AttachmentIDs    []string `json:"attachment_ids,omitempty" maxItems:"64" doc:"本条消息选定的同会话附件 ID；省略或空数组表示没有附件"`
 	ReplyToMessageID string   `json:"reply_to_message_id,omitempty" doc:"回复同一 conversation 中已有的消息"`

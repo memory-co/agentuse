@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ComponentType, type Reac
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowLeftRight, ArrowUpCircle, Bot, Boxes, Check, ChevronRight, Languages, LogOut, Menu, MonitorSmartphone, Plus, Users as UsersIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ConversationRename } from '@/components/ConversationRename';
 import { Loading, StatusBadge } from '@/components/Shared';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -115,6 +116,7 @@ function Shell({ me }: { me: User }) {
     enabled: route.page === 'conversation',
   });
   const current = route.page === 'conversation' ? detail.data?.conversation : undefined;
+  const viewingRound = route.page === 'conversation' && new URLSearchParams(location.hash.split('?')[1]).has('round');
   const page = pages.find(p => p.key === route.page);
   const title = route.page === 'new' ? t('nav.new') : route.page === 'conversation' ? current?.title || route.id
     : page ? t(page.label) : '';
@@ -123,6 +125,7 @@ function Shell({ me }: { me: User }) {
       <a href={`#${href({ page: 'conversation', id: current.parent_conversation_id })}`} aria-label={t('nest.parent')} title={t('nest.parent')}><ArrowLeft /><span className="hidden sm:inline">{t('nest.parent')}</span></a>
     </Button>}
     <span className="min-w-0 truncate text-base font-semibold tracking-tight sm:text-lg" title={title}>{title}</span>
+    {current && !viewingRound && <ConversationRename key={`${effective.id}:${current.id}`} conversation={current} />}
     {current && current.status !== 'idle' && <span className="shrink-0 whitespace-nowrap"><StatusBadge tone={STATUS_TONE[current.status]}>{statusLabel(current.status)}</StatusBadge></span>}
     {admin && actAs && <span className="ml-auto shrink-0 truncate text-xs text-muted-foreground">{t('actAs.acting', { id: actAs })}</span>}
   </>;

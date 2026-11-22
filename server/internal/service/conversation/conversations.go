@@ -396,7 +396,7 @@ func (s *Service) SendMessageTx(ctx context.Context, tx *gorm.DB, u sdk.User, ss
 		title = title[:50]
 	}
 	if ss.Title == "" {
-		if _, err = database.Exec(ctx, tx, `UPDATE conversations SET title=? WHERE id=?`, string(title), ss.ID); err != nil {
+		if _, err = database.Exec(ctx, tx, database.RenameConversationUpdate, string(title), ss.ID); err != nil {
 			return sdk.Reply{}, err
 		}
 	}
