@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	projectrelease "github.com/memory-co/agentuse/internal/release"
 	"github.com/memory-co/agentuse/internal/version"
 	agentuse "github.com/memory-co/agentuse/sdk/golang"
 	"github.com/memory-co/agentuse/server/internal/database"
@@ -29,6 +30,7 @@ type Config struct {
 	Context                                      context.Context
 	Root, Executable, DistDir, Instance, Version string
 	APIURL, DownloadURL                          string
+	MirrorURLs                                   []string
 	HTTPClient                                   *http.Client
 	Restart                                      func(context.Context, Restart) error
 	Now                                          func() time.Time
@@ -68,6 +70,9 @@ func New(db *gorm.DB, config Config) *Service {
 	}
 	if config.DownloadURL == "" {
 		config.DownloadURL = githubDownloadURL
+	}
+	if config.MirrorURLs == nil && config.DownloadURL == projectrelease.GitHubDownloadURL {
+		config.MirrorURLs = []string{projectrelease.OSSDownloadURL}
 	}
 	if config.HTTPClient == nil {
 		config.HTTPClient = &http.Client{Timeout: 10 * time.Minute}

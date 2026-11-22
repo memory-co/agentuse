@@ -1,21 +1,12 @@
 package upgrade
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"time"
 
 	projectrelease "github.com/memory-co/agentuse/internal/release"
@@ -29,8 +20,9 @@ var githubAPIURL = "https://api.github.com/repos/memory-co/agentuse/releases/lat
 var githubDownloadURL = projectrelease.GitHubDownloadURL
 
 type releaseAsset struct {
-	Name string `json:"name"`
-	Size int64  `json:"size"`
+	Name   string `json:"name"`
+	Size   int64  `json:"size"`
+	Digest string `json:"digest"`
 }
 type release struct {
 	Tag        string         `json:"tag_name"`
@@ -58,7 +50,7 @@ func (s *Service) request(ctx context.Context, address string) (*http.Response, 
 	}
 	if response.StatusCode != http.StatusOK {
 		response.Body.Close()
-		return nil, fmt.Errorf("GitHub 请求失败: HTTP %d", response.StatusCode)
+		return nil, fmt.Errorf("HTTP %d", response.StatusCode)
 	}
 	return response, nil
 }
@@ -69,7 +61,7 @@ func (s *Service) fetchRelease(ctx context.Context) (release, error) {
 	var out release
 	resp, err := s.request(ctx, s.config.APIURL)
 	if err != nil {
-		return out, err
+		return out, fmt.Errorf("查询 GitHub 最新版本: %w", err)
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
@@ -105,113 +97,4 @@ func (s *Service) LatestClient(ctx context.Context) (agentuse.ClientRelease, err
 	s.clientRelease = agentuse.ClientRelease{Version: r.Tag}
 	s.clientReleaseExpires = time.Now().Add(5 * time.Minute)
 	return s.clientRelease, nil
-}
-
-func artifactNames() []string {
-	return []string{"agentuse-linux-amd64", "agentuse-linux-arm64", "agentuse-darwin-amd64", "agentuse-darwin-arm64", "agentuse-server-" + runtime.GOOS + "-" + runtime.GOARCH}
-}
-func (s *Service) assetURL(tag, name string) string {
-	return strings.TrimRight(s.config.DownloadURL, "/") + "/" + url.PathEscape(tag) + "/" + url.PathEscape(name)
-}
-
-func (s *Service) download(ctx context.Context, id string, r release) (Restart, error) {
-	plan := Restart{ID: id, Directory: filepath.Join(s.config.Root, id), Executable: s.config.Executable}
-	sizes := map[string]int64{}
-	for _, asset := range r.Assets {
-		sizes[asset.Name] = asset.Size
-	}
-	var total int64
-	for _, name := range artifactNames() {
-		if sizes[name] <= 0 || sizes[name] > 1<<30 {
-			return plan, fmt.Errorf("版本 %s 缺少有效安装包 %s", r.Tag, name)
-		}
-		total += sizes[name]
-	}
-	if err := os.MkdirAll(plan.Directory, 0o700); err != nil {
-		return plan, err
-	}
-	if err := s.update(id, map[string]any{"status": "downloading", "total_bytes": total}); err != nil {
-		return plan, err
-	}
-	resp, err := s.request(ctx, s.assetURL(r.Tag, "SHA256SUMS"))
-	if err != nil {
-		return plan, err
-	}
-	checks, err := io.ReadAll(io.LimitReader(resp.Body, projectrelease.MaxChecksumBytes+1))
-	resp.Body.Close()
-	if err != nil {
-		return plan, err
-	}
-	sums, err := projectrelease.Checksums(bytes.NewReader(checks))
-	if err != nil {
-		return plan, err
-	}
-	if err = os.WriteFile(filepath.Join(plan.Directory, "SHA256SUMS"), checks, 0o600); err != nil {
-		return plan, err
-	}
-	var downloaded int64
-	for _, name := range artifactNames() {
-		if sums[name] == "" {
-			return plan, fmt.Errorf("SHA256SUMS 缺少 %s", name)
-		}
-		resp, err = s.request(ctx, s.assetURL(r.Tag, name))
-		if err != nil {
-			return plan, fmt.Errorf("下载 %s: %w", name, err)
-		}
-		err = func() error {
-			defer resp.Body.Close()
-			file, e := os.OpenFile(filepath.Join(plan.Directory, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o700)
-			if e != nil {
-				return e
-			}
-			defer file.Close()
-			hash := sha256.New()
-			progress := &downloadProgress{service: s, id: id, total: &downloaded, last: time.Now()}
-			n, e := io.Copy(io.MultiWriter(file, hash, progress), io.LimitReader(resp.Body, sizes[name]+1))
-			if e != nil {
-				return e
-			}
-			if n != sizes[name] {
-				return fmt.Errorf("%s 下载长度不符", name)
-			}
-			if hex.EncodeToString(hash.Sum(nil)) != sums[name] {
-				return fmt.Errorf("%s SHA256 校验失败", name)
-			}
-			return file.Sync()
-		}()
-		if err != nil {
-			return plan, err
-		}
-		if err = s.update(id, map[string]any{"downloaded_bytes": downloaded}); err != nil {
-			return plan, err
-		}
-	}
-	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	output, err := exec.CommandContext(probeCtx, filepath.Join(plan.Directory, artifactNames()[4]), "version").Output()
-	if err != nil {
-		return plan, fmt.Errorf("新版 Server 无法运行: %w", err)
-	}
-	if strings.TrimSpace(string(output)) != r.Tag {
-		return plan, errors.New("新版 Server 的版本号与发布版本不一致")
-	}
-	return plan, nil
-}
-
-type downloadProgress struct {
-	service *Service
-	id      string
-	total   *int64
-	last    time.Time
-}
-
-func (p *downloadProgress) Write(data []byte) (int, error) {
-	*p.total += int64(len(data))
-	if time.Since(p.last) >= 500*time.Millisecond {
-		if err := p.service.update(p.id, map[string]any{"downloaded_bytes": *p.total}); err != nil {
-			return 0, err
-		}
-		p.last = time.Now()
-	}
-	return len(data), nil
 }

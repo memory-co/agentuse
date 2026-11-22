@@ -10,6 +10,7 @@ import (
 )
 
 const GitHubDownloadURL = "https://github.com/memory-co/agentuse/releases/download"
+const OSSDownloadURL = "https://agentuse.oss-cn-beijing.aliyuncs.com/releases"
 const MaxChecksumBytes = 1 << 20
 
 func Checksums(r io.Reader) (map[string]string, error) {

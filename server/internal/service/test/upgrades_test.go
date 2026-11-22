@@ -51,6 +51,7 @@ func newUpgradeFixture(t *testing.T, target string, corrupt bool, gate <-chan st
 		f.files[names[0]][0] = '!'
 	}
 	f.files["SHA256SUMS"] = []byte(sums.String())
+	assets = append(assets, map[string]any{"name": "SHA256SUMS", "size": len(f.files["SHA256SUMS"]), "digest": fmt.Sprintf("sha256:%x", sha256.Sum256(f.files["SHA256SUMS"]))})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/latest" {
 			if gate != nil {
@@ -208,6 +209,87 @@ func TestUpgradeChecksumFailureAndHistoryPagination(t *testing.T) {
 	page, err = f.service.State(context.Background(), *page.NextCursor, 1)
 	if err != nil || len(page.Upgrades) != 1 || page.Upgrades[0].ID != ids[0] || page.NextCursor != nil {
 		t.Fatal(page, err)
+	}
+}
+
+type upgradeRoundTrip func(*http.Request) (*http.Response, error)
+
+func (f upgradeRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestUpgradeSelectsDownloadSourceAndRetriesFailedArtifact(t *testing.T) {
+	const target = "v9.1.0"
+	const firstAsset = "agentuse-linux-amd64"
+	for _, mirrorFirst := range []bool{false, true} {
+		name := "GitHub download times out"
+		if mirrorFirst {
+			name = "faster mirror returns corrupt binary"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newUpgradeFixture(t, target, false, nil)
+			f.service.Close()
+			mirror := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				asset := filepath.Base(r.URL.Path)
+				if asset == firstAsset && mirrorFirst {
+					corrupt := append([]byte(nil), f.files[asset]...)
+					corrupt[0] = '!'
+					w.Write(corrupt)
+					return
+				}
+				w.Write(f.files[asset])
+			}))
+			defer mirror.Close()
+			f.config.MirrorURLs = []string{mirror.URL}
+			var mu sync.Mutex
+			var attempts []string
+			f.config.HTTPClient = &http.Client{Transport: upgradeRoundTrip(func(r *http.Request) (*http.Response, error) {
+				asset := filepath.Base(r.URL.Path)
+				origin := strings.HasPrefix(r.URL.String(), f.config.DownloadURL+"/")
+				if asset == "SHA256SUMS" && origin == mirrorFirst {
+					time.Sleep(100 * time.Millisecond)
+				}
+				if strings.HasPrefix(asset, "agentuse-") {
+					source := "OSS"
+					if origin {
+						source = "GitHub"
+					}
+					mu.Lock()
+					attempts = append(attempts, source+"/"+asset)
+					mu.Unlock()
+					if asset == firstAsset && origin && !mirrorFirst {
+						return nil, context.DeadlineExceeded
+					}
+				}
+				return http.DefaultTransport.RoundTrip(r)
+			})}
+			s := upgradeservice.New(f.service.DB, f.config)
+			defer s.Close()
+			item, err := s.Start(context.Background(), "admin")
+			if err != nil {
+				t.Fatal(err)
+			}
+			item = waitUpgrade(t, s, item.ID, "restarting")
+			if item.DownloadedBytes != item.TotalBytes || item.TotalBytes == 0 {
+				t.Fatal("failed attempts changed the final progress", item)
+			}
+			actual, err := os.ReadFile(filepath.Join(f.config.DistDir, firstAsset))
+			if err != nil || string(actual) != string(f.files[firstAsset]) {
+				t.Fatal("verified fallback binary was not installed", err)
+			}
+			first, fallback := "GitHub/", "OSS/"
+			if mirrorFirst {
+				first, fallback = fallback, first
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(attempts) != 6 || attempts[0] != first+firstAsset || attempts[1] != fallback+firstAsset {
+				t.Fatalf("unexpected download source order: %v", attempts)
+			}
+			for _, attempt := range attempts[2:] {
+				if !strings.HasPrefix(attempt, fallback) {
+					t.Fatalf("fallback source was not reused: %v", attempts)
+				}
+			}
+		})
 	}
 }
 

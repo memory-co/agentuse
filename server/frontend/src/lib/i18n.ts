@@ -8,7 +8,7 @@ export const locales: { value: Locale; label: string }[] = [{ value: 'zh', label
 const zh = {
   'nav.upgrades': "系统升级",
   'upgrade.title': "Server 升级",
-  'upgrade.description': "从 GitHub 下载并校验最新正式版，准备完成后自动替换、重启，页面会重新连接。",
+  'upgrade.description': "自动选择 GitHub 或 OSS 镜像下载并校验最新正式版，准备完成后自动替换、重启，页面会重新连接。",
   'upgrade.current': "当前版本",
   'upgrade.platform': "运行平台",
   'upgrade.latest': "最新正式版",
@@ -153,7 +153,7 @@ type Key = keyof typeof zh;
 const en: Record<Key, string> = {
   'nav.upgrades': "Server upgrades",
   'upgrade.title': "Server upgrade",
-  'upgrade.description': "Download and verify the latest stable release from GitHub, then replace and restart the Server. This page reconnects automatically.",
+  'upgrade.description': "Download and verify the latest stable release using GitHub or the OSS mirror automatically, then replace and restart the Server. This page reconnects automatically.",
   'upgrade.current': "Current version",
   'upgrade.platform': "Platform",
   'upgrade.latest': "Latest stable release",

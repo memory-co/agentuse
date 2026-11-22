@@ -26,8 +26,8 @@ agentuse-server upgrade history --json
 ## 执行流程
 
 1. 从 `memory-co/agentuse` 的 GitHub latest release 查询最新正式版本。
-2. 下载本平台 Server、四个平台 Client 和 `SHA256SUMS`，放到 `~/.agentuse/upgrades/<升级ID>/`。
-3. 校验文件长度和 SHA-256，运行候选 Server 的 `version` 检查版本号。
+2. 并行探测 GitHub 和阿里云 OSS 公网地址上该版本的 `SHA256SUMS`，优先使用最快返回完整清单的来源。有 GitHub 发布摘要时用它核对各来源的清单。GitHub 清单可用时优先用它校验文件。
+3. 下载本平台 Server 和四个平台 Client 到 `~/.agentuse/upgrades/<升级ID>/`，校验文件长度及 SHA-256。单个文件请求超时、下载失败或校验失败时会换源重试，并优先沿用刚成功的来源。最后运行候选 Server 的 `version` 检查版本号。
 4. 备份原文件，在各目标目录内准备临时文件，然后原子替换；Server 文件最后替换。
 5. 停止接受 HTTP 请求，关闭数据库，以新可执行文件接管原 PID。启动参数、环境变量、日志输出和进程管理器的归属保留，`settings.yaml` 重新读取。
 6. 新 Server 完成初始化并取得监听地址后，确认这次升级成功。

@@ -60,7 +60,7 @@ func prepareClientUpgrade(ctx context.Context, target string) (*clientUpgrade, e
 	}()
 	asset := "agentuse-" + runtime.GOOS + "-" + runtime.GOARCH
 	staged := filepath.Join(dir, "agentuse")
-	sources := []string{clientReleaseURL, "https://agentuse.oss-cn-beijing.aliyuncs.com/releases", "https://agentuse.cn-beijing.taihangpfm.cn/releases"}
+	sources := []string{clientReleaseURL, release.OSSDownloadURL, "https://agentuse.cn-beijing.taihangpfm.cn/releases"}
 	var downloadErr error
 	for _, source := range sources {
 		if err := ctx.Err(); err != nil {

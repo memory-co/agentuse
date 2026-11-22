@@ -6,7 +6,9 @@ upgradeService 管理单次 Server 升级，从 GitHub 查询正式版、准备�
 
 `POST /api/upgrades` 先保存 `checking` 记录，再启动独立于 HTTP 请求的后台工作。状态流转为 `checking → downloading → prepared → installing → restarting → succeeded`；无可用新版本为 `unchanged`，失败为 `failed`。只有下一次成功初始化的 Server 版本匹配目标版本时才确认成功。
 
-官方来源固定为 `memory-co/agentuse` 的 latest release。准备目录为 `~/.agentuse/upgrades/<id>/`，包括本平台 Server、四个平台 Client、校验文件、替换清单和备份。全部校验完成后才在安装目录准备临时文件，Client 分发文件先替换，Server 最后替换；每个目标以同目录 rename 原子替换。替换及进程接管失败恢复原文件；数据库仍按版本迁移管理，不承诺自动数据库降级。
+目标版本由 `memory-co/agentuse` 的 latest release 确定。下载时并行读取 GitHub 和 OSS 镜像的 `SHA256SUMS`，按响应时间选择来源。可用时优先使用 GitHub 的清单和发布摘要核对文件。单个文件请求超时或校验失败时切换来源，并从最后一次成功的来源开始下载下一个文件。
+
+准备目录为 `~/.agentuse/upgrades/<id>/`，包括本平台 Server、四个平台 Client、校验文件、替换清单和备份。全部校验完成后才在安装目录准备临时文件，Client 分发文件先替换，Server 最后替换；每个目标以同目录 rename 原子替换。替换及进程接管失败恢复原文件；数据库仍按版本迁移管理，不承诺自动数据库降级。
 
 启动配置和日志继承，保持 PID 以适配前台、nohup 和 systemd 等启动方式。重启参数去掉设置密码、重置令牌等一次性选项。启动时检查未完成记录：目标版本成功启动则完成记录，其他中断记录恢复文件并标记失败；仍由存活进程拥有的操作不被另一进程接管。
 
