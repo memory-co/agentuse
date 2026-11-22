@@ -1,4 +1,4 @@
-import { useState, type ComponentProps, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Check, Copy, LoaderCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -54,22 +54,19 @@ async function copyText(text: string) {
   }
 }
 
-export function CopyButton({ text, children, ...props }: { text: string } & ComponentProps<typeof Button>) {
+// 一段可复制的命令(安装命令、登录链接)。
+export function CopyBlock({ text, copyLabel }: { text: string; copyLabel?: string }) {
   const t = useT();
   const [done, setDone] = useState(false);
   const copy = () => copyText(text).then(
     () => { setDone(true); setTimeout(() => setDone(false), 1500); },
     () => toast.error(t('common.copyFailed')),
   );
-  return <Button type="button" {...props} onClick={copy}>{done ? <Check /> : <Copy />}{children}</Button>;
-}
-
-// 一段可复制的命令(安装命令、登录链接)。
-export function CopyBlock({ text }: { text: string }) {
-  const t = useT();
   return <div className="relative">
     <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md border bg-muted p-3 pr-12 font-mono text-xs">{text}</pre>
-    <CopyButton text={text} size="icon" variant="ghost" className="absolute right-1 top-1 size-8" aria-label={t('common.copy')} />
+    <Button type="button" size="icon" variant="ghost" className="absolute right-1 top-1 size-8" onClick={copy} aria-label={copyLabel ?? t('common.copy')}>
+      {done ? <Check /> : <Copy />}
+    </Button>
   </div>;
 }
 

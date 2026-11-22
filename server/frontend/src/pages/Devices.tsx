@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Confirm, CopyButton, Empty, ErrorState, Loading, StatusBadge } from '@/components/Shared';
+import { Confirm, CopyBlock, Empty, ErrorState, Loading, StatusBadge } from '@/components/Shared';
 import { api } from '@/lib/api';
 import { queryClient } from '@/lib/query';
 import { useHarnesses } from '@/pages/Harnesses';
@@ -44,9 +44,9 @@ export function Devices({ me }: { me: User }) {
         <CardTitle>{t('devices.setupTitle')}</CardTitle>
         <CardDescription>{t('devices.runSetup')}</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-wrap gap-2">
-        <CopyButton text={setup.setup_command}>{t('devices.copySetup')}</CopyButton>
-        <Button variant="ghost" onClick={() => setSetup(null)}>{t('common.close')}</Button>
+      <CardContent className="grid gap-2">
+        <CopyBlock text={setup.setup_command} copyLabel={t('devices.copySetup')} />
+        <Button className="w-fit" variant="ghost" onClick={() => setSetup(null)}>{t('common.close')}</Button>
       </CardContent>
     </Card>}
     {devices.isPending ? <Loading /> : devices.isError ? <ErrorState error={devices.error} />

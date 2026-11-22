@@ -10,36 +10,28 @@ import (
 )
 
 func deviceSetupCommand(server, pin, key string) string {
-	// The private key is read by the Client, outside the downloaded installer.
-	// Its generated base64 body cannot contain the heredoc delimiter.
-	return fmt.Sprintf(`(
-  set -e
-  script=$(mktemp)
-  trap 'rm -f "$script"' EXIT
-  curl -fsSL %s -o "$script"
-  bin="${AGENTUSE_INSTALL_DIR:-$HOME/.agentuse/bin}/agentuse"
-  if [ ! -x "$bin" ]; then bash "$script"; fi
-  "$bin" register --server %s --server-pin %s <<'AGENTUSE_DEVICE_KEY'
-%s
-AGENTUSE_DEVICE_KEY
-  bash "$script" --service
-)`, shellArg(server+"/setup.sh"), shellArg(server), shellArg(pin), key)
+	return fmt.Sprintf("curl -fsSL %s | TOKEN=%s SERVER_PIN=%s bash -s -- --register",
+		shellArg(server+"/setup.sh"), shellArg(key), shellArg(pin))
 }
 
 func shellArg(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
-// setupScript 安装 Client，注册后可用 --service 安装后台服务。
+// setupScript 安装 Client。页面使用 --register 完成注册和后台启动。
 // __SERVER__ 在返回时替换成服务地址。
 const setupScript = `#!/usr/bin/env bash
 # agentuse daemon 安装脚本
-# 用法: bash setup.sh 安装；Client 注册后，bash setup.sh --service 启动后台服务。
+# 用法: bash setup.sh 安装；bash setup.sh --service 启动已注册的 Client。
 set -euo pipefail
 
 SERVER=__SERVER__
 INSTALL_DIR="${AGENTUSE_INSTALL_DIR:-$HOME/.agentuse/bin}"
 BIN="$INSTALL_DIR/agentuse"
+
+# Only the installer receives TOKEN in its environment. Pass it to the Client on stdin.
+device_key="${TOKEN:-}"
+unset TOKEN
 
 say() { printf '\033[1;34m[agentuse]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[agentuse]\033[0m %s\n' "$*" >&2; exit 1; }
@@ -50,37 +42,47 @@ case "$(uname -s)" in
   *) die "暂不支持的系统: $(uname -s)" ;;
 esac
 
+install_client() {
+  command -v curl >/dev/null || die "需要 curl"
+
+  case "$(uname -m)" in
+    x86_64|amd64) ARCH=amd64 ;;
+    arm64|aarch64) ARCH=arm64 ;;
+    *) die "暂不支持的架构: $(uname -m)" ;;
+  esac
+
+  mkdir -p "$INSTALL_DIR"
+  say "下载 agentuse ($OS/$ARCH) ..."
+  if ! curl -fsSL "$SERVER/download/agentuse-$OS-$ARCH" -o "$BIN.tmp"; then
+    rm -f "$BIN.tmp"
+    if command -v go >/dev/null; then
+      say "服务上没有 $OS/$ARCH 的二进制，改用 go install 本地编译 ..."
+      GOBIN="$INSTALL_DIR" go install github.com/memory-co/agentuse/client/cmd/agentuse@latest
+    else
+      die "下载失败：服务上没有 $OS/$ARCH 的二进制(请管理员 make dist 后用 agentuse-server start -dist 指定目录)"
+    fi
+  else
+    chmod +x "$BIN.tmp"
+    mv "$BIN.tmp" "$BIN"
+  fi
+  say "Client 已安装到 $BIN。"
+}
+
 case "${1:-}" in
   "")
-    command -v curl >/dev/null || die "需要 curl"
-
-    case "$(uname -m)" in
-      x86_64|amd64) ARCH=amd64 ;;
-      arm64|aarch64) ARCH=arm64 ;;
-      *) die "暂不支持的架构: $(uname -m)" ;;
-    esac
-
-    mkdir -p "$INSTALL_DIR"
-    say "下载 agentuse ($OS/$ARCH) ..."
-    if ! curl -fsSL "$SERVER/download/agentuse-$OS-$ARCH" -o "$BIN.tmp"; then
-      rm -f "$BIN.tmp"
-      if command -v go >/dev/null; then
-        say "服务上没有 $OS/$ARCH 的二进制，改用 go install 本地编译 ..."
-        GOBIN="$INSTALL_DIR" go install github.com/memory-co/agentuse/client/cmd/agentuse@latest
-      else
-        die "下载失败：服务上没有 $OS/$ARCH 的二进制(请管理员 make dist 后用 agentuse-server start -dist 指定目录)"
-      fi
-    else
-      chmod +x "$BIN.tmp"
-      mv "$BIN.tmp" "$BIN"
-    fi
-    say "Client 已安装到 $BIN。"
+    install_client
     exit 0 ;;
+  --register)
+    [ -n "$device_key" ] || die "缺少 TOKEN，请从设备页面复制完整的注册命令"
+    if [ ! -x "$BIN" ]; then install_client; fi
+    printf '%s\n' "$device_key" | "$BIN" register --server "$SERVER" --server-pin "${SERVER_PIN:-}"
+    unset device_key
+    ;;
   --service)
     [ -x "$BIN" ] || die "请先运行 bash setup.sh 安装 Client"
     [ -f "$HOME/.agentuse/endpoints.yaml" ] || die "请先完成 agentuse register"
     ;;
-  *) die "用法: bash setup.sh [--service]" ;;
+  *) die "用法: bash setup.sh [--register|--service]" ;;
 esac
 
 LOG="$HOME/.agentuse/daemon.log"

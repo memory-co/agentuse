@@ -36,9 +36,8 @@ func TestConfiguredPublicURL(t *testing.T) {
 	headers := []string{"X-Forwarded-Host", "proxy.invalid", "X-Forwarded-Proto", "http", "Origin", "https://browser.invalid", "Referer", "https://browser.invalid/"}
 	var device deviceView
 	resp := e.req(token, "POST", "/api/devices", nil, &device, headers...)
-	if resp.StatusCode != http.StatusCreated ||
-		!strings.Contains(device.SetupCommand, "curl -fsSL '"+publicURL+"/setup.sh'") ||
-		!strings.Contains(device.SetupCommand, "register --server '"+publicURL+"' --server-pin '"+device.SetupServerPin+"'") {
+	want := "curl -fsSL '" + publicURL + "/setup.sh' | TOKEN='" + device.SetupToken + "' SERVER_PIN='" + device.SetupServerPin + "' bash -s -- --register"
+	if resp.StatusCode != http.StatusCreated || device.SetupCommand != want {
 		t.Fatal("device installation command must use the configured public URL")
 	}
 	var user agentuse.UserToken

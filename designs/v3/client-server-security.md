@@ -43,7 +43,7 @@ Client 不增加第二个独立开关。Server 通过签名的握手策略声明
 
 ## 设备身份与首次信任
 
-Server 在创建设备或重置时生成独立的 Ed25519 密钥对，`setup_token` 就是 OpenSSH 私钥正文。Server 只持久化公钥指纹，并在通过用户认证和权限校验的创建或重置响应中交付私钥。管理请求支持 HTTP 和 HTTPS。使用者将 `setup_command` 粘贴到可信的 Client 终端执行。命令下载并执行安装脚本，再通过标准输入将内嵌的私钥交给 Client；下载请求和进程参数均不携带私钥。
+Server 在创建设备或重置时生成独立的 Ed25519 密钥对，`setup_token` 就是 OpenSSH 私钥正文。Server 只持久化公钥指纹，并在通过用户认证和权限校验的创建或重置响应中交付私钥。管理请求支持 HTTP 和 HTTPS。使用者将 `setup_command` 粘贴到可信的 Client 终端执行。命令用 `curl` 下载 `setup.sh`，通过 `TOKEN` 环境变量将私钥交给本地 Bash。脚本清除该环境变量，通过标准输入将私钥交给 Client。下载请求和进程参数均不携带私钥。
 
 ```text
 Client 导入 OpenSSH 私钥

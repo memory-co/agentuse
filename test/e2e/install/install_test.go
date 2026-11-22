@@ -149,7 +149,7 @@ func testSetup(t *testing.T, gh *fakeGitHub, srv *e2eutil.Server) {
 	}
 	device := t.TempDir()
 	t.Cleanup(func() { killPidfile(filepath.Join(device, ".agentuse", "daemon.pid")) })
-	runSetup := func(d *agentuse.Device) {
+	runSetup := func(d *agentuse.Device, wantInstall bool) {
 		t.Helper()
 		cmd := exec.Command("bash")
 		cmd.Stdin = strings.NewReader(d.SetupCommand + "\n")
@@ -162,12 +162,15 @@ func testSetup(t *testing.T, gh *fakeGitHub, srv *e2eutil.Server) {
 		if strings.Contains(string(out), d.SetupToken) {
 			t.Fatal("setup printed the device private key")
 		}
+		if installed := strings.Contains(string(out), "Client 已安装到"); installed != wantInstall {
+			t.Fatalf("setup installed Client = %t, want %t", installed, wantInstall)
+		}
 		e2eutil.WaitFor(t, 20*time.Second, "设备上线", func() bool {
 			ds, err := c.ListDevices(ctx, "alice")
 			return err == nil && len(ds) == 1 && ds[0].ID == d.ID && ds[0].Status == "online"
 		})
 	}
-	runSetup(dv)
+	runSetup(dv, true)
 	ds, _ := c.ListDevices(ctx, "alice")
 	if host, _ := os.Hostname(); ds[0].Name != host {
 		t.Fatalf("没起名字的设备用主机名: %q", ds[0].Name)
@@ -177,7 +180,7 @@ func testSetup(t *testing.T, gh *fakeGitHub, srv *e2eutil.Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runSetup(reset)
+	runSetup(reset, false)
 
 	status := exec.Command(filepath.Join(device, ".agentuse", "bin", "agentuse"), "status")
 	status.Env = e2eutil.Env(device)

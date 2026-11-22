@@ -6,7 +6,7 @@
 
 ### 接入 Server
 
-登录 Server 管理页面，添加设备并点击「复制注册命令」。在目标电脑的终端粘贴并运行。命令会用 `curl` 从 Server 下载 `setup.sh`，在需要时安装 Client，然后注册并启动后台服务。
+登录 Server 管理页面，添加设备并点击「复制注册命令」。在目标电脑的终端粘贴并运行。命令会用 `curl` 下载 `setup.sh` 并交给 Bash 执行。脚本会复用或安装 Client，然后完成注册并启动后台服务。
 
 使用当前内置适配器时，在 Linux 执行设备上安装并登录需要使用的 Codex 或 Claude Code，同时准备 Python 3.9+。其他平台需使用其 manifest 明确支持的平台适配器。
 
