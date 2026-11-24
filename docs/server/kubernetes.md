@@ -38,8 +38,6 @@ persistence:
 
 将示例保存为 `values.agentuse.yaml`，安装或更新时加上 `-f values.agentuse.yaml`。如果 TLS 在 Ingress 之前终止，或通过 LoadBalancer、其他反向代理对外提供服务，可显式设置 `publicURL`。反向代理应转发根路径下的 HTTP 请求和 WebSocket Upgrade，允许设备和浏览器维持长连接。
 
-使用私有仓库时，先在 `agentuse` 命名空间创建镜像拉取 Secret。将 Secret 名称填入 Helm 的 `imagePullSecrets`，例如 `[{name: ghcr}]`。使用原生 YAML 时填在 Deployment 的 `spec.template.spec.imagePullSecrets`。
-
 ### 登录
 
 ```bash
@@ -49,6 +47,12 @@ kubectl -n agentuse port-forward svc/agentuse 8080:8080
 ```
 
 首次启动日志包含管理员登录链接。默认公开地址为 `http://localhost:8080`，适合本机转发测试。实际接入设备时使用配置的公开地址登录，再复制设备注册命令。
+
+## 镜像拉取权限
+
+GHCR 初次发布时默认将镜像包设为私有。包管理员可以在 GitHub 的 Package settings 中将可见性设为 Public，允许集群匿名拉取。[GitHub Packages 可见性说明](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility)
+
+对私有镜像，先在部署命名空间创建镜像拉取 Secret。GHCR 凭据需有 `read:packages` 和对应包的读取权限。将 Secret 名称填入 Helm 的 `imagePullSecrets`，例如 `[{name: ghcr}]`。使用原生 YAML 时填在 Deployment 的 `spec.template.spec.imagePullSecrets`。
 
 ## 存储与更新
 

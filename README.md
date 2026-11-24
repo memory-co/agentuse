@@ -70,7 +70,7 @@ public_url: https://agentuse.example.com
 
 ### Kubernetes 部署
 
-Server 镜像 `ghcr.io/memory-co/agentuse-server:main` 包含管理网页和四个平台的 Client 安装包，支持 Linux amd64 和 arm64。克隆仓库后，选择下面一种安装方式。
+Server 镜像 `ghcr.io/memory-co/agentuse-server:main` 包含管理网页和四个平台的 Client 安装包，支持 Linux amd64 和 arm64。GHCR 包为私有时，先按部署指南配置 `imagePullSecrets`。克隆仓库后，选择下面一种安装方式。[镜像拉取配置](docs/server/kubernetes.md#镜像拉取权限)
 
 ```bash
 # Kubernetes YAML
