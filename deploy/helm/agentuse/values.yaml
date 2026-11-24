@@ -1,0 +1,30 @@
+image:
+  repository: ghcr.io/memory-co/agentuse-server
+  tag: ""
+  pullPolicy: Always
+
+imagePullSecrets: []
+
+# Defaults to the Ingress address when enabled, or http://localhost:8080.
+publicURL: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  tlsSecretName: ""
+
+persistence:
+  size: 10Gi
+  storageClassName: null
+  existingClaim: ""
+
+# Additional Server environment from existing ConfigMaps or Secrets.
+envFrom: []
+
+resources: {}

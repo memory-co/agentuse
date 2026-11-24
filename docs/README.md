@@ -11,6 +11,8 @@ AgentUse 包含两个独立程序：
 
 部署服务从 [Server CLI 的快速开始](server/cli.md#快速开始) 读起；接入执行设备或进行本地调试，从 [Client CLI 的快速开始](client/cli.md#快速开始) 读起。文中的地址、令牌和资源 ID 均为示例，执行时替换为自己的值。
 
+在 Kubernetes 上部署 Server 可直接使用镜像、YAML 或 Helm Chart。[Kubernetes 部署](server/kubernetes.md)
+
 两端运行后均提供 Huma 自动生成的 API 文档：登录对应服务，再访问其 `/api/docs`。OpenAPI 位于 `/api/openapi.json`、`/api/openapi.yaml`。
 
 接口与在线文档入口：[Server API](server/api.md) · [Client API](client/api.md)。

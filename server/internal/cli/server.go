@@ -124,6 +124,7 @@ func serveServer(args []string, onRestart func(upgradeservice.Restart, []string)
 	resetAdmin := fs.Bool("reset-admin-token", false, "启动时给管理员换一个新令牌并打印(令牌丢了用)")
 	adminTokenStdin := fs.Bool("admin-token-stdin", false, "从标准输入读取管理员登录密码，启动时设置；不打印密码")
 	pidFile := fs.String("pid-file", "", "将本进程 PID 保存到指定文件，正常退出时删除")
+	selfUpgrade := fs.Bool("self-upgrade", true, "允许原地替换 Server 二进制并重启")
 	if err := command.Parse(fs, args); err != nil {
 		return err
 	}
@@ -247,14 +248,18 @@ func serveServer(args []string, onRestart func(upgradeservice.Restart, []string)
 	}
 	hostname, _ := os.Hostname()
 	restartRequests := make(chan upgradeservice.Restart)
-	if err = svc.ConfigureUpgrade(upgradeservice.Config{Context: ctx, Root: filepath.Join(home, ".agentuse", "upgrades"), Executable: executable, DistDir: *dist, Instance: hostname, Log: log.Default(), Restart: func(callCtx context.Context, plan upgradeservice.Restart) error {
-		select {
-		case restartRequests <- plan:
-			return nil
-		case <-callCtx.Done():
-			return callCtx.Err()
+	upgradeConfig := upgradeservice.Config{Context: ctx, Root: filepath.Join(home, ".agentuse", "upgrades"), Executable: executable, DistDir: *dist, Instance: hostname, Log: log.Default()}
+	if *selfUpgrade {
+		upgradeConfig.Restart = func(callCtx context.Context, plan upgradeservice.Restart) error {
+			select {
+			case restartRequests <- plan:
+				return nil
+			case <-callCtx.Done():
+				return callCtx.Err()
+			}
 		}
-	}}); err != nil {
+	}
+	if err = svc.ConfigureUpgrade(upgradeConfig); err != nil {
 		return err
 	}
 	srv := server.New(st, server.Config{FileStore: files, ClientHandler: transport, PublicURL: base, DistDir: *dist, AttachmentMaxBytes: *maxBytes, AttachmentConversationMaxBytes: *conversationMax})

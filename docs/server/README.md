@@ -4,6 +4,8 @@
 
 使用 [Server CLI 手册](cli.md) 启动服务、设置存储、保存管理员登录信息、管理用户。`start` 在服务主机上运行；`login` 和 `user` 命令通过 HTTP 访问服务，可以在其他能连通 Server 的机器上运行。
 
+在 Kubernetes 上可以直接拉取预构建的 Server 镜像，通过 YAML 或 Helm 部署。[Kubernetes 部署](kubernetes.md)
+
 [Server 自升级](upgrades.md) 支持管理员从页面或 CLI 异步下载、校验、替换和重启，并保存升级历史。
 
 在 Server 主机的 `~/.agentuse/settings.yaml` 写入 `public_url: https://agentuse.example.com` 并重启，即可固定登录链接和安装命令使用的公开地址。`--public-url`、`AGENTUSE_PUBLIC_URL` 可临时覆盖文件值。

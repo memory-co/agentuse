@@ -99,6 +99,7 @@ Server 的私有 CA、通道身份及 HMAC 签名材料持久保存在 `~/.agent
 | `--reset-admin-token` | — | `false` | 启动时重置最早创建的管理员的令牌，并在日志中显示新令牌和链接；旧令牌立即失效 |
 | `--admin-token-stdin` | — | `false` | 从标准输入读取管理员密码，创建管理员或替换最早管理员的登录凭据；密码不打印，与 `--reset-admin-token` 互斥 |
 | `--pid-file` | — | 空 | 保存服务进程 PID，正常退出时删除；安装脚本用它定位自己管理的 Server |
+| `--self-upgrade` | — | `true` | 允许 Server 原地替换二进制；容器镜像的默认启动参数为 `--self-upgrade=false` |
 
 两个附件容量参数必须是正整数，单位为字节。
 

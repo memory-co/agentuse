@@ -68,6 +68,20 @@ public_url: https://agentuse.example.com
 
 保存后重启 Server。登录链接、设备安装命令和安装脚本统一使用这个地址；未配置时使用本机监听地址。可用 `--public-url` 或 `AGENTUSE_PUBLIC_URL` 临时覆盖，详见 [Server CLI](docs/server/cli.md)。
 
+### Kubernetes 部署
+
+Server 镜像 `ghcr.io/memory-co/agentuse-server:main` 包含管理网页和四个平台的 Client 安装包，支持 Linux amd64 和 arm64。克隆仓库后，选择下面一种安装方式。
+
+```bash
+# Kubernetes YAML
+kubectl apply -f deploy/kubernetes.yaml
+
+# 或 Helm
+helm upgrade --install agentuse ./deploy/helm/agentuse
+```
+
+默认使用单副本和 PVC。在本机执行 `kubectl port-forward svc/agentuse 8080:8080` 后，可通过 `http://localhost:8080` 访问。首次登录链接在 `kubectl logs deploy/agentuse` 中。接入远程设备前，需设置设备能访问的公开地址。[Kubernetes 部署指南](docs/server/kubernetes.md) · [Helm 配置](deploy/helm/agentuse/values.yaml)
+
 ### 2. 接入一台电脑
 
 登录管理页面并添加设备，点击「复制注册命令」。在要接入的电脑上打开终端，粘贴并运行。命令会从 Server 下载并运行 `setup.sh`。脚本会复用或安装 Client，然后注册设备并启动后台服务。设备在线后会在页面上报告本机检测到的 harness。
@@ -108,6 +122,7 @@ Server 支持通过 CLI 或管理页面进行[异步自升级](docs/server/upgra
 | 入口 | 内容 |
 |---|---|
 | [Server 文档](docs/server/README.md) · [CLI](docs/server/cli.md) | 启动服务、存储设置、管理员登录和用户管理 |
+| [Kubernetes 部署](docs/server/kubernetes.md) | 预构建镜像、原生 YAML、Helm、Ingress 和持久化 |
 | [Client 文档](docs/client/README.md) · [CLI](docs/client/cli.md) | 注册、启动、本机调试、远端会话和附件 |
 | [Conversation 协作](docs/server/conversations.md#模式与嵌套) | 单体/协作模式、跨 Client 子会话和消息回传 |
 | [数据库配置与升级](docs/server/database.md) | 默认 SQLite、MySQL/PostgreSQL 配置、无 CGO 构建及版本迁移 |
@@ -149,6 +164,7 @@ server/
 └── frontend/         管理网页
 internal/             protocol、skillbundle、attachment 校验、command、version
 sdk/                  HTTP API 类型及客户端：golang / nodejs / python
+deploy/               Kubernetes YAML 和 Helm Chart
 test/e2e/             两个二进制的端到端场景
 test/architecture/    分层依赖检查
 docs/                 当前使用文档：server / client
